@@ -1322,15 +1322,40 @@ public static partial class RecordsTools
             headerLine += "\n(a pole reads content OUTSIDE the epoch fingerprint — an off-order file or the INI layer; an edit there changes answers without changing the epoch)";
         }
 
+        // The one refusal left for an overlay pole on a scan: what replays only the limit= window cannot serve, and
+        // the list-lane route that serves this call. With formids= beside the scan terms dropping them is the route;
+        // else a plain scan into to_file=, re-entered as formids=; a named source= stays on that scan, since an
+        // off-order file is the scan's universe.
+        string OverlayScanRefusal(string what)
+        {
+            var named = new[] { (types is { Length: > 0 }, "types="), (plugins?.names is { Length: > 0 }, "plugins="),
+                                (where is { Length: > 0 }, "where="), (references is { Length: > 0 }, "references="),
+                                (conflicts_only, "conflicts_only") }.Where(t => t.Item1).Select(t => t.Item2).ToArray();
+            var terms = named.Length == 1 ? named[0] : string.Join(", ", named[..^1]) + " and " + named[^1];
+            // The tree has no subject (source= is refused on it), so its route carries the overlay on versus=.
+            var tree = form == "tree" ? ", with the overlay on versus= and no source= (a tree has no subject)" : "";
+            var route = hasFormids
+                ? $"drop {terms} (formids= beside {(named.Length == 1 ? "it" : "them")} makes this call a scan){tree}"
+                : $"run a plain scan of {terms}{(srcSpec.Kind == RecordReads.PoleKind.Named ? " on the same source=" : "")} with to_file=, " +
+                  $"then re-run this call with formids=[\"@<file>\"] in place of {terms}{tree}";
+            return $"error: an overlay pole on a scan replays the SkyPatcher layer over the limit= window of a reading form, and {what}. " +
+                   $"The list lane serves it: {route}; or read the whole layer via {ToolNames.SkypatcherLayer}.";
+        }
+
+        // A comparison form over a scan takes no overlay pole; the pre state's sentence says what it is instead.
+        string OverlayComparisonRefusal(RecordReads.PoleSpec overlay) => overlay.ReplaysOverlay
+            ? OverlayScanRefusal($"a '{form}' over a scan compares every match")
+            : $"error: a '{form}' over a scan takes no overlay pole, and overlay state \"pre\" is the plain load-order winner — pass \"winner\" for the same pole, or name the records via formids= to compare the overlay's states.";
+
         // ================================================================================================
         //  SCAN lane — types/plugins/where/references/conflicts_only drive; SOURCE picks the universe.
         // ================================================================================================
         string ScanLane()
         {
             if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
-                return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, form));
+                return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec));
             if (srcOverlay && comparisonForm)
-                return Wire.Refuse(json, OverlayComparisonRefusal(srcSpec, form));
+                return Wire.Refuse(json, OverlayComparisonRefusal(srcSpec));
             if (srcSpec.ReplaysOverlay && wantFile)
                 return Wire.Refuse(json, OverlayScanRefusal("to_file= holds every match"));
             if (srcSpec.ReplaysOverlay && walk is not null)
@@ -1790,8 +1815,6 @@ public static partial class RecordsTools
                 return Wire.Refuse(json, "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.", pole.Stamp);
             if (walk is not null)
                 return Wire.Refuse(json, "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).", pole.Stamp);
-            if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
-                return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, form), pole.Stamp);
             if (where_source is not null)
             {
                 // Full-vocabulary validation, mirroring the in-order engine, so an unknown spelling refuses by name.
@@ -2000,17 +2023,6 @@ public static partial class RecordsTools
             return rendered;
         }
     }, ct);
-
-    /// <summary>The one refusal left for an overlay pole on a scan: what replays only the limit= window cannot serve.</summary>
-    static string OverlayScanRefusal(string what) =>
-        $"error: an overlay pole on a scan replays the SkyPatcher layer over the limit= window of a reading form, and {what}. " +
-        "Name the records via formids= (the list lane reads and compares their post-state bodies), or read the whole layer via " +
-        ToolNames.SkypatcherLayer + ".";
-
-    /// <summary>A comparison form over a scan takes no overlay pole; the pre state's sentence says what it is instead.</summary>
-    static string OverlayComparisonRefusal(RecordReads.PoleSpec overlay, string form) => overlay.ReplaysOverlay
-        ? OverlayScanRefusal($"a '{form}' over a scan compares every match")
-        : $"error: a '{form}' over a scan takes no overlay pole, and overlay state \"pre\" is the plain load-order winner — pass \"winner\" for the same pole, or name the records via formids= to compare the overlay's states.";
 
     /// <summary>Null when format='dense' can carry this call's answer on any lane, else the refusal naming what to use instead.</summary>
     static string? DenseRefusal(string form, RecordsProject? project, FoldPlan? fold, bool walk)

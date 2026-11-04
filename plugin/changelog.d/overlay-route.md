@@ -1,0 +1,1 @@
+- **A delta, tree, walk or `to_file=` refused for the SkyPatcher overlay on a scan now names the two calls that serve it: a plain scan with `to_file=`, then the same call on `formids=["@<file>"]`.** Ask a delta over `types=` with `source={"overlay": "skypatcher"}` to see it.
