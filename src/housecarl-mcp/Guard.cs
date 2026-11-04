@@ -40,8 +40,9 @@ internal static class Guard
         _ => ToolAnswer.Refusal(Named(tool, ex)),
     };
 
-    /// <summary>The call's refusal when a plugin it relied on changed on disk mid-call, else null.</summary>
-    static ToolAnswer? Changed(ToolCall call) => call.Mark.Settle() is { } why ? ToolAnswer.Refusal(Wire.RefusalPrefix + why) : null;
+    /// <summary>The call's refusal when its views split across a profile change, or a plugin it relied on changed on disk mid-call, else null.</summary>
+    static ToolAnswer? Changed(ToolCall call) =>
+        (call.Context.Refusal ??call.Mark.Settle()) is { } why ? ToolAnswer.Refusal(Wire.RefusalPrefix + why) : null;
 
     static string Named(string tool, Exception ex)
     {
@@ -60,8 +61,7 @@ internal static class Guard
     }
 }
 
-/// <summary>One tool call, opened by <see cref="Guard"/> around its body and handed to it; the call's own scopes live
-/// here, and the per-call context joins them (plan step 8).</summary>
+/// <summary>One tool call, opened by <see cref="Guard"/> around its body and handed to it; the call's own scopes live here.</summary>
 internal sealed class ToolCall : IDisposable
 {
     /// <summary>A plugin changed mid-call refuses the whole call.</summary>
@@ -70,7 +70,13 @@ internal sealed class ToolCall : IDisposable
     /// <summary>The service binds its order's language and string winners to this call.</summary>
     readonly GameLanguage.Scope _language = GameLanguage.Begin();
 
-    public void Dispose() { _language.Dispose(); Mark.Dispose(); }
+    /// <summary>The call's one view of the load order, which the service's getters fill and serve.</summary>
+    readonly CallContext.Scope _context = CallContext.Begin();
+
+    /// <summary>The call's context.</summary>
+    internal CallContext Context => _context.Context;
+
+    public void Dispose() { _context.Dispose(); _language.Dispose(); Mark.Dispose(); }
 }
 
 /// <summary>Whether the call was refused, opened by the call-tool filter and set by <see cref="Guard"/>, so the result the
