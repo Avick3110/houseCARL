@@ -11,7 +11,7 @@ internal interface IReadHost : ILoadOrderHost
     // Relayed from assets: the SkyPatcher replay door over an asset build the caller pinned, for the SkyPatcher overlay pole and source.
     AssetLayers.SkyPatcherReplay? OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
                                                        LoadOrderResolver.OverlaySession session, out string? draftRefusal,
-                                                       SkyPatcherDraft.Plan? draft, SkyPatcherOverlay.WarningSink? draftWarnings);
+                                                       SkyPatcherDraft.Plan? draft, SkyPatcherOverlay.WarningSink? warnings);
 }
 
 /// <summary>The reads area: resolve, batch, poles, walk, cross query, info order.</summary>

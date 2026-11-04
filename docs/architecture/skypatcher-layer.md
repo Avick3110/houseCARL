@@ -193,7 +193,8 @@ voice types, head parts, cells, worldspaces, idles and music types. Once per rep
 loose winner, and a winning `po3_Tweaks.ini` must not set `[Fixes] bLoadEditorIDs` (old name `Load
 EditorIDs`) off. When it is missing, an EditorID value of any other type resolves to nothing, the
 record's own EditorID matches no direct-list name or `filterByEditorIdContains`, and the warning
-names po3 Tweaks. The ten kept types answer as before.
+names po3 Tweaks. The ten kept types answer as before. A `po3_Tweaks.ini` that cannot be read is
+replayed as the DLL's default (EditorIDs load), and the read and the layer say the state is unknown.
 
 ### Known limitations
 

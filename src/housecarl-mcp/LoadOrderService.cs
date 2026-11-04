@@ -282,8 +282,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     // Rows the areas take from one another, relayed here: the assets replay for reads.
     AssetLayers.SkyPatcherReplay? IReadHost.OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
                                                                  LoadOrderResolver.OverlaySession session, out string? draftRefusal,
-                                                                 SkyPatcherDraft.Plan? draft, SkyPatcherOverlay.WarningSink? draftWarnings)
-        => _assetLayers.OpenSkyPatcherReplay(captured, view, session, out draftRefusal, draft, draftWarnings);
+                                                                 SkyPatcherDraft.Plan? draft, SkyPatcherOverlay.WarningSink? warnings)
+        => _assetLayers.OpenSkyPatcherReplay(captured, view, session, out draftRefusal, draft, warnings);
 
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,

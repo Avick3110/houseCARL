@@ -13,9 +13,10 @@ public static class SkyPatcherEditorIds
         "HeadPart", "Cell", "Worldspace", "IdleAnimation", "MusicType",
     };
 
-    /// <summary>Why po3 Tweaks does not load EditorIDs in this view, or null when it does: the DLL must be a loose winner, and a winning po3_Tweaks.ini must not turn [Fixes] bLoadEditorIDs (old name 'Load EditorIDs') off.</summary>
-    public static string? Read(AssetResolver.AssetView view)
+    /// <summary>Why po3 Tweaks does not load EditorIDs in this view, or null when it does: the DLL must be a loose winner, and a winning po3_Tweaks.ini must not turn [Fixes] bLoadEditorIDs (old name 'Load EditorIDs') off; <paramref name="unknown"/> names an INI that could not be read, replayed as the DLL's default.</summary>
+    public static string? Read(AssetResolver.AssetView view, out string? unknown)
     {
+        unknown = null;
         var dll = view.ResolveForPlacement(Dll).Sources.FirstOrDefault();
         if (dll is null || dll.Kind != AssetKind.Loose)
             return dll is null
@@ -33,7 +34,7 @@ public static class SkyPatcherEditorIds
         }
         catch (Exception ex)
         {
-            return $"po3_Tweaks.ini (from '{ini.ProviderName}') could not be read ({ex.Message}), so whether Tweaks loads EditorIDs is unknown";
+            unknown = $"po3_Tweaks.ini (from '{ini.ProviderName}') could not be read ({ex.Message}), so whether Tweaks loads EditorIDs is UNKNOWN; EditorIDs are resolved as if it does, the DLL's default.";
         }
         return null;
     }

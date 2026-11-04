@@ -16,7 +16,7 @@ internal sealed partial class AssetLayers
     /// <summary>Open one call's replay context over assets the caller took in its index pin's hold, folding in the draft if given; null with the refusal when the draft cannot be folded.</summary>
     internal SkyPatcherReplay? OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
                                                     LoadOrderResolver.OverlaySession session, out string? draftRefusal,
-                                                    SkyPatcherDraft.Plan? draft = null, SkyPatcherOverlay.WarningSink? draftWarnings = null)
+                                                    SkyPatcherDraft.Plan? draft = null, SkyPatcherOverlay.WarningSink? warnings = null)
     {
         var assets = captured.View;
         var fieldMap = SkyPatcherFieldMap.Load();
@@ -25,10 +25,15 @@ internal sealed partial class AssetLayers
         draftRefusal = null;
         if (draft is not null)
         {
-            scan = draft.Fold(scan, catalog, view.ContainsPlugin, out draftRefusal, draftWarnings);
+            scan = draft.Fold(scan, catalog, view.ContainsPlugin, out draftRefusal, warnings);
             if (draftRefusal is not null) return null;
         }
-        return new SkyPatcherReplay(this, view, session, assets, captured.Warnings, captured.ProfileName, catalog, fieldMap, scan);
+        // An unreadable po3_Tweaks.ini is replayed as the DLL's default and said on the read, records and layer alike.
+        var tweaksMissing = SkyPatcherEditorIds.Read(assets, out var tweaksUnknown);
+        if (tweaksUnknown is not null) warnings?.Add(tweaksUnknown);
+        return new SkyPatcherReplay(this, view, session, assets,
+                                    tweaksUnknown is null ? captured.Warnings : captured.Warnings.Append(tweaksUnknown).ToList(),
+                                    captured.ProfileName, catalog, fieldMap, scan, tweaksMissing);
     }
 
     /// <summary>One call's replay context; its scratch mod is shared across the call, so a caller replays each key once.</summary>
@@ -56,12 +61,13 @@ internal sealed partial class AssetLayers
 
         internal SkyPatcherReplay(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                   AssetResolver.AssetView assets, IReadOnlyList<string> assetWarnings, string profileName,
-                                  SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyPatcherDiscovery.LayerScan scan)
+                                  SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap, SkyPatcherDiscovery.LayerScan scan,
+                                  string? tweaksMissing)
         {
             _host = layers._host; _view = view; _session = session;
             Assets = assets; AssetWarnings = assetWarnings; ProfileName = profileName;
             Catalog = catalog; FieldMap = fieldMap; Scan = scan;
-            _formResolver = new SkyPatcherServiceResolver(layers, view, session, SkyPatcherEditorIds.Read(assets));
+            _formResolver = new SkyPatcherServiceResolver(layers, view, session, tweaksMissing);
         }
 
         /// <summary>Per folder, the lines checked against every record and the lines that can touch only the records they name.</summary>
