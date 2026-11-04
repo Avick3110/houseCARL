@@ -159,31 +159,27 @@ public sealed class RenderDoorTests : IClassFixture<RenderDoorWorld>
 [Trait("tier", "integration")]
 public sealed class RenderDoorSeamTests
 {
-    // Refused like the window read's own tear: "error: " and the build the tear was found on, in text and json.
+    // A profile change between the selection and the window's whole read: the call reads the build it pinned, so
+    // there is no tear to refuse, and the next call sees the change.
     [Theory]
     [InlineData("text")]
     [InlineData("json")]
-    public void ACutWindowsWholeReadRefusesOnTheBuildItFoundTheTearOn(string format)
+    public void ACutWindowsWholeReadAnswersOffTheBuildTheCallPinned(string format)
     {
         using var w = new RenderDoorWorld();
+        string Read() => RecordsTools.Records(w.Svc, formids: new[] { ScratchMo2.Fid(w.KwB1) }, walk: new() { direction = "reverse", max_nodes = 5000 },
+                                              limit: 40, max_chars: 3000, format: format,
+                                              project: new() { form = "fields", fields = new[] { "Keywords" }, depth = 2 });
+        string Epoch(string answer) => format == "json"
+            ? JsonDocument.Parse(answer).RootElement.GetProperty("epoch").GetString()!
+            : Regex.Match(answer, @"epoch=(\S+)").Groups[1].Value;
+        var started = Epoch(Read());
         RecordsTools.BeforeCutWindowWholeRead = w.AddLate;
         string answer;
-        try
-        {
-            answer = RecordsTools.Records(w.Svc, formids: new[] { ScratchMo2.Fid(w.KwB1) }, walk: new() { direction = "reverse", max_nodes = 5000 },
-                                          limit: 40, max_chars: 3000, format: format,
-                                          project: new() { form = "fields", fields = new[] { "Keywords" }, depth = 2 });
-        }
+        try { answer = Read(); }
         finally { RecordsTools.BeforeCutWindowWholeRead = null; }
-        var tear = Regex.Match(answer, @"deriving the selection \(epoch=([^)]+)\) and reading it \(epoch=([^)]+)\)");
-        Assert.True(tear.Success, answer);
-        Assert.NotEqual(tear.Groups[1].Value, tear.Groups[2].Value);
-        if (format == "json")
-            Assert.Equal(tear.Groups[2].Value, JsonDocument.Parse(answer).RootElement.GetProperty("epoch").GetString());
-        else
-        {
-            Assert.StartsWith("error: the load order changed", answer);
-            Assert.Contains("\nepoch=" + tear.Groups[2].Value, answer);
-        }
+        Assert.DoesNotContain("the load order changed", answer);
+        Assert.Equal(started, Epoch(answer));
+        Assert.NotEqual(started, Epoch(Read()));
     }
 }
