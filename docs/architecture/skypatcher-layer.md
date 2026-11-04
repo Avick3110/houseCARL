@@ -89,8 +89,8 @@ article; ARR's 7.0.x log shows the same apply order). Folders are listed in the 
 the catalog holds. One rule set in `SkyPatcherDiscovery` decides this for the scan and the draft
 fold alike.
 
-A file is read when `.ini` appears anywhere in its name (`x.ini.bak` too), except a name ending in
-an upper-case `.INI`. When the name before the first `.ini` ends in a plugin extension the file is
+A file is read when `.ini` appears anywhere in its name (`x.ini.bak` too), except a name whose
+`.ini` ending is not all lower case (`.INI`, `.Ini`). When the name before the first `.ini` ends in a plugin extension the file is
 gated on that plugin and loads only while it is active; a name with more text after a plugin name
 (`SomeMod.esp-extra.ini`) is never read. A file not read keeps its parsed content — an inactive
 patch is still inspectable — and carries `NotApplied` naming why. `SkyPatcher.ini`'s `[Patcher]`
