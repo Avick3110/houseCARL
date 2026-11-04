@@ -329,7 +329,7 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Refused(RecordsTools.Records(Svc, types: Weap, source: src, versus: vs, project: Form("delta")),
                 "plain scan of types= with to_file=", "re-run this call with formids=[\"@<file>\"] in place of types=");
         Served(RecordsTools.Records(Svc, formids: new[] { "@" + PlainScanFile(dir) }, source: src, versus: vs, project: Form("delta")),
-               "HcRecW0", "123");
+               "HcRecW0", overlayIsSource ? "BasicStats.Damage=123 (HcRecOverride.esp 99)" : "BasicStats.Damage=99 (HcRecOverride.esp 123)");
     }
 
     /// <summary>A tree over a scan, the overlay on either pole: the route carries the overlay on versus= with no
@@ -344,7 +344,8 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Refused(RecordsTools.Records(Svc, types: Weap, source: overlayIsSource ? draft : null, versus: overlayIsSource ? null : draft,
                                      project: Form("tree")),
                 "formids=[\"@<file>\"] in place of types=", "the overlay on versus= and no source=");
-        Served(RecordsTools.Records(Svc, formids: new[] { "@" + PlainScanFile(dir) }, versus: draft, project: Form("tree")), "HcRecW0", "123");
+        Served(RecordsTools.Records(Svc, formids: new[] { "@" + PlainScanFile(dir) }, versus: draft, project: Form("tree")),
+               "HcRecW0", "HcRecMid.esp: BasicStats.Damage=50 (HcRecOverride.esp 123)");
     }
 
     /// <summary>formids= beside the scan terms is already the record list, so the route is dropping the terms, not
@@ -359,7 +360,8 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.DoesNotContain("to_file=", one);
         Refused(RecordsTools.Records(Svc, types: Weap, where: new[] { "editorid = HcRecW0" }, formids: w0, versus: draft, project: Form("tree")),
                 "drop types= and where= (formids= beside them makes this call a scan), with the overlay on versus= and no source=");
-        Served(RecordsTools.Records(Svc, formids: w0, source: draft, versus: Je("\"winner\""), project: Form("delta")), "HcRecW0", "123");
+        Served(RecordsTools.Records(Svc, formids: w0, source: draft, versus: Je("\"winner\""), project: Form("delta")),
+               "HcRecW0", "BasicStats.Damage=123 (HcRecOverride.esp 99)");
     }
 
     /// <summary>to_file= with the post overlay on a scan: the route writes the plain scan, then re-runs the call,
@@ -374,7 +376,7 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         var path = PlainScanFile("route-tofile", where);
         var post = W.Scratch("route-tofile", "post.jsonl");
         Served(RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: draft, to_file: post, project: Fields("BasicStats.Damage")));
-        Assert.Contains("123", File.ReadAllText(post));
+        Assert.Contains("{\"path\":\"BasicStats.Damage\",\"value\":\"123\"}", File.ReadAllText(post));
     }
 
     /// <summary>where_source= rides with where=: the plain scan keeps it, so it matches what the refused call matched,
