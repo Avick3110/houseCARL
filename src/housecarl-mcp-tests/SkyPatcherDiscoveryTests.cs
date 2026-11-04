@@ -108,7 +108,7 @@ public sealed class SkyPatcherDiscoveryTests : IDisposable
                              "same.ini", "zzz.ini", "Aaa\\zz.ini", "org\\bbb.ini", "org\\deep\\ccc.ini" },
             Folder(Scan(), "weapon").Files.Select(f => f.SortKey));
 
-    // a name with '.ini' inside is read and gated on the plugin before it; an upper-case ending and a plugin name with more text are not read
+    // a name with '.ini' inside is read and gated on the plugin before it; an '.ini' ending not all lower case and a plugin name with more text are not read
     [Fact]
     public void TheFileNameRulesReadIniAnywhereAndRefuseTheRest()
     {
