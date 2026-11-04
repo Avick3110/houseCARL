@@ -35,7 +35,8 @@ public sealed class NifOneReaderTests : IDisposable
         foreach (var rel in new[] { Diffuse, Shared, Smp, @"meshes\" + BodyTri, Hidden })
             PlaceInstance.Loose(top, rel, "x"u8.ToArray());
         var lower = _p.Mod("Lower");
-        PlaceInstance.Loose(lower, Cape, Mesh(new[] { LowerDiffuse }, null, null, null));
+        // Lower's copy names a file both mods ship, so its standing shows whose resolve it is.
+        PlaceInstance.Loose(lower, Cape, Mesh(new[] { LowerDiffuse, Diffuse }, null, null, null));
         PlaceInstance.Loose(top, Fo4, NifInspectFixtures.BuildSyntheticSe(streamVersion: 130));
         PlaceInstance.Loose(lower, LowerDiffuse, "y"u8.ToArray());
         PlaceInstance.Loose(lower, Diffuse, "y"u8.ToArray());
@@ -120,6 +121,7 @@ public sealed class NifOneReaderTests : IDisposable
 
         Assert.Contains("  links read from \"Lower\" (loose); each Data path's standing is the load order's\n", paths, StringComparison.Ordinal);
         Assert.Contains("texture slot 0 (Diffuse): `" + LowerDiffuse + "`\n      data path: " + LowerDiffuse + "  WINS: \"Lower\" (loose)", paths, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("texture slot 1 (Normal): `" + Diffuse + "`\n      data path: " + Diffuse + "  WINS: \"Top\" (loose)", paths, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(Smp, paths, StringComparison.Ordinal);
         Assert.Contains("  links read from \"Top\" (loose); each Data path's standing is the load order's\n", Paths(Cape), StringComparison.Ordinal);
     }
