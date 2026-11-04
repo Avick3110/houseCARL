@@ -409,6 +409,17 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: draft, versus: Je("\"winner\""), project: Form("delta"));
         Served(r, "HcRecW0", "BasicStats.Damage=123 (HcRecOverride.esp 99)");
         Assert.DoesNotContain("HcRecW1", r);
+
+        // Under the master's scope only the winner carries the new name, so the plain scan without where_source= matches nothing.
+        var renamed = new[] { $"editorid = {RecordsWorld.RenamedArmorNewEid}" };
+        Refused(RecordsTools.Records(Svc, types: Armo, plugins: Scope(W.MasterName), where: renamed, where_source: "winner",
+                                     source: draft, versus: Je("\"winner\""), project: Form("delta")),
+                "plain scan of types=, plugins=, where= and where_source= with to_file=");
+        path = W.Scratch("route-wheresrc", "scoped.jsonl");
+        Served(RecordsTools.Records(Svc, types: Armo, plugins: Scope(W.MasterName), where: renamed, where_source: "winner", to_file: path),
+               "complete result");
+        Served(RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: draft, versus: Je("\"winner\""), project: Form("delta")),
+               "1 record(s)", RecordsWorld.RenamedArmorNewEid);
     }
 
     /// <summary>fields_source='winner' beside the post overlay is the call's own fault: to_file= names the two display
