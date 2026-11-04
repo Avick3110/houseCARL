@@ -396,6 +396,16 @@ public class BatchRenderCapTests
         Assert.True(cuts > 0, "no cap in the sweep cut the paths section at a link");
     }
 
+    /// <summary>A mesh whose links could not be read says so in the paths section rather than printing nothing.</summary>
+    [Fact]
+    public void APathsSectionWhoseLinksFailedSaysTheyWereNotRead()
+    {
+        var b = MeshWithForeignShader(1);
+        var d = b with { Results = new[] { b.Results[0] with { LinksError = "the reader threw" } } };
+
+        Assert.EndsWith("load order's\n  links: not read — the reader threw", RenderNif(d, 40_000, "paths"), StringComparison.Ordinal);
+    }
+
     static ResolvedNifLink[] Links(int n) => Enumerable.Range(0, n)
         .Select(i => new ResolvedNifLink(new NifLink($"shape 'S{i:D3}' texture slot 0", $@"textures\mod\t{i:D3}.dds",
                                                      NifLinkKind.Texture, $@"textures\mod\t{i:D3}.dds", null), null))
