@@ -32,7 +32,10 @@ internal static class ToolCallShim
                 if (InPlaceNamesAFile(p, schema) is { } laneRefusal) return laneRefusal;
                 if (TypeMismatches(p, schema) is { } typeRefusal) return typeRefusal;
             }
-            return await next(request, cancellationToken);
+            var verdict = CallVerdict.Begin();
+            var result = await next(request, cancellationToken);
+            if (verdict.Refused) result.IsError = true;   // the body's refusal, rendered by Guard.Tool
+            return result;
         }
         // A real cancellation and McpException stay the SDK's; a cancel with a live token is named here.
         catch (Exception ex) when (ex is not McpException &&

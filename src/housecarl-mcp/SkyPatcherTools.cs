@@ -33,10 +33,10 @@ public static class SkyPatcherTools
             string? filter = null,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~40k).")]
             int max_chars = 0,
-        CancellationToken ct = default) => Guard.Tool(ToolNames.SkypatcherLayer, () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.SkypatcherLayer, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return svc.SkyPatcherLayer(data => SkyPatcherWire.RenderLayer(data, filter, Wire.Cap(max_chars)), ct);
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
+        return ToolAnswer.Served(svc.SkyPatcherLayer(data => SkyPatcherWire.RenderLayer(data, filter, Wire.Cap(max_chars)), ct));
     }, ct);
 }
 

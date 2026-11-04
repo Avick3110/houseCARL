@@ -29,12 +29,13 @@ public static partial class WriteTools
         [Description("Optional. Author text for the TES4 header (CNAM).")]
             string? author = null,
         [Description("Optional. Description text for the TES4 header (SNAM).")]
-            string? description = null) => Guard.Tool(ToolNames.CreatePlugin, () =>
+            string? description = null) => Guard.Tool(ToolNames.CreatePlugin, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         if (string.IsNullOrWhiteSpace(patch))
-            return "error: patch is empty. Name the plugin to create (a header-only plugin has no record to derive a name from).";
-        return RenderCreatePlugin(svc.CreatePlugin(patch, esl, author, description));
+            return ToolAnswer.Refusal("error: patch is empty. Name the plugin to create (a header-only plugin has no record to derive a name from).");
+        var outcome = svc.CreatePlugin(patch, esl, author, description);
+        return ToolAnswer.Outcome(outcome.Success, RenderCreatePlugin(outcome));
     });
 
     [McpServerTool(Name = ToolNames.CompactPlugin, Title = "Compact / ESL-renumber a plugin's FormIDs"),
@@ -60,12 +61,13 @@ public static partial class WriteTools
         [Description("Default false. Consent for an in-place rewrite (in_place=true or repoint_externals=true). Without it the call returns a prompt listing every file that would be overwritten; call again with acknowledge=true to proceed.")]
             bool acknowledge = false,
         [Description("Optional. Base name for the new mod folder (auto-suffixed if taken); ignored with in_place=true. The plugin inside always keeps the source's basename.")]
-            string? patch = null) => Guard.Tool(ToolNames.CompactPlugin, () =>
+            string? patch = null) => Guard.Tool(ToolNames.CompactPlugin, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         if (string.IsNullOrWhiteSpace(source))
-            return "error: source is empty. Name the plugin filename to compact (e.g. 'CoolMod.esp').";
-        return RenderCompact(svc.CompactPlugin(source, esl, in_place, repoint_externals, acknowledge, patch));
+            return ToolAnswer.Refusal("error: source is empty. Name the plugin filename to compact (e.g. 'CoolMod.esp').");
+        var outcome = svc.CompactPlugin(source, esl, in_place, repoint_externals, acknowledge, patch);
+        return ToolAnswer.Outcome(outcome.Success || outcome.NeedsAcknowledge, RenderCompact(outcome));
     });
 
     [McpServerTool(Name = ToolNames.MergePlugins, Title = "Merge plugins into one new plugin"),
@@ -89,10 +91,11 @@ public static partial class WriteTools
         [Description("The donor plugin filenames, at least one, each active in your load order (e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]). A set: order and repeats do not matter; load order decides id priority and conflicts. One donor is a rename: the same records under the new name, keeping every object id at or above 0x800. With several, the donor earliest in the load order keeps its object ids, later donors renumber only ids already taken, and any id below 0x800 renumbers. A record several donors carry resolves to the load-order winner, and each such conflict is reported; nested children the winner does not list (dialogue lines under a topic, references under a cell) are grafted into the winner's copy. A record injected into one donor's FormID space and carried by another is merged and renumbered like any other. Plugins outside the merge that depend on a donor are named as warnings, never refused; fix each before disabling the donors: a referencer, include it or repoint it; an overrider, include it or rebuild it against the output; one that only lists a donor as a master, remove that master.")]
             string[] plugins,
         [Description("Name of the new mod folder; the merged plugin takes it too, so patch='MyMerge' writes 'houseCARL - MyMerge\\MyMerge.esp'. Never auto-suffixed, since configs, INIs and dependents bind to the exact basename: the name is refused when a mod folder 'houseCARL - <name>' exists, a <name>.esp is active, or a <name>.esp sits anywhere your order is not loading it. Every donor NPC's facegen and every voiced line are copied to folders under this name, and a .seq is refreshed when any donor shipped one. Saves that depend on the donors will not survive the switch; best for a new game.")]
-            string patch) => Guard.Tool(ToolNames.MergePlugins, () =>
+            string patch) => Guard.Tool(ToolNames.MergePlugins, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        return RenderMerge(svc.MergePlugins(plugins, patch));
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
+        var outcome = svc.MergePlugins(plugins, patch);
+        return ToolAnswer.Outcome(outcome.Success, RenderMerge(outcome));
     });
 }
 

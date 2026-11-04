@@ -53,13 +53,13 @@ public static class PlaceTools
         [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, with the accounting and the enable-and-sort instruction in the document).")]
             string? format = null,
         [Description("Optional. Character ceiling on the whole response; the row that would cross it is not written, and a notice says how many were held back. The write is unaffected. The accounting line and the enable-and-sort instruction are always inside the ceiling. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.Place, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Place, call =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
         bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return json ? JsonWire.RenderError(prompt, null) : prompt;
+            return Wire.Refuse(json, prompt);
         if (assets is not { } el || el.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
             return Refuse(json, "assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.");
         // The strict reader, not the SDK's binder: a member the shape does not declare is refused by name at its element, because a dropped one would place another provider's copy.
@@ -72,21 +72,21 @@ public static class PlaceTools
     internal static string Place(LoadOrderService svc, PlaceTarget[] assets, string? source_provider = null,
                                  string? kind = null, string? patch = null, string? into = null,
                                  string? format = null, int max_chars = 0)
-        => Guard.Tool(ToolNames.Place, () =>
+        => Guard.Tool(ToolNames.Place, call =>
     {
         bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return json ? JsonWire.RenderError(prompt, null) : prompt;
+            return Wire.Refuse(json, prompt);
         if (assets is null || assets.Length == 0)
             return Refuse(json, "assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.");
         return PlaceTargets(svc, assets, source_provider, kind, patch, into, max_chars, json);
     });
 
     /// <summary>The one refusal shape, through its one owner — <see cref="Wire.Refuse"/>, which owns the prefix the json document strips.</summary>
-    static string Refuse(bool json, string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
+    static ToolAnswer Refuse(bool json, string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
-    static string PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
+    static ToolAnswer PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
                                string? kind, string? patch, string? into, int max_chars, bool json)
     {
         if (LaneSentences.PatchIntoFolderRefusal(patch, into, "placed files") is { } patchInto)
@@ -125,8 +125,8 @@ public static class PlaceTools
 
         var outcome = svc.PlaceAssets(all, patch, into);
         int cap = Wire.Cap(max_chars);
-        return json ? JsonWire.RenderPlaceOutcome(outcome, cap, poleWithheld)
-                    : PlaceWire.Render(outcome, cap, poleWithheld);
+        return ToolAnswer.Outcome(outcome.Success, json ? JsonWire.RenderPlaceOutcome(outcome, cap, poleWithheld)
+                    : PlaceWire.Render(outcome, cap, poleWithheld));
     }
 
     /// <summary>Map one destination to its placement request(s): path is one, formid+kind is one computed FaceGen

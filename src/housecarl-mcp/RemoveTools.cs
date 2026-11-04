@@ -36,14 +36,14 @@ public static class RemoveTools
         [Description("'text' (default) or 'json' (the same data). Either way the reply states what was removed, the masters left, and how many records remain (0: the file now holds none). " + LaneSentences.Epoch)]
             string? format = null,
         [Description("Character limit on the reply. " + LaneSentences.MaxCharsCut + ".")]
-            int max_chars = 0) => Guard.Tool(ToolNames.Remove, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Remove, call =>
     {
         // format first, ahead of the unconfigured-MO2 prompt; contract in docs/architecture/write-path.md.
         bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return json ? JsonWire.RenderError(prompt, null) : prompt;
-        string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
+            return Wire.Refuse(json, prompt);
+        ToolAnswer Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
         // ---- LANE: exactly one destination, named when dropped; contract in docs/architecture/write-path.md ----
         bool hasInto = !string.IsNullOrWhiteSpace(into);
@@ -70,8 +70,8 @@ public static class RemoveTools
 
         var outcome = svc.RemoveRecords(targets, hasInto ? into : null, in_place, hasInPlace, acknowledge);
         // The lane the CALL named; contract in docs/architecture/write-path.md.
-        return json
+        return ToolAnswer.Outcome(outcome.Success || outcome.NeedsAcknowledge, json
             ? JsonWire.RenderRemovalOutcome(outcome, max_chars, hasInPlace ? "in_place" : "into")
-            : WriteTools.RenderRemoval(outcome, max_chars);
+            : WriteTools.RenderRemoval(outcome, max_chars));
     });
 }

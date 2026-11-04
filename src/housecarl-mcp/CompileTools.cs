@@ -76,28 +76,28 @@ public static class CompileTools
         [Description("Optional. An existing houseCARL patch mod to add the .pex into instead of a fresh folder: its plugin filename (found even if you renamed its MO2 mod folder), or its mod-folder name, which also picks between two patches sharing a filename. A script folder holds no plugin: pass its base name (into='houseCARL_Scripts' for the default) or its mod-folder name.")]
             string? into = null,
         [Description("Optional. Absolute path to a mod-folder root of your choosing; houseCARL appends Scripts\\ unless the path already ends in it. patch= and into= are then ignored. Scripts load only from <mods>\\<YourMod>\\Scripts, the MO2 overwrite folder or <Data>\\Scripts; anywhere else, including a nested folder under a mod, the .pex still compiles with a warning that it will not deploy.")]
-            string? out_path = null) => Guard.Tool(ToolNames.CompileScript, () =>
+            string? out_path = null) => Guard.Tool(ToolNames.CompileScript, call =>
     {
         // 1) MO2 must be configured — the .pex lands under the instance's mods folder.
-        if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
+        if (svc.ConfigPromptOrNull() is { } cfgPrompt) return ToolAnswer.Refusal(cfgPrompt);
         // Lane exclusivity, out_path= first (it supersedes both); contract in docs/architecture/write-path.md.
         if (string.IsNullOrWhiteSpace(out_path) && LaneSentences.PatchIntoFolderRefusal(patch, into, ".pex") is { } patchInto)
-            return "error: " + patchInto;
+            return ToolAnswer.Refusal("error: " + patchInto);
 
         // 2) validate the script path.
         if (string.IsNullOrWhiteSpace(script))
-            return "error: no script given. Pass script= the full path to the .psc file to compile.";
+            return ToolAnswer.Refusal("error: no script given. Pass script= the full path to the .psc file to compile.");
         script = script.Trim().Trim('"');
         if (!File.Exists(script))
-            return $"error: no such file: '{script}'. Pass the full path to the .psc source.";
+            return ToolAnswer.Refusal($"error: no such file: '{script}'. Pass the full path to the .psc source.");
         if (!script.EndsWith(".psc", StringComparison.OrdinalIgnoreCase))
-            return $"error: '{Path.GetFileName(script)}' is not a .psc source file.";
+            return ToolAnswer.Refusal($"error: '{Path.GetFileName(script)}' is not a .psc source file.");
         script = Path.GetFullPath(script);
         var objectName = Path.GetFileNameWithoutExtension(script);
         var scriptDir = Path.GetDirectoryName(script)!;
 
         // 3) the compiler, or the prompt if unset; the hints are the game dir, then the Steam SE install a Stock Game setup keeps the CK in.
-        if (bridge.RequireOrPrompt(ToolDependency.PapyrusCompiler, out var compilerExe, svc.CompilerGameDirHints()) is { } toolPrompt) return toolPrompt;
+        if (bridge.RequireOrPrompt(ToolDependency.PapyrusCompiler, out var compilerExe, svc.CompilerGameDirHints()) is { } toolPrompt) return ToolAnswer.Refusal(toolPrompt);
 
         // 4) caller extras: import_dirs= then the named set. An unknown set is refused and names the saved sets.
         var callerExtras = SplitDirs(import_dirs).ToList();
@@ -109,9 +109,9 @@ public static class CompileTools
             if (saved is null)
             {
                 var known = store.ImportSetNames();
-                return $"error: no saved import set named '{importSetName}'. " + (known.Count == 0
+                return ToolAnswer.Refusal($"error: no saved import set named '{importSetName}'. " + (known.Count == 0
                     ? "None are saved yet — pass import_dirs= once together with save_import_set= to create one."
-                    : "Saved sets: " + string.Join(", ", known) + ".");
+                    : "Saved sets: " + string.Join(", ", known) + "."));
             }
             callerExtras.AddRange(saved);
         }
@@ -150,9 +150,9 @@ public static class CompileTools
         // The whole path travels as one `-i=` argument, so a path past the command-line cap is refused with the way out.
         var joinedLength = string.Join(";", plan.Dirs).Length;
         if (joinedLength > 30_000)
-            return $"error: the assembled import path is too long for one compiler command line ({plan.Dirs.Count} dirs, " +
+            return ToolAnswer.Refusal($"error: the assembled import path is too long for one compiler command line ({plan.Dirs.Count} dirs, " +
                    $"{joinedLength} chars; the limit is about 32000). Re-run with auto_imports=false and pass only the " +
-                   "dependencies this script needs via import_dirs= (save_import_set= will keep that list for next time).";
+                   "dependencies this script needs via import_dirs= (save_import_set= will keep that list for next time).");
 
         // 7) output folder: out_path= is user-owned, takes Scripts\ appended, and supersedes patch=/into= saying so.
         OutputLocations.RiderFolder rf;
@@ -163,12 +163,12 @@ public static class CompileTools
                 outputNote = "note: out_path= was given, so patch=/into= are ignored (the .pex lands in out_path, not a houseCARL patch folder).";
             try { rf = svc.ResolveExplicitScriptFolder(out_path, out deployWarning); }
             // The ignored-lane note rides the refusal too — it is still true of the call about to be retyped.
-            catch (InvalidOperationException ex) { return "error: " + ex.Message + (outputNote is null ? "" : "\n" + outputNote); }
+            catch (InvalidOperationException ex) { return ToolAnswer.Refusal("error: " + ex.Message + (outputNote is null ? "" : "\n" + outputNote)); }
         }
         else
         {
             try { rf = svc.ResolveCompiledScriptFolder(patch, into); }
-            catch (InvalidOperationException ex) { return "error: " + ex.Message; }
+            catch (InvalidOperationException ex) { return ToolAnswer.Refusal("error: " + ex.Message); }
         }
 
         // 8) compile + render.
@@ -188,7 +188,7 @@ public static class CompileTools
         }
         if (saveNote is not null) rendered = saveNote + "\n" + rendered;
         if (outputNote is not null) rendered = outputNote + "\n" + rendered;
-        return rendered;
+        return ToolAnswer.Outcome(result.Success, rendered);
     });
 
     /// <summary>Split a ';'-separated import-dir spec into trimmed, unquoted directories, dropping blanks.</summary>

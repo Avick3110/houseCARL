@@ -36,13 +36,7 @@ static partial class Wire
     /// <summary>The read surface's refusal prefix, defined once so the text and json lanes agree where the sentence starts.</summary>
     internal const string RefusalPrefix = "error: ";
 
-    /// <summary>The one whole-call refusal render for the read surface: text unchanged, json stripped of the prefix; contract in docs/architecture/records-tool-front.md.</summary>
-    internal static string Refuse(bool json, string message, OrderStamp? epoch = null)
-    {
-        if (!json) return message;
-        var bare = message.StartsWith(RefusalPrefix, StringComparison.Ordinal)
-            ? message[RefusalPrefix.Length..]
-            : message;
-        return JsonWire.RenderError(bare, epoch);
-    }
+    /// <summary>The one whole-call refusal for the read surface: text unchanged, json stripped of the prefix, rendered by
+    /// <see cref="Guard"/>; contract in docs/architecture/records-tool-front.md.</summary>
+    internal static ToolAnswer Refuse(bool json, string message, OrderStamp? epoch = null) => ToolAnswer.Refusal(json, message, epoch);
 }

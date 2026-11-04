@@ -35,23 +35,23 @@ public static class NexusTools
             "('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus game's " +
             "domain) or its numeric game id.")]
             string? game = null,
-        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusSearch, async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusSearch, async call =>
     {
         if (string.IsNullOrWhiteSpace(query))
-            return "error: no search term. Pass query= some words to look for in mod names (e.g. 'archery overhaul').";
+            return ToolAnswer.Refusal("error: no search term. Pass query= some words to look for in mod names (e.g. 'archery overhaul').");
         if (limit <= 0) limit = 10;
         if (limit > 50) limit = 50;
 
         var sortField = MapSort(sort);
         if (sortField is null)
-            return $"error: unknown sort '{sort}'. Use one of: endorsements, downloads, recent, name, relevance.";
+            return ToolAnswer.Refusal($"error: unknown sort '{sort}'. Use one of: endorsements, downloads, recent, name, relevance.");
 
         var (gameOk, gameError, resolved) = await nexus.ResolveGameAsync(game, ct);
-        if (!gameOk) return "error: " + gameError;
+        if (!gameOk) return ToolAnswer.Refusal("error: " + gameError);
 
         var (ok, error, result) = await nexus.SearchAsync(query.Trim(), category, sortField, limit, resolved!, ct);
-        if (!ok) return "error: " + error;
-        return Render.Search(query.Trim(), category, sort, result!, resolved!);
+        if (!ok) return ToolAnswer.Refusal("error: " + error);
+        return ToolAnswer.Served(Render.Search(query.Trim(), category, sort, result!, resolved!));
     }, ct);
 
     [McpServerTool(Name = ToolNames.NexusMod, ReadOnly = true, Title = "Look up a Nexus mod"),
@@ -90,26 +90,26 @@ public static class NexusTools
             "('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus game's " +
             "domain) or its numeric game id. Not needed with a URL, whose own domain picks the game.")]
             string? game = null,
-        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusMod, async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusMod, async call =>
     {
         var (modId, urlDomain, parseError) = ParseModRef(mod);
-        if (parseError is not null) return "error: " + parseError;
+        if (parseError is not null) return ToolAnswer.Refusal("error: " + parseError);
 
         // A URL's domain segment names the game; an explicit game= that names another one is refused, never guessed.
         var (gameOk, gameError, resolved) = await nexus.ResolveGameAsync(urlDomain ?? game, ct);
-        if (!gameOk) return "error: " + gameError;
+        if (!gameOk) return ToolAnswer.Refusal("error: " + gameError);
         if (urlDomain is not null && !string.IsNullOrWhiteSpace(game))
         {
             var (askedOk, askedError, asked) = await nexus.ResolveGameAsync(game, ct);
-            if (!askedOk) return "error: " + askedError;
+            if (!askedOk) return ToolAnswer.Refusal("error: " + askedError);
             if (asked!.Id != resolved!.Id)
-                return $"error: that URL is a '{resolved.Domain}' mod page but game= names '{asked.Domain}' — two "
-                     + "different games, so I won't guess which you meant. Pass one of them.";
+                return ToolAnswer.Refusal($"error: that URL is a '{resolved.Domain}' mod page but game= names '{asked.Domain}' — two "
+                     + "different games, so I won't guess which you meant. Pass one of them.");
         }
 
         var (ok, error, detail) = await nexus.GetModAsync(modId, resolved!, ct);
-        if (!ok) return "error: " + error;
-        return Render.Mod(detail!, resolved!, description, files, changelog, since);
+        if (!ok) return ToolAnswer.Refusal("error: " + error);
+        return ToolAnswer.Served(Render.Mod(detail!, resolved!, description, files, changelog, since));
     }, ct);
 
     [McpServerTool(Name = ToolNames.NexusGraphql, ReadOnly = true, Title = "Run a raw Nexus GraphQL query"),
@@ -129,19 +129,19 @@ public static class NexusTools
         [Description("Optional. GraphQL variables as a JSON OBJECT string, e.g. '{\"modId\":\"51614\"}'. Omit when the " +
             "query inlines its arguments.")]
             string? variables = null,
-        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusGraphql, async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusGraphql, async call =>
     {
         JsonElement? vars = null;
         if (!string.IsNullOrWhiteSpace(variables))
         {
             try { using var doc = JsonDocument.Parse(variables); vars = doc.RootElement.Clone(); }
-            catch (Exception ex) { return $"error: variables= isn't valid JSON ({ex.Message}). Pass a JSON object like '{{\"modId\":\"51614\"}}'."; }
+            catch (Exception ex) { return ToolAnswer.Refusal($"error: variables= isn't valid JSON ({ex.Message}). Pass a JSON object like '{{\"modId\":\"51614\"}}'."); }
             if (vars.Value.ValueKind != JsonValueKind.Object)
-                return $"error: variables= must be a JSON OBJECT (e.g. '{{\"modId\":\"51614\"}}'), not {vars.Value.ValueKind}.";
+                return ToolAnswer.Refusal($"error: variables= must be a JSON OBJECT (e.g. '{{\"modId\":\"51614\"}}'), not {vars.Value.ValueKind}.");
         }
         var (ok, error, data) = await nexus.RawQueryAsync(query, vars, ct);
-        if (!ok) return "error: " + error;
-        return Render.Graphql(data);
+        if (!ok) return ToolAnswer.Refusal("error: " + error);
+        return ToolAnswer.Served(Render.Graphql(data));
     }, ct);
 
     [McpServerTool(Name = ToolNames.NexusCheckUpdates, ReadOnly = true, Title = "Batch-check Nexus mods for updates (file-level)"),
@@ -173,19 +173,19 @@ public static class NexusTools
             "page URL ('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus " +
             "game's domain) or its numeric game id.")]
             string? game = null,
-        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusCheckUpdates, async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusCheckUpdates, async call =>
     {
         var (pairs, bad) = ParseUpdatePairs(mods);
         if (pairs.Count == 0)
-            return "error: no mod ids found. Pass entries like '12604=6.9, 266=4.3.8a' (id, optional =installed version), "
-                 + "comma/newline separated." + (bad.Count > 0 ? " Unreadable: " + string.Join(", ", bad) : "");
+            return ToolAnswer.Refusal("error: no mod ids found. Pass entries like '12604=6.9, 266=4.3.8a' (id, optional =installed version), "
+                 + "comma/newline separated." + (bad.Count > 0 ? " Unreadable: " + string.Join(", ", bad) : ""));
 
         var (gameOk, gameError, resolved) = await nexus.ResolveGameAsync(game, ct);
-        if (!gameOk) return "error: " + gameError;
+        if (!gameOk) return ToolAnswer.Refusal("error: " + gameError);
 
         var (ok, error, results) = await nexus.CheckUpdatesAsync(pairs, resolved!, ct);
-        if (!ok) return "error: " + error;
-        return Render.Updates(results, resolved!, bad);
+        if (!ok) return ToolAnswer.Refusal("error: " + error);
+        return ToolAnswer.Served(Render.Updates(results, resolved!, bad));
     }, ct);
 
     /// <summary>Parse the check-updates input into (modId, installed version, fileIds) triples plus the unreadable tokens; pinned by `nexus-file-check-guard`.</summary>
@@ -237,16 +237,16 @@ public static class NexusTools
         [Description("One or more MD5 hashes (32 hex characters each), separated by commas, spaces, or newlines. " +
             "Case-insensitive. Non-hash junk is skipped and listed back to you.")]
             string md5,
-        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusIdentify, async () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.NexusIdentify, async call =>
     {
         var (hashes, bad) = ParseHashes(md5);
         if (hashes.Count == 0)
-            return "error: no valid MD5 hashes found — each must be 32 hex characters."
-                 + (bad.Count > 0 ? " Unreadable: " + string.Join(", ", bad) : "");
+            return ToolAnswer.Refusal("error: no valid MD5 hashes found — each must be 32 hex characters."
+                 + (bad.Count > 0 ? " Unreadable: " + string.Join(", ", bad) : ""));
 
         var (ok, error, results) = await nexus.IdentifyByHashAsync(hashes, ct);
-        if (!ok) return "error: " + error;
-        return Render.Identify(hashes, results, bad);
+        if (!ok) return ToolAnswer.Refusal("error: " + error);
+        return ToolAnswer.Served(Render.Identify(hashes, results, bad));
     }, ct);
 
     /// <summary>Parse the identify input into deduped lowercase 32-hex MD5 hashes, plus the tokens that were not hashes.</summary>

@@ -75,7 +75,7 @@ public sealed class RecordsBindingShimTests
         Assert.Equal("0F1AC1:Skyrim.esm", coerced.Value[0].GetString());
 
         var r = _s.Call(ToolNames.Records, """{"formids":"0F1AC1:Skyrim.esm"}""");
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -92,7 +92,7 @@ public sealed class RecordsBindingShimTests
                      coerced!.Value.EnumerateArray().Select(e => e.GetString()).ToArray());
 
         var r = _s.Call(ToolNames.Records, """{"formids":"[\"0F1AC1:Skyrim.esm\",\"0F1AC2:Skyrim.esm\"]"}""");
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -110,7 +110,7 @@ public sealed class RecordsBindingShimTests
         Assert.Equal("[Bracketed Name.esp", coerced.Value[0].GetString());
 
         var r = _s.Call(ToolNames.Records, """{"formids":"[Bracketed Name.esp"}""");
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -121,7 +121,7 @@ public sealed class RecordsBindingShimTests
         Assert.Null(ToolCallShim.Coerce(Json("""["0F1AC1:Skyrim.esm"]"""), Published("formids")));
 
         var r = _s.Call(ToolNames.Records, """{"formids":["0F1AC1:Skyrim.esm"]}""");
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -135,7 +135,7 @@ public sealed class RecordsBindingShimTests
         Assert.Equal(100, coerced.Value.GetInt32());
 
         var r = _s.Call(ToolNames.Records, """{"limit":"100"}""");
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -148,7 +148,7 @@ public sealed class RecordsBindingShimTests
         Assert.Equal(JsonValueKind.True, coerced!.Value.ValueKind);
 
         var r = _s.Call(ToolNames.Records, """{"conflicts_only":"true"}""");
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -204,7 +204,7 @@ public sealed class RecordsBindingShimTests
     {
         var r = _s.Call(ToolNames.Records, """{"formids":["0F1AC1:Skyrim.esm"]}""");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -236,7 +236,7 @@ public sealed class RecordsBindingShimTests
         Assert.Equal("winner", args["where_source"].GetString());
 
         var r = _s.Call(ToolNames.Records, """{"types":["CELL"],"wheresource":"winner"}""");
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -310,7 +310,7 @@ public sealed class RecordsBindingShimTests
         var r = _s.Call(ToolNames.Records,
             """{"formids":["0F1AC1:Skyrim.esm"],"source":"winner","project":{"form":"identity"}}""");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.Equal(1, r.ContentBlocks);
         Assert.Equal("text", r.FirstBlockType);
         Assert.True(r.BodyRan, r.Describe());
@@ -322,7 +322,7 @@ public sealed class RecordsBindingShimTests
         var r = _s.Call(ToolNames.Records,
             """{"types":["WEAP"],"plugins":{"names":["Skyrim.esm"],"defined_in":true}}""");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.Equal("text", r.FirstBlockType);
         Assert.True(r.BodyRan, r.Describe());
     }

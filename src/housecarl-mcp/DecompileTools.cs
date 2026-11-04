@@ -32,7 +32,7 @@ public static class DecompileTools
         [Description("Optional. An existing houseCARL patch mod to add the .psc into instead of a fresh folder: its plugin filename (found even if you renamed its MO2 mod folder), or its mod-folder name, which also picks between two patches sharing a filename. A script folder holds no plugin: pass its base name (into='houseCARL_Scripts' for the default) or its mod-folder name.")]
             string? into = null,
         [Description("Optional. Absolute path to a folder of your choosing, created if missing; the .psc is written straight into it and houseCARL never deletes it. patch= and into= are then ignored.")]
-            string? out_path = null) => Guard.Tool(ToolNames.DecompileScript, () =>
+            string? out_path = null) => Guard.Tool(ToolNames.DecompileScript, call =>
     {
         // 1) lane: out_path= supersedes patch=/into= saying so; the note is APPENDED, so a refusal opens with "error:".
         bool chosenOutput = !string.IsNullOrWhiteSpace(out_path);
@@ -46,18 +46,18 @@ public static class DecompileTools
             : "";
 
         // 2) the instance, which the default lane needs and out_path= runs without, all it adds being the top-up.
-        if (!chosenOutput && svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
+        if (!chosenOutput && svc.ConfigPromptOrNull() is { } cfgPrompt) return ToolAnswer.Refusal(cfgPrompt);
         if (!chosenOutput && LaneSentences.PatchIntoFolderRefusal(patch, into, ".psc") is { } patchInto)
-            return "error: " + patchInto;
+            return ToolAnswer.Refusal("error: " + patchInto);
 
         // 3) validate the pex path.
         if (string.IsNullOrWhiteSpace(pex))
-            return "error: no pex given. Pass pex= the full path to the .pex file to decompile." + LaneNoteFail();
+            return ToolAnswer.Refusal("error: no pex given. Pass pex= the full path to the .pex file to decompile." + LaneNoteFail());
         pex = pex.Trim().Trim('"');
         if (!File.Exists(pex))
-            return $"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, {ToolNames.BsaExtract} it first)." + LaneNoteFail();
+            return ToolAnswer.Refusal($"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, {ToolNames.BsaExtract} it first)." + LaneNoteFail());
         if (!pex.EndsWith(".pex", StringComparison.OrdinalIgnoreCase))
-            return $"error: '{Path.GetFileName(pex)}' is not a .pex compiled script." + LaneNoteFail();
+            return ToolAnswer.Refusal($"error: '{Path.GetFileName(pex)}' is not a .pex compiled script." + LaneNoteFail());
         pex = Path.GetFullPath(pex);
 
         // 4) read the pex via Mutagen; an unreadable one fails loud naming the file.
@@ -65,13 +65,13 @@ public static class DecompileTools
         try { pexFile = PexFile.CreateFromFile(pex, GameCategory.Skyrim); }
         catch (Exception ex)
         {
-            return $"error: Mutagen cannot read '{Path.GetFileName(pex)}' ({ex.GetType().Name}: {ex.Message}). " +
+            return ToolAnswer.Refusal($"error: Mutagen cannot read '{Path.GetFileName(pex)}' ({ex.GetType().Name}: {ex.Message}). " +
                    "This is the known unreadable-pex class (corrupt, non-standard, or obfuscated) — no output was written."
-                   + LaneNoteFail(sayNothingWritten: false);
+                   + LaneNoteFail(sayNothingWritten: false));
         }
         if (pexFile.Objects.Count == 0)
-            return $"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written."
-                   + LaneNoteFail(sayNothingWritten: false);
+            return ToolAnswer.Refusal($"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written."
+                   + LaneNoteFail(sayNothingWritten: false));
 
         // 5) output folder, resolved before the hierarchy build so a folder error costs nothing.
         OutputLocations.RiderFolder rf;
@@ -84,9 +84,9 @@ public static class DecompileTools
         catch (InvalidOperationException ex)
         {
             // This refusal is out_path='s own, so the note points at the parameter to fix.
-            return "error: " + ex.Message + (ignoredLane
+            return ToolAnswer.Refusal("error: " + ex.Message + (ignoredLane
                 ? "\nnote: patch=/into= were ignored because out_path= was given, and nothing was written. Fix out_path=, or drop it to write into the patch folder patch=/into= names."
-                : "");
+                : ""));
         }
 
         // 6) class hierarchy: the baseline, the mods-tree sources, the input pex and its siblings; every source that
@@ -118,13 +118,13 @@ public static class DecompileTools
         };
 
         // A refused decompile leaves no orphan: an empty fresh folder is deleted, a partial one named, into= alone.
-        string Refuse(string msg)
+        ToolAnswer Refuse(string msg)
         {
             var left = svc.RemoveOrNameRiderResidue(rf);
-            return (left is null ? msg
+            return ToolAnswer.Refusal((left is null ? msg
                 : msg + $" The freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.")
                 // Every message reaching here accounts for what landed, so the note only states the lane.
-                + LaneNoteFail(sayNothingWritten: false);
+                + LaneNoteFail(sayNothingWritten: false));
         }
 
         // 7) decompile + write.
@@ -162,7 +162,7 @@ public static class DecompileTools
         outSb.Append(chosenOutput
             ? "\nthe .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile with " + ToolNames.CompileScript + "."
             : "\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with " + ToolNames.CompileScript + " (into= the same patch).");
-        return outSb.ToString() + LaneNoteOk();
+        return ToolAnswer.Served(outSb.ToString() + LaneNoteOk());
     });
 
     /// <summary>One sentence saying what the class hierarchy IS when a source is missing; two could contradict each other.</summary>

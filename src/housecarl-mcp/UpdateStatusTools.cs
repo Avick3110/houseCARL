@@ -21,11 +21,11 @@ public static class UpdateStatusTools
     public static string UpdateStatus(
         LoadOrderService svc,
         [Description("Optional. Max characters before the mod lists are cut with an explicit notice. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.UpdateStatus, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.UpdateStatus, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         var data = svc.UpdateCache();
-        return UpdateStatusWire.Render(data, Wire.Cap(max_chars));
+        return ToolAnswer.Served(UpdateStatusWire.Render(data, Wire.Cap(max_chars)));
     });
 }
 

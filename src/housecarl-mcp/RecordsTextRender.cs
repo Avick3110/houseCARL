@@ -631,7 +631,7 @@ static partial class RecordsTools
     /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none; under group_by=type each one gets a row, so a requested type with no records reads as 0.</param>
     /// <param name="rowLimit">the caller's limit= as the TABLE's row cap (0 = uncapped): a count table caps with
     /// limit= and does not page (#810), and the counts above it stay the whole tally.</param>
-    static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, OrderStamp? epoch,
+    static ToolAnswer RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, OrderStamp? epoch,
                                       string headerLine, List<EnvelopePair> envelope,
                                       (int RowsRead, long Millis) bodyCost, int maxChars,
                                       IReadOnlyList<string>? requestedTypes = null, int rowLimit = 0)
@@ -662,7 +662,7 @@ static partial class RecordsTools
         var empties = all.Where(g => g.Value == 0).Select(g => g.Key).ToList();
         var rows = empties.Count == 0 ? all : all.Where(g => g.Value > 0).ToList();
         if (json)
-            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, cap, envelope, empties, rowLimit);
+            return ToolAnswer.Served(JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, cap, envelope, empties, rowLimit));
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");
@@ -700,6 +700,6 @@ static partial class RecordsTools
         sb.Append(emptyLine);
         // What reading the bodies this table counted cost, stated on text as it is on json.
         sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
-        return RenderCap.Settle(sb.ToString(), cap);
+        return ToolAnswer.Served(RenderCap.Settle(sb.ToString(), cap));
     }
 }

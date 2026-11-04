@@ -23,17 +23,17 @@ public static class BsaTools
         [Description("Optional. Return only the file count, of the under= matches when given.")]
             bool counts_only = false,
         [Description("Optional. Max characters before the file list is cut with an explicit notice. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.BsaList, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.BsaList, call =>
     {
-        if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
+        if (string.IsNullOrWhiteSpace(archive)) return ToolAnswer.Refusal("error: no archive given. Pass the full path to the .bsa.");
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
-        catch (Exception ex) { return $"error: '{archive}' is not a usable path ({ex.Message})."; }
-        if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
-        if (Keep(under, out var selectors, out var notes) is { } bad) return bad;
+        catch (Exception ex) { return ToolAnswer.Refusal($"error: '{archive}' is not a usable path ({ex.Message})."); }
+        if (!File.Exists(archive)) return ToolAnswer.Refusal($"error: no such file: '{archive}'.");
+        if (Keep(under, out var selectors, out var notes) is { } bad) return ToolAnswer.Refusal(bad);
 
         var r = HousecarlCore.BsaArchive.List(archive);
-        if (!r.Ran) return "error: " + r.RunError;
-        if (!r.Success) return "error: " + r.Raw;   // header-vs-reader file-count mismatch (possible corruption)
+        if (!r.Ran) return ToolAnswer.Refusal("error: " + r.RunError);
+        if (!r.Success) return ToolAnswer.Refusal("error: " + r.Raw);   // header-vs-reader file-count mismatch (possible corruption)
 
         var files = r.Files;
         if (selectors is not null) { (files, var dead) = Tally(selectors, r.Files, archive); notes.AddRange(dead); }
@@ -43,7 +43,7 @@ public static class BsaTools
           .Append(r.DeclaredCount).Append(" file(s)");
         if (selectors is not null) sb.Append(", ").Append(files.Count).Append(" matching under=");
         AssetWire.AppendSelectorNotes(sb, notes, RenderCap.For(cap, 0));
-        if (counts_only) return sb.ToString().TrimEnd('\n');
+        if (counts_only) return ToolAnswer.Served(sb.ToString().TrimEnd('\n'));
         if (sb[^1] != '\n') sb.Append('\n');
         int shown = 0;
         foreach (var f in files)
@@ -51,7 +51,7 @@ public static class BsaTools
             if (sb.Length >= cap) { sb.Append("  ... [").Append(files.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append("]\n"); break; }
             sb.Append("  ").Append(f).Append('\n'); shown++;
         }
-        return sb.ToString().TrimEnd('\n');
+        return ToolAnswer.Served(sb.ToString().TrimEnd('\n'));
     });
 
     const string UnderText =
@@ -111,27 +111,27 @@ public static class BsaTools
         [Description("Optional. Absolute path to the folder to unpack into. Omit for a new houseCARL mod folder under your mods directory; its path is reported.")]
             string? out_path = null,
         [Description("Optional. Extract only the files matching these, as " + ToolNames.BsaList + " under=; matching none is refused.")]
-            string[]? under = null) => Guard.Tool(ToolNames.BsaExtract, () =>
+            string[]? under = null) => Guard.Tool(ToolNames.BsaExtract, call =>
     {
-        if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
+        if (string.IsNullOrWhiteSpace(archive)) return ToolAnswer.Refusal("error: no archive given. Pass the full path to the .bsa.");
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
-        catch (Exception ex) { return $"error: '{archive}' is not a usable path ({ex.Message})."; }
-        if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
-        if (Keep(under, out var selectors, out var notes) is { } bad) return bad;
+        catch (Exception ex) { return ToolAnswer.Refusal($"error: '{archive}' is not a usable path ({ex.Message})."); }
+        if (!File.Exists(archive)) return ToolAnswer.Refusal($"error: no such file: '{archive}'.");
+        if (Keep(under, out var selectors, out var notes) is { } bad) return ToolAnswer.Refusal(bad);
         // Matched before any folder is cut, so an empty match refuses with nothing written.
         var matched = new StringBuilder();
         Func<string, bool>? keep = null;
         if (selectors is not null)
         {
             var listed = HousecarlCore.BsaArchive.List(archive);
-            if (!listed.Ran) return "error: " + listed.RunError;
-            if (!listed.Success) return "error: " + listed.Raw;
+            if (!listed.Ran) return ToolAnswer.Refusal("error: " + listed.RunError);
+            if (!listed.Success) return ToolAnswer.Refusal("error: " + listed.Raw);
             var (kept, dead) = Tally(selectors, listed.Files, archive);
             if (kept.Count == 0)
             {
                 var refusal = new StringBuilder($"error: under= matched none of the {listed.Files.Count} file(s) in '{Path.GetFileName(archive)}', so nothing was extracted; check the pattern with {ToolNames.BsaList} under=.");
                 AssetWire.AppendSelectorNotes(refusal, notes, RenderCap.For(Wire.DefaultMaxChars, 0));
-                return refusal.ToString();
+                return ToolAnswer.Refusal(refusal.ToString());
             }
             notes.AddRange(dead);
             matched.Append(kept.Count).Append(" of ").Append(listed.Files.Count).Append(" file(s) matched under=.");
@@ -144,26 +144,26 @@ public static class BsaTools
         bool managed = string.IsNullOrWhiteSpace(out_path);
         if (managed)
         {
-            if (svc.ConfigPromptOrNull() is { } cfg) return cfg;   // need ModsDir for the default managed folder
+            if (svc.ConfigPromptOrNull() is { } cfg) return ToolAnswer.Refusal(cfg);   // need ModsDir for the default managed folder
             // Extract names the folder it left behind on failure rather than deleting it, unlike repack below.
             try { target = svc.ResolvePatchModFolder(Path.GetFileNameWithoutExtension(archive) + " (extracted)", into: null, "houseCARL_Extract", naming: null).OutputDir; }
-            catch (InvalidOperationException ex) { return "error: " + ex.Message; }
+            catch (InvalidOperationException ex) { return ToolAnswer.Refusal("error: " + ex.Message); }
         }
         else
         {
             var given = out_path!.Trim().Trim('"');
             if (PathArguments.NotAbsolute(given, "out_path", "the folder to unpack into", "C:\\work\\extracted") is { } notAbsolute)
-                return "error: " + notAbsolute;
+                return ToolAnswer.Refusal("error: " + notAbsolute);
             // An absolute path can still be unusable (an embedded NUL, or past the OS length limit); named here rather than thrown at the guard.
             try { target = Path.GetFullPath(given); }
-            catch (Exception ex) { return $"error: out_path '{given}' is not a usable path ({ex.Message})."; }
+            catch (Exception ex) { return ToolAnswer.Refusal($"error: out_path '{given}' is not a usable path ({ex.Message})."); }
         }
 
         string residue = managed ? $"\nThe freshly created mod folder was left at '{target}' — delete it or retry into it." : "";
         var r = HousecarlCore.BsaArchive.Unpack(archive, target, keep);
-        if (!r.Ran) return "error: " + r.RunError + residue;   // archive couldn't be opened/read
+        if (!r.Ran) return ToolAnswer.Refusal("error: " + r.RunError + residue);   // archive couldn't be opened/read
         if (!r.Success)                                          // path-traversal refusal or a mid-extract error
-            return "extract FAILED: " + r.Raw + residue;
+            return ToolAnswer.Refusal("extract FAILED: " + r.Raw + residue);
 
         var sb = new StringBuilder();
         sb.Append("extracted ").Append(Path.GetFileName(archive)).Append(" → ").Append(target).Append('\n');
@@ -171,7 +171,7 @@ public static class BsaTools
         sb.Append(managed
             ? "(a new houseCARL mod folder — read the files you need from it; enable it in MO2 only if you want the loose files in your load order.)"
             : "(read the files you need from that folder.)");
-        return sb.ToString();
+        return ToolAnswer.Served(sb.ToString());
     });
 
     /// <summary>How the repack lane names its mod folder, for the into= not-found refusal. That name is load-bearing
@@ -205,13 +205,13 @@ public static class BsaTools
         [Description("Optional, default false. Compress the archive. Compression breaks any sounds or voices in it, so leave it false if the folder contains audio.")]
             bool compress = false,
         [Description("Optional. An existing houseCARL patch to place the .bsa into instead of a new folder; the archive takes that folder's name without the 'houseCARL - ' prefix. Pass the patch's plugin filename (found even if you renamed its MO2 folder), or the mod-folder name when two patches share a filename.")]
-            string? into = null) => Guard.Tool(ToolNames.BsaRepack, () =>
+            string? into = null) => Guard.Tool(ToolNames.BsaRepack, call =>
     {
-        if (string.IsNullOrWhiteSpace(source_folder)) return "error: no source_folder given.";
+        if (string.IsNullOrWhiteSpace(source_folder)) return ToolAnswer.Refusal("error: no source_folder given.");
         source_folder = Path.GetFullPath(source_folder.Trim().Trim('"'));
-        if (!Directory.Exists(source_folder)) return $"error: no such folder: '{source_folder}'.";
-        if (svc.ConfigPromptOrNull() is { } cfg) return cfg;
-        if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return prompt;
+        if (!Directory.Exists(source_folder)) return ToolAnswer.Refusal($"error: no such folder: '{source_folder}'.");
+        if (svc.ConfigPromptOrNull() is { } cfg) return ToolAnswer.Refusal(cfg);
+        if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return ToolAnswer.Refusal(prompt);
 
         // patch= names the mod FOLDER and the .bsa inside takes that folder's name. A caller who spells the archive
         // itself means that name, so the extension is stripped rather than doubled on the file.
@@ -220,16 +220,16 @@ public static class BsaTools
         if (stem is not null && stem.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
         // The resolver refuses patch= beside into= before any folder is cut.
         try { rf = svc.ResolvePatchModFolder(stem, into, new DirectoryInfo(source_folder).Name, RepackNaming); }
-        catch (InvalidOperationException ex) { return "error: " + ex.Message; }
+        catch (InvalidOperationException ex) { return ToolAnswer.Refusal("error: " + ex.Message); }
         var folder = rf.OutputDir;
         var name = rf.Stem + ".bsa";
 
         // On any post-allocation failure: an empty fresh folder is deleted, a partial .bsa is kept and named, and a reused into= folder is left alone.
-        string Refuse(string msg)
+        ToolAnswer Refuse(string msg)
         {
             var left = svc.RemoveOrNameRiderResidue(rf);
-            return left is null ? msg
-                : msg + $"\nThe freshly created mod folder at '{left}' still holds a partial archive — delete it or retry with into=.";
+            return ToolAnswer.Refusal(left is null ? msg
+                : msg + $"\nThe freshly created mod folder at '{left}' still holds a partial archive — delete it or retry with into=.");
         }
 
         var archive = Path.Combine(folder, name);
@@ -248,7 +248,7 @@ public static class BsaTools
         if (!r.Success)
             return Refuse($"repack FAILED: no .bsa written at '{archive}'. Raw BSArch output:\n" + r.Raw + RootSkipNote(r.RootSkipped));
 
-        return PackReport(r, name, archive, fmtFlag, compress);
+        return ToolAnswer.Served(PackReport(r, name, archive, fmtFlag, compress));
     });
 
     /// <summary>The success message for a repack: how many files the archive holds, where it landed, and any root-level files BSArch dropped.</summary>

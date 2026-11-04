@@ -44,32 +44,32 @@ public static class CopyTools
         [Description("Base filename for the new patch plugin and its mod folder (default: new_editorid= when cloning, else 'Patch'). " + LaneSentences.PatchSuffix)]
             string? patch = null,
         [Description(LaneSentences.IntoLead + LaneSentences.IntoFound)]
-            string? into = null) => Guard.Tool(ToolNames.Copy, () =>
+            string? into = null) => Guard.Tool(ToolNames.Copy, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
 
         // A blank patch= or into= is no name, so the new_editorid= default applies; naming both lanes is refused.
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
         var intoName = string.IsNullOrWhiteSpace(into) ? null : into;
-        if (LaneSentences.PatchIntoRefusal(patchName, intoName) is { } patchInto) return "error: " + patchInto;
+        if (LaneSentences.PatchIntoRefusal(patchName, intoName) is { } patchInto) return ToolAnswer.Refusal("error: " + patchInto);
 
         // One door for every token in the call, so the source and the target resolve against one index build.
         var door = svc.OpenWriteFormIdDoor();
         FormKey fromKey;
         try { fromKey = door.Parse(from); }
-        catch (Exception ex) { return FormIdDoor.Sentence(ex, "error: ", $"error: bad from '{from}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
+        catch (Exception ex) { return ToolAnswer.Refusal(FormIdDoor.Sentence(ex, "error: ", $"error: bad from '{from}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); }
 
         bool hasTarget = !string.IsNullOrWhiteSpace(target);
         bool hasClone = !string.IsNullOrWhiteSpace(new_editorid);
         if (hasTarget == hasClone)
-            return "error: pass EXACTLY ONE destination — target= (copy onto an existing record) or " +
-                   "new_editorid= (mint a clone of the source record).";
+            return ToolAnswer.Refusal("error: pass EXACTLY ONE destination — target= (copy onto an existing record) or " +
+                   "new_editorid= (mint a clone of the source record).");
 
         FormKey? targetKey = null;
         if (hasTarget)
         {
             try { targetKey = door.Parse(target); }
-            catch (Exception ex) { return FormIdDoor.Sentence(ex, "error: ", $"error: bad target '{target}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
+            catch (Exception ex) { return ToolAnswer.Refusal(FormIdDoor.Sentence(ex, "error: ", $"error: bad target '{target}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); }
         }
 
         // Blank elements are REFUSED BY INDEX, never dropped: dropping one shifts every later index, so the
@@ -77,12 +77,12 @@ public static class CopyTools
         var rawSeeds = seed_paths ?? Array.Empty<string>();
         for (int i = 0; i < rawSeeds.Length; i++)
             if (string.IsNullOrWhiteSpace(rawSeeds[i]))
-                return $"error: seed_paths[{i}] is blank — every element must name a field on the record being " +
-                       "copied. Remove the empty entry rather than leaving it for houseCARL to guess at.";
+                return ToolAnswer.Refusal($"error: seed_paths[{i}] is blank — every element must name a field on the record being " +
+                       "copied. Remove the empty entry rather than leaving it for houseCARL to guess at.");
         var seeds = rawSeeds.Select(s => s.Trim()).ToList();
         if (seeds.Count == 0)
-            return "error: seed_paths is required — name the link-bearing field(s) the walk starts from " +
-                   "(e.g. seed_paths=['HeadParts','WornArmor']). Without them there is nothing to copy.";
+            return ToolAnswer.Refusal("error: seed_paths is required — name the link-bearing field(s) the walk starts from " +
+                   "(e.g. seed_paths=['HeadParts','WornArmor']). Without them there is nothing to copy.");
 
         var exclusions = new List<WalkExclusion>();
         foreach (var raw in exclude_types ?? Array.Empty<string>())
@@ -90,21 +90,21 @@ public static class CopyTools
             // REFUSED, not skipped: skipping would run the copy with fewer exclusions than were passed, silently.
             // A blank here shifts no index the response reports, so it refuses by CONTENT rather than by index.
             if (string.IsNullOrWhiteSpace(raw))
-                return "error: exclude_types has a blank entry. Every element must name a record type as " +
+                return ToolAnswer.Refusal("error: exclude_types has a blank entry. Every element must name a record type as " +
                        "'Type:stop' (prune it, keep the link) or 'Type:refuse' (fail the copy) — remove the empty " +
                        "entry rather than leaving it, because running with it dropped would silently apply FEWER " +
-                       "exclusions than you passed.";
+                       "exclusions than you passed.");
             var parts = raw.Split(':', 2);
             var type = parts[0].Trim();
             var sev = parts.Length > 1 ? parts[1].Trim().ToLowerInvariant() : "refuse";
-            if (type.Length == 0) return $"error: exclude_types entry '{raw}' names no record type. Use 'Type:stop' or 'Type:refuse'.";
+            if (type.Length == 0) return ToolAnswer.Refusal($"error: exclude_types entry '{raw}' names no record type. Use 'Type:stop' or 'Type:refuse'.");
             if (sev is not ("stop" or "refuse"))
-                return $"error: exclude_types entry '{raw}' has severity '{sev}' — use 'stop' (prune, keep the link) or 'refuse' (fail the copy).";
+                return ToolAnswer.Refusal($"error: exclude_types entry '{raw}' has severity '{sev}' — use 'stop' (prune, keep the link) or 'refuse' (fail the copy).");
             // A duplicate type name would throw in the walk's ToDictionary, which Guard.Tool reports as an internal
             // failure rather than bad input — so it is caught here, in the layer that owns prose.
             if (exclusions.Any(x => string.Equals(x.TypeName, type, StringComparison.OrdinalIgnoreCase)))
-                return $"error: exclude_types names '{type}' more than once. One severity per record type — " +
-                       "'stop' (prune, keep the link) or 'refuse' (fail the copy) — so pick the one you mean.";
+                return ToolAnswer.Refusal($"error: exclude_types names '{type}' more than once. One severity per record type — " +
+                       "'stop' (prune, keep the link) or 'refuse' (fail the copy) — so pick the one you mean.");
             exclusions.Add(new WalkExclusion(type,
                 sev == "stop" ? ExclusionSeverity.Stop : ExclusionSeverity.Refuse,
                 $"excluded by the caller as '{sev}'"));
@@ -113,14 +113,15 @@ public static class CopyTools
         var rawPoles = from_source ?? Array.Empty<string>();
         for (int i = 0; i < rawPoles.Length; i++)
             if (string.IsNullOrWhiteSpace(rawPoles[i]))
-                return $"error: from_source[{i}] is blank — every element must name a source ('winner', or a plugin " +
-                       "filename). Remove the empty entry; leaving it would shift the positions this call reports.";
+                return ToolAnswer.Refusal($"error: from_source[{i}] is blank — every element must name a source ('winner', or a plugin " +
+                       "filename). Remove the empty entry; leaving it would shift the positions this call reports.");
         var poles = rawPoles.Select(s => s.Trim()).ToList();
         // Only an ABSENT or EMPTY list takes the documented default. A list with a blank IN it is a caller error,
         // refused above, rather than a list that quietly becomes something shorter.
         if (poles.Count == 0) poles.Add(SourcePoles.Winner);
 
-        return Render(svc.CopyClosure(fromKey, poles, seeds, exclusions, targetKey, new_editorid, patchName, intoName));
+        var outcome = svc.CopyClosure(fromKey, poles, seeds, exclusions, targetKey, new_editorid, patchName, intoName);
+        return ToolAnswer.Outcome(outcome.Success, Render(outcome));
     });
 
     /// <summary>Render one outcome. Internal so a test can read the sentences without going through the wire.</summary>

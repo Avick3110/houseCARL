@@ -19,17 +19,17 @@ public static class SetupTools
     public static string SetMo2Instance(
         LoadOrderService svc,
         [Description("Full path to the MO2 instance folder — the one containing ModOrganizer.ini (e.g. a Wabbajack list's install folder).")]
-            string path) => Guard.Tool(ToolNames.SetMo2Instance, () =>
+            string path) => Guard.Tool(ToolNames.SetMo2Instance, call =>
     {
         if (string.IsNullOrWhiteSpace(path))
-            return "error: no path given. Pass the full path to your MO2 instance folder (the one containing ModOrganizer.ini).";
+            return ToolAnswer.Refusal("error: no path given. Pass the full path to your MO2 instance folder (the one containing ModOrganizer.ini).");
         path = path.Trim().Trim('"');   // tolerate a copy-pasted quoted path, like every sibling path-taking tool
 
         Mo2InstancePaths paths; bool persisted; string? persistError; string? persistNote;
         try { (paths, persisted, persistError, persistNote) = svc.SetInstance(path); }
-        catch (InvalidOperationException ex) { return "error: " + ex.Message; }   // not a usable instance — nothing changed
+        catch (InvalidOperationException ex) { return ToolAnswer.Refusal("error: " + ex.Message); }   // not a usable instance — nothing changed
 
-        return Render(paths, persisted, persistError, persistNote);
+        return ToolAnswer.Served(Render(paths, persisted, persistError, persistNote));
     });
 
     [McpServerTool(Name = ToolNames.SetToolPath, Title = "Tell houseCARL where an external tool is"),
@@ -45,17 +45,17 @@ public static class SetupTools
         [Description("Which tool: 'papyrus_compiler' (CK PapyrusCompiler.exe), 'bsarch' (BSArch.exe), 'papyrus_logs' (script-log folder), or 'crash_logs' (SKSE crash-log folder).")]
             string tool,
         [Description("Full path to the tool: the .exe FILE for papyrus_compiler/bsarch, or the log DIRECTORY for papyrus_logs/crash_logs.")]
-            string path) => Guard.Tool(ToolNames.SetToolPath, () =>
+            string path) => Guard.Tool(ToolNames.SetToolPath, call =>
     {
         if (string.IsNullOrWhiteSpace(tool))
-            return "error: no tool named. Pass tool= one of: " + ToolBridge.WireKeys + ".";
+            return ToolAnswer.Refusal("error: no tool named. Pass tool= one of: " + ToolBridge.WireKeys + ".");
         if (!ToolBridge.TryParse(tool, out var dep))
-            return $"error: unknown tool '{tool}'. Expected one of: {ToolBridge.WireKeys}.";
+            return ToolAnswer.Refusal($"error: unknown tool '{tool}'. Expected one of: {ToolBridge.WireKeys}.");
         if (string.IsNullOrWhiteSpace(path))
-            return $"error: no path given for '{tool}'. Pass the full path to {ToolBridge.Info(dep).Display}.";
+            return ToolAnswer.Refusal($"error: no path given for '{tool}'. Pass the full path to {ToolBridge.Info(dep).Display}.");
 
         var (ok, error, persisted, persistError, persistNote, resolved) = bridge.Save(dep, path);
-        if (!ok) return "error: " + error;   // validation failed — nothing saved
+        if (!ok) return ToolAnswer.Refusal("error: " + error);   // validation failed — nothing saved
 
         var info = ToolBridge.Info(dep);
         var sb = new StringBuilder();
@@ -65,7 +65,7 @@ public static class SetupTools
             ? "saved to houseCARL.user.json — persists across restarts (coexists with your MO2 instance)."
             : $"NOTE: could not save ({persistError}) — works this session, but you'll need to set it again after a restart.");
         if (persistNote is not null) sb.Append("\nRECOVERED: ").Append(persistNote);   // corrupt prior config — never silent
-        return sb.ToString();
+        return ToolAnswer.Served(sb.ToString());
     });
 
     /// <summary>The confirmation text: the instance, the derived roots, the auto-detected profile, a cheap enabled/active summary, and whether the choice was persisted.</summary>

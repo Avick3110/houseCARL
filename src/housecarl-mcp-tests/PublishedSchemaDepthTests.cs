@@ -179,7 +179,7 @@ public sealed class PublishedSchemaDepthTests : IClassFixture<CappedSchemaServer
                 "sets":[{"path":"Function","value":"GetItemCount"}]}}]}}]}
             """);
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
