@@ -91,6 +91,16 @@ public sealed class NifOneReaderTests : IDisposable
         Assert.Contains("texture — shape 'Glow' effect source texture: `" + Shared + "`", links, StringComparison.Ordinal);
     }
 
+    /// <summary>links= JSON keeps each file once at its first site, as its text does.</summary>
+    [Fact]
+    public void AFileNamedAtTwoSitesIsOnceInLinksJson()
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(AssetTools.AssetStatus(_svc, asset_paths: new[] { Cape }, links: true, format: "json"));
+        var shared = json.RootElement.GetProperty("results")[0].GetProperty("links").EnumerateArray()
+                         .Where(l => l.GetProperty("raw").GetString() == Shared).ToList();
+        Assert.Equal("shape 'Glow' effect source texture", Assert.Single(shared).GetProperty("where").GetString());
+    }
+
     /// <summary>paths names a slot past 0 where a Skyrim-layout shader determines it, and prints every slot of a
     /// foreign-layout shader bare.</summary>
     [Fact]
