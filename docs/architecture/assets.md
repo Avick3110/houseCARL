@@ -336,8 +336,8 @@ the door refuses is a link with its reason, never a dropped one; a null, empty o
 It returns one link per site; `NifLinks.FirstSites` keeps each file once, at its first site, for `links=` and the walk.
 `nif_inspect`'s paths section lists every site through the same reader, resolve and line ([nif.md](nif.md)).
 `asset_status links=true` reads the winning copy of every present `.nif` row and lists them, each Data path with its
-winner; with `provider=` the heading says the links are the winning copy's, whatever `provider=` names (reading the
-named copy is finding 8's change). A plain row is unchanged. A `to_file=` or
+winner; with `provider=` the heading says the links are the winning copy's, whatever `provider=` names (the named
+mod's copy is not read). A plain row is unchanged. A `to_file=` or
 ceiling-spill artifact row carries the same `links` member (and the manifest's row schema names it only then);
 `counts_only=` has no rows and refuses `links=`.
 

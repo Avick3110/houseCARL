@@ -96,8 +96,8 @@ Two differences from `links=`, both deliberate: `paths` lists every site, so a f
 and a slot) is two lines, because `texture_slot=` names a slot; `links=` and the walk keep each file once at its first
 site (`NifLinks.FirstSites`). And `paths` adds the slot's name where the shader determines it. A null, empty or
 whitespace-only string is no link on either surface. The section first says whose copy the links came from (the
-`read from:` copy, a `source_provider=` copy included) and that each standing is the load order's; resolving against
-the named copy is finding 8's change, not this one. None of `asset_status`'s per-path ABSENT hedges rides a link line,
+`read from:` copy, a `source_provider=` copy included) and that each standing is the load order's: each Data path
+resolves against the load order, never against the named copy's own mod. None of `asset_status`'s per-path ABSENT hedges rides a link line,
 so an unread archive or an unlisted root is named only in the header's notes. The `shapes` section keeps the raw slot
 strings, and `nif_set` writes the string it is given (Pinned by: `NifOneReaderTests`, `AssetLinkDataPathTests`).
 
