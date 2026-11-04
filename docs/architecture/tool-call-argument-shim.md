@@ -103,8 +103,9 @@ served: it is a question the next call answers, `needs_acknowledge` in json. A p
 served batch is not a refusal. A tool method called directly, outside the filter, opens no verdict and
 returns the same text.
 
-The body takes the call's `ToolCall`, which `Guard` opens and disposes around it: today it holds the
-mid-call mark and the game-language binding, and the per-call context joins them there.
+The body takes the call's `ToolCall`, which `Guard` opens and disposes around it: it holds the mid-call
+mark, the game-language binding and the per-call context (`docs/architecture/load-order-service.md`, "The
+per-call context"). `Guard` refuses the call when the context or the mark carries a refusal.
 
 ## Pinned by
 
