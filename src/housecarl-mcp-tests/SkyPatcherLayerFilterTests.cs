@@ -18,7 +18,7 @@ public sealed class SkyPatcherLayerFilterTests
 
     static SkyPatcherLayerData Layer(params SkyPatcherDiscovery.FolderScan[] folders) =>
         new(new SkyPatcherDiscovery.LayerScan(folders, Array.Empty<string>(), ReadIncomplete: false,
-                new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), true, null)),
+                new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), null)),
             Conflicts: Array.Empty<SkyPatcherConflicts.SkyPatcherConflict>(),
             Itms: Array.Empty<SkyPatcherConflicts.SkyPatcherItm>(),
             Duplicates: Array.Empty<SkyPatcherConflicts.SkyPatcherDuplicate>(),
@@ -390,7 +390,7 @@ public sealed class SkyPatcherLayerFilterTests
         {
             Scan = new SkyPatcherDiscovery.LayerScan(d.Scan.Folders,
                 new[] { "subfolder 'npcs' is not a documented SkyPatcher record type" },
-                ReadIncomplete: false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), true, null)),
+                ReadIncomplete: false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), null)),
             NoOpNotes = new[] { "a replay note" },
         };
 
@@ -408,7 +408,7 @@ public sealed class SkyPatcherLayerFilterTests
         {
             Scan = new SkyPatcherDiscovery.LayerScan(d.Scan.Folders,
                 Enumerable.Range(1, 40).Select(i => $"scan note {i} " + new string('x', 200)).ToArray(),
-                ReadIncomplete: false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), true, null)),
+                ReadIncomplete: false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), null)),
         };
 
         var full = SkyPatcherWire.RenderLayer(withNotes, "weapon", 1_000_000);
@@ -428,7 +428,7 @@ public sealed class SkyPatcherLayerFilterTests
         {
             Scan = new SkyPatcherDiscovery.LayerScan(d.Scan.Folders,
                 Enumerable.Range(1, 40).Select(i => $"scan note {i} " + new string('x', 200)).ToArray(),
-                ReadIncomplete: false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), true, null)),
+                ReadIncomplete: false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), null)),
             ReadIncomplete = true,
         };
 

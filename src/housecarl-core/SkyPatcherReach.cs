@@ -1,4 +1,39 @@
+using System.Runtime.CompilerServices;
+
 namespace HousecarlCore;
+
+/// <summary>One patch line classified against one record type: its filters and operations, whether a key is unknown, and its reach shape.</summary>
+public sealed record SkyPatcherClassifiedLine(
+    SkyPatcherRecordCatalog RecordCatalog,
+    IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)> Filters,
+    IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)> Ops,
+    bool UnknownKey,
+    SkyPatcherLineShape Shape)
+{
+    static readonly ConditionalWeakTable<SkyPatcherLine, SkyPatcherClassifiedLine> Cache = new();
+
+    /// <summary>Classify every key of <paramref name="line"/> once per record type; the answer is kept beside the parsed line, which the parse cache already shares across calls.</summary>
+    public static SkyPatcherClassifiedLine Of(SkyPatcherLine line, SkyPatcherCatalog catalog, SkyPatcherRecordCatalog recordCatalog)
+    {
+        if (Cache.TryGetValue(line, out var hit) && ReferenceEquals(hit.RecordCatalog, recordCatalog)) return hit;
+        var filters = new List<(SkyPatcherSegment, SkyPatcherKeyClass)>();
+        var ops = new List<(SkyPatcherSegment, SkyPatcherKeyClass)>();
+        bool unknown = false;
+        foreach (var seg in line.Segments)
+        {
+            var cls = catalog.Classify(recordCatalog, seg.Key);
+            switch (cls.Role)
+            {
+                case SkyPatcherKeyRole.Filter: filters.Add((seg, cls)); break;
+                case SkyPatcherKeyRole.Operation: ops.Add((seg, cls)); break;
+                default: unknown = true; break;
+            }
+        }
+        var made = new SkyPatcherClassifiedLine(recordCatalog, filters, ops, unknown, SkyPatcherLineShape.Of(filters, recordCatalog));
+        Cache.AddOrUpdate(line, made);
+        return made;
+    }
+}
 
 /// <summary>The reach of one classified SkyPatcher line, read off the catalog's filter roles and the patcher's differences; every consumer that asks which records a line can touch reads this shape. Contract in docs/architecture/skypatcher-layer.md.</summary>
 public sealed record SkyPatcherLineShape(
@@ -15,6 +50,9 @@ public sealed record SkyPatcherLineShape(
 
     /// <summary>No direct list and no finder: every record passes, unless the patcher patches nothing then.</summary>
     public bool Filterless => Direct.Count == 0 && FinderGroups.Count == 0;
+
+    /// <summary>A filterless line in a patcher that then patches every record.</summary>
+    public bool PatchesEveryRecord => Filterless && !FilterlessPatchesNothing;
 
     /// <summary>The line can touch only the records its one direct list names: no gate, finder, narrower or ignored key beside it.</summary>
     public bool OnlyDirect => Direct.Count == 1 && Gates.Count == 0 && FinderGroups.Count == 0 && Narrowers.Count == 0 && Ignored.Count == 0;

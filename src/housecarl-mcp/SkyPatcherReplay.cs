@@ -95,10 +95,9 @@ internal sealed partial class AssetLayers
         HashSet<FormKey>? NamedTargets(SkyPatcherLine line, SkyPatcherRecordCatalog recordCatalog)
         {
             if (line.Kind != SkyPatcherLineKind.Patch || line.Note is not null) return null;
-            var filters = SkyPatcherConflicts.Filters(line, Catalog, recordCatalog, out _);
-            if (filters is null || filters.Count != 1) return null;
-            var shape = SkyPatcherLineShape.Of(filters, recordCatalog);
-            if (!shape.OnlyDirect || shape.Direct[0].seg.Values.Count == 0) return null;
+            var classified = SkyPatcherClassifiedLine.Of(line, Catalog, recordCatalog);
+            var shape = classified.Shape;
+            if (classified.UnknownKey || !shape.OnlyDirect || shape.Direct[0].seg.Values.Count == 0) return null;
             var keys = new HashSet<FormKey>();
             foreach (var v in shape.Direct[0].seg.Values)
                 if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var k)) keys.Add(k);
@@ -244,7 +243,15 @@ internal sealed partial class AssetLayers
         public SkyPatcherServiceResolver(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, string? tweaksMissing)
         { _layers = layers; _view = view; _session = session; _tweaksMissing = tweaksMissing; }
 
-        public string? EditorIdGap(string? mutagenType) => SkyPatcherEditorIds.Gap(_tweaksMissing, mutagenType);
+        readonly Dictionary<string, string?> _gaps = new(StringComparer.OrdinalIgnoreCase);
+
+        public string? EditorIdGap(string? mutagenType)
+        {
+            if (_tweaksMissing is null) return null;
+            var key = mutagenType ?? "";
+            if (!_gaps.TryGetValue(key, out var gap)) _gaps[key] = gap = SkyPatcherEditorIds.Gap(_tweaksMissing, mutagenType);
+            return gap;
+        }
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
         {

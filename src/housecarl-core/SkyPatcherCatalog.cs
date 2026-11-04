@@ -130,7 +130,7 @@ public sealed class SkyPatcherCatalog
         if (el.TryGetProperty("keywordsAlsoFrom", out var ks) && RequireArray(ks, "keywordsAlsoFrom", recordType))
             foreach (var k in ks.EnumerateArray())
                 sources.Add(new SkyPatcherKeywordSource(Str(k, "path"), OptStr(k, "keyPath")));
-        var player = el.TryGetProperty("player", out var pl) ? pl : default;
+        bool hasPlayer = el.TryGetProperty("player", out var player) && player.ValueKind == JsonValueKind.Object;
         return new SkyPatcherRecordCatalog(
             recordType, Str(el, "sig"), Str(el, "subfolder"), Str(el, "primaryFilter"),
             filters, ops, OptStr(el, "note"))
@@ -143,8 +143,8 @@ public sealed class SkyPatcherCatalog
             },
             Ignores = StrList(el, "ignores", recordType),
             DirectNarrowedBy = StrList(el, "directNarrowedBy", recordType),
-            PlayerFoundBy = player.ValueKind == JsonValueKind.Object ? StrList(player, "foundBy", recordType) : Array.Empty<string>(),
-            PlayerNeverRemovedBy = player.ValueKind == JsonValueKind.Object ? StrList(player, "neverRemovedBy", recordType) : Array.Empty<string>(),
+            PlayerFoundBy = hasPlayer ? StrList(player, "foundBy", recordType) : Array.Empty<string>(),
+            PlayerNeverRemovedBy = hasPlayer ? StrList(player, "neverRemovedBy", recordType) : Array.Empty<string>(),
             KeywordsAlsoFrom = sources,
             EnabledWithoutSwitch = el.TryGetProperty("enabledWithoutSwitch", out var ew) && ew.ValueKind == JsonValueKind.True,
         };
