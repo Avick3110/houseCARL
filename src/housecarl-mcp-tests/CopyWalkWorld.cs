@@ -33,6 +33,8 @@ public sealed class CopyWalkWorld : IDisposable
     public FormKey Dangling { get; }
     /// <summary>A FormList seeding a small tree whose breadth-first order differs from its depth-first one.</summary>
     public FormKey OrderList { get; }
+    /// <summary>A FormList whose one head part links back to the list: a walk that cycles to the from record.</summary>
+    public FormKey CycleList { get; }
 
     public CopyWalkWorld()
     {
@@ -111,6 +113,14 @@ public sealed class CopyWalkWorld : IDisposable
         order.Items.Add(a.FormKey); order.Items.Add(b.FormKey);
         mod.FormLists.Add(order);
         OrderList = order.FormKey;
+
+        // Items [CycPart]; CycPart's ValidRaces is the list itself, so the walk reaches the from record.
+        var cycPart = Part("CycPart");
+        var cycle = new FormList(NextKey(), SkyrimRelease.SkyrimSE) { EditorID = "CycleList" };
+        cycle.Items.Add(cycPart.FormKey);
+        cycPart.ValidRaces.SetTo(cycle.FormKey);
+        mod.FormLists.Add(cycle);
+        CycleList = cycle.FormKey;
         Write(mod, "WalkMod");
 
         File.WriteAllText(Path.Combine(prof, "modlist.txt"), "+BaseMod\r\n-WalkMod\r\n");
