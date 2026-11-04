@@ -513,4 +513,19 @@ public sealed class HiddenReasonTests : IDisposable
         }
         finally { PlaceInstance.UndenyList(deny); }
     }
+
+    [Fact]
+    public void AWalkFromAnEnabledModWhoseFolderDidNotListDoesNotCallItUnloaded()
+    {
+        var deny = Path.Combine(_p.Mods, "ModD", "textures", "deny");
+        Assert.True(PlaceInstance.TryDenyList(deny), "the list deny did not bite on this machine");
+        try
+        {
+            var t = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "textures/deny/t.dds" }, walk: true, source_provider: "ModD");
+
+            Assert.Contains("FROM SOURCE: \"ModD\" (loose) (enabled, but its folder did not read this build)", t);
+            Assert.DoesNotContain("not loaded by the game", t);
+        }
+        finally { PlaceInstance.UndenyList(deny); }
+    }
 }
