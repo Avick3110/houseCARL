@@ -182,6 +182,23 @@ public sealed class CallContextTests : IDisposable
         Call(() => Assert.Equal("Other", Host.CaptureAssets().ProfileName));
     }
 
+    [Fact]
+    public void AFilesFirstCallKeepsItsRootsWhenAnotherCallSwitchesProfile()
+    {
+        Call(() => Host.CaptureAssets());                       // warm both sides on Default
+        Mo2Roots? held = null;
+        Call(() =>
+        {
+            held = Host.CaptureAssets().Roots;
+            Assert.Equal(held, Host.CaptureRoots());             // no switch: the same answer as before
+            SelectOther();
+            OutsideTheCall(() => Host.CaptureAssets());           // another call follows the switch
+            Assert.Equal(held, Host.CaptureRoots());
+            Assert.Equal(held, Host.ConfiguredRoots().Roots);
+        });
+        Call(() => Assert.NotEqual(held, Host.CaptureRoots()));   // the next call reads the switched profile
+    }
+
     void Change(string kind) { if (kind == "switch") SelectOther(); else AddLate(); }
 
     // A switch moves the roots; an added plugin keeps them and rebuilds the order.
