@@ -377,6 +377,26 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.Contains("123", File.ReadAllText(post));
     }
 
+    /// <summary>where_source= rides with where=: the plain scan keeps it, so it matches what the refused call matched,
+    /// and the re-run drops it, which where= gone would refuse.</summary>
+    [Fact]
+    public void OverlayScanDeltaWithWhereSource_NamesARouteThatKeepsItOnTheScanAndRuns()
+    {
+        var draft = DraftPost("route-wheresrc");
+        var where = new[] { "editorid = HcRecW0" };
+        Refused(RecordsTools.Records(Svc, types: Weap, where: where, where_source: "winner", source: draft, versus: Je("\"winner\""),
+                                     project: Form("delta")),
+                "plain scan of types=, where= and where_source= with to_file=", "in place of types=, where= and where_source=");
+        Refused(RecordsTools.Records(Svc, types: Weap, where: where, where_source: "winner", formids: new[] { Fid(W.Weapons[0]) },
+                                     source: draft, versus: Je("\"winner\""), project: Form("delta")),
+                "drop types=, where= and where_source= (formids= beside them makes this call a scan)");
+        var path = W.Scratch("route-wheresrc", "matches.jsonl");
+        Served(RecordsTools.Records(Svc, types: Weap, where: where, where_source: "winner", to_file: path), "complete result");
+        var r = RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: draft, versus: Je("\"winner\""), project: Form("delta"));
+        Served(r, "HcRecW0", "BasicStats.Damage=123 (HcRecOverride.esp 99)");
+        Assert.DoesNotContain("HcRecW1", r);
+    }
+
     /// <summary>A scan-seeded walk under the post overlay: the route walks the file's records under the same pole.</summary>
     [Fact]
     public void OverlayScanWalk_NamesTheFileRouteAndItRuns()
