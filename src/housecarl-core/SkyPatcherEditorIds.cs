@@ -25,20 +25,11 @@ public static class SkyPatcherEditorIds
         if (ini is null || ini.Kind != AssetKind.Loose) return null;   // the DLL writes its defaults, which load EditorIDs
         try
         {
-            bool inFixes = false;
-            foreach (var raw in File.ReadAllLines(ini.LooseFilePath!))
-            {
-                var line = raw.Trim();
-                if (line.Length == 0 || line[0] is ';' or '#') continue;
-                if (line[0] == '[') { inFixes = line.TrimEnd().Equals("[Fixes]", StringComparison.OrdinalIgnoreCase); continue; }
-                int eq = line.IndexOf('=');
-                if (!inFixes || eq <= 0) continue;
-                var key = line[..eq].Trim();
-                var val = line[(eq + 1)..].Split(';')[0].Trim();
-                if ((key.Equals("bLoadEditorIDs", StringComparison.OrdinalIgnoreCase) || key.Equals("Load EditorIDs", StringComparison.OrdinalIgnoreCase))
+            foreach (var (section, key, val) in IniEntries.Read(ini.LooseFilePath!))
+                if (section.Equals("Fixes", StringComparison.OrdinalIgnoreCase)
+                    && (key.Equals("bLoadEditorIDs", StringComparison.OrdinalIgnoreCase) || key.Equals("Load EditorIDs", StringComparison.OrdinalIgnoreCase))
                     && (val == "0" || val.Equals("false", StringComparison.OrdinalIgnoreCase)))
                     return $"powerofthree's Tweaks has [Fixes] {key}={val} in its po3_Tweaks.ini (from '{ini.ProviderName}')";
-            }
         }
         catch (Exception ex)
         {

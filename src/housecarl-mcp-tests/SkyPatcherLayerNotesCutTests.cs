@@ -32,7 +32,7 @@ public sealed class SkyPatcherLayerNotesCutTests
         return new SkyPatcherLayerData(
             new SkyPatcherDiscovery.LayerScan(new[] { folder },
                 Enumerable.Range(1, 5).Select(i => Note("scan note " + i)).ToArray(),
-                ReadIncomplete: false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), true, null)),
+                ReadIncomplete: false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), null)),
             Conflicts: n.Select(i => new SkyPatcherConflicts.SkyPatcherConflict("npc", "health", Target + i,
                 new[] { Entry(i, "100"), Entry(i + 1, "200") })).ToList(),
             Itms: n.Select(i => new SkyPatcherConflicts.SkyPatcherItm("npc", "health", "Patch" + i + ".ini",

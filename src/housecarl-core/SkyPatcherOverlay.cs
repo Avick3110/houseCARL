@@ -112,22 +112,11 @@ public static class SkyPatcherOverlay
             if (line.Parsed.Note is { } parseNote)
                 warn.Add($"pn:{line.LineNumber}", ParseNoteText(parseNote));
 
-            // ---- split the line into filters and ops, classifying every key (unknowns are loud). ----
-            var filters = new List<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)>();
-            var ops = new List<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)>();
-            bool unknownKey = false;
-            foreach (var seg in line.Parsed.Segments)
-            {
-                var cls = catalog.Classify(recordCatalog, seg.Key);
-                switch (cls.Role)
-                {
-                    case SkyPatcherKeyRole.Filter: filters.Add((seg, cls)); break;
-                    case SkyPatcherKeyRole.Operation: ops.Add((seg, cls)); break;
-                    default: unknownKey = true; break;
-                }
-            }
+            // ---- the line's filters and ops, every key classified once per line (unknowns are loud). ----
+            var classified = SkyPatcherClassifiedLine.Of(line.Parsed, catalog, recordCatalog);
+            var (filters, ops) = (classified.Filters, classified.Ops);
             // An unknown key poisons the WHOLE line: an unrecognized filter would mis-scope it, so the line skips loud.
-            if (unknownKey)
+            if (classified.UnknownKey)
             {
                 unresolvedSkips++;
                 warn.Flush(rides: true);
@@ -137,7 +126,7 @@ public static class SkyPatcherOverlay
             if (ops.Count == 0) { warn.Flush(rides: false); continue; }   // a line with no operation does nothing
 
             // ---- evaluate the filters against THIS record (unsupported ⇒ loud skip). ----
-            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap, filters, resolver, warn);
+            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap, classified.Shape, resolver, warn);
             warn.Flush(rides: verdict != FilterVerdict.NoMatch);
             if (verdict == FilterVerdict.Unresolved)
             {
@@ -227,8 +216,11 @@ public static class SkyPatcherOverlay
     /// <summary>A value that resolves to nothing, worded with the EditorID gap when that is why.</summary>
     static string UnresolvedText(FormTokenKind tokens, SkyPatcherValue v, SkyPatcherSegment seg, IFormResolver resolver)
         => v.Address is not { IsFormId: true } && !v.IsNameLiteral && resolver.EditorIdGap(tokens.FormType) is { } gap
-            ? $"EditorID '{v.Raw}' (in a {seg.Key}) finds nothing: {gap}."
+            ? HiddenEditorIdText(v, seg, gap)
             : tokens.UnresolvedText(v, seg);
+
+    static string HiddenEditorIdText(SkyPatcherValue v, SkyPatcherSegment seg, string gap)
+        => $"EditorID '{v.Raw}' (in a {seg.Key}) finds nothing: {gap}.";
 
     /// <summary>The one table of which filters resolve their values as forms, in the evaluator's dispatch order; null for a filter that resolves none.</summary>
     static FormTokenKind? FormTokens(SkyPatcherKeyClass cls, RecordMap? fieldMap)
@@ -329,10 +321,8 @@ public static class SkyPatcherOverlay
     /// <summary>One line against one record, in SkyPatcher's order of checks: gate, direct list, finders (any group), narrowers (all), with the player rule and the patcher's differences from the catalog; three-valued, so an unevaluable filter decides only when the others leave it open.</summary>
     static FilterVerdict EvaluateFilters(object record, FormKey fk, string? editorId,
         SkyPatcherRecordCatalog recordCatalog, RecordMap? fieldMap,
-        IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)> filters, IFormResolver resolver,
-        FilterWarnings warn)
+        SkyPatcherLineShape shape, IFormResolver resolver, FilterWarnings warn)
     {
-        var shape = SkyPatcherLineShape.Of(filters, recordCatalog);
         bool player = fk == PlayerFormKey;
         // Without po3 Tweaks the game keeps no EditorID for most types, so a name in the direct list finds nothing.
         bool directByHiddenName = false;
@@ -341,7 +331,7 @@ public static class SkyPatcherOverlay
             directByHiddenName = shape.Direct.Any(d => d.seg.Values.Any(v => MatchesIdentity(v, fk, editorId)));
             foreach (var (seg, _) in shape.Direct)
                 foreach (var v in seg.Values.Where(v => v.Address is not { IsFormId: true }))
-                    warn.Add($"eg:{seg.Key}:{v.Raw}", $"EditorID '{v.Raw}' (in a {seg.Key}) finds nothing: {gap}.",
+                    warn.Add($"eg:{seg.Key}:{v.Raw}", HiddenEditorIdText(v, seg, gap),
                         decides: v.Raw.Equals(editorId, StringComparison.OrdinalIgnoreCase));
             editorId = null;
         }
@@ -387,8 +377,11 @@ public static class SkyPatcherOverlay
             return AllOf(new[] { found, narrow });
         }
 
+        // The second pass, with every resting filter passing, can differ only when something rests.
         var verdict = Reach(restsMatch: false);
-        if (verdict == FilterVerdict.NoMatch && Reach(restsMatch: true) == FilterVerdict.NoMatch) warn.Undecide();
+        if (verdict == FilterVerdict.NoMatch
+            && (!(directByHiddenName || seen.Values.Any(x => x.Rests)) || Reach(restsMatch: true) == FilterVerdict.NoMatch))
+            warn.Undecide();
         return verdict;
     }
 

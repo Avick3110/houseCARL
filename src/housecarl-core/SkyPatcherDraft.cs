@@ -66,8 +66,7 @@ public static class SkyPatcherDraft
                 ? live.Folders[at].PatchingEnabled
                 : SkyPatcherDiscovery.PatcherRuns(live.PatcherSwitches, cat, Subfolder);
             if (!folderEnabled)
-                warnings?.Add($"{IniPath}: SkyPatcher.ini "
-                              + (live.PatcherSwitches.Keys.ContainsKey(Subfolder) ? $"disables '{Subfolder}' patching (iEnable…Patching=0)" : $"has no iEnable…Patching key for '{Subfolder}', which leaves it off")
+                warnings?.Add($"{IniPath}: SkyPatcher.ini {SkyPatcherDiscovery.SwitchOffReason(live.PatcherSwitches, Subfolder)}"
                               + " — the DLL skips the whole folder, so the draft would apply nothing once placed and this post state is the plain winner.");
 
             var folders = new List<SkyPatcherDiscovery.FolderScan>(live.Folders);
@@ -114,7 +113,7 @@ public static class SkyPatcherDraft
             return notAbsolute;
         try { path = Path.GetFullPath(path); }
         catch (Exception ex) { return $"the draft INI path '{path}' is not a usable path: {ex.Message}"; }
-        if (!Path.GetFileName(path).Contains(".ini", StringComparison.OrdinalIgnoreCase))
+        if (!SkyPatcherDiscovery.HasIniName(Path.GetFileName(path)))
             return $"the draft '{path}' has no '.ini' in its name — SkyPatcher reads only files with '.ini' in the name from its type folders.";
         if (!File.Exists(path))
             return $"there is no file at '{path}' — the draft is read from disk, so it has to exist before it can be checked.";

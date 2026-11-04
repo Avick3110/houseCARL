@@ -67,22 +67,11 @@ public static class SkyPatcherConflicts
         foreach (var ol in SkyPatcherDiscovery.OrderedLines(folder))
         {
             if (ol.Parsed.Kind != SkyPatcherLineKind.Patch) continue;
-            var filters = new List<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)>();
-            var ops = new List<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)>();
-            bool unknown = false;
-            foreach (var seg in ol.Parsed.Segments)
-            {
-                var cls = catalog.Classify(folder.Catalog, seg.Key);
-                switch (cls.Role)
-                {
-                    case SkyPatcherKeyRole.Filter: filters.Add((seg, cls)); break;
-                    case SkyPatcherKeyRole.Operation: ops.Add((seg, cls)); break;
-                    default: unknown = true; break;
-                }
-            }
-            if (unknown || ops.Count == 0) continue;   // an unresolvable line can't be honestly grouped (the overlay warns on it)
+            var classified = SkyPatcherClassifiedLine.Of(ol.Parsed, catalog, folder.Catalog);
+            var ops = classified.Ops;
+            if (classified.UnknownKey || ops.Count == 0) continue;   // an unresolvable line can't be honestly grouped (the overlay warns on it)
 
-            var targets = TargetsOf(SkyPatcherLineShape.Of(filters, folder.Catalog));
+            var targets = TargetsOf(classified.Shape);
             if (targets.Count == 0) continue;   // a filterless line in a patcher that then patches nothing
             foreach (var (seg, cls) in ops)
             {
@@ -104,9 +93,12 @@ public static class SkyPatcherConflicts
                     else (byToken.TryGetValue(token, out var l) ? l : byToken[token] = new()).Add((e.seq, e.file, e.line, e.op, e.value, cond));
 
             foreach (var (token, own) in byToken.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+            {
                 // Explicit-target group + every broad write of the same field, merged back into apply order; a line both naming and finding the target counts once, as named.
+                var named = own.Select(o => o.seq).ToHashSet();
                 Emit(conflicts, duplicates, folder.Subfolder, fieldGroup.Key, token,
-                    own.Concat(broad.Where(b => !own.Any(o => o.seq == b.seq))).OrderBy(h => h.seq).ToList());
+                    own.Concat(broad.Where(b => !named.Contains(b.seq))).OrderBy(h => h.seq).ToList());
+            }
             Emit(conflicts, duplicates, folder.Subfolder, fieldGroup.Key, Broad, broad);
         }
 
@@ -169,36 +161,20 @@ public static class SkyPatcherConflicts
             conflicts.Add(new SkyPatcherConflict(subfolder, field, target, entries));
     }
 
-    /// <summary>One patch line's classified filters, or null when it carries an unknown key (the overlay warns on it).</summary>
-    public static IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)>? Filters(
-        SkyPatcherLine parsed, SkyPatcherCatalog catalog, SkyPatcherRecordCatalog recordCatalog, out bool hasOp)
-    {
-        hasOp = false;
-        var filters = new List<(SkyPatcherSegment, SkyPatcherKeyClass)>();
-        foreach (var seg in parsed.Segments)
-        {
-            var cls = catalog.Classify(recordCatalog, seg.Key);
-            if (cls.Role == SkyPatcherKeyRole.Unknown) return null;
-            if (cls.Role == SkyPatcherKeyRole.Operation) hasOp = true;
-            else filters.Add((seg, cls));
-        }
-        return filters;
-    }
-
     /// <summary>Collect one patch line's direct-list targets for the no-op scan; a line with operations that also finds records, or patches every record, is counted into <paramref name="broadLines"/>.</summary>
     public static void CollectExplicitPrimaryTargets(
         SkyPatcherLine parsed, SkyPatcherCatalog catalog, SkyPatcherRecordCatalog recordCatalog,
         ISet<FormKey> forms, ISet<string> editorIds, ref int broadLines)
     {
         if (parsed.Kind != SkyPatcherLineKind.Patch) return;
-        var filters = Filters(parsed, catalog, recordCatalog, out bool hasOp);
-        if (filters is null || !hasOp) return;
-        var shape = SkyPatcherLineShape.Of(filters, recordCatalog);
+        var classified = SkyPatcherClassifiedLine.Of(parsed, catalog, recordCatalog);
+        if (classified.UnknownKey || classified.Ops.Count == 0) return;
+        var shape = classified.Shape;
         foreach (var (seg, _) in shape.Direct)
             foreach (var v in seg.Values)
                 if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var fk)) forms.Add(fk);
                 else editorIds.Add(v.Raw);
-        if (shape.HasFinderReach || (shape.Filterless && !shape.FilterlessPatchesNothing)) broadLines++;
+        if (shape.HasFinderReach || shape.PatchesEveryRecord) broadLines++;
     }
 
     /// <summary>The no-op candidate test: a SET-class op whose before equals after, excluding the deliberate 'none' leave-unchanged value.</summary>
@@ -221,8 +197,8 @@ public static class SkyPatcherConflicts
                     : v.Raw.ToLowerInvariant(), shape.DirectConditional));
         if (shape.HasFinderReach)
             tokens.Add((Broad, true));
-        else if (shape.Filterless && !shape.FilterlessPatchesNothing)
-            tokens.Add((Broad, shape.Gates.Count > 0 || shape.Narrowers.Count > 0 || shape.Ignored.Count > 0));
+        else if (shape.PatchesEveryRecord)
+            tokens.Add((Broad, shape.Gates.Count > 0 || shape.Narrowers.Count > 0));
         return tokens;
     }
 
