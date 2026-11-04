@@ -37,6 +37,26 @@ public sealed class SkyPatcherEditorIdTests
         Assert.DoesNotContain("powerofthree", heel);
     }
 
+    // an op value naming an armor by EditorID is not applied without Tweaks and the warning names Tweaks; a keyword op value still resolves; with Tweaks both apply
+    [Fact]
+    public void WithoutTweaksAnArmorEditorIdOpValueNamesTweaks()
+    {
+        var inis = new[] { ("HcEid.ini", "filterByKeywords=HcKw2:templateArmor=HcPlainCuirass:keywordsToAdd=HcAddKw\r\n") };
+        (string Text, string Plain) Read(bool tweaks)
+        {
+            using var w = new SkyPatcherRelevanceWorld(inis, tweaks: tweaks);
+            return (RecordsTools.Records(w.Svc, formids: new[] { w.Both }, source: SkyPatcherRelevanceWorld.Post(),
+                project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "TemplateArmor", "Keywords" } }), w.Plain);
+        }
+        var without = Read(false);
+        Assert.Contains("Keywords = [list: 3 item(s)]", without.Text);
+        Assert.DoesNotContain(without.Plain, without.Text);
+        Assert.Contains("'templateArmor=HcPlainCuirass' — EditorID 'HcPlainCuirass' finds nothing: powerofthree's Tweaks", without.Text);
+        var with = Read(true);
+        Assert.Contains(with.Plain, with.Text);
+        Assert.DoesNotContain("powerofthree", with.Text);
+    }
+
     // an unreadable po3_Tweaks.ini beside the DLL is replayed as the DLL's default, and the read says the state is unknown, not that the name finds nothing
     [Fact]
     public void AnUnreadableTweaksIniResolvesEditorIdsAndSaysTheStateIsUnknown()

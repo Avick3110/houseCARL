@@ -1254,6 +1254,8 @@ public static class SkyPatcherOverlay
                     warnings.Add($"{where}: '{opKey}={v.Raw}' — '{v.Raw}' is a {dt}, not a {map.FormType}. " +
                         $"'{opKey}=<donor {dt}>' copies the donor's {map.Path} at runtime — a donor-copy houseCARL does not " +
                         $"statically model (like copyVisualStyle); the INI line is valid, but its post-state is NOT computed here.");
+                else if (v.Address is not { IsFormId: true } && resolver.EditorIdGap(map.FormType) is { } gap)
+                    warnings.Add($"{where}: '{opKey}={v.Raw}' — EditorID '{v.Raw}' finds nothing: {gap}; not applied.");
                 else
                     warnings.Add($"{where}: '{opKey}={v.Raw}' — does not resolve to a {map.FormType} in the active order; " +
                         $"not applied (named gap, never a malformed-form guess).");
