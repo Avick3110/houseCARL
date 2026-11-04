@@ -21,13 +21,12 @@ public sealed record HiddenRule(HiddenKind Kind, string Token)
 public sealed record HiddenCopies(HiddenRule Rule, string HiddenPath, IReadOnlyList<string> Holders, bool Twin = false)
 {
     /// <summary>"hidden by MO2 (why) in 'Mod'", naming the first holder and counting the rest, and the hidden name when it is a twin.</summary>
-    public string Sentence() =>
-        $"hidden by MO2 ({Rule.Why}) in '{Holders[0]}'"
-        + (Holders.Count > 1 ? $" and {Holders.Count - 1:N0} more" : "")
-        + (Twin ? $", as '{HiddenPath}'" : "");
+    public string Sentence() => Render($" in '{Holders[0]}'" + (Holders.Count > 1 ? $" and {Holders.Count - 1:N0} more" : ""));
 
     /// <summary>"hidden by MO2 (why)" and the hidden name when it is a twin, naming no holder: for a line that names its own.</summary>
-    public string Unnamed() => $"hidden by MO2 ({Rule.Why})" + (Twin ? $", as '{HiddenPath}'" : "");
+    public string Unnamed() => Render("");
+
+    string Render(string holders) => $"hidden by MO2 ({Rule.Why}){holders}" + (Twin ? $", as '{HiddenPath}'" : "");
 
     /// <summary>Does <paramref name="provider"/> hold one of these copies?</summary>
     public bool HeldBy(string provider) => Holders.Any(h => AssetSourceSelection.NameMatches(h, null, provider));
