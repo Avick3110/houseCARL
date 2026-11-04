@@ -472,10 +472,17 @@ public sealed class HiddenReasonTests : IDisposable
     {
         File.WriteAllBytes(Path.Combine(_p.Mods, "ModC", "ModC.bsa"), X);   // not an archive
 
-        var t = NifTools.NifInspect(_p.Open(), new[] { @"meshes\c.nif.mohidden" }, source_provider: "ModC");
+        var svc = _p.Open();
 
-        Assert.Contains(WriteSentences.PlaceSourceFolderHidden, t);
-        Assert.Contains("NOTE: 'ModC.bsa' could not be read", t);
+        const string Refusal = @"'ModC' holds 'meshes\c.nif', hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix), "
+            + @"as 'meshes\c.nif.mohidden', " + WriteSentences.PlaceSourceFolderHidden + ". "
+            + "NOTE: 'ModC.bsa' could not be read (ArchiveException), so any copy it holds is unscanned. "
+            + WriteSentences.PlaceSourcePoleSpelling;
+
+        static string[] Lines(string t) => t.Split('\n').Select(l => l.TrimEnd()).ToArray();
+        Assert.Contains("  " + Refusal, Lines(NifTools.NifInspect(svc, new[] { @"meshes\c.nif" }, source_provider: "ModC")));
+        Assert.Contains(@"  FAIL  meshes\c.nif  " + Refusal,
+                        Lines(PlaceTools.Place(svc, Assets("""[{"path":"meshes/c.nif"}]"""), source_provider: "ModC")));
     }
 
     [Fact]
