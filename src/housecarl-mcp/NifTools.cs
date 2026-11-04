@@ -744,7 +744,7 @@ static class NifSetWire
             return sb.ToString().TrimEnd('\n');
         }
 
-        // refusal — nothing written.
+        // refusal — nothing written, unless a write landed and failed its size check.
         if (d.State == NifSetState.Refused)
         {
             sb.Append('\n').Append(d.Error ?? "unknown error").Append('\n');
