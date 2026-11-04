@@ -1330,7 +1330,7 @@ public static partial class RecordsTools
         // ================================================================================================
         string ScanLane()
         {
-            var overlayRoute = new ScanCall(form, scanTerms, hasFormids, srcSpec.Kind == RecordReads.PoleKind.Named);
+            var overlayRoute = new ScanCall(form, scanTerms, hasFormids, srcSpec.Kind == RecordReads.PoleKind.Named, where_source is not null);
             if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
                 return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, overlayRoute));
             if (srcOverlay && comparisonForm)
@@ -2004,14 +2004,16 @@ public static partial class RecordsTools
     }, ct);
 
     /// <summary>What the overlay refusals on a scan read off the call to name its list-lane route.</summary>
-    readonly record struct ScanCall(string Form, string[] Terms, bool HasFormids, bool NamedSource);
+    readonly record struct ScanCall(string Form, string[] Terms, bool HasFormids, bool NamedSource, bool WhereSource);
 
     /// <summary>The one refusal left for an overlay pole on a scan: what replays only the limit= window cannot serve,
     /// and the list-lane route that serves the same call.</summary>
     static string OverlayScanRefusal(string what, ScanCall call)
     {
-        bool one = call.Terms.Length == 1;
-        var terms = one ? call.Terms[0] : string.Join(", ", call.Terms[..^1]) + " and " + call.Terms[^1];
+        // where_source= rides with where=: the plain scan keeps it, and the re-run drops it with where=.
+        string[] named = call.WhereSource ? [.. call.Terms, "where_source="] : call.Terms;
+        bool one = named.Length == 1;
+        var terms = one ? named[0] : string.Join(", ", named[..^1]) + " and " + named[^1];
         var tree = call.Form == "tree" ? ", with the overlay on versus= and no source= (a tree has no subject)" : "";
         // A named source= stays on the plain scan: an off-order file is that scan's universe.
         var route = call.HasFormids
