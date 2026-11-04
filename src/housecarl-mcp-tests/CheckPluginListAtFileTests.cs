@@ -54,6 +54,17 @@ public sealed class CheckPluginListAtFileTests : IClassFixture<CheckWorldFixture
         Assert.Contains("plugins=[\"@<path>\"] alone", text);
     }
 
+    /// <summary>The same refusal on format='json' is the json error document, not bare prose.</summary>
+    [Fact]
+    public void AnAtFileBesideAnInlineNameIsAJsonErrorOnJson()
+    {
+        var text = CheckTools.CheckTool(W.Svc, plugins: new[] { "HcCeWireMod.esp", "@" + ListFile("HcCeWireMod.esp") }, format: "json");
+
+        var root = JsonDocument.Parse(text).RootElement;
+        Assert.False(root.GetProperty("ok").GetBoolean());
+        Assert.Contains("plugins=[\"@<path>\"] alone", root.GetProperty("error").GetString());
+    }
+
     [Fact]
     public void AnAtFileBesideAnInlineNameOnExcludeIsRefusedNamingTheSpellingToPass()
     {
