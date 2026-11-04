@@ -27,11 +27,10 @@ public static class AssetTools
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
          "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. A loose " +
-         "file MO2 hides (by default a .mohidden name or anything under .git; a skip list the instance sets replaces that " +
-         "default) is not in the VFS and " +
-         "answers absent. A loose root meta.ini, root readme.txt or anything in a loose root fomod folder answers " +
-         "absent too, whatever the skip lists say, as MO2's own Data tab leaves it out, though USVFS still maps it; " +
-         "one below the root, or in an archive, is a normal file. " +
+         "file MO2 hides (a mod's .mohidden name or .git folder by default; the instance's skip lists replace that; " +
+         "never in the game's Data folder) answers absent, hidden by MO2, with the rule and the mod holding it; so " +
+         "does x when a mod holds only x.mohidden. A loose root meta.ini, readme.txt or fomod folder is hidden too, " +
+         "as MO2's Data tab leaves it out, though USVFS maps it; below the root, or in an archive, it is a normal file. " +
          "Read-only.")]
     public static string AssetStatus(
         LoadOrderService svc,
@@ -106,7 +105,8 @@ public static class AssetTools
                      "'winner' (default) or a plugin filename, active or a file in a disabled mod folder.")]
             string[]? from_source = null,
         [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
-                     "not (the donor), 'overwrite', 'Data' or an active archive's filename. Each node it ships is from-source; " +
+                     "not (the donor), 'overwrite', 'Data' or an active archive's filename. Each node it ships is from-source, " +
+                     "except a loose file MO2 hides, which is absent and says so; " +
                      "one it does not is elsewhere or absent. Omitted, or '" + AssetSourceChoice.WinnerToken + "', names no " +
                      "source: each node is present or absent.")]
             string? source_provider = null,
@@ -425,10 +425,7 @@ static class AssetWire
         var hit = r.Hit!;
         if (!hit.Exists)
         {
-            var hiddenRoot = AssetResolver.NamesHiddenRoot(r.RelPath);
-            sb.Append(hiddenRoot
-                ? "  ABSENT — " + Mo2SkipRules.HiddenRootSentence + "\n"
-                : "  ABSENT — no active mod or BSA provides this path\n");
+            sb.Append("  ABSENT — ").Append(AbsentWords.Why(hit)).Append('\n');
             // Each suggestion was verified by re-resolving its Data form (root added or data\ dropped). Backticks, not single quotes — an asset path can carry the author's own apostrophes.
             if (r.PrefixSuggestions is { Count: > 0 } sug)
                 sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "`" + s + "`")))
@@ -445,8 +442,7 @@ static class AssetWire
             if (d.RootFailures.Count > 0)
                 sb.Append("  [!] but a loose root failed to read this build (see the root note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the root that was not read.\n");
-            // A hidden root name is absent for every provider, so the line above already says why.
-            if (!hiddenRoot) AppendStanding(sb, d, r);
+            AppendStanding(sb, d, r);
             AppendPair(sb, r);
             return;
         }
@@ -466,6 +462,9 @@ static class AssetWire
         if (hit.Ambiguous)
             sb.Append("  note: more than one source provides this — the winner above is the precedence call (loose " +
                       "beats BSA; among BSAs the latest-loaded plugin wins). Verify only if that's unexpected.\n");
+        // A loose copy MO2 hides provides nothing, so the winner above stands; said, so the hidden copy is not a surprise.
+        if (hit.Hidden is { } hidden)
+            sb.Append("  note: another loose copy is ").Append(hidden.Sentence(hit.RelPath)).Append(", so it provides nothing.\n");
         AppendStanding(sb, d, r);
         AppendPair(sb, r);
     }
@@ -481,7 +480,8 @@ static class AssetWire
             sb.Append("    ").Append(l.Link.Kind.Token()).Append(" — ").Append(l.Link.Where).Append(": `").Append(l.Link.Raw).Append("`\n");
             if (l.Link.Error is { } le) { sb.Append("      data path: none — ").Append(le).Append('\n'); continue; }
             sb.Append("      data path: ").Append(l.Link.DataPath).Append("  ")
-              .Append(l.Hit is { Exists: true, Winner: { } w } ? "WINS: " + Provider(w) : "ABSENT").Append('\n');
+              .Append(l.Hit is { Exists: true, Winner: { } w } ? "WINS: " + Provider(w)
+                      : l.Hit?.Hidden is { } h ? "ABSENT — " + h.Sentence(l.Hit.RelPath) : "ABSENT").Append('\n');
         }
     }
 
@@ -494,6 +494,7 @@ static class AssetWire
         {
             ProviderStanding.Wins => "wins",
             ProviderStanding.Shadowed => "shadowed by " + Provider(hit.Winner!) + Mod(hit.Winner!),
+            ProviderStanding.Hidden => "holds it, " + hit.Hidden!.Sentence(hit.RelPath) + ", so provides nothing",
             _ => "does not provide this path",
         }).Append('\n');
     }
@@ -507,7 +508,7 @@ static class AssetWire
         sb.Append(": ").Append(r.PairPath).Append('\n');
         sb.Append("    ").Append(r.PairHit is { Exists: true, Winner: { } w }
                                     ? "WINS: " + Provider(w) + Mod(w)
-                                    : "ABSENT — no active mod or BSA provides this path").Append('\n');
+                                    : "ABSENT — " + (r.PairHit is { } ph ? AbsentWords.Why(ph) : AbsentWords.Why(null, r.PairPath))).Append('\n');
         if (r.PairDiffers)
             sb.Append("    [!] the two halves win from DIFFERENT mods — the head geometry and the face tint come from " +
                       "different products, which is the dark-face split.\n");

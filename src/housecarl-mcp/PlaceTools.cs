@@ -347,7 +347,7 @@ static class PlaceWire
         Withheld();
         // Bytes served out of a mod MO2 does not load look like any other placement, so say so on their own line.
         if (r.SourceOffOrderProvider is { } offOrder)
-            sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled)).Append('\n');
+            sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled, r.SourceOffOrderKind)).Append('\n');
         // Name the destination folder rather than "the mod": the off-order line above can put a SECOND mod in scope.
         sb.Append("        ").Append(WinnerLine(r, modFolder, freshFolder)).Append('\n');
     }

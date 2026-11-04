@@ -3060,6 +3060,8 @@ static class JsonWire
         foreach (var p in hit.Providers) WriteAssetProvider(w, null, p);
         w.WriteEndArray();
         w.WriteBoolean("ambiguous", hit.Ambiguous);
+        // Only where a root holds the path hidden, so any other row is the document it always was.
+        AbsentWords.Write(w, hit.Hidden, hit.RelPath);
         // On a provider= call only, so a plain row is byte-for-byte the document it always was.
         if (r.Standing is { } st) w.WriteString("provider_standing", st.Token());
         WriteNifLinks(w, r);
@@ -3088,6 +3090,7 @@ static class JsonWire
                 if (pair.Winner is { } pw) WriteAssetProvider(w, "winner", pw); else w.WriteNull("winner");
                 // The OWNER `differs` below is decided on, not the archive name and not the bare OwningMod.
                 WriteNullable(w, "winner_mod", pair.Winner is { } pw2 ? AssetPathResult.Owner(pw2) : null);
+                AbsentWords.Write(w, pair.Hidden, pair.RelPath);
             }
             else { w.WriteNull("exists"); w.WriteNull("winner"); w.WriteNull("winner_mod"); }
             w.WriteBoolean("differs", r.PairDiffers);
@@ -3115,6 +3118,7 @@ static class JsonWire
             {
                 w.WriteBoolean("exists", lh.Exists);
                 if (lh.Winner is { } lw) WriteAssetProvider(w, "winner", lw); else w.WriteNull("winner");
+                AbsentWords.Write(w, lh.Hidden, lh.RelPath);
             }
             w.WriteEndObject();
         }
@@ -3210,7 +3214,7 @@ static class JsonWire
             w.WriteBoolean("winner_loses_on_enable", r.WinnerLosesOnEnable);
             // Bytes served out of a mod MO2 does not load are a fact of the SOURCE.
             if (r.SourceOffOrderProvider is { } offOrder)
-                w.WriteString("source_off_order_note", WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled));
+                w.WriteString("source_off_order_note", WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled, r.SourceOffOrderKind));
             WriteNullable(w, "source_off_order_provider", r.SourceOffOrderProvider);
         }
         // An input the call carried but this destination could not use is SAID on both lanes, not dropped.
@@ -3236,6 +3240,7 @@ static class JsonWire
             w.WriteNumber("response", l.ResponseNumber);
             w.WriteBoolean("fuz_present", l.FuzPresent);
             w.WriteBoolean("lip_present", l.LipPresent);
+            if (l.FuzHidden is { } fh) w.WriteString("fuz_hidden", fh);
             WriteNullable(w, "fuz_path", l.FuzPath);
             WriteNullable(w, "lip_path", l.LipPath);
             WriteNullable(w, "fuz_winner", l.FuzWinner);

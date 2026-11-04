@@ -33,6 +33,10 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenClassFixture>
         Assert.Contains("[MESH_ABSENT]", RowFor(text, "HcFgMeshAbsent"));
         Assert.Contains("[BAKE_ABSENT]", RowFor(text, "HcFgBakeAbsent"));
         Assert.Contains("[SPLIT_BAKE]", RowFor(text, "HcFgSplit"));
+        // A missing half a mod holds only hidden says so (#1281).
+        foreach (var npc in new[] { "HcFgTintAbsent", "HcFgMeshAbsent", "HcFgBakeAbsent" })
+            Assert.Contains("hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in '" + FaceGenWorld.OtherMod + "', as",
+                            RowFor(text, npc));
         Assert.Contains("[STALE_BAKE]", RowFor(text, "HcFgStale"));
     }
 

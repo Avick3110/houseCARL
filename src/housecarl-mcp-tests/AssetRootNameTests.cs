@@ -80,9 +80,9 @@ public sealed class AssetRootNameTests : IDisposable
         var text = AssetTools.AssetStatus(_p.Open(), under: new[] { sel }, provider: provider);
 
         Assert.Contains("matched no file", text);
-        Assert.Contains("MO2 hides a root meta.ini, readme.txt or fomod folder", text);
+        Assert.Contains("MO2 hides 1 matching path (left out of MO2's Data view as a root", text);
         Assert.DoesNotContain("nothing enabled provides", text);
-        Assert.DoesNotContain("info.xml", text);
+        Assert.DoesNotContain("\nfomod\\info.xml\n", text);   // no row: only the note names it
     }
 
     [Theory]
@@ -94,7 +94,7 @@ public sealed class AssetRootNameTests : IDisposable
         var text = AssetTools.AssetStatus(_p.Open(), under: new[] { sel }, provider: provider);
 
         Assert.Contains("matched no file", text);
-        Assert.Contains("MO2 hides a root meta.ini, readme.txt or fomod folder", text);
+        Assert.Contains("MO2 hides 1 matching path (left out of MO2's Data view as a root", text);
         Assert.DoesNotContain("nothing enabled provides", text);
     }
 
@@ -133,7 +133,8 @@ public sealed class AssetRootNameTests : IDisposable
     {
         var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { rel });
 
-        Assert.Contains("ABSENT — MO2 hides a root meta.ini, readme.txt or fomod folder", text);
+        Assert.Contains("ABSENT — hidden by MO2 (left out of MO2's Data view as a root", text);
+        Assert.Contains("the game still maps it) in 'B' and 1 more", text);
         Assert.DoesNotContain("no active mod or BSA provides", text);
     }
 
@@ -145,7 +146,8 @@ public sealed class AssetRootNameTests : IDisposable
     {
         var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { rel }, provider: "A");
 
-        Assert.Contains("ABSENT — MO2 hides", text);
+        Assert.Contains("ABSENT — hidden by MO2", text);
+        Assert.Contains("provider \"A\": holds it, hidden by MO2", text);
         Assert.DoesNotContain("does not provide this path", text);
     }
 
@@ -168,6 +170,7 @@ public sealed class AssetRootNameTests : IDisposable
         var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/nosuch.nif" });
         Assert.Contains("ABSENT — no active mod or BSA provides this path", text);
         Assert.DoesNotContain("MO2 hides", text);
+        Assert.DoesNotContain("hidden by MO2", text);
         Assert.Contains("WINS", AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/meta.ini" }));
     }
 
@@ -243,7 +246,7 @@ public sealed class AssetRootNameTests : IDisposable
     {
         var text = typeof(AssetTools).GetMethod(nameof(AssetTools.AssetStatus))!.GetCustomAttribute<DescriptionAttribute>()!.Description;
 
-        foreach (var name in new[] { "root meta.ini", "root readme.txt", "root fomod folder" })
+        foreach (var name in new[] { "root meta.ini, readme.txt or fomod folder", "never in the game's Data folder" })
             Assert.Contains(name, text);
     }
 }

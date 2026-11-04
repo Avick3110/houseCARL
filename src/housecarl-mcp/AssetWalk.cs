@@ -13,7 +13,8 @@ public enum WalkStanding { FromSource, Elsewhere, Present, Absent, Error }
 /// <summary>One file the walk reached: its Data path, the edge and the node or record that pulled it, its standing, the
 /// copy that answers it (the source's, else the winner), whether the game finds it by FormID, and a note.</summary>
 public sealed record AssetWalkNode(string Path, string Edge, string PulledBy, WalkStanding Standing,
-                                   PlacementSource? Copy, bool Keyed = false, string? Note = null, string? Error = null);
+                                   PlacementSource? Copy, bool Keyed = false, string? Note = null, string? Error = null,
+                                   HiddenCopies? Hidden = null);
 
 /// <summary>The data behind <c>asset_status walk=true</c>: every node in walk order, what the walk noted (records not
 /// found, boundaries, gaps), the source it read files from, the record sources (none on a path-only walk), and the
@@ -148,13 +149,16 @@ internal sealed partial class AssetLayers
     static AssetWalkNode Stand(AssetResolver.AssetView view, string rel, string edge, string pulledBy, bool keyed, string? note, string? source)
     {
         var place = view.ResolveForPlacement(rel);
+        // The named folder's own hidden copy, else the build's: a hidden node keeps its node and says why it is absent.
+        var hidden = place.Hidden;
         if (source is not null)
         {
             var pick = AssetSourceSelection.Select(place, AssetSourceChoice.Named(source), n => view.TryResolveOffOrderProvider(n, rel));
             if (pick.Verdict == AssetSourceVerdict.Selected)
                 return new AssetWalkNode(rel, edge, pulledBy, WalkStanding.FromSource, pick.Source, keyed, note);
+            hidden = pick.OffOrderHidden ?? hidden;
         }
-        if (place.Sources.Count == 0) return new AssetWalkNode(rel, edge, pulledBy, WalkStanding.Absent, null, keyed, note);
+        if (place.Sources.Count == 0) return new AssetWalkNode(rel, edge, pulledBy, WalkStanding.Absent, null, keyed, note, Hidden: hidden);
         return new AssetWalkNode(rel, edge, pulledBy, source is null ? WalkStanding.Present : WalkStanding.Elsewhere,
                                  place.Sources[0], keyed, note);
     }

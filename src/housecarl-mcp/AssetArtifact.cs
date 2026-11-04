@@ -65,6 +65,8 @@ internal static class AssetArtifact
         // A links= row adds its links and links_error members (JsonWire.WriteNifLinks); the schema names links only
         // then, so a plain artifact is unchanged.
         var schema = d.Results.Any(r => r.Links is not null || r.LinksError is not null) ? RowSchema.Append("links").ToArray() : RowSchema;
+        // A hidden row adds its hidden member (AbsentWords.Write), named only then for the same reason.
+        if (d.Results.Any(r => r.Hit?.Hidden is not null)) schema = schema.Append("hidden").ToArray();
         var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path",
                                           schema, sort: "asset_paths= in the order given, then formids= (mesh then tint per NPC), then under= matches sorted",
                                           total: d.Selected, epoch: order?.Epoch ?? "", notes: notes,
@@ -136,6 +138,8 @@ internal static class AssetArtifact
         }
         w.WriteEndArray();
         w.WriteBoolean("ambiguous", hit.Ambiguous);
+        // Only where a root holds the path hidden, so any other row is the row it always was.
+        AbsentWords.Write(w, hit.Hidden, hit.RelPath);
         Str(w, "pair_path", r.PairPath);
         if (r.PairHit is { } pair)
         {

@@ -60,6 +60,9 @@ public sealed record AssetSourcePick(
     /// <summary>The name of the folder or archive that would not read, and a concise cause; both null unless the reason is FolderUnreadable.</summary>
     public string? OffOrderUnreadableName { get; init; }
     public string? OffOrderUnreadableCause { get; init; }
+
+    /// <summary>The named folder's hidden copy; null unless the reason is Hidden.</summary>
+    public HiddenCopies? OffOrderHidden { get; init; }
 }
 
 public static class AssetSourceSelection
@@ -107,6 +110,7 @@ public static class AssetSourceSelection
                 OffOrderReason = off.Reason,
                 OffOrderUnreadableName = off.UnreadableName,
                 OffOrderUnreadableCause = off.UnreadableCause,
+                OffOrderHidden = off.Hidden,
             };
         }
 

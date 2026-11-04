@@ -986,7 +986,8 @@ static partial class WriteTools
             else
             {
                 sb.Append("  [!] WILL BE SILENT  ").Append(who).Append(" resp ").Append(l.ResponseNumber)
-                  .Append("  — no .fuz at ").Append(l.FuzPath).Append("  (place the audio here)");
+                  .Append("  — no .fuz at ").Append(l.FuzPath)
+                  .Append(l.FuzHidden is { } h ? "  (" + h + ")" : "  (place the audio here)");
                 if (!l.LipPresent) sb.Append("; .lip also absent (").Append(l.LipPath).Append(')');
                 sb.Append('\n');
             }

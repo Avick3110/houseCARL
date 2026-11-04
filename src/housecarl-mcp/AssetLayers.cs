@@ -91,16 +91,17 @@ internal sealed partial class AssetLayers
         bool overBound = false;
         // A provider with no other selector walks everything it ships: '**', narrowed to that provider.
         bool wholeProvider = provider is not null && under is not { Count: > 0 } && relPaths.Count == 0 && seeds is not { Count: > 0 };
-        string NoMatchNote(string sel)
+        // The walk's own count of what MO2 hid in scope, never a guess from the selector's spelling.
+        string NoMatchNote(string sel, HiddenTally hidden)
         {
-            if (wholeProvider) return $"provider '{provider}' provides no file in the active load order.";
+            if (wholeProvider)
+                return $"provider '{provider}' provides no file in the active load order"
+                     + (hidden.Sentence("of its paths", "of its paths") is { } all ? $" — {all}." : ".");
             var scope = provider is null ? "the active load order" : $"provider '{provider}'";
-            var lit = AssetGlob.LiteralPrefix(AssetResolver.ValidateRelPath(sel));
-            var hidden = lit.Length > 0 ? AssetResolver.NamesHiddenRoot(lit) : Mo2SkipRules.MatchesHiddenRootFile(AssetGlob.Matcher(sel));
-            var why = hidden
-                ? $" — {Mo2SkipRules.HiddenRootSentence}; the same name below the root is a normal file."
+            var why = hidden.Sentence() is { } h
+                ? $" — {h}."
                 : " — check the spelling, or nothing enabled provides that folder.";
-            return $"under '{sel}' matched no file in {scope}{why}" + AssetGlob.BareNameHint(view, sel, provider);
+            return $"under '{sel}' matched no file in {scope}{why}" + (hidden.Count > 0 ? "" : AssetGlob.BareNameHint(view, sel, provider));
         }
         foreach (var raw in wholeProvider ? new[] { "**" } : under ?? Array.Empty<string>())
         {
@@ -111,14 +112,18 @@ internal sealed partial class AssetLayers
             {
                 // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
                 int room = wholeIsResolved ? Math.Max(MaxAssetPaths - selected.Count, 0) + 1 : 0;
-                var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped, provider);
+                var hidden = new HiddenTally();
+                var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped, provider, hidden);
                 overBound |= stopped;
                 // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
                 if (namedOneFile)
                     notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
                 // A selector that matched nothing is said out loud: silent, a typo would read as a clean sweep.
                 else if (matched.Count == 0)
-                    notes.Add(NoMatchNote(sel));
+                    notes.Add(NoMatchNote(sel, hidden));
+                // A provider's whole census says what of it MO2 hides, which no row carries.
+                else if (wholeProvider && hidden.Sentence("of its paths", "of its paths") is { } some)
+                    notes.Add($"provider '{provider}': {some}; they are left out of this listing.");
                 foreach (var m in matched) if (seen.Add(m)) selected.Add(new Selection(m, null, null, null));
             }
             catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
@@ -787,9 +792,9 @@ internal sealed partial class AssetLayers
             if (place.Sources.Count == 0)
             {
                 // A model path off a record is stored relative to meshes\, so a flat ABSENT is a dead end. The hint is re-resolved, never guessed.
-                var hint = AssetPathHint.MeshHint(view, rel);
+                var hint = place.Hidden is null ? AssetPathHint.MeshHint(view, rel) : null;
                 return new NifInspectData(rel, null, providers, place.Ambiguous, Absent: true, null,
-                    "ABSENT — no active mod or BSA provides this mesh path." + (hint is null ? "" : " " + hint));
+                    "ABSENT — " + AbsentWords.Why(place.Hidden, place.RelPath, "this mesh path") + "." + (hint is null ? "" : " " + hint));
             }
             chosen = place.Sources[0];
         }
@@ -823,7 +828,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>The provider record for a CHOSEN source, carrying the off-order provenance only the copy actually read can have.</summary>
     static NifProvider NifProviderFor(PlacementSource s)
-        => new(s.ProviderName, KindLabel(s.Kind), s.OffOrder, s.OwnerEnabled);
+        => new(s.ProviderName, KindLabel(s.Kind), s.OffOrder, s.OwnerEnabled, s.Kind);
 
     /// <summary>Answer <c>source_provider=</c> for the NIF surface through the ONE source policy every asset caller
     /// rides, or hand back the refusal sentence. Shared by nif_inspect and nif_set, which have drifted once before.</summary>
@@ -835,13 +840,13 @@ internal sealed partial class AssetLayers
         if (pick.Verdict == AssetSourceVerdict.Selected) return (pick.Source, null, false);
         // The winner pole over an empty universe is the ABSENT case, not a named miss, and Absent travels with it.
         if (choice.Pole != AssetSourcePole.Named)
-            return (null, "ABSENT — no active mod or BSA provides '" + rel + "', so there is no winner to read."
-                        + (AssetPathHint.MeshHint(view, rel) is { } wh ? " " + wh : ""), true);
+            return (null, "ABSENT — " + AbsentWords.Why(place.Hidden, place.RelPath, $"'{rel}'") + ", so there is no winner to read."
+                        + (place.Hidden is null && AssetPathHint.MeshHint(view, rel) is { } wh ? " " + wh : ""), true);
         // A named miss is NOT an absence — it says which mod and carries its own inline caveat instead.
         return (null, WriteSentences.PlaceSourceNamedAbsent(
             sourceProvider, rel, pick.ProviderNames,
             pick.OffOrderReason, pick.OffOrderUnreadableName, pick.OffOrderUnreadableCause,
-            AssetPathHint.MeshHint(view, rel), place.ReadIncomplete), false);
+            AssetPathHint.MeshHint(view, rel), place.ReadIncomplete, pick.OffOrderHidden), false);
     }
 
     /// <summary>Render an <see cref="AssetKind"/> as the tool-facing label. An explicit switch, so a new kind renders its real name instead of being mislabelled.</summary>
@@ -902,9 +907,9 @@ internal sealed partial class AssetLayers
         {
             if (place.Sources.Count == 0)
             {
-                var hint = AssetPathHint.MeshHint(view, rel);   // same verified re-resolve as nif_inspect's ABSENT
+                var hint = place.Hidden is null ? AssetPathHint.MeshHint(view, rel) : null;   // same verified re-resolve as nif_inspect's ABSENT
                 return NifSetResult.Fail(HedgedAbsent(
-                    $"ABSENT — no active mod or BSA provides '{rel}', so there is no copy to edit." + (hint is null ? "" : " " + hint)),
+                    $"ABSENT — {AbsentWords.Why(place.Hidden, place.RelPath, $"'{rel}'")}, so there is no copy to edit." + (hint is null ? "" : " " + hint)),
                     providers, profileName);
             }
             chosen = place.Sources[0];
@@ -1098,7 +1103,8 @@ internal sealed partial class AssetLayers
         byte[] bytes; string sourceDesc;
         // The mod folder an off-order read was served from, typed rather than baked into sourceDesc.
         string? offOrderProvider = null;
-        bool offOrderOwnerEnabled = false;                 // WHICH off-order reason — an unticked mod, or a ticked mod's unloaded archive
+        bool offOrderOwnerEnabled = false;                 // WHICH off-order reason — an unticked mod, or a ticked mod's copy the build did not read
+        var offOrderKind = AssetKind.Loose;
         // One normalization point for source=, ahead of the classification and every consumer, or a quoted Data-relative source classifies one way and is read another.
         var explicitSrc = NormalizeSourceArg(req.Source);
         var providerSel = req.SourceProvider?.Trim();
@@ -1139,9 +1145,16 @@ internal sealed partial class AssetLayers
                     // The root-prefix hint, verified before it is offered, like every other site that shows it.
                     AssetPathHint.AssetRootHint(view, srcRel),
                     // srcRes, not res: the caveat has to describe the scan that answered for the SOURCE path.
-                    srcRes.ReadIncomplete), winner);
+                    srcRes.ReadIncomplete, pick.OffOrderHidden), winner);
             if (pick.Verdict == AssetSourceVerdict.Ambiguous)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceAmbiguous(srcRel, pick.ProviderNames), winner);
+            // A path a root holds hidden: said, and no mod name is taught, because naming one does not reach a hidden file.
+            if (pick.Verdict == AssetSourceVerdict.NoProvider && srcRes.Hidden is { } hidden)
+                return PlaceResult.Fail(rel,
+                    $"nothing in the active load order provides '{srcRel}': it is {hidden.Sentence(srcRel)}, so there is no copy to "
+                    + (sourceNamed ? "read" : "auto-place") + ", and naming its mod with source_provider= does not reach it either."
+                    + (srcRes.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : ""),
+                    winner);
             if (pick.Verdict == AssetSourceVerdict.NoProvider && sourceNamed)
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides the source '{srcRel}'."
@@ -1168,7 +1181,11 @@ internal sealed partial class AssetLayers
             var (b, desc, err) = ReadResolvedSource(pick.Source!);
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!;
-            if (pick.Source!.OffOrder) { offOrderProvider = pick.Source.ProviderName; offOrderOwnerEnabled = pick.Source.OwnerEnabled; }
+            if (pick.Source!.OffOrder)
+            {
+                offOrderProvider = pick.Source.ProviderName; offOrderOwnerEnabled = pick.Source.OwnerEnabled;
+                offOrderKind = pick.Source.Kind;
+            }
             // A source read from a different path than the destination is a RENAME and the render has to say so; keyed on the paths differing, not on a source being named.
             sourceDesc = sourceNamed && !SameAssetPath(srcRel, rel) ? $"{srcRel} — {desc}" : desc!;
         }
@@ -1188,7 +1205,7 @@ internal sealed partial class AssetLayers
             return PlaceResult.Fail(rel,
                 $"wrote '{rel}' but its on-disk size ({size}) does not match the {bytes.Length} source byte(s) — verify before relying on it.", winner);
         return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null)
-            { SourceOffOrderProvider = offOrderProvider, SourceOffOrderOwnerEnabled = offOrderOwnerEnabled,
+            { SourceOffOrderProvider = offOrderProvider, SourceOffOrderOwnerEnabled = offOrderOwnerEnabled, SourceOffOrderKind = offOrderKind,
               WinnerIsOverwrite = winnerIsOverwrite, WinnerIsDestination = winnerIsDestination,
               WinnerLosesOnEnable = winnerLosesOnEnable };
     }

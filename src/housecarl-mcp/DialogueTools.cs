@@ -92,7 +92,7 @@ internal static class DialogueWire
     /// <summary>The one-line verdict for a voice line with no .fuz; the inline block and the artifact row read this.</summary>
     internal static string SilentVerdict(VoiceLine l) =>
         "[!] WILL BE SILENT  " + FormIdToken.Of(l.Info) + " resp " + l.ResponseNumber + " — no .fuz at " + l.FuzPath
-        + "  (place the audio here)" + (l.LipPresent ? "" : "; .lip also absent");
+        + (l.FuzHidden is { } h ? "  (" + h + ")" : "  (place the audio here)") + (l.LipPresent ? "" : "; .lip also absent");
 
     /// <summary>Result scripts: WILL NOT FIRE lines named with any missing .pex, bound ones a count.</summary>
     static void AppendScripts(StringBuilder sb, TopicValidation t, string pad, int cap)

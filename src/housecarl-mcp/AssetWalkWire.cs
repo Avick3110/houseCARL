@@ -43,7 +43,9 @@ static class AssetWalkWire
             new("source_provider", d.SourceProvider ?? "<none>"),
             new("record_sources", d.RecordSources.Count > 0 ? string.Join(" > ", d.RecordSources) : "<none>"),
         };
-        var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path", RowSchema,
+        // A hidden node adds its hidden member, so the schema names it only then and a plain walk's artifact is unchanged.
+        var schema = d.Nodes.Any(n => n.Hidden is not null) ? RowSchema.Append("hidden").ToArray() : RowSchema;
+        var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path", schema,
                                           sort: "walk order", total: d.Nodes.Count, epoch: order?.Epoch ?? "", notes: notes,
                                           excludedPlugins: order?.ExcludedPlugins);
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, "ceiling") { EpochUnavailable = noEpochBecause }, null);
@@ -54,12 +56,18 @@ static class AssetWalkWire
         WalkStanding.FromSource => $"FROM SOURCE: {Copy(n.Copy!)}",
         WalkStanding.Elsewhere => $"ELSEWHERE: {Copy(n.Copy!)} wins it" + (source is null ? "" : $"; \"{source}\" does not ship it"),
         WalkStanding.Present => $"WINS: {Copy(n.Copy!)}",
-        WalkStanding.Absent => "ABSENT — no active mod or BSA provides this path" + (source is null ? "" : $", and \"{source}\" does not ship it"),
+        WalkStanding.Absent => "ABSENT — " + AbsentWords.Why(n.Hidden, n.Path)
+                               + (source is null || HeldBy(n.Hidden, source) ? "" : $", and \"{source}\" does not ship it"),
         _ => "error: " + n.Error,
     };
 
+    static bool HeldBy(HiddenCopies? h, string source) => h is not null && h.Holders.Contains(source, StringComparer.OrdinalIgnoreCase);
+
     static string Copy(PlacementSource s)
-        => AssetSourceSelection.Describe(s) + (s.OffOrder ? " (not loaded by the game)" : "");
+        => AssetSourceSelection.Describe(s)
+         + (!s.OffOrder ? ""
+            : s is { OwnerEnabled: true, Kind: AssetKind.Loose } ? " (enabled, but its folder did not read this build)"
+            : " (not loaded by the game)");
 
     static string Text(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int cap, SpillState? spill, out bool truncated)
     {
@@ -117,7 +125,15 @@ static class AssetWalkWire
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
-    static Dictionary<string, object?> NodeDoc(AssetWalkNode n) => new()
+    static Dictionary<string, object?> NodeDoc(AssetWalkNode n)
+    {
+        var doc = NodeFields(n);
+        // Only on a hidden node, so any other node is the document it always was.
+        if (n.Hidden is { } h) doc["hidden"] = h.Sentence(n.Path);
+        return doc;
+    }
+
+    static Dictionary<string, object?> NodeFields(AssetWalkNode n) => new()
     {
         ["path"] = n.Path,
         ["edge"] = n.Edge,

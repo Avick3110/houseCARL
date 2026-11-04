@@ -55,8 +55,9 @@ public sealed record AssetStatusData(
 
 }
 
-/// <summary>A named provider's standing on one path: its copy wins, another layer's copy wins over it, or it ships no copy.</summary>
-public enum ProviderStanding { Wins, Shadowed, NotProvided }
+/// <summary>A named provider's standing on one path: its copy wins, another layer's copy wins over it, it holds a copy
+/// MO2 hides, or it ships no copy.</summary>
+public enum ProviderStanding { Wins, Shadowed, Hidden, NotProvided }
 
 internal static class ProviderStandings
 {
@@ -67,7 +68,8 @@ internal static class ProviderStandings
         foreach (var p in hit.Providers)
             if (AssetSourceSelection.NameMatches(p, provider))
                 return AssetSourceSelection.NameMatches(hit.Winner!, provider) ? ProviderStanding.Wins : ProviderStanding.Shadowed;
-        return ProviderStanding.NotProvided;
+        return hit.Hidden is { } h && h.Holders.Contains(provider, StringComparer.OrdinalIgnoreCase)
+            ? ProviderStanding.Hidden : ProviderStanding.NotProvided;
     }
 
     /// <summary>The machine token both the json row and the artifact column carry.</summary>
@@ -75,8 +77,40 @@ internal static class ProviderStandings
     {
         ProviderStanding.Wins => "wins",
         ProviderStanding.Shadowed => "shadowed",
+        ProviderStanding.Hidden => "hidden",
         _ => "not_provided",
     };
+}
+
+/// <summary>Why a path has no copy to read: MO2 hides the copies a root holds, or none is there at all. The one place
+/// every absent render takes its reason from, so no render probes the name.</summary>
+internal static class AbsentWords
+{
+    /// <summary>"hidden by MO2 (…) in 'Mod'" when a root holds the path hidden, else "no active mod or BSA provides <paramref name="what"/>".</summary>
+    internal static string Why(HiddenCopies? hidden, string rel, string what = "this path") =>
+        hidden is { } h ? h.Sentence(rel) : $"no active mod or BSA provides {what}";
+
+    internal static string Why(AssetHit hit, string what = "this path") => Why(hit.Hidden, hit.RelPath, what);
+
+    /// <summary>The hidden copies as a json member, written only when there are some, so a row with none is the row it always was.</summary>
+    internal static void Write(System.Text.Json.Utf8JsonWriter w, HiddenCopies? hidden, string rel)
+    {
+        if (hidden is not { } h) return;
+        w.WriteStartObject("hidden");
+        w.WriteString("rule", h.Rule.Kind switch
+        {
+            HiddenKind.RootName => "root_name",
+            HiddenKind.SkipDirectory => "skip_directory",
+            HiddenKind.SkipSuffix => "skip_suffix",
+        });
+        w.WriteString("match", h.Rule.Token);
+        w.WriteString("hidden_path", h.HiddenPath);
+        w.WriteStartArray("holders");
+        foreach (var n in h.Holders) w.WriteStringValue(n);
+        w.WriteEndArray();
+        w.WriteString("note", h.Sentence(rel));
+        w.WriteEndObject();
+    }
 }
 
 /// <summary>One provider of an SKSE-layer file: the mod, "overwrite", "Data" or BSA filename, and whether it is a "loose" file or a "BSA" entry.</summary>
@@ -277,10 +311,10 @@ public sealed record SkyPatcherFolderOutcome(
     bool Enabled);
 
 /// <summary>One provider of a mesh path: the mod, "overwrite", "Data" or BSA filename, and whether it is a "loose" file or a "BSA" entry.</summary>
-public sealed record NifProvider(string Name, string Kind, bool OffOrder = false, bool OwnerEnabled = false)
+public sealed record NifProvider(string Name, string Kind, bool OffOrder = false, bool OwnerEnabled = false, AssetKind SourceKind = AssetKind.Loose)
 {
     /// <summary>The provenance line when these bytes came out of a copy the game is NOT loading, null for an in-order provider; a response that did not say so would read as what the game shows.</summary>
-    public string? Provenance => OffOrder ? WriteSentences.PlaceSourceOffOrder(Name, OwnerEnabled) : null;
+    public string? Provenance => OffOrder ? WriteSentences.PlaceSourceOffOrder(Name, OwnerEnabled, SourceKind) : null;
 
     /// <summary>The spelling every listing prints, through the one formatter the asset surface uses; the printed token is the token <c>source_provider=</c> accepts, so a caller can copy it back verbatim (#340).</summary>
     public string Text => HousecarlCore.AssetSourceSelection.Describe(Name, Kind);
@@ -380,6 +414,7 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
 
     /// <summary>Whether that off-order mod is one MO2 TICKS — true means the bytes came out of a root archive no active plugin binds, not out of an unticked mod.</summary>
     public bool SourceOffOrderOwnerEnabled { get; init; }
+    public AssetKind SourceOffOrderKind { get; init; }
 
     /// <summary>Whether <see cref="CurrentWinner"/> is MO2's overwrite folder — the TOP loose root, so the only remedy is to move or delete that copy, which the render has to say instead.</summary>
     public bool WinnerIsOverwrite { get; init; }

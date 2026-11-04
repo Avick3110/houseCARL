@@ -155,10 +155,10 @@ public sealed class PlaceNamedProviderEdgeTests
         Assert.DoesNotContain("NOT enabled in MO2", text);
     }
 
-    // Probe N2: "the lane finds an enabled mod's loose copy", "…and does NOT mark it OwnerEnabled", "…while the archive
-    // find in the SAME enabled folder does".
+    // Probe N2: "the lane finds an enabled mod's loose copy" and marks it OwnerEnabled, as it does the archive find in
+    // the SAME enabled folder: an enabled mod is never said to be unticked (#1281, R12).
     [Fact]
-    public void OnlyTheArchiveFindInAnEnabledFolderIsMarkedOwnerEnabled()
+    public void EveryFindInAnEnabledFolderIsMarkedOwnerEnabled()
     {
         using var p = EnabledArchive();
         var res = AssetResolver.Build("", p.Mods, "", new[] { "EnabledArch", "NHost" }, Array.Empty<ActiveArchive>());
@@ -168,7 +168,7 @@ public sealed class PlaceNamedProviderEdgeTests
 
         Assert.Equal(AssetKind.Loose, looseLook.Source?.Kind);
         Assert.True(looseLook.Source!.OffOrder);
-        Assert.False(looseLook.Source.OwnerEnabled);
+        Assert.True(looseLook.Source.OwnerEnabled);
         Assert.Equal(AssetKind.Bsa, archLook.Source?.Kind);
         Assert.True(archLook.Source!.OwnerEnabled);
     }

@@ -131,11 +131,15 @@ public static class DialogueScriptCheck
         // Each bound class needs Scripts\<class>.pex to fire; distinct so two contributors do not double-report.
         var distinct = names.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var missing = new List<string>();
+        string? hiddenNote = null;
         foreach (var name in distinct)
         {
             // A NAMESPACED class compiles to Scripts\Namespace\Script.pex, so map ':' before probing the VFS.
             var relPex = $@"Scripts\{name.Replace(':', '\\')}.pex";
-            if (!av.Resolve(relPex).Exists) missing.Add(relPex);
+            var hit = av.Resolve(relPex);
+            if (hit.Exists) continue;
+            missing.Add(relPex);
+            hiddenNote ??= hit.Hidden?.Sentence(relPex) is { } h ? $" ('{relPex}' is {h})" : null;
         }
 
         if (missing.Count == 0)
@@ -145,7 +149,7 @@ public static class DialogueScriptCheck
         else
             findings.Add(new ScriptBindingFinding(info.FormKey, topicEdid, ScriptBindingStatus.ScriptNotCompiled,
                 distinct, missing, av.ReadIncomplete,
-                $"result script bound ({string.Join(", ", distinct)}) but the compiled .pex is missing on disk — " +
+                $"result script bound ({string.Join(", ", distinct)}) but the compiled .pex is missing on disk{hiddenNote} — " +
                 "it runs NOTHING until compiled (" + ToolNames.CompileScript + ").") { HasFragment = hasFragment });
     }
 

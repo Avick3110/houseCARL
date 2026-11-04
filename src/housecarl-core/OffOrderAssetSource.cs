@@ -20,11 +20,15 @@ public enum OffOrderReason
     NoCopyInFolder,
     /// <summary>The folder was searched but something in it could not be READ, so "absent" is an unknown.</summary>
     FolderUnreadable,
+    /// <summary>The folder holds the file loose, but MO2 hides it (<see cref="OffOrderLookup.Hidden"/> says by which
+    /// rule), and none of its root archives has it: hiding applies to a named folder whatever its tick.</summary>
+    Hidden,
 }
 
-/// <summary>What one off-order lookup did, not just what it found; the two unreadable fields are that outcome's data.</summary>
+/// <summary>What one off-order lookup did, not just what it found; the unreadable and hidden fields are those outcomes' data.</summary>
 public readonly record struct OffOrderLookup(PlacementSource? Source, OffOrderReason Reason,
-                                             string? UnreadableName = null, string? UnreadableCause = null)
+                                             string? UnreadableName = null, string? UnreadableCause = null,
+                                             HiddenCopies? Hidden = null)
 {
     public static readonly OffOrderLookup NotConsulted = new(null, OffOrderReason.NotConsulted);
 }
@@ -33,9 +37,10 @@ public static class OffOrderAssetSource
 {
     /// <summary>The named mod folder's copy of <paramref name="relPath"/>, or null when that name reaches no copy.
     /// <paramref name="relPath"/> arrives already validated; the PROVIDER name is validated here, because it comes
-    /// raw off the wire and is about to be joined to <paramref name="modsDir"/>. Never throws.</summary>
+    /// raw off the wire and is about to be joined to <paramref name="modsDir"/>. <paramref name="opened"/> is the
+    /// path as Windows opens it, which MO2's rules are asked about. Never throws.</summary>
     public static OffOrderLookup Resolve(string modsDir, Func<string, bool> isReservedProviderName,
-                                         string? providerName, string relPath)
+                                         string? providerName, string opened, string relPath, Mo2SkipRules skip)
     {
         var name = providerName?.Trim() ?? "";
         if (name.Length == 0 || modsDir.Length == 0 || relPath.Length == 0) return OffOrderLookup.NotConsulted;
@@ -52,17 +57,29 @@ public static class OffOrderAssetSource
 
         // ---- loose FIRST, exactly as the VFS would layer it if this mod were ticked ----
         string loose;
-        try { loose = Path.Combine(dir, relPath); }
+        try { loose = Path.Combine(dir, opened); }
         catch (Exception ex) { return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, Because(ex)); }
 
+        // The same rule the build applies, ticked or not: a hidden loose copy is never read, only named.
+        HiddenCopies? hidden = null;
+        var rule = skip.Hides(opened, linked: true);
         switch (ProbeFile(loose, out var looseCause))
         {
-            case Probe.Present:
+            case Probe.Present when rule is null:
                 return new OffOrderLookup(new PlacementSource(name, AssetKind.Loose, LooseFilePath: loose, ArchivePath: null,
                                                               EntryPath: relPath, OffOrder: true), OffOrderReason.Found);
+            case Probe.Present:
+                hidden = new HiddenCopies(rule, opened, new[] { name });
+                break;
             case Probe.Unreadable:
                 // The copy may be right there and unreadable; "this mod does not have it" is the strongest false claim in the set.
                 return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, looseCause);
+            case Probe.Absent when rule is null:
+                // MO2's Hide renames x to x.mohidden: a folder holding only the twin has x, hidden.
+                foreach (var s in skip.FileSuffixes)
+                    if (ProbeFile(loose + s, out _) == Probe.Present)
+                    { hidden = new HiddenCopies(new HiddenRule(HiddenKind.SkipSuffix, s), opened + s, new[] { name }); break; }
+                break;
         }
 
         // ---- the folder's ROOT archives, in a deterministic order ----
@@ -89,6 +106,8 @@ public static class OffOrderAssetSource
                 return new OffOrderLookup(new PlacementSource(name, AssetKind.Bsa, LooseFilePath: null, ArchivePath: bsa,
                                                               EntryPath: relPath, OffOrder: true), OffOrderReason.Found);
         }
+        // A hidden copy is a fact about the folder; an archive that would not read rides along as a note.
+        if (hidden is not null) return new OffOrderLookup(null, OffOrderReason.Hidden, unreadableName, unreadableCause, hidden);
         return unreadableCause is null
             ? new OffOrderLookup(null, OffOrderReason.NoCopyInFolder)
             : new OffOrderLookup(null, OffOrderReason.FolderUnreadable, unreadableName, unreadableCause);
