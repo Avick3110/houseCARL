@@ -309,10 +309,10 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
     // ---- the route each overlay-on-a-scan refusal names, run as served ----------------------------------
 
     /// <summary>The route's first call: the refused call's scan terms alone, written to a file.</summary>
-    string PlainScanFile(string dir, string[]? where = null)
+    string PlainScanFile(string dir, string[]? where = null, JsonElement? source = null)
     {
         var path = W.Scratch(dir, "matches.jsonl");
-        Served(RecordsTools.Records(Svc, types: Weap, where: where, to_file: path), "complete result");
+        Served(RecordsTools.Records(Svc, types: Weap, where: where, source: source, to_file: path), "complete result");
         return path;
     }
 
@@ -323,14 +323,12 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
     [InlineData(false)]
     public void OverlayScanDelta_NamesTheFileRouteAndItRuns(bool overlayIsSource)
     {
-        var draft = DraftPost(overlayIsSource ? "route-delta-src" : "route-delta-vs");
-        var winner = Je("\"winner\"");
-        Refused(RecordsTools.Records(Svc, types: Weap, source: overlayIsSource ? draft : null, versus: overlayIsSource ? winner : draft,
-                                     project: Form("delta")),
+        var dir = overlayIsSource ? "route-delta-src" : "route-delta-vs";
+        var draft = DraftPost(dir);
+        JsonElement? src = overlayIsSource ? draft : null, vs = overlayIsSource ? Je("\"winner\"") : draft;
+        Refused(RecordsTools.Records(Svc, types: Weap, source: src, versus: vs, project: Form("delta")),
                 "plain scan of types= with to_file=", "re-run this call with formids=[\"@<file>\"] in place of types=");
-        var path = PlainScanFile(overlayIsSource ? "route-delta-src" : "route-delta-vs");
-        Served(RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: overlayIsSource ? draft : null,
-                                    versus: overlayIsSource ? winner : draft, project: Form("delta")),
+        Served(RecordsTools.Records(Svc, formids: new[] { "@" + PlainScanFile(dir) }, source: src, versus: vs, project: Form("delta")),
                "HcRecW0", "123");
     }
 
@@ -341,12 +339,12 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
     [InlineData(false)]
     public void OverlayScanTree_NamesTheVersusRouteAndItRuns(bool overlayIsSource)
     {
-        var draft = DraftPost(overlayIsSource ? "route-tree-src" : "route-tree-vs");
-        var r = RecordsTools.Records(Svc, types: Weap, source: overlayIsSource ? draft : null, versus: overlayIsSource ? null : draft,
-                                     project: Form("tree"));
-        Refused(r, "formids=[\"@<file>\"] in place of types=", "the overlay on versus= and no source=");
-        var path = PlainScanFile(overlayIsSource ? "route-tree-src" : "route-tree-vs");
-        Served(RecordsTools.Records(Svc, formids: new[] { "@" + path }, versus: draft, project: Form("tree")), "HcRecW0", "123");
+        var dir = overlayIsSource ? "route-tree-src" : "route-tree-vs";
+        var draft = DraftPost(dir);
+        Refused(RecordsTools.Records(Svc, types: Weap, source: overlayIsSource ? draft : null, versus: overlayIsSource ? null : draft,
+                                     project: Form("tree")),
+                "formids=[\"@<file>\"] in place of types=", "the overlay on versus= and no source=");
+        Served(RecordsTools.Records(Svc, formids: new[] { "@" + PlainScanFile(dir) }, versus: draft, project: Form("tree")), "HcRecW0", "123");
     }
 
     /// <summary>formids= beside the scan terms is already the record list, so the route is dropping the terms, not
@@ -400,8 +398,7 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         var old = Plugin(W.OldName);
         Refused(RecordsTools.Records(Svc, types: Weap, source: old, versus: draft, project: Form("delta")),
                 "plain scan of types= on the same source= with to_file=", "in place of types=");
-        var path = W.Scratch("route-offorder", "matches.jsonl");
-        Served(RecordsTools.Records(Svc, types: Weap, source: old, to_file: path), "complete result");
+        var path = PlainScanFile("route-offorder", source: old);
         Served(RecordsTools.Records(Svc, formids: new[] { "@" + path }, source: old, versus: draft, project: Form("delta")),
                Fid(W.Weapons[1]));
     }
