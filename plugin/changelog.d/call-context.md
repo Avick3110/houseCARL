@@ -1,1 +1,1 @@
-- **A tool call now keeps the MO2 profile and plugin list it started on: a change mid-call shows at the next call, or refuses if it lands between the call's record and file reads; a changed plugin file still refuses.** Check: switch profile mid-`records` call, then rerun.
+- **A `records` call no longer refuses when the MO2 profile changes mid-call: it answers from the build its first record read saw.** Check: switch profile during a long `records` query; it answers, and a rerun shows the new profile.
