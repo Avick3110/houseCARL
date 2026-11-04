@@ -208,7 +208,8 @@ public sealed class HiddenReasonTests : IDisposable
     {
         var text = AssetTools.AssetStatus(_p.Open(), formids: new[] { PlaceInstance.FacegenFormId });
 
-        Assert.Contains("ABSENT — hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'ModA', as", text);
+        // The tint row's pair line, indented under its pair: header, names the mesh half's hidden copy.
+        Assert.Contains("\n    ABSENT — hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'ModA', as", text);
     }
 
     // ---- under= and provider= --------------------------------------------------------------------
