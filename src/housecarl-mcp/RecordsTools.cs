@@ -434,8 +434,11 @@ public static partial class RecordsTools
 
         // ---- lane decision ------------------------------------------------------------------------------
         bool hasFormids = formids is { Length: > 0 };
-        bool hasScan = types is { Length: > 0 } || plugins?.names is { Length: > 0 } || conflicts_only
-                       || where is { Length: > 0 } || references is { Length: > 0 };
+        // The scan terms this call passed, as a sentence spells them; any one makes the call a scan.
+        string[] scanTerms = new[] { (types is { Length: > 0 }, "types="), (plugins?.names is { Length: > 0 }, "plugins="),
+                                     (where is { Length: > 0 }, "where="), (references is { Length: > 0 }, "references="),
+                                     (conflicts_only, "conflicts_only") }.Where(t => t.Item1).Select(t => t.Item2).ToArray();
+        bool hasScan = scanTerms.Length > 0;
         if (!hasFormids && !hasScan)
             return Wire.Refuse(json, "error: select something — formids= (a record list), or a scan scope: types=, plugins=, conflicts_only=true, where=, references=.");
         // formids= composes with the scan terms: the identity set intersects the scan, or is the universe when it
@@ -1322,20 +1325,15 @@ public static partial class RecordsTools
             headerLine += "\n(a pole reads content OUTSIDE the epoch fingerprint — an off-order file or the INI layer; an edit there changes answers without changing the epoch)";
         }
 
-        // The one refusal left for an overlay pole on a scan: what replays only the limit= window cannot serve, and
-        // the list-lane route that serves this call. With formids= beside the scan terms dropping them is the route;
-        // else a plain scan into to_file=, re-entered as formids=; a named source= stays on that scan, since an
-        // off-order file is the scan's universe.
+        // The refusal for an overlay pole on a scan, naming the list-lane route that serves this call.
         string OverlayScanRefusal(string what)
         {
-            var named = new[] { (types is { Length: > 0 }, "types="), (plugins?.names is { Length: > 0 }, "plugins="),
-                                (where is { Length: > 0 }, "where="), (references is { Length: > 0 }, "references="),
-                                (conflicts_only, "conflicts_only") }.Where(t => t.Item1).Select(t => t.Item2).ToArray();
-            var terms = named.Length == 1 ? named[0] : string.Join(", ", named[..^1]) + " and " + named[^1];
-            // The tree has no subject (source= is refused on it), so its route carries the overlay on versus=.
+            bool one = scanTerms.Length == 1;
+            var terms = one ? scanTerms[0] : string.Join(", ", scanTerms[..^1]) + " and " + scanTerms[^1];
             var tree = form == "tree" ? ", with the overlay on versus= and no source= (a tree has no subject)" : "";
+            // A named source= stays on the plain scan: an off-order file is that scan's universe.
             var route = hasFormids
-                ? $"drop {terms} (formids= beside {(named.Length == 1 ? "it" : "them")} makes this call a scan){tree}"
+                ? $"drop {terms} (formids= beside {(one ? "it" : "them")} makes this call a scan){tree}"
                 : $"run a plain scan of {terms}{(srcSpec.Kind == RecordReads.PoleKind.Named ? " on the same source=" : "")} with to_file=, " +
                   $"then re-run this call with formids=[\"@<file>\"] in place of {terms}{tree}";
             return $"error: an overlay pole on a scan replays the SkyPatcher layer over the limit= window of a reading form, and {what}. " +
