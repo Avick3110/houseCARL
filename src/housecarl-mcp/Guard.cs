@@ -42,7 +42,7 @@ internal static class Guard
 
     /// <summary>The call's refusal when its views split across a profile change, or a plugin it relied on changed on disk mid-call, else null.</summary>
     static ToolAnswer? Changed(ToolCall call) =>
-        (call.Context.Refusal ??call.Mark.Settle()) is { } why ? ToolAnswer.Refusal(Wire.RefusalPrefix + why) : null;
+        (call.Context.Refusal ?? call.Mark.Settle()) is { } why ? ToolAnswer.Refusal(Wire.RefusalPrefix + why) : null;
 
     static string Named(string tool, Exception ex)
     {

@@ -124,6 +124,18 @@ public sealed class CallContextTests : IDisposable
     }
 
     [Fact]
+    public void AFileReadInsideTheWriteGateIsCheckedAgain()
+    {
+        Call(() =>
+        {
+            Host.CaptureAssets();
+            var files = _svc.Counters.FileFreshnessChecks;
+            lock (Host.WriteGate) Host.CaptureAssets();
+            Assert.Equal(files + 1, _svc.Counters.FileFreshnessChecks);
+        });
+    }
+
+    [Fact]
     public void ACallChecksRecordsOnceAndFilesOnceAtTheirFirstRead()
     {
         Call(() => Host.CaptureAssets());                       // warm both sides
