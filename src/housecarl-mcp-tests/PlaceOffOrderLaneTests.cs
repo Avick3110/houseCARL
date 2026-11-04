@@ -386,7 +386,7 @@ public sealed class PlaceOffOrderLaneTests : IClassFixture<PlaceOffOrderWorld>
         Assert.Equal(OffOrderReason.NotConsulted, pick.OffOrderReason);
         foreach (var claim in new[] { WriteSentences.PlaceSourceReservedName, WriteSentences.PlaceSourceNotAFolderName,
                                       WriteSentences.PlaceSourceNoSuchFolder, WriteSentences.PlaceSourceDiskFolderSearched,
-                                      WriteSentences.PlaceSourceFolderUnreadable })
+                                      WriteSentences.PlaceSourceFolderUnreadable, WriteSentences.PlaceSourceFolderHidden })
             Assert.DoesNotContain(claim, sentence);
         Assert.Contains("does not supply", sentence);
     }
