@@ -56,10 +56,10 @@ internal sealed class CallContext
     /// <summary>Refuse the whole call, even where a lane folds the throw into a row.</summary>
     internal Exception Refuse() { Refusal = MovedBetweenViews; return new LoadOrderMovedMidCallException(); }
 
-    /// <summary>The refusal when the MO2 profile moved between the call's record view and its file view.</summary>
+    /// <summary>The refusal when the roots or the order moved between the call's two views.</summary>
     internal const string MovedBetweenViews =
-        "the load order changed while this call was running (the MO2 profile changed between reading its records and " +
-        "reading its files) — the response would describe two builds; nothing was answered or written. Retry the call.";
+        "the load order changed while this call was running (the MO2 profile, or the plugins it enables, changed between " +
+        "reading its records and reading its files) — the response would describe two builds; nothing was answered or written. Retry the call.";
 }
 
 /// <summary>The load order moved between a call's record view and its file view, so the call refuses whole.</summary>
