@@ -168,8 +168,9 @@ second display pole. The pre state on a scan is the winner scan, said in its sou
 and `to_file=`. A comparison form over a scan takes neither state: the post refusal names the replay, the pre one
 says pre is the winner and to pass `"winner"`. Each post refusal of a comparison, a walk or `to_file=` names the
 list-lane route that serves the same call, built from the call's own scan terms: a plain scan of those terms (keeping a
-named `source=`) with `to_file=`, then the call re-run with `formids=["@<file>"]` in their place; when `formids=` is
-already beside them, dropping them is the route. A tree's route carries the overlay on `versus=` with no `source=`,
+named `source=`) with `to_file=`, then the call re-run with `formids=["@<file>"]` in their place. A `formids=` beside
+them intersects them, so the plain scan carries it with them and the re-run replaces it too: a listed id that fails a
+term stays out. A tree's route carries the overlay on `versus=` with no `source=`,
 since the list lane refuses `source=` on a tree. `where_source=` rides with `where=`: the plain scan keeps it, so it
 matches what the refused call matched, and the re-run drops it with `where=`. A fault of the call's own answers ahead
 of the route, whose plain scan would meet it: `fields_source='winner'` (the two display poles), a `where=` nothing
@@ -274,7 +275,7 @@ hardened.
   carries the note, as does an empty window; a walk, `to_file=` and `fields_source='winner'` with the post state are
   refused and served with pre; a summary keeps `matches=` and is bounded. The route each post refusal names is run as
   served in `OverlayScanDelta_NamesTheFileRouteAndItRuns`, `OverlayScanTree_NamesTheVersusRouteAndItRuns`,
-  `OverlayScanDeltaBesideFormids_NamesDroppingTheScanTermsAndThatRuns`, `OverlayScanToFile_NamesTheFileRouteAndItRuns`,
+  `OverlayScanBesideFormids_NamesTheFileRouteAndItAnswersTheIntersection`, `OverlayScanToFile_NamesTheFileRouteAndItRuns`,
   `OverlayScanDeltaWithWhereSource_NamesARouteThatKeepsItOnTheScanAndRuns`, `OverlayScanWalk_NamesTheFileRouteAndItRuns`
   and `OffOrderScanDeltaVersusOverlay_NamesTheFileRouteOnTheSameSource`; the call's own fault answering ahead of it in
   `OverlayScanWinnerFieldsToFile_NamesTheTwoDisplayPolesAndTheWinnerCallRuns`,

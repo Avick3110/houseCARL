@@ -2018,16 +2018,13 @@ public static partial class RecordsTools
     /// and the list-lane route that serves the same call.</summary>
     static string OverlayScanRefusal(string what, ScanCall call)
     {
-        // where_source= rides with where=: the plain scan keeps it, and the re-run drops it with where=.
-        string[] named = call.WhereSource ? [.. call.Terms, "where_source="] : call.Terms;
-        bool one = named.Length == 1;
-        var terms = one ? named[0] : string.Join(", ", named[..^1]) + " and " + named[^1];
+        // formids= beside the terms intersects them, so the plain scan carries it; where_source= rides with where=.
+        string[] named = [.. (call.HasFormids ? new[] { "formids=" } : []), .. call.Terms, .. (call.WhereSource ? new[] { "where_source=" } : [])];
+        var terms = named.Length == 1 ? named[0] : string.Join(", ", named[..^1]) + " and " + named[^1];
         var tree = call.Form == "tree" ? ", with the overlay on versus= and no source= (a tree has no subject)" : "";
         // A named source= stays on the plain scan: an off-order file is that scan's universe.
-        var route = call.HasFormids
-            ? $"drop {terms} (formids= beside {(one ? "it" : "them")} makes this call a scan){tree}"
-            : $"run a plain scan of {terms}{(call.NamedSource ? " on the same source=" : "")} with to_file=, " +
-              $"then re-run this call with formids=[\"@<file>\"] in place of {terms}{tree}";
+        var route = $"run a plain scan of {terms}{(call.NamedSource ? " on the same source=" : "")} with to_file=, " +
+                    $"then re-run this call with formids=[\"@<file>\"] in place of {terms}{tree}";
         return $"error: an overlay pole on a scan replays the SkyPatcher layer over the limit= window of a reading form, and {what}. " +
                $"The list lane serves it: {route}; or read the whole layer via {ToolNames.SkypatcherLayer}.";
     }
