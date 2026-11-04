@@ -180,4 +180,19 @@ public sealed class CopyEndToEndTests
         Assert.Equal(rows.Select(r => (r.Eid, r.To)).Append(("OrderPatch", "000806:OrderPatch.esp")).Order(),
             written.Order());
     }
+
+    // a walk that cycles back to the from record has already copied it in reached order, and the clone is that copy
+    [Fact]
+    public void AWalkThatReachesTheFromRecordClonesItAtItsReachedNumber()
+    {
+        using var w = new CopyWalkWorld();
+
+        var text = w.Clone(w.CycleList, "CyclePatch");
+
+        Assert.StartsWith($"CLONED {FormIdToken.Of(w.CycleList)} -> 000801:CyclePatch.esp", text);
+        Assert.Equal(
+            new[] { ("CycPart", "000800:CyclePatch.esp"), ("CyclePatch", "000801:CyclePatch.esp") },
+            w.Patch("CyclePatch", m => m.EnumerateMajorRecords().OrderBy(r => r.FormKey.ID)
+                .Select(r => (r.EditorID!, FormIdToken.Of(r.FormKey))).ToArray()));
+    }
 }
