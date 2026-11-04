@@ -169,8 +169,9 @@ public sealed class CopyEndToEndTests
 
         var written = CopyServiceWorld.ReadBack(
             Directory.EnumerateFiles(w.ModsDir, "OrderPatch.esp", SearchOption.AllDirectories).Single(),
-            m => m.EnumerateMajorRecords().ToDictionary(r => r.EditorID!, r => FormIdToken.Of(r.FormKey)));
-        Assert.All(rows, r => Assert.Equal(r.To, written[r.Eid]));
-        Assert.Equal("000806:OrderPatch.esp", written["OrderPatch"]);   // the clone, under its new EditorID
+            m => m.EnumerateMajorRecords().Select(r => (Eid: r.EditorID!, To: FormIdToken.Of(r.FormKey))).ToList());
+        // exactly the answer's rows and the clone, under its new EditorID: no record the answer does not list
+        Assert.Equal(rows.Select(r => (r.Eid, r.To)).Append(("OrderPatch", "000806:OrderPatch.esp")).Order(),
+            written.Order());
     }
 }
