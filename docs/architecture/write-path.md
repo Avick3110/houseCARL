@@ -410,6 +410,10 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
 - Asset paths are harvested from the IN-PATCH duplicates and before the serialize, the donor bodies being
   overlay-backed and released there, and an unreadable asset link is a report rather than a reason to fail a written
   copy.
+- Copy passes its own walk caps, 128 records and 32 hops, by value, so a change to the walk engine's defaults does
+  not move them. The reached records take new FormIDs in the walk's reached order (breadth first, seeds and list
+  entries in order, a record at its first pull) off the patch's counter, from 0x800 on a fresh patch; the clone takes
+  the next one after them, unless the walk reached it first.
 - A walk that cycles back to the `from` record has already internalized it, so the clone reuses that copy rather
   than minting a second duplicate sharing its EditorID.
 - Every closure-copy refusal returns with nothing usable written, while a post-commit read-back failure is a WARNING
@@ -650,6 +654,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   through the service over a disabled donor: attach and clone written and read back, an in-patch target on an
   extended patch, every named arm binding, a base-game donor rendered as a transplant, the off-order refusal split
   by cause, the post-attach leak check, an unset seed cleared on disk, and the asset paths reported.
+- `CopyEndToEndTests` — the closure copy through `housecarl_copy`: its four walk refusals (a source miss and a source
+  fault, at `from` and inside the walk) each leaving the world unchanged, copy's own caps of 128 and 32 from both
+  sides, the reached order and FormID map in the answer and the written patch, and a walk that cycles back to `from`.
 - The seam `FreshnessCaptureTests.OneMultiEditWrite_ResolvesEveryEditAgainstOneBuild` parks the write on is `WritePatchBuilder.InsidePhase1ResolveForGuard`,
   which is why that flip is staged rather than timed and no runner can be too fast to land it inside the resolve loop.
   The field has no product caller.
