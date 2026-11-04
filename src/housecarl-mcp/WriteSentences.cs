@@ -423,24 +423,26 @@ internal static class WriteSentences
     internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames,
                                                   OffOrderReason reason, string? unreadableName = null,
                                                   string? unreadableCause = null, string? pathHint = null,
-                                                  bool scanIncomplete = false, HiddenCopies? hidden = null) =>
-        // A folder that holds it hidden is said to hold it, the rule once, not to lack it.
-        (reason == OffOrderReason.Hidden && hidden is { } h
-            ? $"'{provider}' holds '{rel}', {h.Unnamed()}, {PlaceSourceFolderHidden}. "
-            : $"'{provider}' does not supply '{rel}'"
+                                                  bool scanIncomplete = false, HiddenCopies? hidden = null)
+    {
+        string Lacks(string why) => $"'{provider}' does not supply '{rel}'{why}. ";
         // ONE sentence per reason, and a switch expression with NO default arm: CS8509 makes a new outcome a build diagnostic.
-      + reason switch
+        var head = reason switch
         {
-            OffOrderReason.NotConsulted     => ". ",          // nothing on disk was looked at; claim nothing about it
-            OffOrderReason.Found            => ". ",          // unreachable from a refusal, and silent if it ever is
-            OffOrderReason.ReservedName     => $" — {PlaceSourceReservedName}. ",
-            OffOrderReason.NotAFolderName   => $" — {PlaceSourceNotAFolderName}. ",
-            OffOrderReason.NoSuchFolder     => $" — {PlaceSourceNoSuchFolder}. ",
-            OffOrderReason.NoCopyInFolder   => $" — {PlaceSourceDiskFolderSearched}. ",
-            OffOrderReason.FolderUnreadable => $" — {PlaceSourceFolderUnreadable}. ",
-            OffOrderReason.Hidden           => $" — the MO2 mod folder of that name holds it hidden by MO2, {PlaceSourceFolderHidden}. ",
-        })
-      + (unreadableName is null ? "" : $"NOTE: '{unreadableName}' could not be read ({unreadableCause}), so this may be unscanned rather than absent. ")
+            OffOrderReason.NotConsulted     => Lacks(""),     // nothing on disk was looked at; claim nothing about it
+            OffOrderReason.Found            => Lacks(""),     // unreachable from a refusal, and silent if it ever is
+            OffOrderReason.ReservedName     => Lacks($" — {PlaceSourceReservedName}"),
+            OffOrderReason.NotAFolderName   => Lacks($" — {PlaceSourceNotAFolderName}"),
+            OffOrderReason.NoSuchFolder     => Lacks($" — {PlaceSourceNoSuchFolder}"),
+            OffOrderReason.NoCopyInFolder   => Lacks($" — {PlaceSourceDiskFolderSearched}"),
+            OffOrderReason.FolderUnreadable => Lacks($" — {PlaceSourceFolderUnreadable}"),
+            // A folder that holds it hidden is said to hold it, the rule once, not to lack it.
+            OffOrderReason.Hidden           => $"'{provider}' holds '{rel}', {hidden?.Unnamed() ?? "hidden by MO2"}, {PlaceSourceFolderHidden}. ",
+        };
+        return head
+      + (unreadableName is null ? ""
+         : $"NOTE: '{unreadableName}' could not be read ({unreadableCause}), "
+         + (reason == OffOrderReason.Hidden ? "so any copy it holds is unscanned. " : "so this may be unscanned rather than absent. "))
       + (scanIncomplete ? PlaceSourceScanIncomplete + " " : "")
       + (pathHint is null ? "" : pathHint + " ")
       + (providerNames.Count > 0
@@ -448,6 +450,7 @@ internal static class WriteSentences
             + $"{string.Join("; ", providerNames)}. "
             : "")
       + PlaceSourcePoleSpelling;
+    }
 
     [MustState("NOT enabled in MO2")]
     internal const string OffOrderModFolder =
