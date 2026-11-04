@@ -172,9 +172,12 @@ named `source=`) with `to_file=`, then the call re-run with `formids=["@<file>"]
 them intersects them, so the plain scan carries it with them and the re-run replaces it too: a listed id that fails a
 term stays out. A tree's route carries the overlay on `versus=` with no `source=`,
 since the list lane refuses `source=` on a tree. `where_source=` rides with `where=`: the plain scan keeps it, so it
-matches what the refused call matched, and the re-run drops it with `where=`. A fault of the call's own answers ahead
-of the route, whose plain scan would meet it: `fields_source='winner'` (the two display poles), a `where=` nothing
-bounds, and an off-order `source=`'s own refusals (`conflicts_only=`, `where_source=`).
+matches what the refused call matched, and the re-run drops it with `where=`. The route is named from the call's terms
+as written: a term the plain scan itself refuses (an unknown type, a `where=` field or value, an in-order
+`where_source=`, a `references=` or `formids=` entry, `defined_in` without names) answers on that plain scan, by its
+own sentence. Only the faults that would change the route answer ahead of it: `fields_source='winner'` (the two
+display poles), a `where=` nothing bounds, and an off-order `source=`'s own refusals (`conflicts_only=`,
+`where_source=`).
 
 ### Reports and drafts
 
