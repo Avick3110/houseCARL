@@ -329,6 +329,21 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.DoesNotContain("NOT enabled", t);
     }
 
+    /// <summary>Q2 (c), archives as today: a named folder's root archive still answers when its loose copy is hidden.</summary>
+    [Fact]
+    public void ANamedFoldersArchiveStillAnswersOverItsHiddenLooseCopy()
+    {
+        var arch = _p.Mod("ArchC");                                // unticked
+        File.WriteAllBytes(Path.Combine(arch, "ArchC.bsa"), PlaceInstance.FaceArchive());
+        PlaceInstance.Loose(arch, PlaceInstance.FacegenRel + ".mohidden", X);
+
+        var t = PlaceTools.Place(_p.Open(), Assets($$"""[{"path":"{{PlaceInstance.FacegenRel.Replace("\\", "/")}}"}]"""),
+                                 source_provider: "ArchC");
+
+        Assert.Contains("read from 'ArchC'", t);
+        Assert.DoesNotContain(WriteSentences.PlaceSourceFolderHidden, t);
+    }
+
     [Fact]
     public void PlaceNamingAFolderDoesNotReadItsHiddenFile()
     {
