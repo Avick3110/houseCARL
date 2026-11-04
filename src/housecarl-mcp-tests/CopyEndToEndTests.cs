@@ -60,6 +60,9 @@ public sealed class CopyEndToEndTests
 
     static string ShadowPath(CopyServiceWorld w) => Path.Combine(w.ModsDir, "ShadowMod", "Shadow.esp");
 
+    /// <summary>The arm a Shadow.esp fault names: the one thing its remedy tells the user to act on.</summary>
+    const string ShadowArm = "'Shadow.esp' (from the active load order, MO2 mod folder \"ShadowMod\")";
+
     // the from record's plugin held open by another process: refuses as a fault naming the record, writing nothing
     [Fact]
     public void AFromInAnUnreadablePluginRefusesAsAFaultAndWritesNothing()
@@ -71,7 +74,7 @@ public sealed class CopyEndToEndTests
         string text;
         using (HeldOpen.Hold(ShadowPath(w))) text = Copy(w, w.ShadowNpc, new[] { "Shadow.esp" }, "FaultFrom");
 
-        Assert.Contains($"carries {FormIdToken.Of(w.ShadowNpc)} but it could not be read", text);
+        Assert.Contains($"{ShadowArm} carries {FormIdToken.Of(w.ShadowNpc)} but it could not be read", text);
         NothingWritten(w.Root, before);
     }
 
@@ -86,7 +89,7 @@ public sealed class CopyEndToEndTests
         string text;
         using (HeldOpen.Hold(ShadowPath(w))) text = Copy(w, w.R5Npc, new[] { "Src.esp", "Shadow.esp" }, "FaultWalk");
 
-        Assert.Contains("carries 000800:Shadow.esp but it could not be read", text);
+        Assert.Contains($"{ShadowArm} carries 000800:Shadow.esp but it could not be read", text);
         NothingWritten(w.Root, before);
     }
 
