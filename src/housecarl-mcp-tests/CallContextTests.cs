@@ -56,8 +56,22 @@ public sealed class CallContextTests : IDisposable
 
     bool FilesBuilt() => typeof(LoadOrderService).GetField("_assetResolver", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(_svc) is not null;
 
-    /// <summary>Run <paramref name="body"/> as one tool call and return its rendered answer.</summary>
-    static string Call(Action body) => Guard.Tool("housecarl_probe", _ => { body(); return ToolAnswer.Served("ok"); });
+    /// <summary>Run <paramref name="body"/> as one tool call, which must be served.</summary>
+    static void Call(Action body) => Assert.Equal("ok", Answer(body));
+
+    /// <summary>Run <paramref name="body"/> as one tool call and return its rendered answer; a failed assertion inside it fails the test.</summary>
+    static string Answer(Action body)
+    {
+        Xunit.Sdk.XunitException? failed = null;
+        var answer = Guard.Tool("housecarl_probe", _ =>
+        {
+            try { body(); }
+            catch (Xunit.Sdk.XunitException e) { failed = e; }
+            return ToolAnswer.Served("ok");
+        });
+        if (failed is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failed);
+        return answer;
+    }
 
     /// <summary>Run <paramref name="body"/> outside any call, as another call's thread would.</summary>
     static void OutsideTheCall(Action body)
@@ -82,13 +96,13 @@ public sealed class CallContextTests : IDisposable
     public void OneCallReadsOnePinAcrossAChangeTheNextCallSees()
     {
         LoadOrderService.ViewPin? first = null, second = null;
-        Assert.Equal("ok", Call(() =>
+        Call(() =>
         {
             first = _svc.CapturePin();
             AddLate();
             second = _svc.CapturePin();
             Assert.Same(first.Resolver, Host.Resolver);
-        }));
+        });
         Assert.Same(first, second);
         Assert.DoesNotContain(_late.FileName.String, second!.Resolver.PluginNames);
         Call(() => Assert.Contains(_late.FileName.String, _svc.CapturePin().Resolver.PluginNames));
@@ -168,7 +182,7 @@ public sealed class CallContextTests : IDisposable
     public void AProfileChangeBetweenTheRecordPinAndTheFirstFileReadRefusesTheCall(string kind)
     {
         Call(() => Host.CaptureAssets());                       // warm both sides on Default
-        var answer = Call(() =>
+        var answer = Answer(() =>
         {
             _svc.CapturePin();
             Change(kind);
@@ -184,7 +198,7 @@ public sealed class CallContextTests : IDisposable
     public void AProfileChangeBetweenTheFirstFileReadAndTheRecordPinRefusesTheCall(string kind)
     {
         Call(() => Host.CaptureAssets());                       // warm both sides on Default
-        var answer = Call(() =>
+        var answer = Answer(() =>
         {
             Host.CaptureAssets();
             Change(kind);
