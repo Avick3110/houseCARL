@@ -199,10 +199,14 @@ public sealed class TypedAnswerCompileTests(ScriptsFixture f)
         var own = Own();
         var store = new UserConfigStore(Path.Combine(own, "user.json"));
         var bridge = new ToolPathResolver(store);
+        // The body probes these hints, the located Skyrim SE install among them; a compiler there would run instead.
+        var hints = W.Svc.CompilerGameDirHints();
+        if (ToolBridge.Probe(ToolDependency.PapyrusCompiler, hints) is { } located)
+            Assert.Fail($"cannot reach the tool-path prompt on this machine: the compiler at '{located}' is auto-detected.");
         var (text, refused) = TypedAnswerTests.Answer(() => CompileTools.CompileScript(W.Svc, bridge, store,
             Path.Combine(own, "TaScript.psc"), auto_imports: false, out_path: Path.Combine(own, "out")));
         Assert.True(refused, text);
-        Assert.Contains("PapyrusCompiler", text);
+        Assert.Equal(ToolBridge.RenderMissingPrompt(ToolDependency.PapyrusCompiler, hints), text);
     }
 
     /// <summary>A compiler that cannot run fails the compile, and the failed outcome is refused.</summary>
