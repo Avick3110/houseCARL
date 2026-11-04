@@ -64,8 +64,9 @@ Shared enums — cast types, actor values, soul types, the biped slot index — 
 1. **Pick the filter.** The primary filter by form from the table (the direct list), or a finder
    the record file lists (`filterByKeywords`, `filterByEditorIdContains`, …). Finders on one line
    add up: each finds records on its own, so two finders patch both sets, not their overlap.
-   Narrow with a restriction, an `…Excluded` key or `filterByModNames`; none of them touch the
-   direct list. A line with no filter patches every record of that type, except in the Leveled
+   Narrow with a restriction, an `…Excluded` key or `filterByModNames`; they leave the direct list
+   alone, except `filterByModNames` in FormList and Race Hook and some Excluded keys in Cell, Race
+   Hook and Reference (`grammar-core.md` §5). A line with no filter patches every record of that type, except in the Leveled
    List and Reference patchers, where it patches nothing. `grammar-core.md` §5 has the full rule.
 2. **Address the forms** as `Plugin.esp|FormID`, copied whole from xEdit or the Creation Kit, or by
    EditorID — except on the FormID-only keys, which the record file and `grammar-core.md` name. An

@@ -41,8 +41,8 @@ races load.
 ## 2. File system & discovery
 
 Moved to `placement-and-conflicts.md`: the SkyPatcher folder tree, the per-type subfolder and its
-casing, the two INI filename behaviours, the mod-manager same-path collision, and filename-order
-conflict resolution. The record type -> subfolder mapping is the router table in `SKILL.md`.
+casing, the two INI filename behaviours, the mod-manager same-path collision, and read-order
+conflict resolution (the type folder's own files, then each depth of subfolders, A to Z). The record type -> subfolder mapping is the router table in `SKILL.md`.
 
 ---
 
@@ -142,7 +142,7 @@ Most filters come in three connectives, by suffix:
 
 ### How the filters of one line combine
 
-Every filter key has one of five roles. The record files mark the roles that are not *finder*.
+Every filter key has one of five roles. Where a record file does not mark a key's role, this table gives it.
 
 | Role | Keys | What it does |
 |---|---|---|
