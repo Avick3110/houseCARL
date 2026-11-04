@@ -494,7 +494,7 @@ static class AssetWire
         {
             ProviderStanding.Wins => "wins",
             ProviderStanding.Shadowed => "shadowed by " + Provider(hit.Winner!) + Mod(hit.Winner!),
-            ProviderStanding.Hidden => "holds it, " + hit.Hidden!.Sentence() + ", so provides nothing",
+            ProviderStanding.Hidden => "holds it, " + hit.Hidden!.Unnamed() + ", so provides nothing",
             _ => "does not provide this path",
         }).Append('\n');
     }
