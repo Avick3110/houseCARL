@@ -1436,7 +1436,7 @@ public static class SkyPatcherOverlay
                                 ?? $"{where}: '{seg.Key}={v.Raw}' — form not resolvable; skipped.");
                             continue;
                         }
-                        idx =EntryIndicesByKey(record, segs, el, k.Value);
+                        idx = EntryIndicesByKey(record, segs, el, k.Value);
                     }
                     var list = ListAt(record, segs);
                     var cSegs = SplitPath(countPath);
