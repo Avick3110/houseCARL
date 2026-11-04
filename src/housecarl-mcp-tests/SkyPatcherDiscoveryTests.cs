@@ -141,6 +141,8 @@ public sealed class SkyPatcherDiscoveryTests : IDisposable
         Assert.False(Folder(scan, "weapon").PatchingEnabled);
         Assert.True(Folder(scan, "light").PatchingEnabled);
         Assert.Single(scan.Notes, n => n.Contains("no loose SkyPatcher.ini"));
+        Assert.Contains(scan.Notes, n => n.Contains("is not loose in this order, which leaves 'weapon' patching off"));
+        Assert.DoesNotContain(scan.Notes, n => n.Contains("iEnable…Patching"));
     }
 
     // an unreadable SkyPatcher.ini is said and every folder marked, never assumed either way
@@ -169,7 +171,7 @@ public sealed class SkyPatcherDiscoveryTests : IDisposable
             Array.Empty<SkyPatcherConflicts.SkyPatcherConflict>(), Array.Empty<SkyPatcherConflicts.SkyPatcherItm>(),
             Array.Empty<SkyPatcherConflicts.SkyPatcherDuplicate>(), Array.Empty<SkyPatcherNoOpWrite>(),
             Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default"), null, 40_000);
-        Assert.DoesNotContain("toggled OFF", text);
+        Assert.DoesNotContain("the DLL skips this whole folder", text);
         Assert.Contains($"({scan.Folders.Sum(f => f.Files.Count(x => x.NotApplied is null))} applied)", text);
 
         var path = Path.Combine(_root, "drafts", "ammo", "d.ini");

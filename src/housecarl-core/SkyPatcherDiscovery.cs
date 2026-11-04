@@ -33,8 +33,8 @@ public static class SkyPatcherDiscovery
         bool ReadIncomplete,
         Switches PatcherSwitches);
 
-    /// <summary>SkyPatcher.ini's <c>[Patcher]</c> keys as read; <see cref="Unreadable"/> names why the file could not be read.</summary>
-    public sealed record Switches(IReadOnlyDictionary<string, bool> Keys, string? Unreadable);
+    /// <summary>SkyPatcher.ini's <c>[Patcher]</c> keys as read; <see cref="Unreadable"/> names why the file could not be read, and <see cref="Loose"/> is false when the order has no loose copy.</summary>
+    public sealed record Switches(IReadOnlyDictionary<string, bool> Keys, string? Unreadable, bool Loose = true);
 
     /// <summary>Per-file INI parse cache on the shared <see cref="FileStamp"/> key, keyed by the winning loose file's path; thread-safe, bounded by the layer's INI count.</summary>
     public sealed class ParseCache
@@ -209,10 +209,10 @@ public static class SkyPatcherDiscovery
         => switches.Unreadable is not null
            || (switches.Keys.TryGetValue(subfolder, out var on) ? on : catalog?.EnabledWithoutSwitch == true);
 
-    /// <summary>The clause naming why a patcher that does not run is off: its switch at 0, or no switch at all.</summary>
+    /// <summary>The clause naming why a patcher that does not run is off: its switch at 0, no switch in the file, or no loose file.</summary>
     public static string SwitchOffReason(Switches switches, string subfolder)
-        => switches.Keys.ContainsKey(subfolder)
-            ? $"disables '{subfolder}' patching (iEnable…Patching=0)"
+        => switches.Keys.ContainsKey(subfolder) ? $"disables '{subfolder}' patching (iEnable…Patching=0)"
+            : !switches.Loose ? $"is not loose in this order, which leaves '{subfolder}' patching off"
             : $"has no iEnable…Patching key for '{subfolder}', which leaves that patcher off";
 
     /// <summary>Read the winning loose SkyPatcher.ini's [Patcher] section; no loose copy means every key is missing, and an unreadable one is named, never assumed either way.</summary>
@@ -227,7 +227,7 @@ public static class SkyPatcherDiscovery
             {
                 if (noteMissing)
                     notes.Add($"no loose SkyPatcher.ini in this order{(winner is null ? "" : " (only inside a BSA)")} — without its keys every patcher but Light is off.");
-                return new Switches(map, null);
+                return new Switches(map, null, Loose: false);
             }
             // The value reads as the leading integer, 0 when there is none (atoi).
             foreach (var (section, key, val) in IniEntries.Read(winner.LooseFilePath!))
