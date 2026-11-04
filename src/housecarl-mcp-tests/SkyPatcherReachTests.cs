@@ -114,6 +114,20 @@ public sealed class SkyPatcherReachTests
         Assert.Contains(r.Warnings, x => x.Contains("not read by the Cell patcher"));
     }
 
+    // Reference: a filterless line patches nothing, filterByModNames is not read, and filterByRefsExcluded removes a listed reference
+    [Fact]
+    public void ReferenceDifferencesFromTheCatalog()
+    {
+        var refr = new PlacedObject(new FormKey(Mine, 0xAF0), SkyrimRelease.SkyrimSE) { EditorID = "HcRef" };
+        var me = Sp(refr.FormKey);
+        var r = Apply(refr, refr.FormKey, refr.EditorID, "reference", "PlacedObject", new StubResolver(),
+            L(1, "disable=true"),
+            L(2, $"filterByRefs={me}:filterByModNames=Other.esp:disable=true"),
+            L(3, $"filterByRefs={me}:filterByRefsExcluded={me}:disable=true"));
+        Assert.Equal(new[] { 2 }, AppliedLines(r, "disable"));
+        Assert.Contains(r.Warnings, x => x.Contains("not read by the Reference patcher"));
+    }
+
     // FormList: filterByModNames also limits the direct list
     [Fact]
     public void FormListModNamesLimitTheDirectList()
