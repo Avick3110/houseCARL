@@ -14,6 +14,7 @@ public sealed class NifOneReaderTests : IDisposable
 {
     const string Cape = @"meshes\hc\cape.nif";
     const string Bare = @"meshes\hc\bare.nif";
+    const string Fo4 = @"meshes\hc\fo4.nif";
     const string Diffuse = @"textures\hc\cape.dds";
     const string Normal = @"textures\hc\cape_n.dds";
     const string Shared = @"textures\hc\glow.dds";
@@ -35,6 +36,7 @@ public sealed class NifOneReaderTests : IDisposable
             PlaceInstance.Loose(top, rel, "x"u8.ToArray());
         var lower = _p.Mod("Lower");
         PlaceInstance.Loose(lower, Cape, Mesh(new[] { LowerDiffuse }, null, null, null));
+        PlaceInstance.Loose(top, Fo4, NifInspectFixtures.BuildSyntheticSe(streamVersion: 130));
         PlaceInstance.Loose(lower, LowerDiffuse, "y"u8.ToArray());
         PlaceInstance.Loose(lower, Diffuse, "y"u8.ToArray());
         _p.Profile(Array.Empty<string>(), Array.Empty<string>(), new[] { "+Top", "+Lower" });
@@ -86,6 +88,19 @@ public sealed class NifOneReaderTests : IDisposable
         Assert.Contains("texture — shape 'Body' texture slot 4: `" + Shared + "`", paths, StringComparison.Ordinal);
         Assert.Equal(1, CheckMergeFixture.Count(links, "`" + Shared + "`"));
         Assert.Contains("texture — shape 'Glow' effect source texture: `" + Shared + "`", links, StringComparison.Ordinal);
+    }
+
+    /// <summary>paths names a slot past 0 where a Skyrim-layout shader determines it, and prints every slot of a
+    /// foreign-layout shader bare.</summary>
+    [Fact]
+    public void PathsNamesTheSlotsTheShaderDeterminesAndNoOthers()
+    {
+        Assert.Contains("texture — shape 'Body' texture slot 1 (Normal): `" + Normal + "`", Paths(Cape), StringComparison.Ordinal);
+
+        var fo4 = Paths(Fo4);
+        Assert.Contains(@"texture slot 0: `textures\guard\diffuse.dds`", fo4, StringComparison.Ordinal);
+        Assert.Contains(@"texture slot 1: `textures\guard\normal.dds`", fo4, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"texture slot \d+ \(", fo4);
     }
 
     [Fact]
