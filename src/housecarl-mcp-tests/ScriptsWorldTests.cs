@@ -138,8 +138,7 @@ public sealed class ScriptsWorldTests
     {
         using var server = new ServerFixture();
 
-        // A bad instance comes back as an in-band "error: …" text result, not an MCP error, so IsError
-        // cannot tell a configured server from a refused one. The confirmation render is what can.
+        // The confirmation render says the server is configured; IsError alone only says the call was not refused.
         var set = server.Call(ToolNames.SetMo2Instance,
             $$"""{"path": {{JsonSerializer.Serialize(_w.Instance)}}}""");
         Assert.Contains($"configured houseCARL -> MO2 instance '{_w.Instance}'", set.Text, StringComparison.Ordinal);

@@ -2,7 +2,7 @@ using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>What a tool body returns: an answer served or refused, which <see cref="Guard"/> renders once — the
-/// document as the call's text, a refusal as <c>isError</c>; contract in docs/architecture/typed-answer.md.</summary>
+/// document as the call's text, a refusal as <c>isError</c>; contract in docs/architecture/tool-call-argument-shim.md.</summary>
 /// <remarks>No conversion from <see cref="string"/>: a body says which one it is, so a refusal cannot go out as a served answer.</remarks>
 internal sealed class ToolAnswer
 {
@@ -20,9 +20,6 @@ internal sealed class ToolAnswer
 
     /// <summary>The call's answer.</summary>
     public static ToolAnswer Served(string document) => new(false, document, null, false, null);
-
-    /// <summary>A refusal whose whole document the lane rendered itself: a refused outcome, which keeps its own members.</summary>
-    public static ToolAnswer RefusedDocument(string document) => new(true, document, null, false, null);
 
     /// <summary>An outcome's document, refused when it did not succeed.</summary>
     public static ToolAnswer Outcome(bool succeeded, string document) => new(!succeeded, document, null, false, null);

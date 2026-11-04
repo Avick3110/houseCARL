@@ -35,13 +35,13 @@ internal static class Guard
     /// <summary>The Guard's own refusals, each text on every transport.</summary>
     static ToolAnswer Caught(string tool, ToolCall call, Exception ex) => Changed(call) ?? ex switch
     {
-        ProfileUnreadableException => ToolAnswer.Refusal("error: " + ex.Message),   // a profile file locked by MO2 mid-re-sort is a named transient, not an internal failure
-        GameLanguageRefusedException => ToolAnswer.Refusal("error: " + ex.Message),
+        // a profile file locked by MO2 mid-re-sort is a named transient, not an internal failure
+        ProfileUnreadableException or GameLanguageRefusedException => ToolAnswer.Refusal(Wire.RefusalPrefix + ex.Message),
         _ => ToolAnswer.Refusal(Named(tool, ex)),
     };
 
     /// <summary>The call's refusal when a plugin it relied on changed on disk mid-call, else null.</summary>
-    static ToolAnswer? Changed(ToolCall call) => call.Mark.Settle() is { } why ? ToolAnswer.Refusal("error: " + why) : null;
+    static ToolAnswer? Changed(ToolCall call) => call.Mark.Settle() is { } why ? ToolAnswer.Refusal(Wire.RefusalPrefix + why) : null;
 
     static string Named(string tool, Exception ex)
     {

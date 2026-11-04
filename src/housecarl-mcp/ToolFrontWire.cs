@@ -1,6 +1,6 @@
 namespace HousecarlMcp;
 
-// The transport helpers every tool front shares: the epoch stamp, the char budgets, the format switch and the one refusal render.
+// The transport helpers every tool front shares: the epoch stamp, the char budgets, the format switch and the refusal prefix.
 
 static partial class Wire
 {
@@ -35,8 +35,4 @@ static partial class Wire
 
     /// <summary>The read surface's refusal prefix, defined once so the text and json lanes agree where the sentence starts.</summary>
     internal const string RefusalPrefix = "error: ";
-
-    /// <summary>The one whole-call refusal for the read surface: text unchanged, json stripped of the prefix, rendered by
-    /// <see cref="Guard"/>; contract in docs/architecture/records-tool-front.md.</summary>
-    internal static ToolAnswer Refuse(bool json, string message, OrderStamp? epoch = null) => ToolAnswer.Refusal(json, message, epoch);
 }

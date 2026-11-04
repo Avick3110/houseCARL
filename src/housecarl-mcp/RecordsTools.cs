@@ -188,7 +188,7 @@ public static partial class RecordsTools
         if (plugins?.names is { Length: > 0 } scopeNames)
         {
             var (ptoks, pecho, perr) = Artifacts.ExpandPluginList(scopeNames, "plugins.names", "plugins={{\"names\": [{0}]}}");
-            if (perr is not null) return Wire.Refuse(json, perr);
+            if (perr is not null) return ToolAnswer.Refusal(json, perr);
             plugins.names = ptoks;
             pluginsEcho = pecho;
         }
@@ -203,7 +203,7 @@ public static partial class RecordsTools
         {
             case "summary" or "fields" or "rows" or "everything" or "aggregate" or "delta" or "tree" or "info_order" or "chain": break;
             default:
-                return Wire.Refuse(json, $"error: project.form='{project?.form}' is not a form — use summary | fields | rows | everything | aggregate | delta | tree | chain | info_order.");
+                return ToolAnswer.Refusal(json, $"error: project.form='{project?.form}' is not a form — use summary | fields | rows | everything | aggregate | delta | tree | chain | info_order.");
         }
         bool comparisonForm = form is "delta" or "tree";
         bool bodyFields = form is "fields" or "rows";   // the two forms that read the caller's own field paths
@@ -212,28 +212,28 @@ public static partial class RecordsTools
         // The reverse carrier walk's follow, one constant read by the validation, the lane and every remedy sentence.
         const string CarrierFollow = "Effects[].BaseEffect";
         if (form == "chain" && walk is null)
-            return Wire.Refuse(json, $"error: the 'chain' form renders a walk's paths — pass walk= (e.g. walk={{\"follow\": \"Template\"}} over NPC seeds; reverse MGEF carriers: walk={{\"direction\": \"reverse\", \"follow\": \"{CarrierFollow}\"}} with MGEF formids=).");
+            return ToolAnswer.Refusal(json, $"error: the 'chain' form renders a walk's paths — pass walk= (e.g. walk={{\"follow\": \"Template\"}} over NPC seeds; reverse MGEF carriers: walk={{\"direction\": \"reverse\", \"follow\": \"{CarrierFollow}\"}} with MGEF formids=).");
         // Form-scoping: a sub-parameter outside its form is refused by name; docs/architecture/records-tool-front.md.
         // chain + fields answers after walk= is validated (below), so its route never names a walk that is refused.
         if (project?.fields is { Length: > 0 } && !bodyFields && !comparisonForm && form != "chain")
-            return Wire.Refuse(json, $"error: project.fields belongs to the 'fields'/'rows'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
+            return ToolAnswer.Refusal(json, $"error: project.fields belongs to the 'fields'/'rows'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
         if (form == "fields" && project?.fields is not { Length: > 0 })
-            return Wire.Refuse(json, "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).");
+            return ToolAnswer.Refusal(json, "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).");
         if (form == "rows" && project?.fields is not { Length: > 0 })
-            return Wire.Refuse(json, "error: the 'rows' form folds a LIST field to one line per element and names that field — pass project.fields=[\"Conditions\"] (or any list path).");
+            return ToolAnswer.Refusal(json, "error: the 'rows' form folds a LIST field to one line per element and names that field — pass project.fields=[\"Conditions\"] (or any list path).");
         // Every entry has to be a path, since the fold reads the roots to decide what a line belongs to.
         if (form == "rows" && project?.fields is { } rowFields && Array.FindIndex(rowFields, p => string.IsNullOrWhiteSpace(p)) is var badAt && badAt >= 0)
-            return Wire.Refuse(json, $"error: project.fields[{badAt}] is empty — the 'rows' form folds the list each entry names, so every entry must be a field path (e.g. [\"Conditions\"]).");
+            return ToolAnswer.Refusal(json, $"error: project.fields[{badAt}] is empty — the 'rows' form folds the list each entry names, so every entry must be a field path (e.g. [\"Conditions\"]).");
         // The quantified step's PROJECT half, parsed before any read so a bad token refuses the call, not each record.
         FoldPlan? foldPlan = null;
         if (project?.fields is { Length: > 0 } pf && form != "chain")
         {
             var (plan, foldErr) = FieldFolds.Parse(pf);
-            if (foldErr is not null) return Wire.Refuse(json, "error: " + foldErr);
+            if (foldErr is not null) return ToolAnswer.Refusal(json, "error: " + foldErr);
             foldPlan = plan;
             // The quantifier belongs to the form that reads a path as a projection; elsewhere it is refused by name.
             if (foldPlan is not null && form != "fields")
-                return Wire.Refuse(json, form == "rows"
+                return ToolAnswer.Refusal(json, form == "rows"
                     ? $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the 'rows' form already folds the list it names to one line per element — drop the token, or use form='fields' to mix quantified and ordinary paths."
                     : $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the '{form}' form lines its two sides up path for path — drop the token, or read the elements with form='fields'.");
         }
@@ -241,37 +241,37 @@ public static partial class RecordsTools
         {
             // Any explicit depth is form-scoped whatever its value, and 0 or negative is refused, not coerced to 1.
             if (form is not ("fields" or "rows" or "everything"))
-                return Wire.Refuse(json, comparisonForm
+                return ToolAnswer.Refusal(json, comparisonForm
                     ? $"error: project.depth belongs to the 'fields'/'rows'/'everything' forms — the '{form}' comparison always deep-reads BOTH sides at the diff engine's fixed depth so line sets correspond (narrow with {LeverNames.Records.Fields} instead)."
                     : $"error: project.depth expands field contents and belongs to the 'fields'/'rows'/'everything' forms (got form='{form}').");
             if (dv < 1)
-                return Wire.Refuse(json, $"error: project.depth={dv} — depth must be >= 1 (1 shows a container as a collapsed summary; higher opens it).");
+                return ToolAnswer.Refusal(json, $"error: project.depth={dv} — depth must be >= 1 (1 shows a container as a collapsed summary; higher opens it).");
             // depth=1 collapses the list to a count, so the rows form would answer with no rows at all.
             if (dv == 1 && form == "rows")
-                return Wire.Refuse(json, dense
+                return ToolAnswer.Refusal(json, dense
                     ? $"error: project.depth=1 collapses a list to a count, and the 'rows' form renders its elements — under format='dense', drop project.depth and use form='fields' with '{ListPath(project!.fields![0])}[*]' for one dense row per element."
                     : "error: project.depth=1 collapses a list to a count, and the 'rows' form renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use form='fields' for the collapsed line.");
             // The same reading at the same knob: a [*] path renders elements, which depth 1 collapses away.
             if (dv == 1 && foldPlan?.Folds.FirstOrDefault(f => f is { Fold: PathFold.Set }) is { } setAt)
-                return Wire.Refuse(json, dense
+                return ToolAnswer.Refusal(json, dense
                     ? $"error: project.depth=1 collapses a list to a count, and '{setAt.Requested}' renders its elements — under format='dense', drop project.depth (the quantifier sets its own depth), or use '{setAt.Root}[*count]' for the number of them."
                     : $"error: project.depth=1 collapses a list to a count, and '{setAt.Requested}' renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use '{setAt.Root}[*count]' for the number of them.");
         }
         if (project?.group_by is not null && form != "aggregate")
-            return Wire.Refuse(json, $"error: project.group_by belongs to the 'aggregate' form only (got form='{form}'). Set project.form='aggregate', or drop group_by.");
+            return ToolAnswer.Refusal(json, $"error: project.group_by belongs to the 'aggregate' form only (got form='{form}'). Set project.form='aggregate', or drop group_by.");
         if (form == "aggregate")
         {
             // Validated here, before any read runs — validating inside the render pays for the batch first.
             var gbv = project?.group_by?.Trim().ToLowerInvariant();
             if (string.IsNullOrEmpty(gbv))
-                return Wire.Refuse(json, "error: the 'aggregate' form names its count key — pass project.group_by='winner' | 'type' | 'defined_in'.");
+                return ToolAnswer.Refusal(json, "error: the 'aggregate' form names its count key — pass project.group_by='winner' | 'type' | 'defined_in'.");
             if (gbv is not ("winner" or "type" or "defined_in"))
-                return Wire.Refuse(json, $"error: project.group_by='{project!.group_by}' is not a count key — use 'winner', 'type', or 'defined_in'.");
+                return ToolAnswer.Refusal(json, $"error: project.group_by='{project!.group_by}' is not a count key — use 'winner', 'type', or 'defined_in'.");
             // The group_by=type pre-check lives with the source probe below, not here: it is an in-order-lane rule,
             // and the lane is not known until the pole is probed.
         }
         if (project is { resolve_names: true } && form is not ("fields" or "rows" or "everything"))
-            return Wire.Refuse(json, $"error: project.resolve_names annotates field values and belongs to the 'fields'/'rows'/'everything' forms (got form='{form}').");
+            return ToolAnswer.Refusal(json, $"error: project.resolve_names annotates field values and belongs to the 'fields'/'rows'/'everything' forms (got form='{form}').");
         // The rows form's default depth is its own: at depth 1 every element renders as a bare arm type.
         bool foldsElements = foldPlan?.RendersElements ?? false;
         int depth = project?.depth is { } d && d > 0 ? d : (form == "rows" || foldsElements ? RowProjection.DefaultDepth : 1);
@@ -297,7 +297,7 @@ public static partial class RecordsTools
         {
             // A walk's types= narrows what it reaches, not what the rows are, so its rows plan untyped.
             var (plan, planErr) = svc.PlanFields(readPaths, walk is null ? types : null);
-            if (planErr is not null) return Wire.Refuse(json, "error: " + planErr);
+            if (planErr is not null) return ToolAnswer.Refusal(json, "error: " + planErr);
             readPaths = fieldPlan = plan;
             if (foldPlan is null) projFields = plan;
         }
@@ -321,25 +321,25 @@ public static partial class RecordsTools
         {
             if (srcArr.GetArrayLength() == 1) sourceEl = srcArr[0].Clone();
             else
-                return Wire.Refuse(json, srcArr.GetArrayLength() == 0
+                return ToolAnswer.Refusal(json, srcArr.GetArrayLength() == 0
                     ? "error: source= is an empty list — name the ONE off-order file to fold into the merge (e.g. source=\"MyPatch.esp\"), or drop source= for the live order."
                     : $"error: the info_order form folds ONE off-order file into the merge, where MO2 would load that file, and source= names {srcArr.GetArrayLength()} — two files have no order between them until MO2 sorts them, so there is no one merge to project. Fold one file per call.");
         }
         // ParsePole has no transport in scope, so its refusals take their shape here.
-        if (ParsePole(sourceEl, "source", subjectRole: true, out var srcSpec) is { } sperr) return Wire.Refuse(json, sperr);
+        if (ParsePole(sourceEl, "source", subjectRole: true, out var srcSpec) is { } sperr) return ToolAnswer.Refusal(json, sperr);
         srcSpec ??= RecordReads.PoleSpec.Winner;
-        if (ParsePole(versus, "versus", subjectRole: false, out var versusSpec) is { } vperr) return Wire.Refuse(json, vperr);
+        if (ParsePole(versus, "versus", subjectRole: false, out var versusSpec) is { } vperr) return ToolAnswer.Refusal(json, vperr);
 
         // versus= belongs to the comparison forms, and the delta form requires it — a delta has two poles.
         if (versusSpec is not null && !comparisonForm)
-            return Wire.Refuse(json, $"error: versus= is the comparison REFERENCE pole and belongs to the 'delta'/'tree' forms (got form='{form}') — set project.form='delta' (subject vs reference) or 'tree' (every provider vs reference), or drop versus=.");
+            return ToolAnswer.Refusal(json, $"error: versus= is the comparison REFERENCE pole and belongs to the 'delta'/'tree' forms (got form='{form}') — set project.form='delta' (subject vs reference) or 'tree' (every provider vs reference), or drop versus=.");
         if (form == "delta" && versusSpec is null)
-            return Wire.Refuse(json, "error: the 'delta' form compares the subject (source=, default the winner) against a REFERENCE — pass versus= (\"winner\" | a plugin filename | \"previous_provider\" | {\"overlay\": …}).");
+            return ToolAnswer.Refusal(json, "error: the 'delta' form compares the subject (source=, default the winner) against a REFERENCE — pass versus= (\"winner\" | a plugin filename | \"previous_provider\" | {\"overlay\": …}).");
         if (form == "tree")
         {
             versusSpec ??= RecordReads.PoleSpec.Winner;
             if (versusSpec.Kind == RecordReads.PoleKind.PreviousProvider)
-                return Wire.Refuse(json, "error: versus='previous_provider' is subject-relative and pairs with the 'delta' form (one subject, one reference below it) — a tree diffs EVERY provider against ONE reference pole. Use form='delta', or a named/winner versus= on the tree.");
+                return ToolAnswer.Refusal(json, "error: versus='previous_provider' is subject-relative and pairs with the 'delta' form (one subject, one reference below it) — a tree diffs EVERY provider against ONE reference pole. Use form='delta', or a named/winner versus= on the tree.");
         }
         // ---- walk= (the traversal construct) ----
         string walkDirection = "forward";
@@ -351,43 +351,43 @@ public static partial class RecordsTools
         {
             var dir = walk.direction?.Trim().ToLowerInvariant();
             if (dir is not (null or "" or "forward" or "reverse"))
-                return Wire.Refuse(json, $"error: walk.direction='{walk.direction}' — use 'forward' (what the seeds point at) or 'reverse' (what points at them, at any depth; walk.follow picks which reverse edges: \"*\" for every link, \"{CarrierFollow}\" for the typed MGEF carriers).");
+                return ToolAnswer.Refusal(json, $"error: walk.direction='{walk.direction}' — use 'forward' (what the seeds point at) or 'reverse' (what points at them, at any depth; walk.follow picks which reverse edges: \"*\" for every link, \"{CarrierFollow}\" for the typed MGEF carriers).");
             if (!string.IsNullOrEmpty(dir)) walkDirection = dir!;
             if (walk.depth is { } wd)
             {
-                if (wd < 1) return Wire.Refuse(json, $"error: walk.depth={wd} — depth must be >= 1 (hops from the seed).");
+                if (wd < 1) return ToolAnswer.Refusal(json, $"error: walk.depth={wd} — depth must be >= 1 (hops from the seed).");
                 walkDepth = wd;
                 walkDepthAsked = true;
             }
             if (walk.max_nodes is { } wn)
             {
-                if (wn < 1) return Wire.Refuse(json, $"error: walk.max_nodes={wn} — the node budget must be >= 1.");
+                if (wn < 1) return ToolAnswer.Refusal(json, $"error: walk.max_nodes={wn} — the node budget must be >= 1.");
                 // The bound is on the PER-SEED reading of this budget; docs/architecture/records-tool-front.md.
                 bool perSeedBudget = walkDirection == "forward"
                                   || string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
                 if (perSeedBudget && wn > RecordsWalk.Ceiling)
-                    return Wire.Refuse(json, $"error: walk.max_nodes={wn} — the node budget's hard upper bound is {RecordsWalk.Ceiling}; pass that or less, which is above the whole closure a single seed reaches on a large order.");
+                    return ToolAnswer.Refusal(json, $"error: walk.max_nodes={wn} — the node budget's hard upper bound is {RecordsWalk.Ceiling}; pass that or less, which is above the whole closure a single seed reaches on a large order.");
                 walkMaxNodes = wn;
             }
             foreach (var x in walk.exclusions ?? Array.Empty<RecordsWalkExclusion>())
             {
                 if (string.IsNullOrWhiteSpace(x.match))
-                    return Wire.Refuse(json, "error: a walk.exclusions entry needs match= — the record type name a read reports (e.g. 'Race').");
+                    return ToolAnswer.Refusal(json, "error: a walk.exclusions entry needs match= — the record type name a read reports (e.g. 'Race').");
                 var sev = x.severity?.Trim().ToLowerInvariant();
                 if (sev is not ("stop" or "refuse"))
-                    return Wire.Refuse(json, $"error: walk.exclusions '{x.match}': severity='{x.severity}' — use 'stop' (prune, record the boundary) or 'refuse' (the whole walk fails loud).");
+                    return ToolAnswer.Refusal(json, $"error: walk.exclusions '{x.match}': severity='{x.severity}' — use 'stop' (prune, record the boundary) or 'refuse' (the whole walk fails loud).");
                 // A name or a signature, matched as the type name a read reports.
-                if (svc.Types.DisplayNames(new[] { x.match! }) is not { } exNames) return Wire.Refuse(json, NotAWalkType("walk.exclusions", x.match!));
+                if (svc.Types.DisplayNames(new[] { x.match! }) is not { } exNames) return ToolAnswer.Refusal(json, NotAWalkType("walk.exclusions", x.match!));
                 foreach (var n in exNames) walkExclusions.Add((n, sev == "refuse"));
             }
             if (walk.through is { } thr)
             {
                 if (thr.Length == 0)
-                    return Wire.Refuse(json, "error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or omit it to walk every type.");
+                    return ToolAnswer.Refusal(json, "error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or omit it to walk every type.");
                 walkThrough = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var t in thr)
                 {
-                    if (svc.Types.DisplayNames(new[] { t ?? "" }) is not { } thNames) return Wire.Refuse(json, NotAWalkType("walk.through", t ?? ""));
+                    if (svc.Types.DisplayNames(new[] { t ?? "" }) is not { } thNames) return ToolAnswer.Refusal(json, NotAWalkType("walk.through", t ?? ""));
                     walkThrough.UnionWith(thNames);
                 }
             }
@@ -395,19 +395,19 @@ public static partial class RecordsTools
             {
                 // seed_paths is forward-only; follow stays legal and picks which reverse walk runs.
                 if (walk.seed_paths is { Length: > 0 })
-                    return Wire.Refuse(json, "error: walk.seed_paths shapes a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop it (walk.follow stays: it names the edges this walk crosses).");
+                    return ToolAnswer.Refusal(json, "error: walk.seed_paths shapes a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop it (walk.follow stays: it names the edges this walk crosses).");
                 if ((walk.exclusions is { Length: > 0 } || walkThrough is not null)
                     && string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase))
-                    return Wire.Refuse(json, $"error: walk.exclusions/through shape a walk that expands, and the typed MGEF carrier walk (walk.follow=\"{CarrierFollow}\") stops at hop 1 — narrow its carrier types with types= instead.");
+                    return ToolAnswer.Refusal(json, $"error: walk.exclusions/through shape a walk that expands, and the typed MGEF carrier walk (walk.follow=\"{CarrierFollow}\") stops at hop 1 — narrow its carrier types with types= instead.");
                 var revFollow = walk.follow?.Trim();
                 if (!string.IsNullOrEmpty(revFollow) && revFollow != "*"
                     && !string.Equals(revFollow, CarrierFollow, StringComparison.OrdinalIgnoreCase))
-                    return Wire.Refuse(json, $"error: walk.follow='{walk.follow}' on a reverse walk — the reverse edges come from the reverse-reference index, which holds every link and no per-path breakdown, so the two follows it can serve are \"*\" (every link, the transitive walk) and \"{CarrierFollow}\" (the typed MGEF carriers). To narrow the transitive walk's reach by path, walk with to_file= and re-enter the artifact on a where= over the field.");
+                    return ToolAnswer.Refusal(json, $"error: walk.follow='{walk.follow}' on a reverse walk — the reverse edges come from the reverse-reference index, which holds every link and no per-path breakdown, so the two follows it can serve are \"*\" (every link, the transitive walk) and \"{CarrierFollow}\" (the typed MGEF carriers). To narrow the transitive walk's reach by path, walk with to_file= and re-enter the artifact on a where= over the field.");
             }
             if (references is { Length: > 0 })
-                return Wire.Refuse(json, "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.");
+                return ToolAnswer.Refusal(json, "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.");
             if (comparisonForm || form is "info_order")
-                return Wire.Refuse(json, $"error: walk= derives a selection (the reached set), and the '{form}' form does not consume one — use form='chain' for the walk's own paths, or summary/fields/rows/everything/aggregate over the reached set. To compare reached records, walk with to_file= and re-enter the artifact via formids=[\"@<file>\"] with form='{form}'.");
+                return ToolAnswer.Refusal(json, $"error: walk= derives a selection (the reached set), and the '{form}' form does not consume one — use form='chain' for the walk's own paths, or summary/fields/rows/everything/aggregate over the reached set. To compare reached records, walk with to_file= and re-enter the artifact via formids=[\"@<file>\"] with form='{form}'.");
         }
 
         // The single-pole lanes below drive off these fields; richer specs dispatch before reaching them.
@@ -425,11 +425,11 @@ public static partial class RecordsTools
             if (fs == "winner") winnerFields = true;
             else if (fs is not ("scoped" or "scanned")) otherFields = true;
             if ((winnerFields || otherFields) && comparisonForm)
-                return Wire.Refuse(json, $"error: fields_source='{fields_source}' retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.");
+                return ToolAnswer.Refusal(json, $"error: fields_source='{fields_source}' retargets what a matched row DISPLAYS, and the '{form}' form's display IS its two poles (source=/versus=) — name the version you want as a pole instead.");
             if ((winnerFields || otherFields) && form is "chain" or "info_order")
-                return Wire.Refuse(json, $"error: fields_source='{fields_source}' retargets FIELD display, and the '{form}' form renders no field values — drop it.");
+                return ToolAnswer.Refusal(json, $"error: fields_source='{fields_source}' retargets FIELD display, and the '{form}' form renders no field values — drop it.");
             if ((winnerFields || otherFields) && walk is not null)
-                return Wire.Refuse(json, $"error: fields_source='{fields_source}' — a walk's reading forms display the source= pole's version of the reached set: name the version via source= instead.");
+                return ToolAnswer.Refusal(json, $"error: fields_source='{fields_source}' — a walk's reading forms display the source= pole's version of the reached set: name the version via source= instead.");
         }
 
         // ---- lane decision ------------------------------------------------------------------------------
@@ -440,7 +440,7 @@ public static partial class RecordsTools
                                      (conflicts_only, "conflicts_only=true") }.Where(t => t.Item1).Select(t => t.Item2).ToArray();
         bool hasScan = scanTerms.Length > 0;
         if (!hasFormids && !hasScan)
-            return Wire.Refuse(json, "error: select something — formids= (a record list), or a scan scope: types=, plugins=, conflicts_only=true, where=, references=.");
+            return ToolAnswer.Refusal(json, "error: select something — formids= (a record list), or a scan scope: types=, plugins=, conflicts_only=true, where=, references=.");
         // formids= composes with the scan terms: the identity set intersects the scan, or is the universe when it
         // is the only bound; the reverse MGEF walk keeps its own lane, where formids are seeds.
         bool reverseWalk = walk is not null && walkDirection == "reverse";
@@ -450,55 +450,55 @@ public static partial class RecordsTools
         bool reverseCarrier = reverseWalk
             && string.Equals(walk!.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
         if (reverseWalk && form == "chain" && !followAsked)
-            return Wire.Refuse(json, $"error: no default follow implies a walk, so a reverse 'chain' call names the edges it crosses — walk.follow=\"{CarrierFollow}\" is the typed MGEF carrier walk, which chain renders, and walk.follow=\"*\" is every link, which chain cannot render because the transitive walk expands one shared frontier and has no per-seed path to draw (read that one with summary/fields/rows/everything/aggregate).");
+            return ToolAnswer.Refusal(json, $"error: no default follow implies a walk, so a reverse 'chain' call names the edges it crosses — walk.follow=\"{CarrierFollow}\" is the typed MGEF carrier walk, which chain renders, and walk.follow=\"*\" is every link, which chain cannot render because the transitive walk expands one shared frontier and has no per-seed path to draw (read that one with summary/fields/rows/everything/aggregate).");
         if (reverseWalk && form == "chain" && !reverseCarrier)
-            return Wire.Refuse(json, $"error: the 'chain' form renders a walk's own per-seed paths, and the transitive reverse walk (follow=\"*\") expands ONE shared frontier rather than a path per seed, so it has none to draw — read it with a reading form (summary/fields/rows/everything/aggregate) over the reached set, or ask for the typed MGEF carrier chain with walk.follow=\"{CarrierFollow}\".");
+            return ToolAnswer.Refusal(json, $"error: the 'chain' form renders a walk's own per-seed paths, and the transitive reverse walk (follow=\"*\") expands ONE shared frontier rather than a path per seed, so it has none to draw — read it with a reading form (summary/fields/rows/everything/aggregate) over the reached set, or ask for the typed MGEF carrier chain with walk.follow=\"{CarrierFollow}\".");
         if (reverseWalk && (plugins?.names is { Length: > 0 } || conflicts_only || where is { Length: > 0 }))
-            return Wire.Refuse(json, "error: a reverse walk takes formids= (its seeds) and nothing else as a scope — the bounded reverse over other scan terms is the references= spelling.");
+            return ToolAnswer.Refusal(json, "error: a reverse walk takes formids= (its seeds) and nothing else as a scope — the bounded reverse over other scan terms is the references= spelling.");
         if (reverseWalk && !reverseCarrier && types is { Length: > 0 })
-            return Wire.Refuse(json, $"error: types= narrows the CARRIER types of the typed MGEF walk (walk.follow=\"{CarrierFollow}\") — to limit which types this walk expands through, use walk.through (with a stop exclusion for where it ends).");
+            return ToolAnswer.Refusal(json, $"error: types= narrows the CARRIER types of the typed MGEF walk (walk.follow=\"{CarrierFollow}\") — to limit which types this walk expands through, use walk.through (with a stop exclusion for where it ends).");
         if (reverseWalk && !hasFormids)
-            return Wire.Refuse(json, reverseCarrier
+            return ToolAnswer.Refusal(json, reverseCarrier
                 ? "error: the reverse walk needs its seeds — pass formids= (the MGEF(s) whose carriers to trace)."
                 : "error: the reverse walk needs its seeds — pass formids= (the record(s) whose referrers to trace).");
         // Below the reverse-walk refusals, so this sentence only ever answers a forward walk.
         if (walk is not null && where is { Length: > 0 })
-            return Wire.Refuse(json, "error: where= does not compose with walk= — to pick the seeds by where=, scan with where= and to_file= and walk formids=[\"@<file>\"]; to narrow the reached set, use walk.through or walk.exclusions, or walk with to_file= and re-enter it as formids=[\"@<file>\"] with where=.");
+            return ToolAnswer.Refusal(json, "error: where= does not compose with walk= — to pick the seeds by where=, scan with where= and to_file= and walk formids=[\"@<file>\"]; to narrow the reached set, use walk.through or walk.exclusions, or walk with to_file= and re-enter it as formids=[\"@<file>\"] with where=.");
         if (form == "chain" && project?.fields is { Length: > 0 })
-            return Wire.Refuse(json, "error: the 'chain' form draws a walk's paths and reads no fields — form='fields' with the same walk= reads those fields over the reached set.");
+            return ToolAnswer.Refusal(json, "error: the 'chain' form draws a walk's paths and reads no fields — form='fields' with the same walk= reads those fields over the reached set.");
         // The lane, decided once and read by the dispatch below and by every remedy sentence that depends on it.
         bool scanLane = hasScan && !reverseWalk;
         // Whether dense can carry this answer is decided here, once, for every lane; each lane then renders it.
         if (dense && DenseRefusal(form, project, foldPlan, walk is not null) is { } denseNo)
-            return Wire.Refuse(json, denseNo);
+            return ToolAnswer.Refusal(json, denseNo);
         // info_order takes exactly ONE thing on source=, an OFF-ORDER file; the merge IS the answer, so no other
         // pole has anything to pick.
         if (form == "info_order" && srcSpec.Kind is RecordReads.PoleKind.Overlay or RecordReads.PoleKind.PreviousProvider)
-            return Wire.Refuse(json, "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a runtime-overlay or previous_provider pole has no seat here (each line already names the plugin that placed it). The one source= this form takes is an OFF-ORDER plugin filename, folded into the merge where MO2 would load it.");
+            return ToolAnswer.Refusal(json, "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a runtime-overlay or previous_provider pole has no seat here (each line already names the plugin that placed it). The one source= this form takes is an OFF-ORDER plugin filename, folded into the merge where MO2 would load it.");
         // fields_source= is the scan lane's display pole; the list lane's read IS its display, so it refuses by name.
         if ((winnerFields || otherFields) && formids is { Length: > 0 } && !hasScan)
-            return Wire.Refuse(json, "error: fields_source= is the scan lane's display pole — on a formids= read the version you want IS the source: name it via source= (source=\"winner\" is the default).");
+            return ToolAnswer.Refusal(json, "error: fields_source= is the scan lane's display pole — on a formids= read the version you want IS the source: name it via source= (source=\"winner\" is the default).");
         if (otherFields)
-            return Wire.Refuse(json, $"error: fields_source='{fields_source}' is not a value it takes — 'winner' (the live winner's values), or omit it for the matched body; for one plugin's version pass source=\"{(HousecarlCore.SweepExclusion.IsPluginName(fields_source.Trim()) ? fields_source.Trim() : "<plugin>")}\"{(plugins?.names is { Length: > 0 } ? " (plugins= still selects)" : "")}.");
+            return ToolAnswer.Refusal(json, $"error: fields_source='{fields_source}' is not a value it takes — 'winner' (the live winner's values), or omit it for the matched body; for one plugin's version pass source=\"{(HousecarlCore.SweepExclusion.IsPluginName(fields_source.Trim()) ? fields_source.Trim() : "<plugin>")}\"{(plugins?.names is { Length: > 0 } ? " (plugins= still selects)" : "")}.");
 
-        if (offset < 0) return Wire.Refuse(json, $"error: offset={offset} — offset must be >= 0.");
+        if (offset < 0) return ToolAnswer.Refusal(json, $"error: offset={offset} — offset must be >= 0.");
         if (offset > 0 && form == "aggregate")
-            return Wire.Refuse(json, "error: " + ReadSentences.NoOffsetOnCountTable("the aggregate form"));
+            return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("the aggregate form"));
         // The census covers the whole selection and renders no rows at all on this tool, so there is neither a
         // window for offset= to move nor a table for limit= to cap — the sentence drops its limit= clause here.
         if (offset > 0 && counts_only)
-            return Wire.Refuse(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only=", hasTable: false));
+            return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only=", hasTable: false));
         var toFile = to_file?.Trim();
         bool wantFile = !string.IsNullOrEmpty(toFile);
         if (wantFile)
         {
-            if (Artifacts.ValidateToFile(toFile!, svc.ResultsDir) is { } verr) return Wire.Refuse(json, verr);
-            if (offset > 0) return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.");
-            if (form == "aggregate") return Wire.Refuse(json, "error: to_file= writes row artifacts, and the aggregate form is a count table with no record rows — drop one of the two.");
-            if (counts_only) return Wire.Refuse(json, Artifacts.CountsOnlyWithToFile);
+            if (Artifacts.ValidateToFile(toFile!, svc.ResultsDir) is { } verr) return ToolAnswer.Refusal(json, verr);
+            if (offset > 0) return ToolAnswer.Refusal(json, "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.");
+            if (form == "aggregate") return ToolAnswer.Refusal(json, "error: to_file= writes row artifacts, and the aggregate form is a count table with no record rows — drop one of the two.");
+            if (counts_only) return ToolAnswer.Refusal(json, Artifacts.CountsOnlyWithToFile);
         }
         if (where_source is not null && where is not { Length: > 0 })
-            return Wire.Refuse(json, "error: where_source= retargets the where= predicates and needs where= — add predicates, or drop where_source=.");
+            return ToolAnswer.Refusal(json, "error: where_source= retargets the where= predicates and needs where= — add predicates, or drop where_source=.");
 
         // ---- info_order: the off-order fold ------------------------------------------------------------
         // The fold's file is resolved through the same one-pole probe every other source= goes through, and an
@@ -507,9 +507,9 @@ public static partial class RecordsTools
         if (form == "info_order" && srcSpec.Kind == RecordReads.PoleKind.Named)
         {
             var probe = svc.ProbeSourceArm(srcSpec.Plugin!, srcSpec.Mod, out var foldProbeErr);
-            if (foldProbeErr is not null) return Wire.Refuse(json, "error: " + foldProbeErr);
+            if (foldProbeErr is not null) return ToolAnswer.Refusal(json, "error: " + foldProbeErr);
             if (probe!.InOrder)
-                return Wire.Refuse(json, $"error: source='{probe.Plugin}' is ACTIVE in the load order, and the info_order form already merges every active plugin that touches each topic — its lines are in the answer, labelled with its name. Drop source= for the live order; source= here folds an OFF-ORDER file (one not enabled in MO2) into that merge.", probe.Stamp);
+                return ToolAnswer.Refusal(json, $"error: source='{probe.Plugin}' is ACTIVE in the load order, and the info_order form already merges every active plugin that touches each topic — its lines are in the answer, labelled with its name. Drop source= for the live order; source= here folds an OFF-ORDER file (one not enabled in MO2) into that merge.", probe.Stamp);
             ioFold = probe;
             // The fold is not a "whose version" pole, so the lanes below must not read it as one.
             srcName = null; srcMod = null;
@@ -664,7 +664,7 @@ public static partial class RecordsTools
         ToolAnswer ListLane()
         {
             var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids!, "formids");
-            if (xerr is not null) return Wire.Refuse(json, xerr);
+            if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
             var ids = toks!;
 
             List<KeyValuePair<string, string>> Echo()
@@ -689,7 +689,7 @@ public static partial class RecordsTools
                 var ioRows = svc.InfoOrderBatch(ids, demand, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts, ct);
                 if (ioRefusal is not null)
                     return ToolAnswer.Refusal(json, Wire.RefusalPrefix + ioRefusal, ioEpoch, epochLine: true);
-                if (FoldSeam(ioEpoch) is { } ioTear) return Wire.Refuse(json, ioTear, ioEpoch);
+                if (FoldSeam(ioEpoch) is { } ioTear) return ToolAnswer.Refusal(json, ioTear, ioEpoch);
                 var e = new List<KeyValuePair<string, string>>
                 {
                     new("formids", echoSrc ?? $"{ids.Length} inline formid(s)"),
@@ -705,7 +705,7 @@ public static partial class RecordsTools
                 && RenderBudget.Refuse(svc.Bounds, ids.Length, form == "everything",
                                        counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
                                        counts_only) is { } listTooBig)
-                return Wire.Refuse(json, listTooBig);
+                return ToolAnswer.Refusal(json, listTooBig);
 
             // ---- summary / fields / everything / aggregate: batch bodies off the source pole. Summary reads one
             //      cheap leaf, fields the named paths, everything a null that dumps the modeled fields. ----
@@ -771,7 +771,7 @@ public static partial class RecordsTools
             outcomes = FoldRows(outcomes);
             var epoch2 = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
             if (SeamTear(epoch2) is { } seamTear)
-                return Wire.Refuse(json, Wire.RefusalPrefix + seamTear, epoch2);
+                return ToolAnswer.Refusal(json, Wire.RefusalPrefix + seamTear, epoch2);
 
             if (form == "aggregate")
                 return RenderListAggregate(outcomes, project!.group_by!, json, epoch2, Head(null), Env(null), listCost,
@@ -792,7 +792,7 @@ public static partial class RecordsTools
             if (wantFile)
             {
                 var (s, aerr) = Artifacts.WriteBatch(outcomes, ArtifactTarget.Named(toFile!), "to_file", Echo(), formLevers, summary: form == "summary", scan: owed);
-                if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epoch2);
+                if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, epoch2);
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render2(SpillState? sp, out bool trunc) => dense
@@ -861,7 +861,7 @@ public static partial class RecordsTools
                 if (rev.Refusal is not null)
                     return ToolAnswer.Refusal(json, Wire.RefusalPrefix + rev.Refusal, rev.Stamp, epochLine: true);
                 if (SeamTear(rev.Stamp) is { } rTear)
-                    return Wire.Refuse(json, Wire.RefusalPrefix + rTear, rev.Stamp);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + rTear, rev.Stamp);
                 // Every hop is named with its count, empty ones included, and a hop the budget ended says 'cut'.
                 var hopLine = string.Join(", ", rev.Hops.Select(h => $"hop {h.Depth}: {h.Reached.Count}{(h.Cut ? " (cut by walk.max_nodes)" : "")}"));
                 if (!rev.Capped && rev.Hops.Count < walkDepth)
@@ -912,7 +912,7 @@ public static partial class RecordsTools
                     && RenderBudget.Refuse(svc.Bounds, rev.Selection.Count, form == "everything",
                                            counts_only ? RenderBudget.ReverseTransitiveCensusRemedy : RenderBudget.ReverseTransitiveRemedy,
                                            counts_only) is { } revTooBig)
-                    return Wire.Refuse(json, revTooBig, rev.Stamp);
+                    return ToolAnswer.Refusal(json, revTooBig, rev.Stamp);
                 expectEpoch = rev.Epoch;
                 formids = rev.Selection.ToArray();
                 walk = null;
@@ -991,7 +991,7 @@ public static partial class RecordsTools
                         && RenderBudget.Refuse(svc.Bounds, carrierSel.Count, form == "everything",
                                                counts_only ? RenderBudget.ReverseCarrierCensusRemedy : RenderBudget.ReverseCarrierRemedy,
                                                counts_only) is { } carrierTooBig)
-                        return Wire.Refuse(json, carrierTooBig, epochR);
+                        return ToolAnswer.Refusal(json, carrierTooBig, epochR);
                     expectEpoch = epochR?.Epoch;
                     formids = carrierSel.ToArray();
                     walk = null;
@@ -1010,7 +1010,7 @@ public static partial class RecordsTools
                 if (wantFile)
                 {
                     var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo());
-                    if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epochR);
+                    if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, epochR);
                     revSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
                 string RenderRev(SpillState? sp, out bool trunc) => json
@@ -1035,7 +1035,7 @@ public static partial class RecordsTools
             if (wRefusal is not null)
                 return ToolAnswer.Refusal(json, Wire.RefusalPrefix + wRefusal, wEpoch, epochLine: true);
             if (SeamTear(wEpoch) is { } wTear)
-                return Wire.Refuse(json, Wire.RefusalPrefix + wTear, wEpoch);
+                return ToolAnswer.Refusal(json, Wire.RefusalPrefix + wTear, wEpoch);
             SayLeftOut(fwdLeftOut.Values);
 
             if (form == "chain")
@@ -1067,7 +1067,7 @@ public static partial class RecordsTools
                 if (wantFile)
                 {
                     var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo(), owed);
-                    if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, wEpoch);
+                    if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, wEpoch);
                     spill = SpillState.Spilled(s!, manifestOnly: true);
                 }
                 var chainCounts = new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs), KvI("cycles", cycles) };
@@ -1106,7 +1106,7 @@ public static partial class RecordsTools
                 && RenderBudget.Refuse(svc.Bounds, combined.Count, form == "everything",
                                        counts_only ? RenderBudget.WalkCensusRemedy : RenderBudget.WalkRemedy,
                                        counts_only) is { } walkTooBig)
-                return Wire.Refuse(json, walkTooBig, wEpoch);
+                return ToolAnswer.Refusal(json, walkTooBig, wEpoch);
 
             envelope.Add(new("walk", $"forward{(walk.follow is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {combined.Count} record(s) the walk reached (seeds included{(seedErrs > 0 ? $"; {seedErrs} seed error(s), listed via form='chain'" : "")})"));
             headerLine += $"\nwalk: selection = {combined.Count} reached record(s) (seeds included)";
@@ -1143,7 +1143,7 @@ public static partial class RecordsTools
 
             if (form == "delta")
             {
-                if (ListCost() is { } deltaTooBig) return Wire.Refuse(json, deltaTooBig);
+                if (ListCost() is { } deltaTooBig) return ToolAnswer.Refusal(json, deltaTooBig);
                 var rows = svc.DeltaBatch(ids, srcSpec, versusSpec!, projFields, demand,
                                           out var sArm, out var rArm, out var covers, out var refusal, out var epoch,
                                           Meter(ListLever()), overlayWarnings);
@@ -1154,8 +1154,8 @@ public static partial class RecordsTools
             else   // tree
             {
                 if (srcSpec.Kind != RecordReads.PoleKind.Winner)
-                    return Wire.Refuse(json, "error: the tree form has no subject — every provider of each record is on the bench, and the pole each is diffed against is versus=. Drop source= (or use form='delta' for a subject-vs-reference comparison).");
-                if (ListCost() is { } treeTooBig) return Wire.Refuse(json, treeTooBig);
+                    return ToolAnswer.Refusal(json, "error: the tree form has no subject — every provider of each record is on the bench, and the pole each is diffed against is versus=. Drop source= (or use form='delta' for a subject-vs-reference comparison).");
+                if (ListCost() is { } treeTooBig) return ToolAnswer.Refusal(json, treeTooBig);
                 var rows = svc.TreeBatch(ids, versusSpec!, projFields, demand,
                                          out var rArm, out var covers, out var refusal, out var epoch,
                                          Meter(ListLever()), overlayWarnings);
@@ -1198,7 +1198,7 @@ public static partial class RecordsTools
             if (wantFile)
             {
                 var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, owed);
-                if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epoch);
+                if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render(SpillState? sp, out bool trunc) => json
@@ -1239,7 +1239,7 @@ public static partial class RecordsTools
             if (wantFile)
             {
                 var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, owed);
-                if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epoch);
+                if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             var treeCounts = CmpCounts(KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs));
@@ -1294,7 +1294,7 @@ public static partial class RecordsTools
             if (wantFile)
             {
                 var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, owed);
-                if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epoch);
+                if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             var ioCounts = new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) };
@@ -1332,22 +1332,22 @@ public static partial class RecordsTools
             bool onlyReverseFilter = where is not { Length: > 0 };
             // Ahead of the overlay refusals, whose route's plain scan this would refuse.
             if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids && !onlyReverseFilter)
-                return Wire.Refuse(json, "error: where= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
+                return ToolAnswer.Refusal(json, "error: where= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
                        "(conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). " +
                        "Only references= is unbounded, off the reverse-reference index.");
             var overlayRoute = new ScanCall(form, scanTerms, hasFormids, srcSpec.Kind == RecordReads.PoleKind.Named, where_source is not null);
             // A named source= meets this after its probe, so an off-order file's own refusals come first.
             if (versusSpec?.Kind == RecordReads.PoleKind.Overlay && srcName is null)
-                return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, overlayRoute));
+                return ToolAnswer.Refusal(json, OverlayComparisonRefusal(versusSpec, overlayRoute));
             if (srcOverlay && comparisonForm)
-                return Wire.Refuse(json, OverlayComparisonRefusal(srcSpec, overlayRoute));
+                return ToolAnswer.Refusal(json, OverlayComparisonRefusal(srcSpec, overlayRoute));
             // Ahead of the to_file= route, which names a formids= re-run that fields_source= refuses.
             if (srcSpec.ReplaysOverlay && winnerFields)
-                return Wire.Refuse(json, "error: fields_source='winner' and an overlay source= on a scan are TWO display poles on one call — the post-SkyPatcher version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').");
+                return ToolAnswer.Refusal(json, "error: fields_source='winner' and an overlay source= on a scan are TWO display poles on one call — the post-SkyPatcher version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').");
             if (srcSpec.ReplaysOverlay && wantFile)
-                return Wire.Refuse(json, OverlayScanRefusal("to_file= holds every match", overlayRoute));
+                return ToolAnswer.Refusal(json, OverlayScanRefusal("to_file= holds every match", overlayRoute));
             if (srcSpec.ReplaysOverlay && walk is not null)
-                return Wire.Refuse(json, OverlayScanRefusal("a walk reads every record it reaches", overlayRoute));
+                return ToolAnswer.Refusal(json, OverlayScanRefusal("a walk reads every record it reaches", overlayRoute));
             // What the pole did not decide on this call, carried on the scan's own note.
             string? poleNote = null;
             bool scopePlusPole = false;
@@ -1359,7 +1359,7 @@ public static partial class RecordsTools
             // subject, so the scan's selection statement stays and discloses the selection universe.
             bool pipelineArms = form == "delta" || form == "info_order" || walk is not null;
             if (plugins is { defined_in: true } && !hasScope)
-                return Wire.Refuse(json, "error: plugins.defined_in=true keeps records DEFINED in the scoped plugins, so plugins.names must name that scope.");
+                return ToolAnswer.Refusal(json, "error: plugins.defined_in=true keeps records DEFINED in the scoped plugins, so plugins.names must name that scope.");
 
             // The identity set intersects the scan, expanded inside the scan's own capture and parsed once; alone
             // it is the scan universe, the set being the bound.
@@ -1368,16 +1368,16 @@ public static partial class RecordsTools
             if (hasFormids)
             {
                 var (ftoks, fdemand, fecho, fxerr) = Artifacts.ExpandListInput(formids!, "formids");
-                if (fxerr is not null) return Wire.Refuse(json, fxerr);
+                if (fxerr is not null) return ToolAnswer.Refusal(json, fxerr);
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
                 foreach (var t in ftoks!)
                 {
                     if (string.IsNullOrWhiteSpace(t)) continue;
                     try { fkList.Add(door.Parse(t)); }
-                    catch (Exception ex) { return Wire.Refuse(json, $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
+                    catch (Exception ex) { return ToolAnswer.Refusal(json, $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
-                if (fkList.Count == 0) return Wire.Refuse(json, "error: formids= expanded to an empty list — nothing to intersect the scan with.");
+                if (fkList.Count == 0) return ToolAnswer.Refusal(json, "error: formids= expanded to an empty list — nothing to intersect the scan with.");
                 formidSet = fkList;
             }
 
@@ -1388,17 +1388,17 @@ public static partial class RecordsTools
                 // One cheap containment probe decides the case; the scan below re-captures and is epoch-compared
                 // against it, while the off-order lane reads the file and consults no further build.
                 var probe = svc.ProbeSourceArm(srcName, srcMod, out var probeErr);
-                if (probeErr is not null) return Wire.Refuse(json, "error: " + probeErr);
+                if (probeErr is not null) return ToolAnswer.Refusal(json, "error: " + probeErr);
                 srcName = probe!.Plugin;   // a path pole resolves back to its plugin name; every consumer below uses the resolved name
                 probeEpoch = probe.Stamp;
                 if (!probe.InOrder)
                     return OffOrderScan(probe, overlayRoute);
                 if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
-                    return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, overlayRoute));
+                    return ToolAnswer.Refusal(json, OverlayComparisonRefusal(versusSpec, overlayRoute));
                 if (hasScope)
                 {
                     if (winnerFields)
-                        return Wire.Refuse(json, "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').", probeEpoch);
+                        return ToolAnswer.Refusal(json, "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').", probeEpoch);
                     scopePlusPole = true;
                     // The scope statement is only truthful for forms that READ the pole's bodies; a scoped tree
                     // reads every provider, so it states the selection without the pole clause.
@@ -1438,14 +1438,14 @@ public static partial class RecordsTools
             if (refs is { Length: > 0 })
             {
                 var (toks, demand, echoSrc, xerr) = ExpandReferenceList(refs);
-                if (xerr is not null) return Wire.Refuse(json, xerr);
+                if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc;
             }
             IReadOnlyList<FormKey>? refFks = null, refNoneFks = null;
             if (refs is { Length: > 0 })
             {
                 var (pos, neg, rerr) = SplitReferenceTargets(refs, door);
-                if (rerr is not null) return Wire.Refuse(json, rerr);
+                if (rerr is not null) return ToolAnswer.Refusal(json, rerr);
                 if (pos!.Count > 0) refFks = pos.Distinct().ToList();
                 if (neg!.Count > 0) refNoneFks = neg.Distinct().ToList();
             }
@@ -1455,7 +1455,7 @@ public static partial class RecordsTools
             // match uncapped, so it is refused with the bound named. Read off scanPlugins, so an in-order source=
             // plugin counts as the scope it is.
             if (refNoneFks is not null && refFks is null && !hasTypes && scanPlugins is not { Length: > 0 } && !hasFormids && derivedSelection)
-                return Wire.Refuse(json, $"error: a negated references= with no types=/plugins=/formids= bound is the orphan sweep — every record nothing in the order references — and the '{form}' form compares or merges EVERY match, uncapped. Add types= or plugins= to bound it, or run the sweep as a plain scan with to_file= and re-enter the artifact via formids=[\"@<file>\"].");
+                return ToolAnswer.Refusal(json, $"error: a negated references= with no types=/plugins=/formids= bound is the orphan sweep — every record nothing in the order references — and the '{form}' form compares or merges EVERY match, uncapped. Add types= or plugins= to bound it, or run the sweep as a plain scan with to_file= and re-enter the artifact via formids=[\"@<file>\"].");
 
             bool definedIn = plugins?.defined_in ?? false;
             // group_by=type names each match's record type, which only a body-bearing scope can supply, pre-checked
@@ -1465,7 +1465,7 @@ public static partial class RecordsTools
                 && string.Equals(project!.group_by?.Trim(), "type", StringComparison.OrdinalIgnoreCase)
                 && !hasTypes && scanPlugins is not { Length: > 0 } && formidSet is null
                 && refFks is null && refNoneFks is null)
-                return Wire.Refuse(json, "error: project.group_by='type' counts each match's record TYPE, which only a " +
+                return ToolAnswer.Refusal(json, "error: project.group_by='type' counts each match's record TYPE, which only a " +
                     "body-bearing scope can name — add types=, plugins=, formids=, references=, or an in-order source= plugin. " +
                     "(where= reads bodies too but takes one of those as its own bound; references= brings its own universe " +
                     "off the reverse-reference index; 'winner' and 'defined_in' group without reading a body.)", probeEpoch);
@@ -1489,7 +1489,7 @@ public static partial class RecordsTools
                 var tear = $"the load order changed between resolving the source arm (epoch={probeEpoch.Epoch}) and the scan " +
                            $"(epoch={outcome.Epoch}) — the arm statement would describe a different world. Retry the call.";
                 // Rendered in the caller's format, like every other refusal on these paths.
-                return Wire.Refuse(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + tear, outcome.Stamp);
+                return ToolAnswer.Refusal(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + tear, outcome.Stamp);
             }
             if (poleNote is not null && outcome.Error is null)
                 outcome = outcome with { ScanNote = outcome.ScanNote is null ? poleNote : poleNote + " " + outcome.ScanNote };
@@ -1545,7 +1545,7 @@ public static partial class RecordsTools
             if ((bodyFields || form == "everything" || (bodyLaneForm && form == "summary")) && !counts_only
                 && outcome.Error is null && outcome.Groups is null
                 && RenderBudget.Refuse(svc.Bounds, outcome.Keys.Count, form == "everything") is { } tooBig)
-                return Wire.Refuse(json, tooBig, outcome.Stamp);
+                return ToolAnswer.Refusal(json, tooBig, outcome.Stamp);
 
             // ---- delta / tree on a scan: the scan selects the records, the engine batches compare them, and the
             //      two captures' seam is epoch-compared.
@@ -1555,7 +1555,7 @@ public static partial class RecordsTools
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
                 var cmpKeys = ComparisonWindow(outcome.Keys, outcome.Total);
                 if (ComparisonCost(cmpKeys.Count, ComparisonLever()) is { } cmpTooBig)
-                    return Wire.Refuse(json, cmpTooBig, outcome.Stamp);
+                    return ToolAnswer.Refusal(json, cmpTooBig, outcome.Stamp);
                 if (form == "delta")
                 {
                     var rows = svc.DeltaBatch(cmpKeys, srcSpec, versusSpec!, projFields, null,
@@ -1567,7 +1567,7 @@ public static partial class RecordsTools
                     {
                         var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the comparison " +
                                    $"(epoch={depoch.Epoch}) — the two halves would mix builds. Retry the call.";
-                        return Wire.Refuse(json, Wire.RefusalPrefix + tear, depoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + tear, depoch);
                     }
                     return DeltaResponse(rows, sArm, rArm, covers, depoch, Echo());
                 }
@@ -1582,7 +1582,7 @@ public static partial class RecordsTools
                     {
                         var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the comparison " +
                                    $"(epoch={tepoch.Epoch}) — the two halves would mix builds. Retry the call.";
-                        return Wire.Refuse(json, Wire.RefusalPrefix + tear, tepoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + tear, tepoch);
                     }
                     return TreeResponse(rows, rArm, covers, tepoch, Echo());
                 }
@@ -1605,12 +1605,12 @@ public static partial class RecordsTools
                 var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts, ct);
                 if (ioRefusal is not null)
                     return ToolAnswer.Refusal(json, Wire.RefusalPrefix + ioRefusal, ioEpoch, epochLine: true);
-                if (FoldSeam(ioEpoch) is { } ioScanTear) return Wire.Refuse(json, ioScanTear, ioEpoch);
+                if (FoldSeam(ioEpoch) is { } ioScanTear) return ToolAnswer.Refusal(json, ioScanTear, ioEpoch);
                 if (outcome.Epoch is not null && ioEpoch is not null && ioEpoch.Epoch != outcome.Epoch)
                 {
                     var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the merge " +
                                $"(epoch={ioEpoch?.Epoch}) — the two halves would mix builds. Retry the call.";
-                    return Wire.Refuse(json, Wire.RefusalPrefix + tear, ioEpoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + tear, ioEpoch);
                 }
                 // The scan's echo labels a named pole as a read source, which a fold is not, so the fold's
                 // statement replaces it in the artifact manifest.
@@ -1708,7 +1708,7 @@ public static partial class RecordsTools
                 {
                     var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the body read " +
                                $"(epoch={string.Join(", ", bodyEpochs.Where(e => e.Epoch != outcome.Epoch).Select(e => e.Epoch))}) — the two halves would mix builds. Retry the call.";
-                    return Wire.Refuse(json, Wire.RefusalPrefix + tear, outcome.Stamp);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + tear, outcome.Stamp);
                 }
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Stamp;
                 envelope.Add(new("total", outcome.Total));
@@ -1729,7 +1729,7 @@ public static partial class RecordsTools
                 if (wantFile)
                 {
                     var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches, summary: summaryRows, scan: outcome);
-                    if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, bodyEpoch);
+                    if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, bodyEpoch);
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
                 var evRendered = RenderEv(evSpill, out var evTrunc);
@@ -1754,7 +1754,7 @@ public static partial class RecordsTools
             {
                 var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, ArtifactTarget.Named(toFile!), "to_file", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 if (aerr is not null)
-                    return Wire.Refuse(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + aerr, outcome.Stamp);
+                    return ToolAnswer.Refusal(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + aerr, outcome.Stamp);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             // "drop project=" is only actionable on detail rows; a summary-form scan has no project= to drop.
@@ -1788,23 +1788,23 @@ public static partial class RecordsTools
             envelope.Add(new("epoch_covers_source", false));
             headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
             if (conflicts_only)
-                return Wire.Refuse(json, "error: conflicts_only= has no meaning on an out-of-load-order file — it is not in the conflict frame. Drop it, or read the winner (source=\"winner\").", pole.Stamp);
+                return ToolAnswer.Refusal(json, "error: conflicts_only= has no meaning on an out-of-load-order file — it is not in the conflict frame. Drop it, or read the winner (source=\"winner\").", pole.Stamp);
             if (form == "info_order")
-                return Wire.Refuse(json, "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.", pole.Stamp);
+                return ToolAnswer.Refusal(json, "error: the info_order form merges the ACTIVE order's touching plugins — an out-of-load-order file is not in that frame. Read the winner's merge (drop source=), or enumerate the file's DIAL records with form='summary'.", pole.Stamp);
             if (walk is not null)
-                return Wire.Refuse(json, "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).", pole.Stamp);
+                return ToolAnswer.Refusal(json, "error: the walk expands the ACTIVE order's winner link graph — an out-of-load-order file's records are not in that graph. Enumerate the file with form='summary', then walk specific records via formids= (dropping source=).", pole.Stamp);
             if (where_source is not null)
             {
                 // Full-vocabulary validation, mirroring the in-order engine, so an unknown spelling refuses by name.
                 var ws = where_source.Trim().ToLowerInvariant();
                 if (ws == "winner")
-                    return Wire.Refuse(json, "error: where_source=winner matches on the live load-order winner — but this scan streams an out-of-load-order FILE's bodies, many of which have no winner. Match the winner by scanning the winner (drop source=), or drop where_source=.", pole.Stamp);
+                    return ToolAnswer.Refusal(json, "error: where_source=winner matches on the live load-order winner — but this scan streams an out-of-load-order FILE's bodies, many of which have no winner. Match the winner by scanning the winner (drop source=), or drop where_source=.", pole.Stamp);
                 if (ws is not ("scoped" or "scanned"))
-                    return Wire.Refuse(json, $"error: where_source='{where_source}' is not a known source — over an out-of-load-order file the match reads the FILE's own bodies ('scoped', the default); drop where_source=, or use 'winner' on an in-order scan.", pole.Stamp);
+                    return ToolAnswer.Refusal(json, $"error: where_source='{where_source}' is not a known source — over an out-of-load-order file the match reads the FILE's own bodies ('scoped', the default); drop where_source=, or use 'winner' on an in-order scan.", pole.Stamp);
             }
             // After the file's own refusals, so the route's plain scan on this source= is one that runs.
             if (versusSpec?.Kind == RecordReads.PoleKind.Overlay)
-                return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, overlayRoute), pole.Stamp);
+                return ToolAnswer.Refusal(json, OverlayComparisonRefusal(versusSpec, overlayRoute), pole.Stamp);
 
             // The off-order lane runs the in-order filter grammar over the file's own records, with provenance
             // terms still bound to the active view the response declares.
@@ -1813,14 +1813,14 @@ public static partial class RecordsTools
             if (refs is { Length: > 0 })
             {
                 var (toks, demand, echoSrc2, xerr) = ExpandReferenceList(refs);
-                if (xerr is not null) return Wire.Refuse(json, xerr);
+                if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc2;
             }
             IReadOnlyList<FormKey>? refFks = null, refNoneFks = null;
             if (refs is { Length: > 0 })
             {
                 var (pos, neg, rerr) = SplitReferenceTargets(refs, door);
-                if (rerr is not null) return Wire.Refuse(json, rerr);
+                if (rerr is not null) return ToolAnswer.Refusal(json, rerr);
                 if (pos!.Count > 0) refFks = pos.Distinct().ToList();
                 if (neg!.Count > 0) refNoneFks = neg.Distinct().ToList();
             }
@@ -1829,16 +1829,16 @@ public static partial class RecordsTools
             if (formids is { Length: > 0 })
             {
                 var (ftoks, fdemand, fecho, fxerr) = Artifacts.ExpandListInput(formids!, "formids");
-                if (fxerr is not null) return Wire.Refuse(json, fxerr);
+                if (fxerr is not null) return ToolAnswer.Refusal(json, fxerr);
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
                 foreach (var t in ftoks!)
                 {
                     if (string.IsNullOrWhiteSpace(t)) continue;
                     try { fkList.Add(door.Parse(t)); }
-                    catch (Exception ex) { return Wire.Refuse(json, $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
+                    catch (Exception ex) { return ToolAnswer.Refusal(json, $"error: bad formids entry '{t}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
                 }
-                if (fkList.Count == 0) return Wire.Refuse(json, "error: formids= expanded to an empty list — nothing to intersect the scan with.");
+                if (fkList.Count == 0) return ToolAnswer.Refusal(json, "error: formids= expanded to an empty list — nothing to intersect the scan with.");
                 formidSet = fkList;
             }
             var offGroupBy = form == "aggregate" ? project!.group_by!.Trim().ToLowerInvariant() : null;
@@ -1885,7 +1885,7 @@ public static partial class RecordsTools
                 headerLine += $"\n{outcome.Total} match(es) selected from the file";
                 var cmpKeys = ComparisonWindow(outcome.Keys, outcome.Total);
                 if (ComparisonCost(cmpKeys.Count, ComparisonLever()) is { } offCmpTooBig)
-                    return Wire.Refuse(json, offCmpTooBig, outcome.Stamp);
+                    return ToolAnswer.Refusal(json, offCmpTooBig, outcome.Stamp);
                 if (form == "delta")
                 {
                     var rows = svc.DeltaBatch(cmpKeys, srcSpec, versusSpec!, projFields, null,
@@ -1898,7 +1898,7 @@ public static partial class RecordsTools
                     {
                         var tear = $"the load order changed between the file scan (epoch={outcome.Epoch}) and the comparison " +
                                    $"(epoch={depoch.Epoch}) — the two halves would mix builds. Retry the call.";
-                        return Wire.Refuse(json, Wire.RefusalPrefix + tear, depoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + tear, depoch);
                     }
                     return DeltaResponse(rows, sArm, rArm, covers, depoch, Echo());
                 }
@@ -1913,7 +1913,7 @@ public static partial class RecordsTools
                     {
                         var tear = $"the load order changed between the file scan (epoch={outcome.Epoch}) and the comparison " +
                                    $"(epoch={tepoch.Epoch}) — the two halves would mix builds. Retry the call.";
-                        return Wire.Refuse(json, Wire.RefusalPrefix + tear, tepoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + tear, tepoch);
                     }
                     return TreeResponse(rows, rArm, covers, tepoch, Echo());
                 }
@@ -1926,7 +1926,7 @@ public static partial class RecordsTools
                 // The render bound is on the row cost, not on where the row came from, so it refuses on the same
                 // numbers before reading a body.
                 if (RenderBudget.Refuse(svc.Bounds, keys.Count, form == "everything") is { } offTooBig)
-                    return Wire.Refuse(json, offTooBig, outcome.Stamp);
+                    return ToolAnswer.Refusal(json, offTooBig, outcome.Stamp);
                 // And clocked the same way, so the bound's estimate is checkable on this lane too.
                 var offClock = System.Diagnostics.Stopwatch.StartNew();
                 var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? readPaths : null,
@@ -1944,7 +1944,7 @@ public static partial class RecordsTools
                 {
                     var tear = $"the load order changed between the file scan (epoch={outcome.Epoch}) and the body read " +
                                $"(epoch={string.Join(", ", offBodyEpochs.Where(e => e != outcome.Epoch))}) — the two halves would mix builds. Retry the call.";
-                    return Wire.Refuse(json, Wire.RefusalPrefix + tear, outcome.Stamp);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + tear, outcome.Stamp);
                 }
                 envelope.Add(new("total", outcome.Total));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
@@ -1962,7 +1962,7 @@ public static partial class RecordsTools
                 if (wantFile)
                 {
                     var (sp, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), offLevers, matches: offMatches, scan: outcome);
-                    if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, offEpoch);
+                    if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, offEpoch);
                     offSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
                 var offRendered = RenderOff(offSpill, out var offTrunc);
@@ -1982,7 +1982,7 @@ public static partial class RecordsTools
             {
                 var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, ArtifactTarget.Named(toFile!), "to_file", Echo(), LeverNames.Records);
                 if (aerr is not null)
-                    return Wire.Refuse(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + aerr, outcome.Stamp);
+                    return ToolAnswer.Refusal(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + aerr, outcome.Stamp);
                 spill = SpillState.Spilled(sp!, manifestOnly: true);
             }
             // The off-order scan passes no field paths, so it never has a project= to drop.

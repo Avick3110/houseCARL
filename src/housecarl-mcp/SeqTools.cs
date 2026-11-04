@@ -40,7 +40,7 @@ public static class SeqTools
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } cfgPrompt)
-            return Wire.Refuse(json, cfgPrompt);
+            return ToolAnswer.Refusal(json, cfgPrompt);
 
         // Lane exclusivity, out_path= first; contract in docs/architecture/write-path.md.
         string? outputNote = null;
@@ -50,7 +50,7 @@ public static class SeqTools
                 outputNote = "note: out_path= was given, so patch=/into= are ignored (the .seq lands in out_path, not a houseCARL patch folder).";
         }
         else if (LaneSentences.PatchIntoFolderRefusal(patch, into, ".seq") is { } laneErr)
-            return Wire.Refuse(json, Wire.RefusalPrefix + laneErr);
+            return ToolAnswer.Refusal(json, Wire.RefusalPrefix + laneErr);
 
         var o = svc.WriteSeq(source, patch, into, out_path);
         if (json) return ToolAnswer.Outcome(o.Success, JsonWire.RenderSeqOutcome(o, max_chars, outputNote));

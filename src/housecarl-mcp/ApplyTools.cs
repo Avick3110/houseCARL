@@ -60,9 +60,9 @@ public static class ApplyTools
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ToolAnswer.Refusal(ferr);   // the format value itself is unparsed — there is no known render to answer in
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return Wire.Refuse(json, prompt);
+            return ToolAnswer.Refusal(json, prompt);
 
-        ToolAnswer Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
+        ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
         // A lane is honoured or refused BY NAME; contract in docs/architecture/write-path.md.

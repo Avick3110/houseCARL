@@ -213,11 +213,11 @@ public static class SkseTools
         // below has to be answered in the shape the caller asked for.
         bool json = Wire.WantsJson(format, out var fmtErr);
         if (fmtErr is not null) return ToolAnswer.Refusal(fmtErr);
-        if (!TryParseFamily(findings, out var family, out var famErr)) return Wire.Refuse(json, famErr!);
-        if (PeekFamilyError(peek, family) is { } peekErr) return Wire.Refuse(json, peekErr);
-        if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return Wire.Refuse(json, err);
+        if (!TryParseFamily(findings, out var family, out var famErr)) return ToolAnswer.Refusal(json, famErr!);
+        if (PeekFamilyError(peek, family) is { } peekErr) return ToolAnswer.Refusal(json, peekErr);
+        if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return ToolAnswer.Refusal(json, err);
         var window = new RowWindow(offset, limit);
-        if (window.Error is { } winErr) return Wire.Refuse(json, winErr);
+        if (window.Error is { } winErr) return ToolAnswer.Refusal(json, winErr);
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
 
         return ToolAnswer.Served(Dispatch(new ServiceRenders(svc), family, filter, peek, max_chars, json, window));
