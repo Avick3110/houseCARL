@@ -37,6 +37,28 @@ public sealed class SkyPatcherEditorIdTests
         Assert.DoesNotContain("powerofthree", heel);
     }
 
+    // an unreadable po3_Tweaks.ini beside the DLL is replayed as the DLL's default, and the read says the state is unknown, not that the name finds nothing
+    [Fact]
+    public void AnUnreadableTweaksIniResolvesEditorIdsAndSaysTheStateIsUnknown()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[]
+        {
+            ("HcEid.ini", "filterByArmors=HcHeelBoots:keywordsToAdd=HcAddKw\r\n"
+                          + "filterByEditorIdContains=HcBoth:weight=3\r\n"),
+        });
+        var ini = Path.Combine(w.Root, "instance", "mods", "HcSpRelIni", "SKSE", "Plugins", "po3_Tweaks.ini");
+        File.WriteAllText(ini, "[Fixes]\r\nbLoadEditorIDs = true\r\n");
+        using var locked = new FileStream(ini, FileMode.Open, FileAccess.Read, FileShare.None);
+        var heel = Post(w, w.Heel);
+        Assert.Contains("Keywords = [list: 2 item(s)]", heel);
+        Assert.Contains("po3_Tweaks.ini (from 'HcSpRelIni') could not be read", heel);
+        Assert.DoesNotContain("finds nothing", heel);
+        var both = Post(w, w.Both);
+        Assert.Contains("Weight = 3", both);
+        Assert.DoesNotContain("finds nothing", both);
+        Assert.Contains("whether Tweaks loads EditorIDs is UNKNOWN", SkyPatcherTools.SkyPatcherLayer(w.Svc));
+    }
+
     // the version modelled is data in the catalog, and the layer header and the overlay's source line both print it
     [Fact]
     public void TheLayerAndTheOverlayNameTheModelledVersion()
