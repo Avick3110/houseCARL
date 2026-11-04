@@ -251,6 +251,17 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.DoesNotContain("check the spelling", text);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("ModA")]
+    public void AGlobMatchingOnlyATwinsUnhiddenNameSaysMo2HidesIt(string? provider)
+    {
+        var text = Status(_p.Open(), under: new[] { "meshes/*.nif" }, provider: provider);
+
+        Assert.Contains($"MO2 hides 1 matching path (skipped by MO2's VFS, by the '.mohidden' suffix), e.g. '{OnlyHidden}.mohidden'", text);
+        Assert.DoesNotContain("check the spelling", text);
+    }
+
     [Fact]
     public void AFolderGlobNamedLikeARootFileDoesNotSayItIsHidden()
     {
