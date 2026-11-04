@@ -159,8 +159,10 @@ internal sealed partial class AssetLayers
             hidden = pick.OffOrderHidden ?? hidden;
         }
         if (place.Sources.Count == 0) return new AssetWalkNode(rel, edge, pulledBy, WalkStanding.Absent, null, keyed, note, Hidden: hidden);
-        return new AssetWalkNode(rel, edge, pulledBy, source is null ? WalkStanding.Present : WalkStanding.Elsewhere,
-                                 place.Sources[0], keyed, note);
+        if (source is null) return new AssetWalkNode(rel, edge, pulledBy, WalkStanding.Present, place.Sources[0], keyed, note);
+        // Another layer wins; the named folder's own hidden copy rides along so the node says why it ships none.
+        return new AssetWalkNode(rel, edge, pulledBy, WalkStanding.Elsewhere, place.Sources[0], keyed, note,
+                                 Hidden: hidden?.HeldBy(source) == true ? hidden : null);
     }
 
     internal delegate void FileSink(string raw, string edge, string pulledBy, bool keyed = false, string? note = null);
