@@ -1,1 +1,1 @@
-- **A tool call now reads one load order from start to finish: a change in MO2 during a call shows at the next call, where some reads used to answer "the load order changed … Retry the call".** A profile switch between a call's record reads and its first file read still refuses, naming that.
+- **A tool call now keeps the MO2 profile and plugin list it started on: a change mid-call shows at the next call, or refuses if it lands between the call's record and file reads; a changed plugin file still refuses.** Check: switch profile mid-`records` call, then rerun.
