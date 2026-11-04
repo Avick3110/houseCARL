@@ -417,7 +417,7 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
     /// <summary>The mod folder these bytes were read out of when it is NOT one the active profile includes; non-null is a fact the response must state.</summary>
     public string? SourceOffOrderProvider { get; init; }
 
-    /// <summary>Whether that off-order mod is one MO2 TICKS — true means the bytes came out of a root archive no active plugin binds, not out of an unticked mod.</summary>
+    /// <summary>Whether that off-order mod is one MO2 TICKS — true means the bytes came out of a root archive no active plugin binds, or a loose file its folder did not list this build, not out of an unticked mod.</summary>
     public bool SourceOffOrderOwnerEnabled { get; init; }
     public AssetKind SourceOffOrderKind { get; init; }
 

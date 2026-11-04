@@ -20,8 +20,9 @@ public sealed record AssetHit(string RelPath, bool Exists, AssetProvider? Winner
                               HiddenCopies? Hidden = null);
 
 /// <summary>A concrete on-disk source one provider supplies an asset from: a loose file path, or a .bsa path plus the
-/// entry inside it. <see cref="OffOrder"/> marks a copy the game is not loading and <see cref="OwnerEnabled"/> says
-/// which of the two reasons it is; <see cref="OwningMod"/> is a BSA archive's own MO2 layer.</summary>
+/// entry inside it. <see cref="OffOrder"/> marks a copy the game is not loading and <see cref="OwnerEnabled"/> that
+/// its mod is enabled (a root archive no plugin binds, or a loose file its folder did not list), else the mod is
+/// unticked; <see cref="OwningMod"/> is a BSA archive's own MO2 layer.</summary>
 public sealed record PlacementSource(string ProviderName, AssetKind Kind, string? LooseFilePath, string? ArchivePath,
                                      string EntryPath, bool OffOrder = false, string? OwningMod = null,
                                      bool OwnerEnabled = false);
