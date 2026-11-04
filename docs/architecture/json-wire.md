@@ -263,8 +263,8 @@ own lane can survive.
 `WriteNullableStringArray`, `WriteCapOverrun`, `MeasureUnit`); `src/housecarl-mcp/RenderCap.cs` holds
 `RenderCap.Overran`, the sentence the overrun member carries; `src/housecarl-mcp/SkseJsonDoc.cs` holds
 `SkseJsonDoc.Write`, `Fits` and `TailReserve` for the `housecarl_skse` family documents; `src/housecarl-mcp/ToolFrontWire.cs`
-holds the transport helpers every tool front shares on `Wire`: the `format=` switch (`WantsJson`), the one refusal
-render (`Refuse`, `RefusalPrefix`), the epoch stamp (`EpochLine`, `EpochInline`) and the char budgets
+holds the transport helpers every tool front shares on `Wire`: the `format=` switch (`WantsJson`), the refusal
+prefix (`RefusalPrefix`, which `ToolAnswer.Refusal` strips on json), the epoch stamp (`EpochLine`, `EpochInline`) and the char budgets
 (`DefaultMaxChars`, `ReadbackMaxChars`, `ContestedHostsShown`). That file is the transport switch for both lanes,
 text and json, which is why it is covered here although the epoch stamp it holds is the text lane's. Entry point:
 `format="json"` on every tool that takes it.

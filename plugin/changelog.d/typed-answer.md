@@ -1,0 +1,1 @@
+- **Every tool now marks a refused call as an MCP error (`isError`), with the same text as before; the setup prompt counts as a refusal, the in-place confirmation prompt does not.** Check: `housecarl_remove format="xml"` comes back as an error result.

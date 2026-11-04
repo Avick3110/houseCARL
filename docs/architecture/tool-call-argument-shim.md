@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-23
-covers: [src/housecarl-mcp/ToolCallShim.cs, src/housecarl-mcp/Program.cs, src/housecarl-mcp/Guard.cs]
+updated: 2026-11-04
+covers: [src/housecarl-mcp/ToolCallShim.cs, src/housecarl-mcp/Program.cs, src/housecarl-mcp/Guard.cs, src/housecarl-mcp/ToolAnswer.cs]
 ---
 # The tool-call argument shim
 
@@ -76,6 +76,30 @@ exception returns a named error instead of escaping to the SDK. Every body must 
 what keeps `Guard`'s "the arguments bound fine" wording true and leaves only pre-body binding failures to
 the shim.
 
+### The typed answer, and `isError`
+
+A tool body returns a `ToolAnswer`, never a string, and nothing converts a string into one: the body says
+which it is. `ToolAnswer.Served` is the call's answer. A refusal is `ToolAnswer.Refusal(json, message,
+epoch)`, rendered by `Guard` per transport — text keeps the
+message as written, json is `{ok:false, error, epoch}` with the `error: ` prefix stripped, `epoch` the stamp
+or null — and `epochLine: true` also puts the stamp on the text, on its own line, for the lanes that did so
+before. A refusal with no transport (a tool with no `format=`, the `format=` error itself, the Guard's own) is
+text on every transport. A refused outcome keeps the document its lane renders (`ToolAnswer.Outcome`), so a
+failed write's json keeps `lane`, `dry_run` and `ok` on both outcomes, and a scan or check whose outcome
+carries the whole-call error is refused exactly where its json writes `ok:false`.
+
+`Guard` renders the answer once: the text is the call's result, and a refusal marks the call's
+`CallVerdict`, which the shim opens around `next` and reads after it, setting `isError` on the result. So
+`isError` is exactly the set of refusals: every body refusal, the config prompt (no tool can do its job
+until setup is done) and the tool-path prompt, and the Guard's own (a plugin changed mid-call, a profile
+locked mid-re-sort, a refused game language, an unhandled exception). The in-place consent prompt is
+served: it is a question the next call answers, `needs_acknowledge` in json. A per-row error inside a
+served batch is not a refusal. A tool method called directly, outside the filter, opens no verdict and
+returns the same text.
+
+The body takes the call's `ToolCall`, which `Guard` opens and disposes around it: today it holds the
+mid-call mark and the game-language binding, and the per-call context joins them there.
+
 ## Pinned by
 
 - *Pass order*, pass 3: `ToolCallShimCoercionTests` — what `CoerceObviousShapes` produces, as a value: a bare string
@@ -92,9 +116,13 @@ the shim.
 - *No pass maps a 1.x parameter name*: `ToolCallShimWirePathTests.CreatePluginTakesPatchAndRefusesTheOldPluginSpellingByName`
   and `CompactPluginTakesSourceAndRefusesTheOldPluginSpellingByName` — the old `plugin=` spelling is refused, not
   rebound (on `compact_plugin` by pass 4, since `source` is required).
+- *The typed answer*: `TypedAnswerWireTests` — a body refusal and the config prompt reach the client as `isError`,
+  text unchanged; `TypedAnswerTests` — a refused write is marked refused and keeps its text and, on json, its
+  outcome document; a served write and the consent prompt (text and json) are not; the Guard's own refusal is.
 
 ## Where
 
 `src/housecarl-mcp/ToolCallShim.cs` holds the passes, run from `ToolCallShim.LenientArguments`;
 `src/housecarl-mcp/Program.cs` registers it as the call-tool filter; `src/housecarl-mcp/Guard.cs` is `Guard.Tool`,
-which wraps every tool body. No tool of its own: it runs on every `tools/call`.
+which wraps every tool body, with `ToolCall` and `CallVerdict`; `src/housecarl-mcp/ToolAnswer.cs` is the answer a
+body returns. No tool of its own: it runs on every `tools/call`.
