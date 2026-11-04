@@ -54,7 +54,8 @@ static class AssetWalkWire
     static string Standing(AssetWalkNode n, string? source) => n.Standing switch
     {
         WalkStanding.FromSource => $"FROM SOURCE: {Copy(n.Copy!)}",
-        WalkStanding.Elsewhere => $"ELSEWHERE: {Copy(n.Copy!)} wins it" + (source is null ? "" : $"; \"{source}\" does not ship it"),
+        WalkStanding.Elsewhere => $"ELSEWHERE: {Copy(n.Copy!)} wins it"
+                                  + (source is null ? "" : n.Hidden is { } h ? $"; \"{source}\" holds it, {h.Unnamed()}" : $"; \"{source}\" does not ship it"),
         WalkStanding.Present => $"WINS: {Copy(n.Copy!)}",
         WalkStanding.Absent => "ABSENT — " + AbsentWords.Why(n.Hidden)
                                + (source is null || n.Hidden?.HeldBy(source) == true ? "" : $", and \"{source}\" does not ship it"),

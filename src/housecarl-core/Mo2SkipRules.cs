@@ -26,6 +26,9 @@ public sealed record HiddenCopies(HiddenRule Rule, string HiddenPath, IReadOnlyL
         + (Holders.Count > 1 ? $" and {Holders.Count - 1:N0} more" : "")
         + (Twin ? $", as '{HiddenPath}'" : "");
 
+    /// <summary>"hidden by MO2 (why)" and the hidden name when it is a twin, naming no holder: for a line that names its own.</summary>
+    public string Unnamed() => $"hidden by MO2 ({Rule.Why})" + (Twin ? $", as '{HiddenPath}'" : "");
+
     /// <summary>Does <paramref name="provider"/> hold one of these copies?</summary>
     public bool HeldBy(string provider) => Holders.Any(h => AssetSourceSelection.NameMatches(h, null, provider));
 }

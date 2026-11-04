@@ -398,6 +398,36 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.Contains("ABSENT — hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'ModC'", t);
     }
 
+    [Fact]
+    public void AWalkFromAFolderHoldingAHiddenCopyAnotherLayerWinsSaysItIsHidden()
+    {
+        PlaceInstance.Loose(_p.Mod("ModS"), @"textures\x.dds", X);   // ModS wins x; ModA holds only x.mohidden
+        var svc = _p.Open();
+
+        var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: true, source_provider: "ModA");
+        Assert.Contains("ELSEWHERE: \"ModS\" (loose) wins it; \"ModA\" holds it, hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix), as 'textures\\x.dds.mohidden'", text);
+        Assert.DoesNotContain("does not ship it", text);
+        var node = JsonDocument.Parse(AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: true,
+                                                             source_provider: "ModA", format: "json"))
+                               .RootElement.GetProperty("nodes")[0];
+        Assert.Equal("elsewhere", node.GetProperty("standing").GetString());
+        Assert.Equal("skip_suffix", node.GetProperty("hidden").GetProperty("rule").GetString());
+        var spilled = AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: true, source_provider: "ModA", max_chars: 300);
+        var file = System.Text.RegularExpressions.Regex.Match(spilled, @"[A-Za-z]:\\[^\s']+\.jsonl").Value;
+        Assert.True(File.Exists(file), spilled);
+        Assert.Contains(File.ReadAllLines(file), l => l.Contains("\"standing\":\"elsewhere\"") && l.Contains("\"hidden\":{\"rule\":\"skip_suffix\""));
+    }
+
+    [Fact]
+    public void AWalkFromAFolderShippingNoCopyOfAPathAnotherLayerWinsStillSaysItDoesNotShipIt()
+    {
+        // Pins unchanged behaviour: ModS holds no copy of x, hidden or not.
+        PlaceInstance.Loose(_p.Mod("ModD"), @"textures\x.dds", X);
+        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "textures/x.dds" }, walk: true, source_provider: "ModS");
+
+        Assert.Contains("wins it; \"ModS\" does not ship it", text);
+    }
+
     // ---- R12: an enabled mod is never called unticked -----------------------------------------------
 
     [Fact]
