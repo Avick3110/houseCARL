@@ -168,7 +168,7 @@ public static class CheckTools
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         bool json = Wire.WantsJson(format, out var fmtErr);
         if (fmtErr is not null) return ToolAnswer.Refusal(fmtErr);
-        if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return Wire.Refuse(json, "error: " + famErr);
+        if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return ToolAnswer.Refusal(json, "error: " + famErr);
         int lim = limit <= 0 ? 1000 : limit;
         // The sweep's document, refused exactly when it carries the whole-call error the json document writes as ok:false.
         ToolAnswer Answer(CheckSweep s) => ToolAnswer.Outcome(CheckOutcome.For(s).Error is null,
@@ -179,13 +179,13 @@ public static class CheckTools
         if (plugins is { Length: > 0 })
         {
             var (names, echo, perr) = Artifacts.ExpandPluginList(plugins, "plugins");
-            if (perr is not null) return Wire.Refuse(json, perr);
+            if (perr is not null) return ToolAnswer.Refusal(json, perr);
             plugins = names; pluginsEcho = echo;
         }
         if (exclude is { Length: > 0 })
         {
             var (names, _, xerr) = Artifacts.ExpandPluginList(exclude, "exclude");
-            if (xerr is not null) return Wire.Refuse(json, xerr);
+            if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
             exclude = names;
         }
 
@@ -203,14 +203,14 @@ public static class CheckTools
         if (source is { } srcEl && srcEl.ValueKind is not (System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined))
         {
             if (!selection.Ran.Contains(SweepFamily.Dialogue))
-                return Wire.Refuse(json, "error: source= folds an off-order plugin into the DIALOGUE family's resolution, and this call runs no dialogue family — add findings=[\"dialogue\"] with seeds=, or drop source=. The swept families (errors, scripts, facegen) take an off-order plugin on plugins= instead, which sweeps that file's own records.");
+                return ToolAnswer.Refusal(json, "error: source= folds an off-order plugin into the DIALOGUE family's resolution, and this call runs no dialogue family — add findings=[\"dialogue\"] with seeds=, or drop source=. The swept families (errors, scripts, facegen) take an off-order plugin on plugins= instead, which sweeps that file's own records.");
             if (selection.Ran.Count > 1)
-                return Wire.Refuse(json, "error: source= folds an off-order plugin into the DIALOGUE family's resolution, and it is the only family with that arm — the swept families beside it in this call (errors, scripts, facegen) take an off-order plugin on plugins= instead, which sweeps the file's own records. Run findings=[\"dialogue\"] with source= on its own, and the swept families in their own call.");
-            if (ParseFoldPole(srcEl, out var foldPlugin, out var foldMod) is { } poleErr) return Wire.Refuse(json, poleErr);
+                return ToolAnswer.Refusal(json, "error: source= folds an off-order plugin into the DIALOGUE family's resolution, and it is the only family with that arm — the swept families beside it in this call (errors, scripts, facegen) take an off-order plugin on plugins= instead, which sweeps the file's own records. Run findings=[\"dialogue\"] with source= on its own, and the swept families in their own call.");
+            if (ParseFoldPole(srcEl, out var foldPlugin, out var foldMod) is { } poleErr) return ToolAnswer.Refusal(json, poleErr);
             var probe = svc.ProbeSourceArm(foldPlugin!, foldMod, out var probeErr);
-            if (probeErr is not null) return Wire.Refuse(json, "error: " + probeErr);
+            if (probeErr is not null) return ToolAnswer.Refusal(json, "error: " + probeErr);
             if (probe!.InOrder)
-                return Wire.Refuse(json, $"error: source='{probe.Plugin}' is ACTIVE in the load order, and the dialogue family already validates against the active order's winners — its records are what the check reads. Drop source=; it folds a plugin that is NOT enabled in MO2 into that resolution.", probe.Stamp);
+                return ToolAnswer.Refusal(json, $"error: source='{probe.Plugin}' is ACTIVE in the load order, and the dialogue family already validates against the active order's winners — its records are what the check reads. Drop source=; it folds a plugin that is NOT enabled in MO2 into that resolution.", probe.Stamp);
             dialogueFold = probe;
         }
 
@@ -270,9 +270,9 @@ public static class CheckTools
         {
             // The same validator the records surface runs: absolute, .jsonl, and outside the pruned results
             // directory.
-            if (Artifacts.ValidateToFile(path, svc.ResultsDir) is { } verr) return Wire.Refuse(json, verr);
+            if (Artifacts.ValidateToFile(path, svc.ResultsDir) is { } verr) return ToolAnswer.Refusal(json, verr);
             if (counts_only)
-                return Wire.Refuse(json, "error: counts_only= returns the histograms with no findings, and to_file= "
+                return ToolAnswer.Refusal(json, "error: counts_only= returns the histograms with no findings, and to_file= "
                                        + "writes the findings - the two contradict; drop one.");
             var query = new[]
             {
@@ -285,7 +285,7 @@ public static class CheckTools
             if (CheckOutcome.For(sweep).Ran.Count == 0)
                 return Answer(sweep);
             var (spill, artErr) = CheckArtifact.Write(sweep, path, query);
-            if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
+            if (artErr is not null) return ToolAnswer.Refusal(json, "error: " + artErr);
             return ToolAnswer.Served(CheckArtifact.RenderManifestOnly(sweep, spill!, json, Wire.Cap(max_chars)));
         }
 

@@ -140,9 +140,9 @@ public static class AssetTools
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return Wire.Refuse(json, prompt);
-        // The read/write surface's one refusal shape, through its one owner: Wire.Refuse owns the prefix the json document strips.
-        ToolAnswer Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
+            return ToolAnswer.Refusal(json, prompt);
+        // The read/write surface's one refusal shape: ToolAnswer.Refusal strips the prefix on the json document.
+        ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
 
         if (records is { Length: > 0 } && !walk)
             return Refuse("records= seeds the walk — pass walk=true with it.");
@@ -156,7 +156,7 @@ public static class AssetTools
                           "FormID(s) in formids (e.g. '01A51A:Dawnguard.esm') for their FaceGen pairs, or a mod or " +
                           "archive name in provider for every file it ships.");
         // The window's own refusal, from the window: this tool and housecarl_skse answer the same input class.
-        if (new RowWindow(offset, limit).Error is { } bad) return Wire.Refuse(json, bad);
+        if (new RowWindow(offset, limit).Error is { } bad) return ToolAnswer.Refusal(json, bad);
         int cap = Wire.Cap(max_chars);
 
         var toFile = to_file?.Trim();
@@ -164,27 +164,27 @@ public static class AssetTools
         if (wantFile)
         {
             // The same validator the records surface runs: absolute, .jsonl, and outside the pruned results directory.
-            if (Artifacts.ValidateToFile(toFile!, svc.ResultsDir) is { } verr) return Wire.Refuse(json, verr);
+            if (Artifacts.ValidateToFile(toFile!, svc.ResultsDir) is { } verr) return ToolAnswer.Refusal(json, verr);
             // The same pair the records lanes refuse, in the same words: one returns the census, the other writes the rows.
-            if (counts_only) return Wire.Refuse(json, Artifacts.CountsOnlyWithToFile);
+            if (counts_only) return ToolAnswer.Refusal(json, Artifacts.CountsOnlyWithToFile);
             if (offset > 0)
-                return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a " +
+                return ToolAnswer.Refusal(json, "error: to_file= captures the COMPLETE result (the artifact is never a " +
                                          "window), so offset= has nothing to page — drop offset=.");
         }
         if (counts_only && links)
-            return Wire.Refuse(json, "error: links= lists each mesh's files on its row, and counts_only= returns a census " +
+            return ToolAnswer.Refusal(json, "error: links= lists each mesh's files on its row, and counts_only= returns a census " +
                                      "with no rows — drop one of them.");
         // A census covers the whole selection, so there is no selection window for offset= to move.
         if (counts_only && offset > 0)
-            return Wire.Refuse(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
+            return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
 
         // The @file convention on both list inputs, each taking the identity column its own tokens are made of.
         var (pathTokens, pathDemand, pathEcho, perr) =
             Artifacts.ExpandListInput(asset_paths ?? Array.Empty<string>(), "asset_paths", identity: "path");
-        if (perr is not null) return Wire.Refuse(json, perr);
+        if (perr is not null) return ToolAnswer.Refusal(json, perr);
         var (idTokens, idDemand, idEcho, ferr2) =
             Artifacts.ExpandListInput(formids ?? Array.Empty<string>(), "formids");
-        if (ferr2 is not null) return Wire.Refuse(json, ferr2);
+        if (ferr2 is not null) return ToolAnswer.Refusal(json, ferr2);
 
         // The FormID door parses the plugin-qualified form without touching the index, so an ordinary sweep reads no record.
         var door = FormIdDoor.For(svc);
@@ -216,20 +216,20 @@ public static class AssetTools
         if (idDemand is { } demand)
         {
             if (noEpochBecause is not null)
-                return Wire.Refuse(json, $"error: formids= artifact '{demand.Path}' was captured at epoch={demand.Epoch}, " +
+                return ToolAnswer.Refusal(json, $"error: formids= artifact '{demand.Path}' was captured at epoch={demand.Epoch}, " +
                                          $"and this call could not build a load order to check it against — {noEpochBecause} " +
                                          "Fix the order and retry; there is deliberately no unchecked re-entry. A list " +
                                          "of PATHS re-enters through asset_paths= without a build, because a path " +
                                          "answers off the VFS alone.");
             if (demand.Epoch != order!.Epoch)
-                return Wire.Refuse(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, order.Epoch));
+                return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, order.Epoch));
         }
 
         // counts_only= resolves the WHOLE selection, as to_file= does: a census of a window would answer about a window while the rows that need paging had no knob.
         var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, counts_only ? 0 : limit, offset, seeds,
                                    wholeSelection: wantFile || counts_only, provider: provider, links: links);
         // The declared-cost refusal (the selection was counted and is past the bound) or an unknown provider: nothing was resolved.
-        if (data.Refusal is { } refused) return Wire.Refuse(json, refused);
+        if (data.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
 
         if (counts_only)
             return ToolAnswer.Served(json ? JsonWire.RenderAssetCensus(data, cap, limit) : AssetCensus.Render(data, cap, limit));
@@ -273,7 +273,7 @@ public static class AssetTools
         }
 
         var (spill, artErr) = AssetArtifact.Write(data, ArtifactTarget.Named(toFile!), "to_file", order, Echo(), noEpochBecause);
-        if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
+        if (artErr is not null) return ToolAnswer.Refusal(json, "error: " + artErr);
         var manifestOnly = AssetArtifact.RenderManifestOnly(data, spill!, json, cap);
         // The text lane's ceiling arm; the json document caps itself as it writes.
         return ToolAnswer.Served(json ? manifestOnly : RenderCap.Settle(manifestOnly, cap));
@@ -284,16 +284,16 @@ public static class AssetTools
                        string[]? records, string[]? from_source, string? source_provider,
                        bool wantFile, bool countsOnly, bool json, int cap)
     {
-        ToolAnswer Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
+        ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
         if (wantFile || countsOnly)
             return Refuse("walk=true renders its nodes inline and spills them whole to a results file past max_chars; drop to_file= and counts_only=.");
         // The same @file convention as the row lane, a formids= artifact epoch-checked the same way.
         var (pathTokens, _, _, perr) = Artifacts.ExpandListInput(asset_paths ?? Array.Empty<string>(), "asset_paths", identity: "path");
-        if (perr is not null) return Wire.Refuse(json, perr);
+        if (perr is not null) return ToolAnswer.Refusal(json, perr);
         var (idTokens, idDemand, _, ferr) = Artifacts.ExpandListInput(formids ?? Array.Empty<string>(), "formids");
-        if (ferr is not null) return Wire.Refuse(json, ferr);
+        if (ferr is not null) return ToolAnswer.Refusal(json, ferr);
         if (idDemand is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
-            return Wire.Refuse(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
+            return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
         asset_paths = pathTokens; formids = idTokens;
         var door = FormIdDoor.For(svc);
         var keys = new List<Mutagen.Bethesda.Plugins.FormKey>();
@@ -314,7 +314,7 @@ public static class AssetTools
         if (asset_paths is { Length: > 0 } || under is { Length: > 0 } || seeds.Count > 0 || !string.IsNullOrWhiteSpace(provider))
         {
             var sel = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, 0, 0, seeds, wholeSelection: true, provider: provider);
-            if (sel.Refusal is { } refused) return Wire.Refuse(json, refused);
+            if (sel.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
             selectorNotes = sel.SelectorNotes;
             // A bad explicit path stays a seed, so the walk answers it as its own error node.
             foreach (var r in sel.Results)
@@ -325,7 +325,7 @@ public static class AssetTools
             }
         }
         var w = svc.AssetWalk(paths, keys, from_source, source_provider, keyed);
-        if (w.Refusal is { } wr) return Wire.Refuse(json, wr);
+        if (w.Refusal is { } wr) return ToolAnswer.Refusal(json, wr);
         var rendered = AssetWalkWire.Render(w, selectorNotes, cap, json, null, out var cut);
         if (!cut) return ToolAnswer.Served(rendered);
         // SPEC §2.1.1, as the row lane does: the whole walk to the results directory, the response naming it.

@@ -56,8 +56,8 @@ public static class ForwardTools
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return Wire.Refuse(json, prompt);
-        ToolAnswer Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
+            return ToolAnswer.Refusal(json, prompt);
+        ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
 
         // ---- LANE: mutually exclusive, and a dropped one is named; contract in docs/architecture/write-path.md ----
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();

@@ -1154,7 +1154,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         "may help locate it, but do NOT silently pick one when more than one MO2 install exists: list the candidates you " +
         "found and let the user choose. State which folder you're using, then call " + ToolNames.SetMo2Instance + " with that path.";
 
-    /// <summary>Tools call this FIRST: the unconfigured prompt as a normal result string, else null — the MCP framework rewrites a thrown exception to a generic message.</summary>
+    /// <summary>Tools call this FIRST: the unconfigured prompt, which the tool returns as its refusal, else null — the MCP framework rewrites a thrown exception to a generic message.</summary>
     public string? ConfigPromptOrNull() { lock (_gate) { return _configured ? null : NotConfiguredText; } }
 
     static InvalidOperationException NotConfigured() => new(NotConfiguredText);

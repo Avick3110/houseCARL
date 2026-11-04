@@ -638,7 +638,7 @@ static partial class RecordsTools
     {
         var gb = groupBy.Trim().ToLowerInvariant();
         if (gb is not ("winner" or "type" or "defined_in"))
-            return Wire.Refuse(json, $"error: project.group_by='{groupBy}' is not a count key — use 'winner', 'type', or 'defined_in'.");
+            return ToolAnswer.Refusal(json, $"error: project.group_by='{groupBy}' is not a count key — use 'winner', 'type', or 'defined_in'.");
         int cap = Wire.Cap(maxChars);
         var groups = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         // A type the call asked for is in the census whether or not it has records.

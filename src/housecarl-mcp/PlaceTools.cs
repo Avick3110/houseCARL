@@ -59,7 +59,7 @@ public static class PlaceTools
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return Wire.Refuse(json, prompt);
+            return ToolAnswer.Refusal(json, prompt);
         if (assets is not { } el || el.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
             return Refuse(json, "assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.");
         // The strict reader, not the SDK's binder: a member the shape does not declare is refused by name at its element, because a dropped one would place another provider's copy.
@@ -77,14 +77,14 @@ public static class PlaceTools
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return Wire.Refuse(json, prompt);
+            return ToolAnswer.Refusal(json, prompt);
         if (assets is null || assets.Length == 0)
             return Refuse(json, "assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.");
         return PlaceTargets(svc, assets, source_provider, kind, patch, into, max_chars, json);
     });
 
-    /// <summary>The one refusal shape, through its one owner — <see cref="Wire.Refuse"/>, which owns the prefix the json document strips.</summary>
-    static ToolAnswer Refuse(bool json, string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
+    /// <summary>The one refusal shape, through its one owner — <see cref="ToolAnswer.Refusal(bool,string,OrderStamp?,bool)"/>, which strips the prefix on the json document.</summary>
+    static ToolAnswer Refuse(bool json, string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
 
     static ToolAnswer PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
                                string? kind, string? patch, string? into, int max_chars, bool json)
