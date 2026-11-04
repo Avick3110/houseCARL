@@ -1,1 +1,1 @@
-- **`asset_status`, its walk, the checks and a named `source_provider=` now call a file MO2 hides "hidden by MO2", with its rule and holder; naming its mod never reads it.** Check: `asset_status provider="<mod>" asset_paths=["x"]` where that mod holds only `x.mohidden`.
+- **`asset_status`, its walk, the checks, `nif_inspect`, `nif_set` and `place` now call a file MO2 hides "hidden by MO2", with its rule and holder; naming its mod never reads it.** Check: `asset_status provider="<mod>" asset_paths=["x"]` where that mod holds only `x.mohidden`.
