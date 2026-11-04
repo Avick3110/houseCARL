@@ -76,9 +76,11 @@ public sealed class CallContextTests : IDisposable
     /// <summary>Run <paramref name="body"/> outside any call, as another call's thread would.</summary>
     static void OutsideTheCall(Action body)
     {
-        Task t;
-        using (ExecutionContext.SuppressFlow()) t = Task.Run(body);
-        t.Wait();
+        Exception? failed = null;
+        var t = new Thread(() => { try { Assert.Null(CallContext.Open); body(); } catch (Exception e) { failed = e; } });
+        t.UnsafeStart();                                         // no execution context, so none of the call's scopes
+        t.Join();
+        if (failed is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failed);
     }
 
     // Pins unchanged behaviour (R8): a records call never builds the file view, and the first file call does.
@@ -161,7 +163,9 @@ public sealed class CallContextTests : IDisposable
             mod.Weapons.AddNew().EditorID = "HcCcWeapA";
             mod.Weapons.AddNew().EditorID = "HcCcWeapB";
             mod.BeginWrite.ToPath(Path.Combine(_mo2.ModsDir, "CcBase", _base.FileName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
-            OutsideTheCall(() => _ = Host.Resolver);            // another call re-indexes the changed plugin
+            string? rebuilt = null;
+            OutsideTheCall(() => rebuilt = Host.Resolver.Epoch);   // another call re-indexes the changed plugin
+            Assert.NotEqual(view.Epoch, rebuilt);
             Assert.Equal(view.Epoch, _svc.CaptureView().Epoch);
         });
     }
