@@ -149,7 +149,7 @@ public sealed class TypedAnswerTests : IDisposable
         Assert.Null(bridge.Resolve(ToolDependency.Bsarch));
         var (text, refused) = Answer(() => BsaTools.BsaRepack(W.Svc, bridge, source));
         Assert.True(refused, text);
-        Assert.DoesNotContain("error:", text);
+        Assert.Equal(ToolBridge.RenderMissingPrompt(ToolDependency.Bsarch), text);
     }
 }
 
