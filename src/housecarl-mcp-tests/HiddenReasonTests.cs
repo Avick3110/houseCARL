@@ -140,6 +140,28 @@ public sealed class HiddenReasonTests : IDisposable
     }
 
     [Fact]
+    public void AJsonHiddenObjectNamesABoundedHolderListAndCountsThemAll()
+    {
+        using var p = new PlaceInstance();
+        var mods = Enumerable.Range(0, AbsentWords.HoldersShown + 2).Select(i => $"Many{i:D2}").ToArray();
+        foreach (var m in mods) PlaceInstance.Loose(p.Mod(m), "meta.ini", X);
+        p.ProfileWithDummy(mods[0], mods.Select(m => "+" + m).ToArray());
+        var svc = p.Open();
+
+        void Bounded(JsonElement hidden)
+        {
+            Assert.Equal(AbsentWords.HoldersShown, hidden.GetProperty("holders").GetArrayLength());
+            Assert.Equal(mods.Length, hidden.GetProperty("holders_total").GetInt32());
+        }
+        Bounded(Assets(Status(svc, "meta.ini", format: "json")).GetProperty("results")[0].GetProperty("hidden"));
+        Bounded(Assets(AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: true, format: "json"))
+                    .GetProperty("nodes")[0].GetProperty("hidden"));
+        var target = Path.Combine(p.Root, "many.jsonl");
+        AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, to_file: target);
+        Bounded(Assets(File.ReadAllLines(target).First(l => l.TrimStart().StartsWith("{\"path\""))).GetProperty("hidden"));
+    }
+
+    [Fact]
     public void TheJsonStandingAndPairSayHidden()
     {
         var svc = _p.Open();

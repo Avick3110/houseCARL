@@ -90,6 +90,9 @@ internal static class AbsentWords
     internal static string Why(HiddenCopies? hidden, string what = "this path") =>
         hidden is { } h ? h.Sentence() : $"no active mod or BSA provides {what}";
 
+    /// <summary>How many holders a json object names; 'holders_total' counts them all.</summary>
+    internal const int HoldersShown = 10;
+
     /// <summary>The hidden copies as one json object, the shape every surface writes.</summary>
     internal static Dictionary<string, object> Doc(HiddenCopies h) => new()
     {
@@ -101,7 +104,8 @@ internal static class AbsentWords
         },
         ["match"] = h.Rule.Token,
         ["hidden_path"] = h.HiddenPath,
-        ["holders"] = h.Holders,
+        ["holders"] = h.Holders.Take(HoldersShown).ToList(),
+        ["holders_total"] = h.Holders.Count,
         ["note"] = h.Sentence(),
     };
 
