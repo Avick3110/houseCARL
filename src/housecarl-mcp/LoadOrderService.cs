@@ -133,11 +133,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>One captured build plus the resolver it came from, for a lane that opens an overlay session against it; inside a call, the call's pin.</summary>
     internal ViewPin CapturePin()
     {
-        lock (_gate)
-        {
-            var r = Resolver;
-            return CallContext.Open?.Pin ?? new ViewPin(r, r.Capture());
-        }
+        var r = Resolver;                                        // inside a call this pins it
+        return CallContext.Open?.Pin ?? new ViewPin(r, r.Capture());
     }
 
     /// <summary>A pinned index and <paramref name="second"/>'s capture in one <c>_gate</c> hold; <paramref name="afterPin"/> runs between them.</summary>
@@ -180,8 +177,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             {
                 if (!_configured) throw NotConfigured();          // fresh install / empty config → every tool prompts for the MO2 path
                 // A call reads one pinned build: checked once at its first record read, re-taken only inside the write gate.
-                if (HeldPinLocked() is { } pinned) { GameLanguage.Bind(pinned.Text); return pinned.Pin!.Resolver; }
-                var call = CallContext.Open;
+                if (HeldPinLocked() is { } pinned) return pinned.Pin!.Resolver;   // its language was bound when it was pinned
                 if (_resolver is null)
                 {
                     EnsurePathsDerived();                         // instance mode: derive ProfileDir/ModsDir/DataDir + active profile from ModOrganizer.ini
@@ -212,7 +208,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     // contract in docs/architecture/load-order-service.md.
                     try
                     {
-                        Interlocked.Increment(ref Counters.RecordFreshnessChecks);
                         RefreshOnProfileChange();     // lazy profile-membership refresh on this call (cheap check first)
                         // A profile it could not re-read is refused here rather than answered off a superseded index.
                         if (_profileHeld is { } held) throw new ProfileUnreadableException(held.ProfilePath, held);
@@ -221,19 +216,26 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     finally { Monitor.Exit(_writeGate); }
                 }
                 GameLanguage.Bind(_text);
-                if (call is not null) PinCallLocked(call);
+                if (CallContext.Open is { } call) PinCallLocked(call);
                 return _resolver;
             }
         }
     }
 
-    /// <summary>Hold the current build as the call's pin; a call that already holds files refuses if the profile moved since. Caller holds <see cref="_gate"/>.</summary>
+    /// <summary>Hold the current build as the call's pin, keeping the one it holds when the build has not moved; a call
+    /// that already holds files refuses if the profile moved since. Caller holds <see cref="_gate"/>.</summary>
     void PinCallLocked(CallContext call)
     {
         var roots = RootsLocked();
-        if (call.Pin is null && call.Files is { } files && (files.Roots != roots || files.Order is { } o && !ReferenceEquals(o, _resolver)))
-            throw call.Refuse();
-        call.HoldPin(new ViewPin(_resolver!, _resolver!.Capture()), roots, _text);
+        if (call.Pin is not { } pin) SameBuildOrRefuseLocked(call);
+        else if (ReferenceEquals(pin.Resolver, _resolver) && pin.View.Epoch == _resolver.Epoch && call.Roots == roots) return;
+        call.HoldPin(new ViewPin(_resolver!, _resolver!.Capture()), roots);
+    }
+
+    /// <summary>Refuse the call when the roots or the order moved since its first view. Caller holds <see cref="_gate"/>.</summary>
+    void SameBuildOrRefuseLocked(CallContext call)
+    {
+        if (call.Build is { } b && (b.Roots != RootsLocked() || b.Order is { } o && !ReferenceEquals(o, _resolver))) throw call.Refuse();
     }
 
     LoadOrderResolver ILoadOrderHost.Resolver => Resolver;
@@ -253,7 +255,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                 // Profile freshness, shared with the record path and deferred behind an in-flight write the same way.
                 if (Monitor.TryEnter(_writeGate))
                 {
-                    try { Interlocked.Increment(ref Counters.RecordFreshnessChecks); RefreshOnProfileChange(); }
+                    try { RefreshOnProfileChange(); }
                     finally { Monitor.Exit(_writeGate); }
                 }
                 return AssetsNoProfileRefreshLocked();
@@ -269,8 +271,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         if (HeldFilesLocked() is { } held) return held.Resolver;
         // A call's first file read: refused if the profile moved since its record pin, else checked once and held.
         var call = CallContext.Open;
-        if (call?.Pin is { } pin && call.Files is null && (call.Roots != RootsLocked() || !ReferenceEquals(pin.Resolver, _resolver)))
-            throw call.Refuse();
+        if (call is { Files: null }) SameBuildOrRefuseLocked(call);
         if (_assetResolver is null)
         {
             _assetResolver = BuildAssetResolverLocked();
@@ -280,13 +281,16 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             try { Interlocked.Increment(ref Counters.FileFreshnessChecks); _assetResolver.RefreshIfStale(); }   // BSA-byte / warmed-loose-subtree content freshness
             finally { Monitor.Exit(_writeGate); }
         }
-        call?.HoldFiles(new(_assetResolver, _assetWarnings, _activeArchives, _enabledModsAtBuild, _profileName, RootsLocked(), _resolver));
+        call?.HoldFiles(FileViewLocked(), RootsLocked(), _resolver);
         return _assetResolver;
     }
 
+    /// <summary>The asset build as it stands, with what was read beside it. Caller holds <see cref="_gate"/>.</summary>
+    CallContext.FileView FileViewLocked() => new(_assetResolver!, _assetWarnings, _activeArchives, _enabledModsAtBuild, _profileName);
+
     /// <summary>The call's held file view, or null outside a call, before its first file read, or inside the write gate,
     /// where every read is checked as it is outside a call. Caller holds <see cref="_gate"/>.</summary>
-    CallContext.FileView? HeldFilesLocked() => Monitor.IsEntered(_writeGate) ? null : CallContext.Open?.Files;
+    CallContext.FileView? HeldFilesLocked() => CallContext.Open?.Files is { } f && !Monitor.IsEntered(_writeGate) ? f : null;
 
     AssetCapture ILoadOrderHost.CaptureAssets()
     {
@@ -304,9 +308,12 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     }
 
     /// <summary>The rest of an asset capture around a view just taken; caller holds <see cref="_gate"/>.</summary>
-    AssetCapture AssetCaptureLocked(AssetResolver.AssetView view) => CallContext.Open?.Files is { } f
-        ? new(view, AssetWarningsLocked(f.Warnings), f.ProfileName, f.Roots, f.Archives, f.EnabledMods)
-        : new(view, AssetWarningsLocked(_assetWarnings), _profileName, RootsLocked(), _activeArchives, _enabledModsAtBuild);
+    AssetCapture AssetCaptureLocked(AssetResolver.AssetView view)
+    {
+        var call = CallContext.Open is { Files: not null } c ? c : null;
+        var f = call?.Files ?? FileViewLocked();
+        return new(view, AssetWarningsLocked(f.Warnings), f.ProfileName, call?.Roots ?? RootsLocked(), f.Archives, f.EnabledMods);
+    }
 
     // Rows the areas take from one another, relayed here: the assets replay for reads.
     AssetLayers.SkyPatcherReplay? IReadHost.OpenSkyPatcherReplay(AssetCapture captured, LoadOrderResolver.IndexView view,
@@ -942,7 +949,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>Lazy freshness, run on each tool call once the snapshot exists: a profile switch in instance mode, else the active profile's own files. Caller holds <see cref="_gate"/>.</summary>
     void RefreshOnProfileChange()
     {
-        if (RederiveIfIniChanged()) return;                      // instance mode: a profile switch was published, or held for the next call
+        Interlocked.Increment(ref Counters.ProfileFreshnessChecks);
+        if (RederiveIfIniChanged()) return;                     // instance mode: a profile switch was published, or held for the next call
         if (!ProfileFilesChanged()) { _profileHeld = null; return; }   // matches its baseline again → nothing pending, nothing to say
         ReResolve(new(ProfileDir: _profileDir, DataDir: _dataDir, ModsDir: _modsDir, OverwriteDir: _overwriteDir));
     }
@@ -1034,7 +1042,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         lock (_gate)
         {
             EnsurePathsDerived();
-            if (HeldPinLocked() is { } call) { GameLanguage.Bind(call.Text); return call.Roots; }
+            if (HeldPinLocked() is { } call) return call.Roots;
             GameLanguage.Bind(_text);
             return RootsLocked();
         }
@@ -1042,7 +1050,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     /// <summary>The call's context once it holds a pin, or null outside a call, before its first record read, or inside
     /// the write gate, where every read is taken as it is outside a call. Caller holds <see cref="_gate"/>.</summary>
-    CallContext? HeldPinLocked() => !Monitor.IsEntered(_writeGate) && CallContext.Open is { Pin: not null } call ? call : null;
+    CallContext? HeldPinLocked() => CallContext.Open is { Pin: not null } call && !Monitor.IsEntered(_writeGate) ? call : null;
 
     /// <summary>One <c>_gate</c> hold: the configured check, the roots and the built plugin names; throws the unconfigured prompt when there is no instance.</summary>
     internal OutputRoots ConfiguredRoots()
@@ -1051,7 +1059,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();
-            if (HeldPinLocked() is { } call) { GameLanguage.Bind(call.Text); return new OutputRoots(call.Roots, call.Pin!.Resolver.PluginNames); }
+            if (HeldPinLocked() is { } call) return new OutputRoots(call.Roots, call.Pin!.Resolver.PluginNames);
             GameLanguage.Bind(_text);
             return new OutputRoots(RootsLocked(), _resolver?.PluginNames);
         }

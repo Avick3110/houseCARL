@@ -1,9 +1,10 @@
 // The per-call context: one load-order view per tool call; contract in docs/architecture/load-order-service.md.
 namespace HousecarlMcp;
 
-/// <summary>One tool call's view of the load order, opened by <see cref="ToolCall"/>: the record pin, its roots and
-/// epoch, taken at the call's first record read, and the file view, taken only at its first file read. The service's
-/// getters fill and serve it under their own lock; outside a call there is none and every getter refreshes.</summary>
+/// <summary>One tool call's view of the load order, opened by <see cref="ToolCall"/>: the record pin, whose view carries
+/// the epoch, taken at the call's first record read; the file view, taken only at its first file read; and the roots and
+/// order the first of the two was taken against. The service's getters fill and serve it under their own lock; outside a
+/// call there is none and every getter refreshes.</summary>
 internal sealed class CallContext
 {
     static readonly AsyncLocal<CallContext?> Current = new();
@@ -11,20 +12,20 @@ internal sealed class CallContext
     /// <summary>The call's record pin; null until its first record read.</summary>
     internal LoadOrderService.ViewPin? Pin { get; private set; }
 
-    /// <summary>The four roots taken in the pin's hold.</summary>
-    internal Mo2Roots Roots { get; private set; }
-
-    /// <summary>The game language and string winners of the pinned build.</summary>
-    internal InstanceText? Text { get; private set; }
-
     /// <summary>The call's file view; null until its first file read, so a records-only call never builds one.</summary>
     internal FileView? Files { get; private set; }
 
+    /// <summary>The roots and order the call's views were taken against; the order is null when files came first, before any index.</summary>
+    internal (Mo2Roots Roots, LoadOrderResolver? Order)? Build { get; private set; }
+
+    /// <summary>The call's roots, once it holds a view.</summary>
+    internal Mo2Roots Roots => Build!.Value.Roots;
+
     /// <summary>The asset build a call holds once it first asks a file question, with what was read beside it.</summary>
     internal sealed record FileView(AssetResolver Resolver, IReadOnlyList<string> Warnings, IReadOnlyList<ActiveArchive> Archives,
-                                    IReadOnlyList<string> EnabledMods, string ProfileName, Mo2Roots Roots, LoadOrderResolver? Order);
+                                    IReadOnlyList<string> EnabledMods, string ProfileName);
 
-    /// <summary>Open the context for one call; a nested tool body shares the outer call's. Dispose ends it.</summary>
+    /// <summary>Open the context for one call; a nested tool body shares the outer call's, as the mark and the language do. Dispose ends it.</summary>
     internal static Scope Begin()
     {
         var outer = Current.Value;
@@ -44,10 +45,10 @@ internal sealed class CallContext
     internal static CallContext? Open => Current.Value;
 
     /// <summary>Hold <paramref name="pin"/> for the rest of the call; a write's pin taken inside the write gate replaces an earlier one.</summary>
-    internal void HoldPin(LoadOrderService.ViewPin pin, Mo2Roots roots, InstanceText? text) { Pin = pin; Roots = roots; Text = text; }
+    internal void HoldPin(LoadOrderService.ViewPin pin, Mo2Roots roots) { Pin = pin; Build = (roots, pin.Resolver); }
 
-    /// <summary>Hold the file view for the rest of the call.</summary>
-    internal void HoldFiles(FileView files) => Files = files;
+    /// <summary>Hold the file view for the rest of the call; the first view taken sets the build.</summary>
+    internal void HoldFiles(FileView files, Mo2Roots roots, LoadOrderResolver? order) { Files = files; Build ??= (roots, order); }
 
     /// <summary>The call's refusal once its record view and file view were found to describe two profiles, else null.</summary>
     internal string? Refusal { get; private set; }

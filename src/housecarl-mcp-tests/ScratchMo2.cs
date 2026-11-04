@@ -23,10 +23,13 @@ sealed class ScratchMo2
         Directory.CreateDirectory(Profiles);
         Directory.CreateDirectory(ModsDir);
         Directory.CreateDirectory(DataDir);
-        File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
-            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
-            + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
+        SelectProfile("Default");
     }
+
+    /// <summary>Point the ini's selected profile at <paramref name="name"/>, as MO2 does on a profile switch.</summary>
+    public void SelectProfile(string name) => File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
+        "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(" + name + ")\r\ngamePath=@ByteArray("
+        + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
 
     /// <summary>The path a plugin takes inside a mod folder, with the folder created.</summary>
     public string InMod(string folder, ModKey key)
@@ -36,11 +39,14 @@ sealed class ScratchMo2
         return p;
     }
 
-    public void Profile(string loadorder, string plugins, string modlist)
+    /// <summary>Write a profile's three files; Default unless <paramref name="name"/> names another, which is created.</summary>
+    public void Profile(string loadorder, string plugins, string modlist, string name = "Default")
     {
-        File.WriteAllText(Path.Combine(Profiles, "loadorder.txt"), "# header\r\n" + loadorder);
-        File.WriteAllText(Path.Combine(Profiles, "plugins.txt"), plugins);
-        File.WriteAllText(Path.Combine(Profiles, "modlist.txt"), "# header\r\n" + modlist);
+        var dir = Path.Combine(Instance, "profiles", name);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "loadorder.txt"), "# header\r\n" + loadorder);
+        File.WriteAllText(Path.Combine(dir, "plugins.txt"), plugins);
+        File.WriteAllText(Path.Combine(dir, "modlist.txt"), "# header\r\n" + modlist);
     }
 
     public LoadOrderService Open()
