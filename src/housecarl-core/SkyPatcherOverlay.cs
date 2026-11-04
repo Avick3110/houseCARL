@@ -537,7 +537,7 @@ public static class SkyPatcherOverlay
         {
             case SkyPatcherFilterEval.FormEquals:
             {
-                // Single-valued form field against a value list: any-of, every unresolvable token warning once; the missing-token rule is FormSetVerdict's (docs/architecture/skypatcher-layer.md).
+                // Single-valued form field against a value list: any-of, every unresolvable token warning once; the missing-token rule is MissingTokens'.
                 var current = spec.Paths.Select(p => TryLeafToken(record, p)).Where(t => t is not null).ToList();
                 bool matched = false;
                 int resolved = 0;
@@ -549,11 +549,10 @@ public static class SkyPatcherOverlay
                     resolved++;
                     matched |= current.Any(t => string.Equals(t, k.Value.ToString(), StringComparison.OrdinalIgnoreCase));
                 }
-                bool allMissed = resolved == 0 && missing.Count > 0;
+                var (allMissed, decides) = MissingTokens(finder, conn, resolved, missing.Count);
                 foreach (var v in missing)
-                    warn.Add($"fe:{cls.Filter!.Name}:{v.Raw}", UnresolvedText(tokens!, v, seg, resolver), finder && !excluded && allMissed && conn == "");
-                if (!finder && allMissed) return FilterVerdict.Match;
-                return (excluded ? !matched : matched) ? FilterVerdict.Match : FilterVerdict.NoMatch;
+                    warn.Add($"fe:{cls.Filter!.Name}:{v.Raw}", UnresolvedText(tokens!, v, seg, resolver), decides);
+                return allMissed ?? ((excluded ? !matched : matched) ? FilterVerdict.Match : FilterVerdict.NoMatch);
             }
             case SkyPatcherFilterEval.FormInList:
             {
@@ -762,7 +761,7 @@ public static class SkyPatcherOverlay
         return all;
     }
 
-    /// <summary>List-membership verdict over the record's attached forms — bare = all listed present, Or = any, Excluded = none. A listed form resolving to nothing drops out and is surfaced once per token; a finder whose tokens all miss finds nothing, and those warnings decide it.</summary>
+    /// <summary>List-membership verdict over the record's attached forms — bare = all listed present, Or = any, Excluded = none. A listed form resolving to nothing drops out and is surfaced once per token; when every token misses, MissingTokens decides.</summary>
     static FilterVerdict FormSetVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
         string name, string conn, FormTokenKind tokens, IFormResolver resolver,
         FilterWarnings warn, bool finder)
@@ -775,12 +774,17 @@ public static class SkyPatcherOverlay
             if (k is null) missing.Add(v);
             else hits.Add(mine.Contains(k.Value));
         }
-        bool findsNothing = finder && conn is not ("Excluded" or "Exclude") && hits.Count == 0 && missing.Count > 0;
-        // The warnings decide a bare (AND) finder that finds nothing; an Or list's misses never did.
+        var (allMissed, decides) = MissingTokens(finder, conn, hits.Count, missing.Count);
         foreach (var v in missing)
-            warn.Add($"fs:{name}:{v.Raw}", UnresolvedText(tokens, v, seg, resolver), findsNothing && conn == "");
-        return !findsNothing && ConnectiveVerdict(conn, hits) ? FilterVerdict.Match : FilterVerdict.NoMatch;
+            warn.Add($"fs:{name}:{v.Raw}", UnresolvedText(tokens, v, seg, resolver), decides);
+        return allMissed ?? (ConnectiveVerdict(conn, hits) ? FilterVerdict.Match : FilterVerdict.NoMatch);
     }
+
+    /// <summary>THE missing-token rule (docs/architecture/skypatcher-layer.md), for a filter whose every token missed: a finder finds nothing, its warnings deciding a bare one; a narrower removes nothing. Null verdict while any token resolved.</summary>
+    static (FilterVerdict? Verdict, bool Decides) MissingTokens(bool finder, string conn, int resolved, int missing)
+        => resolved > 0 || missing == 0 ? (null, false)
+            : finder ? (FilterVerdict.NoMatch, conn == "")
+            : (FilterVerdict.Match, false);
 
     /// <summary>filterByArmorAddons' documented "EditorID substring ok": a value resolving to a form matches by key, one that does not is a substring against each attached form's winner EditorID.</summary>
     static FilterVerdict EidAwareListVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
