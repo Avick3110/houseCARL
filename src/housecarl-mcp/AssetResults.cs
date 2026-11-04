@@ -354,10 +354,10 @@ public sealed record NifInspectBatchData(
     IReadOnlyList<string> Warnings,
     string ProfileName);
 
-/// <summary>A nif_set result's kind: the in-place consent prompt, a refusal with nothing written, or a verified write.</summary>
+/// <summary>A nif_set result's kind: the in-place consent prompt, a refusal (nothing written, unless a write landed and failed its size check), or a verified write.</summary>
 public enum NifSetState { Consent, Refused, Written }
 
-/// <summary>The data behind housecarl_nif_set: the VFS resolution joined to the verified write outcome, described by exactly one of <see cref="Report"/>, a named <see cref="Error"/> with nothing written, and <see cref="NeedsAcknowledge"/>, the in-place first-touch consent prompt.</summary>
+/// <summary>The data behind housecarl_nif_set: the VFS resolution joined to the verified write outcome, described by exactly one of <see cref="Report"/>, a named <see cref="Error"/> (nothing written, unless a write landed and failed its size check), and <see cref="NeedsAcknowledge"/>, the in-place first-touch consent prompt.</summary>
 public sealed record NifSetResult(
     string RelPath,
     NifProvider? Edited,
