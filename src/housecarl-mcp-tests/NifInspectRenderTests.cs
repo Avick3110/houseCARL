@@ -12,7 +12,7 @@ namespace HousecarlMcpTests;
 public sealed class NifInspectRenderTests
 {
     static readonly string[] SummaryOnly = System.Array.Empty<string>();
-    static readonly string[] ShaderAndPaths = { "shader", "paths" };
+    static readonly string[] ShaderOnly = { "shader" };
     static readonly string[] ShaderPathsShapes = { "shader", "paths", "shapes" };
 
     static readonly NifInspect SkMesh = NifService.Inspect(BuildSyntheticSe()).Inspect!;
@@ -133,13 +133,13 @@ public sealed class NifInspectRenderTests
     [InlineData("Soft_Lighting")]
     [InlineData("emissive rgb(0.25,0.5,0.75)")]
     public void TheShaderSectionRendersBlockTypeLayoutFlagsAndEmissive(string expected)
-        => Assert.Contains(expected, Render(FakeData(SkMesh, null), ShaderAndPaths));
+        => Assert.Contains(expected, Render(FakeData(SkMesh, null), ShaderOnly));
 
     // probe: "every lighting value reaches the render with its real number, and no unread caveat is left over"
     [Fact]
     public void EveryLightingValueReachesTheRenderWithNoUnreadCaveat()
     {
-        var text = Render(FakeData(SkMesh, null), ShaderAndPaths);
+        var text = Render(FakeData(SkMesh, null), ShaderOnly);
         Assert.Contains("glossiness 30", text);
         Assert.Contains("specular 1.5 rgb(1,0.5,0.25)", text);
         Assert.Contains("alpha 0.5", text);
@@ -162,7 +162,7 @@ public sealed class NifInspectRenderTests
     [Fact]
     public void UnreadLightingValuesAreNamedOnTheWireAndNoneAsItsConstant()
     {
-        var text = Render(FakeData(EffectMesh, null), ShaderAndPaths);
+        var text = Render(FakeData(EffectMesh, null), ShaderOnly);
         Assert.Contains("NOT READ by this NiflySharp version", text);
         Assert.Contains("glossiness", text);
         Assert.Contains("alpha", text);
@@ -175,7 +175,7 @@ public sealed class NifInspectRenderTests
     public void AnUnnamedBitResidualReachesTheRenderedFlagLine()
     {
         var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0x1D);
-        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths);
+        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderOnly);
         Assert.Contains("TEST 0x0000001D: Beta, Combo, bit4\n", text);
         Assert.DoesNotContain("unknown bits", text);
     }
@@ -185,7 +185,7 @@ public sealed class NifInspectRenderTests
     public void AWordOfOnlyUnnamedBitsListsThemByBit()
     {
         var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0x10);
-        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths);
+        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderOnly);
         Assert.Contains("TEST 0x00000010: bit4\n", text);
     }
 
@@ -205,7 +205,7 @@ public sealed class NifInspectRenderTests
     public void NamedAndUnnamedBitsRenderTogetherInBitOrder()
     {
         var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0x16);
-        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths);
+        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderOnly);
         Assert.Contains("TEST 0x00000016: bit1, Beta, bit4\n", text);
         Assert.Equal(new[] { "Beta" }, word.Names);
     }
@@ -215,7 +215,7 @@ public sealed class NifInspectRenderTests
     public void AZeroFlagWordReadsNoNamedBitSet()
     {
         var word = NifService.DecodeFlagWord("TEST", (GappedFlags)0);
-        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderAndPaths);
+        var text = Render(FakeData(FakeShaderInspect(word), null), ShaderOnly);
         Assert.Contains("TEST 0x00000000: (no named bit set)\n", text);
     }
 

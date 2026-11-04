@@ -32,15 +32,19 @@ public static class NifService
         return (null, null);
     }
 
-    /// <summary>Inspect a mesh from its raw bytes — the model, or a named error; never a throw and never a partial model.</summary>
-    public static NifInspectOutcome Inspect(byte[] bytes)
+    /// <summary>Inspect a mesh from its raw bytes — the model, or a named error; never a throw and never a partial model.
+    /// With <paramref name="links"/>, the same parse also gives <see cref="NifLinks"/>' links.</summary>
+    public static NifInspectOutcome Inspect(byte[] bytes, bool links = false)
     {
         var (nif, loadErr) = Load(bytes);
         if (nif is null) return new NifInspectOutcome(null, loadErr);
 
         try
         {
-            return new NifInspectOutcome(Build(nif), null);
+            var outcome = new NifInspectOutcome(Build(nif), null);
+            if (!links) return outcome;
+            var (read, linksErr) = NifLinks.Read(nif);
+            return outcome with { Links = read, LinksError = linksErr };
         }
         catch (Exception ex)
         {
@@ -933,7 +937,14 @@ public static class NifService
 // NIF-layer data model — the format-level result of an inspect; the service layer wraps it with VFS info.
 
 /// <summary>The outcome of <see cref="NifService.Inspect"/>: exactly one of <see cref="Inspect"/> or <see cref="Error"/>.</summary>
-public sealed record NifInspectOutcome(NifInspect? Inspect, string? Error);
+public sealed record NifInspectOutcome(NifInspect? Inspect, string? Error)
+{
+    /// <summary>The mesh's links, every site, when asked and read; see <see cref="NifLinks.Read(byte[])"/>.</summary>
+    public IReadOnlyList<NifLink>? Links { get; init; }
+
+    /// <summary>Why the asked-for links could not be read.</summary>
+    public string? LinksError { get; init; }
+}
 
 /// <summary>Everything <see cref="NifService.Inspect"/> models about a mesh, built in full; <see cref="IsSkyrimSE"/>
 /// is the header identity (user 12 / stream 100) and the renderer chooses which sections to show.</summary>

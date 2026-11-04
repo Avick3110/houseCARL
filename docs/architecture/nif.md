@@ -87,7 +87,7 @@ rather than a best guess. The index is always printed beside the name, because t
 
 The `paths` section is the mesh's links as `NifLinks` reads them, the one reader `asset_status links=` and the walk
 use (slots, effect-shader textures, the root's SMP and `BODYTRI` strings; [assets.md](assets.md), A mesh's links).
-Each is resolved by the same `ReadMeshLinks` resolve and printed by the same line `links=` prints
+Each is resolved by the same resolve (`AssetLayers.ResolveLinks`), off the parse `Inspect` already made, and printed by the same line `links=` prints
 (`AssetWire.AppendLink`): the kind, where in the mesh, the string as stored, then a `data path:` line with the load
 order's winner, `ABSENT` (with the hidden copy's sentence when MO2 hides it), or `none — <why>` when the door
 ([assets.md](assets.md), From a link to a Data path) makes no Data path of it. So a FaceGen head's three forms

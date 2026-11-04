@@ -474,7 +474,7 @@ static class AssetWire
     /// with its winner. On a provider= call the heading names the copy read, the winner's, whatever provider= names.</summary>
     static void AppendLinks(StringBuilder sb, AssetPathResult r, AssetProvider? copy)
     {
-        if (r.LinksError is { } err) { sb.Append("  ").Append(LinksNotRead).Append(err).Append('\n'); return; }
+        if (r.LinksError is { } err) { AppendLinksNotRead(sb, err); return; }
         if (r.Links is not { } links) return;
         sb.Append("  links (").Append(links.Count).Append(')');
         if (copy is not null) sb.Append(", of the winning copy ").Append(Provider(copy));
@@ -482,8 +482,8 @@ static class AssetWire
         foreach (var l in links) AppendLink(sb, l, slotName: false);
     }
 
-    /// <summary>The line a mesh's unreadable links start with, on both surfaces that list them.</summary>
-    internal const string LinksNotRead = "links: not read — ";
+    /// <summary>Why a mesh's links could not be read, as both surfaces that list them print it.</summary>
+    internal static void AppendLinksNotRead(StringBuilder sb, string err) => sb.Append("  links: not read — ").Append(err).Append('\n');
 
     /// <summary>One file a mesh names, as both asset_status links= and nif_inspect's paths section print it: the kind,
     /// where in the mesh (with the slot's name when asked and known), the string as stored, then the Data path with its

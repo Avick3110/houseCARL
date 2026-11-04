@@ -505,7 +505,7 @@ static class NifWire
         if (!cap.TryAppend(sb, "\n--- paths (every file the mesh names: texture-set slots, effect-shader textures, the root's HDT-SMP and BODYTRI strings) ---\n"
                              + (SlotNamingCaveat(d.Inspect!) ?? "")
                              + "  links read from " + d.Inspected!.Text + "; each Data path's standing is the load order's\n")) return false;
-        if (d.LinksError is { } err) { sb.Append("  ").Append(AssetWire.LinksNotRead).Append(err).Append('\n'); return true; }
+        if (d.LinksError is { } err) { AssetWire.AppendLinksNotRead(sb, err); return true; }
         var links = d.Links ?? Array.Empty<ResolvedNifLink>();
         for (int i = 0; i < links.Count; i++)
         {
