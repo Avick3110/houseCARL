@@ -30,7 +30,7 @@ internal sealed class ToolAnswer
     public static ToolAnswer Refusal(bool json, string message, OrderStamp? epoch = null, bool epochLine = false)
         => new(true, null, message, json, epoch, epochLine);
 
-    /// <summary>A refusal that is text on every transport: a tool with no format=, the format= error itself (ruling #7), the Guard's own.</summary>
+    /// <summary>A refusal that is text on every transport: a tool with no format=, the format= error itself (ruling #7), the config prompt on records, check and skse, the tool-path prompt, the Guard's own.</summary>
     public static ToolAnswer Refusal(string message) => new(true, null, message, false, null);
 
     /// <summary>The text the call returns; only <see cref="Guard"/> renders.</summary>
