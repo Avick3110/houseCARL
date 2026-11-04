@@ -40,7 +40,8 @@ internal static class Guard
         _ => ToolAnswer.Refusal(Named(tool, ex)),
     };
 
-    /// <summary>The call's refusal when its views split across a profile change, or a plugin it relied on changed on disk mid-call, else null.</summary>
+    /// <summary>The call's refusal when its record and file views split (the roots or the plugin order moved between them),
+    /// or a plugin it relied on changed on disk mid-call, naming the files written if a write committed first; else null.</summary>
     static ToolAnswer? Changed(ToolCall call) =>
         (call.Context.Refusal(call.Mark) ?? call.Mark.Settle()) is { } why ? ToolAnswer.Refusal(Wire.RefusalPrefix + why) : null;
 
