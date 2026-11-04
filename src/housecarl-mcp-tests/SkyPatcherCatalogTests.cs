@@ -102,7 +102,18 @@ public sealed class SkyPatcherCatalogTests
     [Fact]
     public void AWrongKindConnectivesNodeThrowsAtLoad() =>
         Assert.Throws<InvalidOperationException>(() => SkyPatcherCatalog.LoadFrom(
-            """[{"recordType":"T","sig":"TTTT","subfolder":"t","primaryFilter":"f","filters":[{"name":"f","kind":"primary","connectives":"oops"}]}]"""));
+            """{"version":"0","records":[{"recordType":"T","sig":"TTTT","subfolder":"t","primaryFilter":"f","filters":[{"name":"f","kind":"primary","role":"direct","connectives":"oops"}]}]}"""));
+
+    // a filter row without a role fails the load, and every shipped row has one
+    [Fact]
+    public void AFilterRowWithoutARoleFailsTheLoad()
+    {
+        Assert.Throws<InvalidOperationException>(() => SkyPatcherCatalog.LoadFrom(
+            """{"version":"0","records":[{"recordType":"T","sig":"TTTT","subfolder":"t","primaryFilter":"f","filters":[{"name":"f","kind":"primary"}]}]}"""));
+        Assert.Equal("8.0.1", Cat.Version);
+        Assert.All(Cat.Records.SelectMany(r => r.Filters), f => Assert.True(Enum.IsDefined(f.Role), f.Name));
+        Assert.All(Cat.Records.Where(r => !IsOmod(r)), r => Assert.Contains(r.Subfolder, Cat.PatcherOrder));
+    }
 
     // HARD op present and HARD on ALL of the records that carry it
     [Theory]
