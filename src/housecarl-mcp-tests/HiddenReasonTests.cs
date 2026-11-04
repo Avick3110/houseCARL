@@ -107,6 +107,16 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.Contains(@"textures\d.dds.mohidden", svc.AssetStatus(Array.Empty<string>(), new[] { "textures" }).Results.Select(r => r.RelPath));
     }
 
+    /// <summary>Pins unchanged behaviour: the game's Data folder skips nothing, so its x.mohidden is no twin of x.</summary>
+    [Fact]
+    public void TheGameDataFoldersSuffixedFileIsNoHiddenTwin()
+    {
+        var svc = _p.Open();
+
+        Assert.Null(Hit(svc, @"textures\d.dds").Hidden);
+        Assert.Contains("ABSENT — no active mod or BSA provides this path", Status(svc, @"textures\d.dds"));
+    }
+
     [Fact]
     public void TheRootNameRuleComesFirstWhereRulesOverlap()
         => Assert.Equal(HiddenKind.RootName, Mo2SkipRules.Default.Hides(@"fomod\x.mohidden", linked: true)!.Kind);
