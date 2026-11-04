@@ -3061,7 +3061,7 @@ static class JsonWire
         w.WriteEndArray();
         w.WriteBoolean("ambiguous", hit.Ambiguous);
         // Only where a root holds the path hidden, so any other row is the document it always was.
-        AbsentWords.Write(w, hit.Hidden, hit.RelPath);
+        AbsentWords.Write(w, hit.Hidden);
         // On a provider= call only, so a plain row is byte-for-byte the document it always was.
         if (r.Standing is { } st) w.WriteString("provider_standing", st.Token());
         WriteNifLinks(w, r);
@@ -3090,7 +3090,7 @@ static class JsonWire
                 if (pair.Winner is { } pw) WriteAssetProvider(w, "winner", pw); else w.WriteNull("winner");
                 // The OWNER `differs` below is decided on, not the archive name and not the bare OwningMod.
                 WriteNullable(w, "winner_mod", pair.Winner is { } pw2 ? AssetPathResult.Owner(pw2) : null);
-                AbsentWords.Write(w, pair.Hidden, pair.RelPath);
+                AbsentWords.Write(w, pair.Hidden);
             }
             else { w.WriteNull("exists"); w.WriteNull("winner"); w.WriteNull("winner_mod"); }
             w.WriteBoolean("differs", r.PairDiffers);
@@ -3118,7 +3118,7 @@ static class JsonWire
             {
                 w.WriteBoolean("exists", lh.Exists);
                 if (lh.Winner is { } lw) WriteAssetProvider(w, "winner", lw); else w.WriteNull("winner");
-                AbsentWords.Write(w, lh.Hidden, lh.RelPath);
+                AbsentWords.Write(w, lh.Hidden);
             }
             w.WriteEndObject();
         }
@@ -3240,7 +3240,7 @@ static class JsonWire
             w.WriteNumber("response", l.ResponseNumber);
             w.WriteBoolean("fuz_present", l.FuzPresent);
             w.WriteBoolean("lip_present", l.LipPresent);
-            if (l.FuzHidden is { } fh) w.WriteString("fuz_hidden", fh);
+            AbsentWords.Write(w, l.FuzHidden, "fuz_hidden");
             WriteNullable(w, "fuz_path", l.FuzPath);
             WriteNullable(w, "lip_path", l.LipPath);
             WriteNullable(w, "fuz_winner", l.FuzWinner);

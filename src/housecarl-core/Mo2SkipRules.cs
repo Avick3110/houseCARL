@@ -16,17 +16,18 @@ public sealed record HiddenRule(HiddenKind Kind, string Token)
     };
 }
 
-/// <summary>The loose copies of one path MO2 hides: the rule, the hidden name on disk (the asked path, or the asked
-/// path plus a skip suffix when a mod holds only its hidden twin), and the roots that hold it, precedence order.</summary>
-public sealed record HiddenCopies(HiddenRule Rule, string HiddenPath, IReadOnlyList<string> Holders)
+/// <summary>The loose copies of one path MO2 hides: the rule, the hidden name on disk, the roots that hold it in
+/// precedence order, and whether that name is the asked path's hidden twin (the asked path plus a skip suffix).</summary>
+public sealed record HiddenCopies(HiddenRule Rule, string HiddenPath, IReadOnlyList<string> Holders, bool Twin = false)
 {
-    /// <summary>"hidden by MO2 (why) in 'Mod'", naming the first holder and counting the rest, and the hidden name when it is not the asked one.</summary>
-    public string Sentence(string askedPath) =>
+    /// <summary>"hidden by MO2 (why) in 'Mod'", naming the first holder and counting the rest, and the hidden name when it is a twin.</summary>
+    public string Sentence() =>
         $"hidden by MO2 ({Rule.Why}) in '{Holders[0]}'"
         + (Holders.Count > 1 ? $" and {Holders.Count - 1:N0} more" : "")
-        // Compared as Windows opens the asked path, so a slash or a trailing dot is not read as another name.
-        + (string.Equals(HiddenPath, AssetResolver.AsWindowsOpens(AssetResolver.Normalize(askedPath)), StringComparison.OrdinalIgnoreCase)
-            ? "" : $", as '{HiddenPath}'");
+        + (Twin ? $", as '{HiddenPath}'" : "");
+
+    /// <summary>Does <paramref name="provider"/> hold one of these copies?</summary>
+    public bool HeldBy(string provider) => Holders.Any(h => AssetSourceSelection.NameMatches(h, null, provider));
 }
 
 /// <summary>What one walk dropped as hidden: how many distinct paths, by which rules, with one example path.</summary>
@@ -61,9 +62,6 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
     /// <summary>MO2's defaults when ModOrganizer.ini sets neither key.</summary>
     public static readonly Mo2SkipRules Default = new(new[] { ".mohidden" }, new[] { ".git" });
 
-    /// <summary>Is this Data-relative loose path, in a linked root (a mod or overwrite), in the game's Data view?</summary>
-    public bool Shows(string relPath) => Hides(relPath, linked: true) is null;
-
     /// <summary>The rule that hides this Data-relative loose path, or null when it shows. Root name first, then skip
     /// folder, then skip suffix. The skip lists apply only to a <paramref name="linked"/> root, a mod or overwrite:
     /// the game's own Data folder is never linked, so only the root names hide there.</summary>
@@ -79,6 +77,24 @@ public sealed record Mo2SkipRules(IReadOnlyList<string> FileSuffixes, IReadOnlyL
         foreach (var s in FileSuffixes)
             if (rest.EndsWith(s, StringComparison.OrdinalIgnoreCase)) return new HiddenRule(HiddenKind.SkipSuffix, s);
         return null;
+    }
+
+    /// <summary>MO2's Hide renames x to x.mohidden: the skip suffix whose twin of <paramref name="opened"/> exists, as
+    /// the rule and the twin's path, or null when no twin does.</summary>
+    public (HiddenRule Rule, string Path)? Twin(string opened, Func<string, bool> exists)
+    {
+        foreach (var s in FileSuffixes)
+            if (exists(opened + s)) return (new HiddenRule(HiddenKind.SkipSuffix, s), opened + s);
+        return null;
+    }
+
+    /// <summary>Does any of these names end with a skip suffix? A subtree with none has no hidden twin to look for.</summary>
+    public bool AnySuffixed(IEnumerable<string> names)
+    {
+        foreach (var n in names)
+            foreach (var s in FileSuffixes)
+                if (n.EndsWith(s, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     // MO2 constants, not read from the ini.

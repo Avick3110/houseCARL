@@ -73,7 +73,7 @@ public static class AssetGlob
             { namedOneFile = true; return new[] { norm }; }
             // A file MO2 hides under that very name: say so rather than nothing.
             if (hidden is not null && hit.Hidden is { } h
-                && (provider is null || h.Holders.Any(n => string.Equals(n, provider, StringComparison.OrdinalIgnoreCase))))
+                && (provider is null || h.HeldBy(provider)))
                 hidden.Add(h.Rule, h.HiddenPath);
             return beneath;
         }

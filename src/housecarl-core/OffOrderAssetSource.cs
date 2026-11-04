@@ -75,10 +75,9 @@ public static class OffOrderAssetSource
                 // The copy may be right there and unreadable; "this mod does not have it" is the strongest false claim in the set.
                 return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, looseCause);
             case Probe.Absent when rule is null:
-                // MO2's Hide renames x to x.mohidden: a folder holding only the twin has x, hidden.
-                foreach (var s in skip.FileSuffixes)
-                    if (ProbeFile(loose + s, out _) == Probe.Present)
-                    { hidden = new HiddenCopies(new HiddenRule(HiddenKind.SkipSuffix, s), opened + s, new[] { name }); break; }
+                // A folder holding only x's hidden twin has x, hidden.
+                if (skip.Twin(loose, p => ProbeFile(p, out _) == Probe.Present) is { } twin)
+                    hidden = new HiddenCopies(twin.Rule, opened + twin.Rule.Token, new[] { name }, Twin: true);
                 break;
         }
 

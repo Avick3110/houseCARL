@@ -407,13 +407,9 @@ public static class ScriptPropertyCheck
         pex = null; reason = null;
         var rel = $@"Scripts\{scriptClass.Replace(':', '\\')}.pex";   // a namespaced class Ns:Script lives at Scripts\Ns\Script.pex
         var res = av.ResolveForPlacement(rel);
-        if (res.Sources.Count == 0 && res.Hidden is { } hidden)
-        {
-            reason = $"'{rel}' is {hidden.Sentence(rel)}, so the game does not load it.";
-            return false;
-        }
         if (res.Sources.Count == 0)
         {
+            if (res.Hidden is { } hidden) { reason = $"'{rel}' is {hidden.Sentence()}, so the game does not load it."; return false; }
             // The hedge names the folder it could not read, so a modder has something to act on rather than a warning
             // that one failed; bounded to the first root and a count, because this reason repeats per property.
             reason = $"'{rel}' is not on disk (the script is not compiled, or not in the load order){(av.ReadIncomplete ? " — and a BSA or a loose mod folder failed to read this build, so it may merely be unscanned" + av.RootFailureBrief : "")}.";

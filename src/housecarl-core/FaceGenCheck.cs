@@ -347,8 +347,8 @@ public static class FaceGenCheck
                 else cls = OneProduct(mw.Layer, tw.Layer) ? FaceGenFindingClass.FamilySplit
                                                          : FaceGenFindingClass.SplitBake;
             }
-            else if (mesh is not null) { cls = FaceGenFindingClass.TintAbsent; detail = tintHidden?.Sentence(tintPath); }
-            else if (tint is not null) { cls = FaceGenFindingClass.MeshAbsent; detail = meshHidden?.Sentence(meshPath); }
+            else if (mesh is not null) { cls = FaceGenFindingClass.TintAbsent; detail = tintHidden?.Sentence(); }
+            else if (tint is not null) { cls = FaceGenFindingClass.MeshAbsent; detail = meshHidden?.Sentence(); }
             else if (NeverBakedKind(fk, body) is { } kind)
             {
                 // No bake is expected for this NPC: its own class, withheld by default like family_split.
@@ -364,7 +364,7 @@ public static class FaceGenCheck
             {
                 cls = FaceGenFindingClass.BakeAbsent;
                 // A bake MO2 hides is the answer before any guess about the record.
-                detail = meshHidden?.Sentence(meshPath) ?? tintHidden?.Sentence(tintPath);
+                detail = meshHidden?.Sentence() ?? tintHidden?.Sentence();
                 if (detail is null && body is INpcGetter n && NoHeadOrFaceData(n)) detail = NoHeadHint;
             }
 

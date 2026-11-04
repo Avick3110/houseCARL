@@ -425,7 +425,7 @@ static class AssetWire
         var hit = r.Hit!;
         if (!hit.Exists)
         {
-            sb.Append("  ABSENT — ").Append(AbsentWords.Why(hit)).Append('\n');
+            sb.Append("  ABSENT — ").Append(AbsentWords.Why(hit.Hidden)).Append('\n');
             // Each suggestion was verified by re-resolving its Data form (root added or data\ dropped). Backticks, not single quotes — an asset path can carry the author's own apostrophes.
             if (r.PrefixSuggestions is { Count: > 0 } sug)
                 sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "`" + s + "`")))
@@ -464,7 +464,7 @@ static class AssetWire
                       "beats BSA; among BSAs the latest-loaded plugin wins). Verify only if that's unexpected.\n");
         // A loose copy MO2 hides provides nothing, so the winner above stands; said, so the hidden copy is not a surprise.
         if (hit.Hidden is { } hidden)
-            sb.Append("  note: another loose copy is ").Append(hidden.Sentence(hit.RelPath)).Append(", so it provides nothing.\n");
+            sb.Append("  note: another loose copy is ").Append(hidden.Sentence()).Append(", so it provides nothing.\n");
         AppendStanding(sb, d, r);
         AppendPair(sb, r);
     }
@@ -481,7 +481,7 @@ static class AssetWire
             if (l.Link.Error is { } le) { sb.Append("      data path: none — ").Append(le).Append('\n'); continue; }
             sb.Append("      data path: ").Append(l.Link.DataPath).Append("  ")
               .Append(l.Hit is { Exists: true, Winner: { } w } ? "WINS: " + Provider(w)
-                      : l.Hit?.Hidden is { } h ? "ABSENT — " + h.Sentence(l.Hit.RelPath) : "ABSENT").Append('\n');
+                      : l.Hit?.Hidden is { } h ? "ABSENT — " + h.Sentence() : "ABSENT").Append('\n');
         }
     }
 
@@ -494,7 +494,7 @@ static class AssetWire
         {
             ProviderStanding.Wins => "wins",
             ProviderStanding.Shadowed => "shadowed by " + Provider(hit.Winner!) + Mod(hit.Winner!),
-            ProviderStanding.Hidden => "holds it, " + hit.Hidden!.Sentence(hit.RelPath) + ", so provides nothing",
+            ProviderStanding.Hidden => "holds it, " + hit.Hidden!.Sentence() + ", so provides nothing",
             _ => "does not provide this path",
         }).Append('\n');
     }
@@ -508,7 +508,7 @@ static class AssetWire
         sb.Append(": ").Append(r.PairPath).Append('\n');
         sb.Append("    ").Append(r.PairHit is { Exists: true, Winner: { } w }
                                     ? "WINS: " + Provider(w) + Mod(w)
-                                    : "ABSENT — " + (r.PairHit is { } ph ? AbsentWords.Why(ph) : AbsentWords.Why(null, r.PairPath))).Append('\n');
+                                    : "ABSENT — " + AbsentWords.Why(r.PairHit?.Hidden)).Append('\n');
         if (r.PairDiffers)
             sb.Append("    [!] the two halves win from DIFFERENT mods — the head geometry and the face tint come from " +
                       "different products, which is the dark-face split.\n");

@@ -68,7 +68,7 @@ internal static class ProviderStandings
         foreach (var p in hit.Providers)
             if (AssetSourceSelection.NameMatches(p, provider))
                 return AssetSourceSelection.NameMatches(hit.Winner!, provider) ? ProviderStanding.Wins : ProviderStanding.Shadowed;
-        return hit.Hidden is { } h && h.Holders.Contains(provider, StringComparer.OrdinalIgnoreCase)
+        return hit.Hidden?.HeldBy(provider) == true
             ? ProviderStanding.Hidden : ProviderStanding.NotProvided;
     }
 
@@ -87,29 +87,30 @@ internal static class ProviderStandings
 internal static class AbsentWords
 {
     /// <summary>"hidden by MO2 (…) in 'Mod'" when a root holds the path hidden, else "no active mod or BSA provides <paramref name="what"/>".</summary>
-    internal static string Why(HiddenCopies? hidden, string rel, string what = "this path") =>
-        hidden is { } h ? h.Sentence(rel) : $"no active mod or BSA provides {what}";
+    internal static string Why(HiddenCopies? hidden, string what = "this path") =>
+        hidden is { } h ? h.Sentence() : $"no active mod or BSA provides {what}";
 
-    internal static string Why(AssetHit hit, string what = "this path") => Why(hit.Hidden, hit.RelPath, what);
-
-    /// <summary>The hidden copies as a json member, written only when there are some, so a row with none is the row it always was.</summary>
-    internal static void Write(System.Text.Json.Utf8JsonWriter w, HiddenCopies? hidden, string rel)
+    /// <summary>The hidden copies as one json object, the shape every surface writes.</summary>
+    internal static Dictionary<string, object> Doc(HiddenCopies h) => new()
     {
-        if (hidden is not { } h) return;
-        w.WriteStartObject("hidden");
-        w.WriteString("rule", h.Rule.Kind switch
+        ["rule"] = h.Rule.Kind switch
         {
             HiddenKind.RootName => "root_name",
             HiddenKind.SkipDirectory => "skip_directory",
             HiddenKind.SkipSuffix => "skip_suffix",
-        });
-        w.WriteString("match", h.Rule.Token);
-        w.WriteString("hidden_path", h.HiddenPath);
-        w.WriteStartArray("holders");
-        foreach (var n in h.Holders) w.WriteStringValue(n);
-        w.WriteEndArray();
-        w.WriteString("note", h.Sentence(rel));
-        w.WriteEndObject();
+        },
+        ["match"] = h.Rule.Token,
+        ["hidden_path"] = h.HiddenPath,
+        ["holders"] = h.Holders,
+        ["note"] = h.Sentence(),
+    };
+
+    /// <summary>The hidden copies as a json member, written only when there are some, so a row with none is the row it always was.</summary>
+    internal static void Write(System.Text.Json.Utf8JsonWriter w, HiddenCopies? hidden, string name = "hidden")
+    {
+        if (hidden is null) return;
+        w.WritePropertyName(name);
+        System.Text.Json.JsonSerializer.Serialize(w, Doc(hidden));
     }
 }
 

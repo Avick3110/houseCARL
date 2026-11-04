@@ -151,7 +151,7 @@ public sealed class CreatedLineVoiceCheckTests : IDisposable
         using var assets = AssetResolver.Build("", mods, DataRoot(), new[] { "HidMod" }, Array.Empty<ActiveArchive>());
         var line = Assert.Single(VoiceCheck.Run(path, o.Created, _w.Order, assets).Lines);
         Assert.False(line.FuzPresent);
-        Assert.StartsWith("hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'HidMod'", line.FuzHidden);
+        Assert.StartsWith("hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'HidMod'", line.FuzHidden!.Sentence());
     }
 
     public void Dispose() => _w.Dispose();
