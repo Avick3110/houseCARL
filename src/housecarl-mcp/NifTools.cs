@@ -16,7 +16,8 @@ public static class NifTools
     /// <summary>The "(known: …)" hint the unrecognized-section warning and the all-unrecognized error share.</summary>
     internal static readonly string KnownSectionsHint =
         "known: " + string.Join(", ", KnownSections) + ", all — no 'textures' section; " +
-        "embedded texture-set slot paths are under 'shapes' (detail) and 'paths'";
+        "embedded texture-set slot paths are under 'shapes' (detail) and 'paths' (with effect-shader textures and the " +
+        "root node's own HDT-SMP and BODYTRI strings); a child node's extra data and a behaviour graph are under 'strings'";
 
     [McpServerTool(Name = ToolNames.NifInspect, ReadOnly = true, Title = "Inspect the data values inside one or many Skyrim meshes (.nif)"),
      Description(
@@ -29,7 +30,7 @@ public static class NifTools
          "Use it for 'what shapes / bones / textures / partitions / alpha does this mesh have', 'does it glow / use " +
          "soft lighting / subsurface skin / env-mapping', a facegen mesh's baked shape names and tint path, a " +
          "skeleton's bone names, or a dark-face mesh's flags, alpha and partitions. It reads inside a file; " +
-         ToolNames.AssetStatus + " says which mod's copy wins, though sections=paths names the winner of each file the mesh names.\n\n" +
+         ToolNames.AssetStatus + " says which mod's copy wins, though sections=paths names the winner of each texture, physics XML and BODYTRI file it reads.\n\n" +
          "Select — mesh_paths= | npc=; one is required, and the two compose into one batch.\n" +
          "Source — source_provider= (empty = the VFS winner).\n" +
          "Project — sections= (empty = the summary).\n" +
@@ -57,9 +58,11 @@ public static class NifTools
                      "flags (hex, decoded by deviation from the type's documented default plus the 0x80000 bit) and " +
                      "scale, with that shape's partitions, alpha, texture-set paths and bones inline; 'partitions' " +
                      "the BSDismember partitions (decoded to SBP_* names); 'alpha' the alpha property (blend / test / " +
-                     "threshold); 'paths' every file the mesh names, one line per site, as " + ToolNames.AssetStatus +
-                     " links=true lists them: each texture-set slot (with its name where the shader determines it), " +
-                     "each effect-shader texture, and the root node's HDT-SMP physics XML and BODYTRI strings, under each " +
+                     "threshold); 'paths' one line per site, in the line " + ToolNames.AssetStatus +
+                     " links=true prints (which lists each file once, at its first site): each texture-set slot " +
+                     "holding a non-blank string (with its name where the shader determines it), each effect-shader " +
+                     "texture, and the root node's own HDT-SMP physics XML and BODYTRI strings (not a child node's, " +
+                     "a behaviour graph or a sky-shader texture; the first two are in 'strings'), under each " +
                      "the Data path it names with the load order's winner or ABSENT (with the reason when MO2 hides the " +
                      "copy), or, when it names none, why; the links are read from the copy read, and each standing is the " +
                      "load order's; " +
@@ -498,11 +501,11 @@ static class NifWire
         return true;
     }
 
-    /// <summary>The paths section: every site at which the copy read names a file, in the line asset_status links= prints, with the slot's name where the shader gives one.</summary>
+    /// <summary>The paths section: each site NifLinks reads in the copy read, in the line asset_status links= prints, with the slot's name where the shader gives one.</summary>
     static bool RenderPaths(StringBuilder sb, NifInspectData d, RenderCap cap)
     {
         // Charged with the heading, for the same reason the shapes section charges it there.
-        if (!cap.TryAppend(sb, "\n--- paths (every file the mesh names: texture-set slots, effect-shader textures, the root's HDT-SMP and BODYTRI strings) ---\n"
+        if (!cap.TryAppend(sb, "\n--- paths (each site: texture-set slots, effect-shader textures, the root node's own HDT-SMP and BODYTRI strings; a child node's extra data is under 'strings') ---\n"
                              + (SlotNamingCaveat(d.Inspect!) ?? "")
                              + "  links read from " + d.Inspected!.Text + "; each Data path's standing is the load order's\n")) return false;
         if (d.LinksError is { } err) { AssetWire.AppendLinksNotRead(sb, err); return true; }
