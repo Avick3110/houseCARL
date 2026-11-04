@@ -161,6 +161,22 @@ public sealed class SkyPatcherConflictsTests
         Assert.Contains(speed.Entries, e => !e.Conditional);
     }
 
+    // a key the patcher does not read leaves a filterless line unconditional: the Cell patcher ignores filterByModNames
+    [Fact]
+    public void AnIgnoredKeyLeavesAFilterlessLineUnconditional()
+    {
+        var cell = Catalog.ForSubfolder("cell")!;
+        SkyPatcherDiscovery.IniFile CellIni(string name, string line) => Ini(name, line) with
+        {
+            RelPath = $"SKSE\\Plugins\\SkyPatcher\\cell\\{name}", Subfolder = "cell",
+        };
+        var report = SkyPatcherConflicts.Detect(new SkyPatcherDiscovery.FolderScan("cell", cell, PatchingEnabled: true,
+            Files: new[] { CellIni("a.ini", "fogNear=5"), CellIni("b.ini", "filterByModNames=Other.esp:fogNear=7") }), Catalog, FieldMap);
+        var fog = Assert.Single(report.Conflicts);
+        Assert.Equal(2, fog.Entries.Count);
+        Assert.All(fog.Entries, e => Assert.False(e.Conditional));
+    }
+
     // different-target sets do NOT collide (no conflict lists 99)
     [Fact]
     public void DifferentTargetSetsDoNotCollide() =>
