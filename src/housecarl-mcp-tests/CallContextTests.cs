@@ -178,6 +178,7 @@ public sealed class CallContextTests : IDisposable
             Assert.Equal(roots, Host.ConfiguredRoots().Roots);
             Assert.Equal("Default", Host.CaptureAssets().ProfileName);
             Assert.Equal(files.Roots, Host.CaptureAssets().Roots);
+            Assert.Equal("Default", Host.CapturePinAndAssets(null).Assets.ProfileName);   // the one-hold capture serves the held files
         });
         Call(() => Assert.Equal("Other", Host.CaptureAssets().ProfileName));
     }
