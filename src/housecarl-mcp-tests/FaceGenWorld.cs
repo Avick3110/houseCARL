@@ -172,6 +172,10 @@ public class FaceGenWorld : IDisposable
             Loose(baseDir, Tint(keys["HcFgClean"]));
             Loose(baseDir, Mesh(keys["HcFgTintAbsent"]));
             Loose(baseDir, Tint(keys["HcFgMeshAbsent"]));
+            // The missing half of each absent shape, held only hidden, so each row says MO2 hides it.
+            Loose(otherDir, Tint(keys["HcFgTintAbsent"]) + ".mohidden");
+            Loose(otherDir, Mesh(keys["HcFgMeshAbsent"]) + ".mohidden");
+            Loose(otherDir, Mesh(keys["HcFgBakeAbsent"]) + ".mohidden");
             Loose(baseDir, Mesh(keys["HcFgSplit"]));
             Loose(otherDir, Tint(keys["HcFgSplit"]));
             Loose(baseDir, Mesh(keys["HcFgFamily"]));

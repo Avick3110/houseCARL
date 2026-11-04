@@ -16,7 +16,8 @@ public sealed record AssetProvider(string Source, AssetKind Kind, string? Owning
 
 /// <summary>One asset path's resolution: the winner (null iff not <see cref="Exists"/>), every provider winner-first,
 /// and <see cref="Ambiguous"/> — contention to verify, never a confirmed problem (docs/architecture/assets.md).</summary>
-public sealed record AssetHit(string RelPath, bool Exists, AssetProvider? Winner, IReadOnlyList<AssetProvider> Providers, bool Ambiguous);
+public sealed record AssetHit(string RelPath, bool Exists, AssetProvider? Winner, IReadOnlyList<AssetProvider> Providers, bool Ambiguous,
+                              HiddenCopies? Hidden = null);
 
 /// <summary>A concrete on-disk source one provider supplies an asset from: a loose file path, or a .bsa path plus the
 /// entry inside it. <see cref="OffOrder"/> marks a copy the game is not loading and <see cref="OwnerEnabled"/> says
@@ -25,7 +26,8 @@ public sealed record PlacementSource(string ProviderName, AssetKind Kind, string
                                      string EntryPath, bool OffOrder = false, string? OwningMod = null,
                                      bool OwnerEnabled = false);
 
-public sealed record PlacementResolution(string RelPath, IReadOnlyList<PlacementSource> Sources, bool Ambiguous, bool ReadIncomplete);
+public sealed record PlacementResolution(string RelPath, IReadOnlyList<PlacementSource> Sources, bool Ambiguous, bool ReadIncomplete,
+                                         HiddenCopies? Hidden = null);
 
 /// <summary>An active BSA to consider: its path, the plugin it loads with, that plugin's rank (higher wins among
 /// BSAs), and the MO2 layer the archive file lives in. The service derives these.</summary>
@@ -293,17 +295,18 @@ public sealed class AssetResolver : IDisposable
     AssetHit Resolve(string relPath, Snapshot snap, int pass)
     {
         var rel = NormalizeQueryPath(relPath);
-        var sources = ResolveProviders(rel, snap, pass);           // ONE precedence path, winner first (shared with placement)
+        var (sources, hidden) = ResolveProviders(rel, snap, pass);   // ONE precedence path, winner first (shared with placement)
         if (sources.Count == 0)
-            return new AssetHit(rel, false, null, Array.Empty<AssetProvider>(), false);
+            return new AssetHit(rel, false, null, Array.Empty<AssetProvider>(), false, hidden);
         // Project the concrete sources down to the display providers — the on-disk paths are placement-only.
         var providers = sources.Select(s => new AssetProvider(s.ProviderName, s.Kind, s.OwningMod)).ToList();
-        return new AssetHit(rel, true, providers[0], providers, providers.Count > 1);
+        return new AssetHit(rel, true, providers[0], providers, providers.Count > 1, hidden);
     }
 
     /// <summary>The ONE precedence resolution both <see cref="Resolve"/> and <see cref="ResolveForPlacement"/> ride,
-    /// so the two cannot drift. Each provider comes back with its concrete on-disk descriptor, winner first.</summary>
-    List<PlacementSource> ResolveProviders(string rel, Snapshot snap, int pass)
+    /// so the two cannot drift. Each provider comes back with its concrete on-disk descriptor, winner first, and the
+    /// loose copies MO2 hides, which provide nothing.</summary>
+    (List<PlacementSource> Sources, HiddenCopies? Hidden) ResolveProviders(string rel, Snapshot snap, int pass)
     {
         // ---- loose, in MO2 precedence order — via the per-subtree cache (warmed on first touch) ----
         var opened = AsWindowsOpens(rel);                          // the loose lookup only: an archive entry is matched as asked
@@ -311,12 +314,33 @@ public sealed class AssetResolver : IDisposable
         var fname = Path.GetFileName(opened);
         var st = snap.LooseCache.GetOrAdd(subtreeDir, d => WarmSubtree(d, snap, pass));
         var loose = new List<PlacementSource>();
-        // A file MO2 hides (a skip-list match, or a root meta.ini, readme.txt or fomod\) is not in the Data view, whichever root holds it; archives are not filtered.
-        if (_skip.Shows(opened))
-            foreach (var (rootIndex, files) in st.Present)           // Present is already in precedence order
-                if (files.Contains(fname))
+        // A file MO2 hides is not in the Data view, whichever root holds it; archives are not filtered.
+        HiddenRule? linkedRule = _skip.Hides(opened, linked: true), dataRule = _skip.Hides(opened, linked: false);
+        HiddenRule? hiddenRule = null;
+        string? hiddenPath = null;
+        List<string>? holders = null;
+        void Hold(HiddenRule r, string path, int rootIndex)
+        {
+            hiddenRule ??= r; hiddenPath ??= path;
+            (holders ??= new()).Add(_looseRoots[rootIndex].Name);
+        }
+        foreach (var (rootIndex, files) in st.Present)               // Present is already in precedence order
+        {
+            bool linked = !IsDataRoot(rootIndex);
+            var rule = linked ? linkedRule : dataRule;
+            if (files.Contains(fname))
+            {
+                if (rule is null)
                     loose.Add(new PlacementSource(_looseRoots[rootIndex].Name, AssetKind.Loose,
                         LooseFilePath: Path.Combine(_looseRoots[rootIndex].Dir, opened), ArchivePath: null, EntryPath: rel));
+                else Hold(rule, opened, rootIndex);
+            }
+            else if (rule is null && linked)
+                // MO2's Hide renames x to x.mohidden: the root that holds only the twin has x, hidden.
+                foreach (var s in _skip.FileSuffixes)
+                    if (files.Contains(fname + s)) { Hold(new HiddenRule(HiddenKind.SkipSuffix, s), opened + s, rootIndex); break; }
+        }
+        var hidden = hiddenRule is null ? null : new HiddenCopies(hiddenRule, hiddenPath!, holders!);
 
         // ---- BSA, highest plugin rank first ----
         var bsa = new List<(PlacementSource source, int rank)>();
@@ -331,8 +355,11 @@ public sealed class AssetResolver : IDisposable
 
         var providers = new List<PlacementSource>(loose);
         providers.AddRange(bsaOrdered);
-        return providers;
+        return (providers, hidden);
     }
+
+    /// <summary>Is this loose root the game's own Data folder, the one root MO2 never links?</summary>
+    bool IsDataRoot(int rootIndex) => _dataDir.Length > 0 && rootIndex == _looseRoots.Count - 1;
 
     /// <summary>Resolve one Data-relative asset path to its concrete on-disk sources for placement: exactly one source is an unambiguous copy to re-assert.</summary>
     public PlacementResolution ResolveForPlacement(string relPath) { var (snap, pass) = BeginPass(); return ResolveForPlacement(relPath, snap, pass); }
@@ -340,8 +367,8 @@ public sealed class AssetResolver : IDisposable
     internal PlacementResolution ResolveForPlacement(string relPath, Snapshot snap, int pass)
     {
         var rel = NormalizeQueryPath(relPath);
-        var sources = ResolveProviders(rel, snap, pass);
-        return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0 || !snap.RootFailures.IsEmpty);
+        var (sources, hidden) = ResolveProviders(rel, snap, pass);
+        return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0 || !snap.RootFailures.IsEmpty, hidden);
     }
 
     public const string OverwriteLayerName = "overwrite";
@@ -381,11 +408,11 @@ public sealed class AssetResolver : IDisposable
 
     /// <summary>The copy of <paramref name="relPath"/> inside the mod folder <paramref name="providerName"/> names,
     /// when the built universe has no answer for that name at that path. <see cref="OffOrderAssetSource"/> owns the
-    /// lane; the <see cref="PlacementSource.OwnerEnabled"/> qualifier for a BSA in an enabled mod is set here.</summary>
+    /// lane; the <see cref="PlacementSource.OwnerEnabled"/> qualifier for a copy in an enabled mod is set here.</summary>
     public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
     {
-        var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, relPath);
-        return look.Source is { } s && s.Kind == AssetKind.Bsa && IsEnabledMod(s.ProviderName)
+        var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, AsWindowsOpens(relPath), relPath, _skip);
+        return look.Source is { } s && IsEnabledMod(s.ProviderName)
             ? look with { Source = s with { OwnerEnabled = true } }
             : look;
     }
@@ -423,7 +450,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap, Func<string, bool>? keep, int max, out bool stopped,
-                                               string? provider = null)
+                                               string? provider = null, HiddenTally? hidden = null)
     {
         stopped = false;
         var pre = NormalizeQueryPath(prefix).TrimEnd('\\');      // drive-root / '..' rejected loud, backslash-normalized
@@ -440,6 +467,7 @@ public sealed class AssetResolver : IDisposable
         {
             if (provider is not null && i != only) continue;
             var (rootName, rootDir) = _looseRoots[i];
+            bool linked = !IsDataRoot(i);
             var baseDir = Path.Combine(rootDir, pre);
             // A "not there" is only an absence when it can be proved one; unreadable is named inside.
             if (!Directory.Exists(baseDir)) { AbsenceIsReal(rootName, rootDir, pre, baseDir, snap); continue; }
@@ -449,7 +477,8 @@ public sealed class AssetResolver : IDisposable
                 {
                     // Re-rooted on the NORMALIZED prefix, not sliced off rootDir, which would carry the caller's casing.
                     var rel = withSep + Normalize(f.Substring(baseDir.Length));
-                    if (_skip.Shows(rel)) Take(rel);
+                    if (_skip.Hides(rel, linked) is not { } rule) Take(rel);
+                    else if (hidden is not null && (keep is null || keep(rel))) hidden.Add(rule, rel);   // in scope, and dropped
                     if (Full()) { stopped = true; return found; }
                 }
             }
@@ -531,8 +560,9 @@ public sealed class AssetResolver : IDisposable
             => _r.EnumerateUnder(prefix, _s, keep, max, out stopped);
 
         /// <summary>As above, over ONE provider's own files: its loose root, and the active archives it names or owns.</summary>
-        public IReadOnlyCollection<string> EnumerateUnder(string prefix, Func<string, bool>? keep, int max, out bool stopped, string? provider)
-            => _r.EnumerateUnder(prefix, _s, keep, max, out stopped, provider);
+        public IReadOnlyCollection<string> EnumerateUnder(string prefix, Func<string, bool>? keep, int max, out bool stopped, string? provider,
+                                                          HiddenTally? hidden = null)
+            => _r.EnumerateUnder(prefix, _s, keep, max, out stopped, provider, hidden);
 
         public bool HasProvider(string name) => _r.HasProvider(name);
     }
@@ -734,7 +764,8 @@ public sealed class AssetResolver : IDisposable
         var (name, dir) = _looseRoots[at];
         try
         {
-            if (Directory.Exists(dir)) return new DirectoryInfo(dir).EnumerateFiles().Select(f => f.Name).Where(_skip.Shows).ToList();
+            bool linked = !IsDataRoot(at);
+            if (Directory.Exists(dir)) return new DirectoryInfo(dir).EnumerateFiles().Select(f => f.Name).Where(n => _skip.Hides(n, linked) is null).ToList();
             if (WalkProvesAbsent(dir, dir, Directory.Exists, FreshNames)) return Array.Empty<string>();
             RecordRootFailure(name, "", snap);
             return null;
@@ -859,11 +890,8 @@ public sealed class AssetResolver : IDisposable
         return string.Join('\\', kept);
     }
 
-    /// <summary>Does this Data-relative path, as Windows opens it, name what MO2 hides at the root whatever the skip lists say?</summary>
-    public static bool NamesHiddenRoot(string relPath) => Mo2SkipRules.NamesHiddenRoot(AsWindowsOpens(ValidateRelPath(relPath)));
-
     /// <summary>A normalized path spelt segment by segment as Windows opens it, for the loose lookup.</summary>
-    static string AsWindowsOpens(string rel)
+    internal static string AsWindowsOpens(string rel)
     {
         var segs = rel.Split('\\');
         for (int i = 0; i < segs.Length; i++) segs[i] = AsWindowsOpens(segs[i], last: i == segs.Length - 1);

@@ -323,8 +323,8 @@ public static class FaceGenCheck
         {
             var meshPath = FaceGenPath.For(fk, FaceGenSlot.Mesh);
             var tintPath = FaceGenPath.For(fk, FaceGenSlot.Tint);
-            var mesh = Half(meshPath);
-            var tint = Half(tintPath);
+            var mesh = Half(meshPath, out var meshHidden);
+            var tint = Half(tintPath, out var tintHidden);
             string master = fk.ModKey.FileName.String;
 
             FaceGenFindingClass cls;
@@ -347,8 +347,8 @@ public static class FaceGenCheck
                 else cls = OneProduct(mw.Layer, tw.Layer) ? FaceGenFindingClass.FamilySplit
                                                          : FaceGenFindingClass.SplitBake;
             }
-            else if (mesh is not null) cls = FaceGenFindingClass.TintAbsent;
-            else if (tint is not null) cls = FaceGenFindingClass.MeshAbsent;
+            else if (mesh is not null) { cls = FaceGenFindingClass.TintAbsent; detail = tintHidden?.Sentence(tintPath); }
+            else if (tint is not null) { cls = FaceGenFindingClass.MeshAbsent; detail = meshHidden?.Sentence(meshPath); }
             else if (NeverBakedKind(fk, body) is { } kind)
             {
                 // No bake is expected for this NPC: its own class, withheld by default like family_split.
@@ -363,7 +363,9 @@ public static class FaceGenCheck
             else
             {
                 cls = FaceGenFindingClass.BakeAbsent;
-                if (body is INpcGetter n && NoHeadOrFaceData(n)) detail = NoHeadHint;
+                // A bake MO2 hides is the answer before any guess about the record.
+                detail = meshHidden?.Sentence(meshPath) ?? tintHidden?.Sentence(tintPath);
+                if (detail is null && body is INpcGetter n && NoHeadOrFaceData(n)) detail = NoHeadHint;
             }
 
             if (!classes.HasFlag(cls)) return;                              // Add would drop it
@@ -383,9 +385,10 @@ public static class FaceGenCheck
 
         // One half of the pair: the winning provider plus the MO2 LAYER it lives in. A BSA carries its layer down
         // from the source the resolver picked, so a layer can never belong to an archive that shares the filename.
-        FaceGenHalf? Half(string relPath)
+        FaceGenHalf? Half(string relPath, out HiddenCopies? hidden)
         {
             var hit = assets.Resolve(relPath);
+            hidden = hit.Hidden;
             if (hit is not { Exists: true, Winner: { } w }) return null;
             return new FaceGenHalf(w.Source, w.Kind, w.OwningMod is { Length: > 0 } mod ? mod : w.Source);
         }

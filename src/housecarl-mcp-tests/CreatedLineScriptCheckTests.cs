@@ -135,5 +135,18 @@ public sealed class CreatedLineScriptCheckTests : IDisposable
         Assert.Empty(report.Findings);
     }
 
+    // SCRIPT-HIDDEN: a .pex a mod holds only as .mohidden is not compiled for the game, and the finding says MO2 hides it (#1281).
+    [Fact]
+    public void ABoundFragmentWhosePexAModHidesSaysHidden()
+    {
+        var (path, info) = Fixture("HcScHidden", i => i.VirtualMachineAdapter = Fragment("HcScHiddenClass"));
+        var mods = DataRoot(@"HidMod\Scripts\HcScHiddenClass.pex.mohidden");
+        using var assets = AssetResolver.Build("", mods, DataRoot(), new[] { "HidMod" }, Array.Empty<ActiveArchive>());
+        var created = new[] { new WritePatchBuilder.CreatedRecord(info, "DialogResponses", "HcScHiddenInfo", Array.Empty<WritePatchBuilder.OpResult>()) };
+        var find = Assert.Single(DialogueScriptCheck.Run(path, created, assets).Findings);
+        Assert.Equal(ScriptBindingStatus.ScriptNotCompiled, find.Status);
+        Assert.Contains("is hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'HidMod'", find.Detail);
+    }
+
     public void Dispose() => _rig.Dispose();
 }

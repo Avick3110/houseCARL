@@ -386,7 +386,8 @@ internal static class WriteSentences
         "Naming a mod folder MO2 is NOT currently loading reads that mod's own copy off disk — the loose file, then "
       + "that folder's own archives — and the result says so. Naming it is what reaches it: with source_provider= "
       + "omitted, only the mods MO2 loads are considered. For a mod MO2 IS loading, nothing changes: its loose files "
-      + "are reached by the mod's name and a file inside its archive by that archive's filename, as before.";
+      + "are reached by the mod's name and a file inside its archive by that archive's filename, as before. A loose "
+      + "file MO2 hides is not reached either way.";
 
     [MustState("MO2 mod folder of that name")]
     internal const string PlaceSourceDiskFolderSearched =
@@ -412,6 +413,10 @@ internal static class WriteSentences
     internal const string PlaceSourceFolderUnreadable =
         "houseCARL also looked in the MO2 mod folder of that name, and something there could not be read";
 
+    [MustState("holds it, but MO2 hides it", "does not read a hidden file")]
+    internal const string PlaceSourceFolderHidden =
+        "the MO2 mod folder of that name holds it, but MO2 hides it, ticked or not, and houseCARL does not read a hidden file";
+
     [MustState("active load order already provides")]
     internal const string PlaceSourceReservedName =
         "that name is one the active load order already provides files under, and it names a layer rather than a mod folder";
@@ -419,7 +424,7 @@ internal static class WriteSentences
     internal static string PlaceSourceNamedAbsent(string provider, string rel, IReadOnlyList<string> providerNames,
                                                   OffOrderReason reason, string? unreadableName = null,
                                                   string? unreadableCause = null, string? pathHint = null,
-                                                  bool scanIncomplete = false) =>
+                                                  bool scanIncomplete = false, HiddenCopies? hidden = null) =>
         $"'{provider}' does not supply '{rel}'"
         // ONE sentence per reason, and a switch expression with NO default arm: CS8509 makes a new outcome a build diagnostic.
       + reason switch
@@ -431,6 +436,7 @@ internal static class WriteSentences
             OffOrderReason.NoSuchFolder     => $" — {PlaceSourceNoSuchFolder}. ",
             OffOrderReason.NoCopyInFolder   => $" — {PlaceSourceDiskFolderSearched}. ",
             OffOrderReason.FolderUnreadable => $" — {PlaceSourceFolderUnreadable}. ",
+            OffOrderReason.Hidden           => $" — {PlaceSourceFolderHidden}: {hidden?.Sentence(rel)}. ",
         }
       + (unreadableName is null ? "" : $"NOTE: '{unreadableName}' could not be read ({unreadableCause}), so this may be unscanned rather than absent. ")
       + (scanIncomplete ? PlaceSourceScanIncomplete + " " : "")
@@ -450,12 +456,22 @@ internal static class WriteSentences
         "a mod folder MO2 has NOT registered — nothing in MO2's list to switch on; refresh MO2 to pick it up. You "
         + "named the folder, so houseCARL read it off disk";
 
-    internal static string PlaceSourceOffOrder(string provider, bool ownerEnabled = false) => ownerEnabled
-        ? $"read from '{provider}', out of a root archive the engine does NOT load (no active plugin binds it) — you "
-        + "named the mod, so houseCARL looked inside its own archives; the bytes are that mod's, and nothing about "
-        + "that archive has to change for the copy just placed"
-        : $"read from '{provider}', {OffOrderModFolder}; the bytes are that mod's, and enabling it is not required "
-        + "for the copy just placed";
+    /// <summary>Where an off-order copy came from: an unticked folder, a ticked mod's archive no plugin loads, or a
+    /// ticked mod's loose file its folder's listing did not reach.</summary>
+    internal static string PlaceSourceOffOrder(string provider, bool ownerEnabled, AssetKind kind) => (ownerEnabled, kind) switch
+    {
+        (true, AssetKind.Bsa) =>
+            $"read from '{provider}', out of a root archive the engine does NOT load (no active plugin binds it) — you "
+          + "named the mod, so houseCARL looked inside its own archives; the bytes are that mod's, and nothing about "
+          + "that archive has to change for the copy just placed",
+        (true, _) =>
+            // Reached only through a folder that would not list, which a test world can stage only with an ACL deny.
+            $"read from '{provider}', a mod folder that IS enabled in MO2, but whose folder did not read this build — "
+          + "you named it, so houseCARL read the file off disk; the bytes are that mod's",
+        _ =>
+            $"read from '{provider}', {OffOrderModFolder}; the bytes are that mod's, and enabling it is not required "
+          + "for the copy just placed",
+    };
 
     [MustState("only when source= is omitted")]
     internal const string PlaceBothSlotsPoleConstraint =

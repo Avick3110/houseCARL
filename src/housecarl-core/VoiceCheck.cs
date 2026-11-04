@@ -14,7 +14,7 @@ public sealed record VoiceLine(
     FormKey Info, string TopicEditorId, int ResponseNumber,
     string FuzPath, bool FuzPresent, string? FuzWinner, bool FuzAmbiguous,
     string LipPath, bool LipPresent,
-    bool ReadIncomplete);
+    bool ReadIncomplete, string? FuzHidden = null);
 
 /// <summary>A created INFO whose voice path could NOT be computed, with the named reason. Its lines are not checked.</summary>
 public sealed record VoiceUndetermined(FormKey Info, string TopicEditorId, string Reason);
@@ -190,7 +190,7 @@ public static class VoiceCheck
                 info.FormKey, topicEdid, num,
                 fuz, fhit.Exists, fhit.Winner?.Source, fhit.Ambiguous,
                 lip, lhit.Exists,
-                av.ReadIncomplete));
+                av.ReadIncomplete, fhit.Hidden?.Sentence(fuz)));
         }
     }
 

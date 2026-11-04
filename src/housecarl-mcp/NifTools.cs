@@ -319,7 +319,7 @@ public static class NifTools
         "the mod folder name, 'overwrite', 'Data', or a BSA filename, exactly as the providers chain shows it inside " +
         "the double quotes (the kind after them, 'loose' / 'BSA', is not part of the name), or '" +
         AssetSourceChoice.WinnerToken + "' for the winner spelled out. Naming a mod reaches its loose files and its " +
-        "own root archives whether or not MO2 is loading it";
+        "own root archives whether or not MO2 is loading it, except a loose file MO2 hides, which is never read";
 
     /// <summary>Parse a uint from hex ('0x...') or decimal.</summary>
     static bool TryParseUInt(string s, out uint value)

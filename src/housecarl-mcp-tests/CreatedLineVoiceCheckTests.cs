@@ -140,5 +140,19 @@ public sealed class CreatedLineVoiceCheckTests : IDisposable
         Assert.Empty(report.Lines);
     }
 
+    // VOICE-HIDDEN: a .fuz a mod holds only as .mohidden is silent, and the line says MO2 hides it (#1281).
+    [Fact]
+    public void AVoiceFileAModHidesIsSaidHidden()
+    {
+        var (o, path) = _w.Create("HcNcVoiceHidden.esp", Under(_w.Topic.ToString(), "DialogResponses", "HcNcVhInfo", Speaker(_w.Npc.ToString()), Response("1")));
+        Assert.True(o.Success, o.Error);
+        var fuz = MasterVoicePath(o.Created[0].FormKey, VoiceFile.Fuz);
+        var mods = DataRoot(Path.Combine("HidMod", fuz + ".mohidden"));
+        using var assets = AssetResolver.Build("", mods, DataRoot(), new[] { "HidMod" }, Array.Empty<ActiveArchive>());
+        var line = Assert.Single(VoiceCheck.Run(path, o.Created, _w.Order, assets).Lines);
+        Assert.False(line.FuzPresent);
+        Assert.StartsWith("hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'HidMod'", line.FuzHidden);
+    }
+
     public void Dispose() => _w.Dispose();
 }

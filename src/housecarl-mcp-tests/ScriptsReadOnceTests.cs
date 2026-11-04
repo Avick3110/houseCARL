@@ -36,6 +36,29 @@ public sealed class ScriptsReadOnceTests : IDisposable
         return bsa;
     }
 
+    /// <summary>A script whose .pex a mod holds only as .mohidden: its property is unverifiable, and the reason says MO2 hides the .pex (#1281).</summary>
+    [Fact]
+    public void APexAModHidesIsSaidHiddenInTheUnverifiableReason()
+    {
+        var mods = Path.Combine(_root, "mods");
+        Directory.CreateDirectory(Path.Combine(mods, "HidMod", "Scripts"));
+        File.WriteAllBytes(Path.Combine(mods, "HidMod", "Scripts", "HcHid.pex.mohidden"), Pex("HcHid", null, "HidThing"));
+        var mod = new SkyrimMod(new ModKey("HcHid", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var vmad = CheckMergeFixture.Vmad("HcHid");
+        vmad.Scripts[0].Properties.Add(new ScriptObjectProperty { Name = "HidThing" });
+        mod.Weapons.AddNew().VirtualMachineAdapter = vmad;
+        var plugin = Path.Combine(_root, "HcHid.esp");
+        mod.BeginWrite.ToPath(plugin).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        using var resolver = LoadOrderResolver.Build(new[] { plugin });
+        using var assets = AssetResolver.Build("", mods, _root, new[] { "HidMod" }, Array.Empty<ActiveArchive>());
+        var result = ScriptPropertyCheck.Run(resolver, assets, null, 1000);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(result.Reports, new System.Text.Json.JsonSerializerOptions
+            { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+        Assert.True(json.Contains("HcHid.pex' is hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'HidMod', as"), json);
+    }
+
     ScriptPropertyCheck.PexReads Sweep(out ScriptCheckResult result, string parentOfB = Base)
     {
         var bsa = WriteBsa((Base, Pex(Base, null, "BaseThing")), (ChildA, Pex(ChildA, Base, "AThing")),
