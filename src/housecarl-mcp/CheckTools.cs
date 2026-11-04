@@ -163,13 +163,16 @@ public static class CheckTools
              "counts_only=true, but only after the sweep has run, so do not pair them.")]
             string? to_file = null,
         [Description("Optional. Max characters before the response stops with a notice. 0 = the server default (~40k). The budget is divided among the families that ran and their parts, not spent in series. Raise it for a quest that owns many topics.")]
-            int max_chars = 0) => Guard.Tool(ToolNames.Check, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Check, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         bool json = Wire.WantsJson(format, out var fmtErr);
-        if (fmtErr is not null) return fmtErr;
+        if (fmtErr is not null) return ToolAnswer.Refusal(fmtErr);
         if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return Wire.Refuse(json, "error: " + famErr);
         int lim = limit <= 0 ? 1000 : limit;
+        // The sweep's document, refused exactly when it carries the whole-call error the json document writes as ok:false.
+        ToolAnswer Answer(CheckSweep s) => ToolAnswer.Outcome(CheckOutcome.For(s).Error is null,
+            json ? JsonWire.RenderCheck(s, max_chars, lim) : CheckTextRender.RenderCheck(s, max_chars, lim));
 
         // plugins= and exclude= are plugin-filename lists, so they take the @file spelling housecarl_records' scope takes.
         string? pluginsEcho = null;
@@ -191,7 +194,7 @@ public static class CheckTools
         if (SweepSharedInput.Error(svc, plugins, types, formids, editorid_contains, exclude) is { } inputErr)
         {
             var refusal = new CheckSweep(selection, SharedInputError: inputErr);
-            return json ? JsonWire.RenderCheck(refusal, max_chars, lim) : CheckTextRender.RenderCheck(refusal, max_chars, lim);
+            return Answer(refusal);
         }
 
         // ---- the dialogue family's off-order fold ------------------------------------------------------
@@ -256,7 +259,7 @@ public static class CheckTools
              ?? Seam(facegen?.Epoch, "facegen") ?? Seam(dialogue?.Epoch, "dialogue") ?? foldSeam) is { } seam)
         {
             var torn = new CheckSweep(selection, OrderSeamError: seam);
-            return json ? JsonWire.RenderCheck(torn, max_chars, lim) : CheckTextRender.RenderCheck(torn, max_chars, lim);
+            return Answer(torn);
         }
 
         var sweep = new CheckSweep(selection, errors, scripts, dialogue, facegen, Order: order);
@@ -280,13 +283,13 @@ public static class CheckTools
             // No family answered, so nothing is written and the sweep renders as it would without to_file=, which is
             // where every refusal's ground is already stated.
             if (CheckOutcome.For(sweep).Ran.Count == 0)
-                return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : CheckTextRender.RenderCheck(sweep, max_chars, lim);
+                return Answer(sweep);
             var (spill, artErr) = CheckArtifact.Write(sweep, path, query);
             if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
-            return CheckArtifact.RenderManifestOnly(sweep, spill!, json, Wire.Cap(max_chars));
+            return ToolAnswer.Served(CheckArtifact.RenderManifestOnly(sweep, spill!, json, Wire.Cap(max_chars)));
         }
 
-        return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : CheckTextRender.RenderCheck(sweep, max_chars, lim);
+        return Answer(sweep);
     });
 
     /// <summary>Parse the dialogue fold's address — the off-order half of the <c>records</c> pole grammar, which is

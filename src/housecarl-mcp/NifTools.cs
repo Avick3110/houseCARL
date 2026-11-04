@@ -82,18 +82,18 @@ public static class NifTools
                      "mesh. Empty = the winner.")]
             string source_provider = "",
         [Description("Optional. Character ceiling on the whole batch's response, not per mesh: the mesh whose block would cross it is not written, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         bool anyPath = mesh_paths is not null && mesh_paths.Any(p => !string.IsNullOrWhiteSpace(p));
         bool anyNpc = npc is not null && npc.Any(p => !string.IsNullOrWhiteSpace(p));
         if (!anyPath && !anyNpc)
         {
             if (mesh_paths is { Length: > 0 })
-                return "error: mesh_paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').";
+                return ToolAnswer.Refusal("error: mesh_paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').");
             if (npc is { Length: > 0 })
-                return "error: npc contains only empty/blank entries. Pass NPC FormIDs (e.g. '01A51A:Dawnguard.esm').";
-            return "error: nothing to inspect. Pass mesh_paths (Data-relative mesh paths, e.g. 'meshes\\armor\\iron\\cuirass_1.nif') and/or npc (NPC FormIDs, whose FaceGen head mesh is derived).";
+                return ToolAnswer.Refusal("error: npc contains only empty/blank entries. Pass NPC FormIDs (e.g. '01A51A:Dawnguard.esm').");
+            return ToolAnswer.Refusal("error: nothing to inspect. Pass mesh_paths (Data-relative mesh paths, e.g. 'meshes\\armor\\iron\\cuirass_1.nif') and/or npc (NPC FormIDs, whose FaceGen head mesh is derived).");
         }
 
         // npc= is a SELECT value, not a mode: each FormID becomes the FaceGen mesh path it derives to and joins the batch.
@@ -108,18 +108,18 @@ public static class NifTools
                 try { selected.Add(FaceGenPath.For(door.Parse(raw), FaceGenSlot.Mesh)); }
                 catch (Exception ex)
                 {
-                    return FormIdDoor.Sentence(ex, "error: ",
-                        $"error: bad npc FormID '{raw.Trim()}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp' or a runtime FormID.");
+                    return ToolAnswer.Refusal(FormIdDoor.Sentence(ex, "error: ",
+                        $"error: bad npc FormID '{raw.Trim()}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp' or a runtime FormID."));
                 }
             }
         }
 
         var (want, unknownTokens) = ParseSections(sections);
         // Sections requested but none resolved: fail rather than render the summary as if that were the answer.
-        if (SectionsError(want, unknownTokens) is { } sectionsErr) return sectionsErr;
+        if (SectionsError(want, unknownTokens) is { } sectionsErr) return ToolAnswer.Refusal(sectionsErr);
 
         var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(source_provider) ? null : source_provider, want.Contains("paths"));
-        return NifWire.Render(data, want, unknownTokens, Wire.Cap(max_chars));
+        return ToolAnswer.Served(NifWire.Render(data, want, unknownTokens, Wire.Cap(max_chars)));
     });
 
     /// <summary>Parse <c>sections=</c> into the recognized set plus the unrecognized tokens, which are surfaced rather
@@ -237,25 +237,25 @@ public static class NifTools
         [Description("Optional, default false. Overwrite the chosen loose copy (the winner, or the copy source_provider= names) where it sits instead of writing a new folder, with no backup; editing a shadowed copy leaves the game loading the winner. Needs acknowledge=true on the first in-place edit of a mesh. Omit to write a new override and leave the original untouched.")]
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for this file: needed only on the first in-place edit of a given mesh, and not again once one has landed; a call that is refused records nothing, so it may be needed again. It waives the consent to overwrite the original only, never the mesh verification.")]
-            bool acknowledge = false) => Guard.Tool(ToolNames.NifSet, () =>
+            bool acknowledge = false) => Guard.Tool(ToolNames.NifSet, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         // in_place= ignores patch=, so with it the conflict is into= beside in_place=, which the service refuses before any work.
         if (!in_place && LaneSentences.PatchIntoFolderRefusal(patch, into, "edited mesh") is { } patchInto)
-            return "error: " + patchInto;
-        if (string.IsNullOrWhiteSpace(mesh_path)) return "error: mesh_path is empty. Pass a Data-relative mesh path.";
-        if (string.IsNullOrWhiteSpace(op)) return "error: op is empty. Pass one of: " + OpList + ".";
-        if (string.IsNullOrWhiteSpace(target)) return "error: target is empty. Pass the shape/node NAME the op edits (from " + ToolNames.NifInspect + ").";
+            return ToolAnswer.Refusal("error: " + patchInto);
+        if (string.IsNullOrWhiteSpace(mesh_path)) return ToolAnswer.Refusal("error: mesh_path is empty. Pass a Data-relative mesh path.");
+        if (string.IsNullOrWhiteSpace(op)) return ToolAnswer.Refusal("error: op is empty. Pass one of: " + OpList + ".");
+        if (string.IsNullOrWhiteSpace(target)) return ToolAnswer.Refusal("error: target is empty. Pass the shape/node NAME the op edits (from " + ToolNames.NifInspect + ").");
 
         var (built, buildErr) = BuildOp(op.Trim(), target.Trim(), new_name, flags, scale, body_part_id, partition_index, alpha_flags, alpha_threshold, texture_slot, path, shader_value, value);
-        if (buildErr is not null) return "error: " + buildErr;
+        if (buildErr is not null) return ToolAnswer.Refusal("error: " + buildErr);
 
         var data = svc.NifSet(mesh_path, new[] { built! },
             string.IsNullOrWhiteSpace(source_provider) ? null : source_provider,
             string.IsNullOrWhiteSpace(patch) ? null : patch,
             string.IsNullOrWhiteSpace(into) ? null : into,
             in_place, acknowledge);
-        return NifSetWire.Render(data);
+        return ToolAnswer.Outcome(data.NeedsAcknowledge || (data.Report is not null && data.Error is null), NifSetWire.Render(data));
     });
 
     /// <summary>Turn the flat tool params into one <see cref="NifSetOp"/>, or a named error before the value reaches the

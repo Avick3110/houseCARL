@@ -87,7 +87,7 @@ public sealed class ToolCallShimWirePathTests
     {
         var r = _s.Call(ToolNames.Apply, "{}");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.DoesNotContain("required parameter", r.Text, StringComparison.Ordinal);
         Assert.True(r.BodyRan, r.Describe());
     }
@@ -101,7 +101,7 @@ public sealed class ToolCallShimWirePathTests
     public void CreatePluginTakesPatchAndRefusesTheOldPluginSpellingByName()
     {
         var ok = _s.Call(ToolNames.CreatePlugin, """{"patch":"MyTrigger"}""");
-        Assert.False(ok.IsError, ok.Describe());
+        Assert.True(ok.IsError, ok.Describe());   // the config prompt is a refusal
         Assert.True(ok.BodyRan, ok.Describe());
 
         var old = _s.Call(ToolNames.CreatePlugin, """{"plugin":"MyTrigger"}""");
@@ -116,7 +116,7 @@ public sealed class ToolCallShimWirePathTests
     public void CompactPluginTakesSourceAndRefusesTheOldPluginSpellingByName()
     {
         var direct = _s.Call(ToolNames.CompactPlugin, """{"source":"Skyrim.esm"}""");
-        Assert.False(direct.IsError, direct.Describe());
+        Assert.True(direct.IsError, direct.Describe());   // the config prompt is a refusal
         Assert.True(direct.BodyRan, direct.Describe());
 
         var old = _s.Call(ToolNames.CompactPlugin, """{"plugin":"Skyrim.esm"}""");

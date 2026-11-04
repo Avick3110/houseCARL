@@ -114,7 +114,7 @@ public sealed class SkseFindingsWireShapeTests
     {
         var r = _s.Call(ToolNames.Skse, $$"""{"findings":"{{family}}"}""");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.DoesNotContain("is not a family on this tool", r.Text, StringComparison.Ordinal);
         Assert.True(r.BodyRan, r.Describe());
     }

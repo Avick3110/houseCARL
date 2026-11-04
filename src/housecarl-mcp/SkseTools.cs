@@ -207,19 +207,19 @@ public static class SkseTools
         [Description("Optional. Skip the first N rows of the family's row list, for paging. 0 = the beginning.")]
             int offset = 0,
         [Description("Optional. Character ceiling on the whole response; the row that would cross it is not written, and every list says what it held back. The scope note, the caveats, the filter hint and the family footer are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.Skse, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Skse, call =>
     {
         // The argument checks run BEFORE the config prompt, and format= first of all, because every refusal
         // below has to be answered in the shape the caller asked for.
         bool json = Wire.WantsJson(format, out var fmtErr);
-        if (fmtErr is not null) return fmtErr;
+        if (fmtErr is not null) return ToolAnswer.Refusal(fmtErr);
         if (!TryParseFamily(findings, out var family, out var famErr)) return Wire.Refuse(json, famErr!);
         if (PeekFamilyError(peek, family) is { } peekErr) return Wire.Refuse(json, peekErr);
         if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return Wire.Refuse(json, err);
         var window = new RowWindow(offset, limit);
         if (window.Error is { } winErr) return Wire.Refuse(json, winErr);
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
 
-        return Dispatch(new ServiceRenders(svc), family, filter, peek, max_chars, json, window);
+        return ToolAnswer.Served(Dispatch(new ServiceRenders(svc), family, filter, peek, max_chars, json, window));
     });
 }

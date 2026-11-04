@@ -53,16 +53,16 @@ public static class ApplyTools
         [Description("'text' (default) or 'json' (the same data). " + LaneSentences.Epoch)]
             string? format = null,
         [Description("Character limit on the reply: in json the applied-op rows and the read-back, in text the read-back. " + LaneSentences.MaxCharsCut + "; raise it for a readback=true dump.")]
-            int max_chars = 0) => Guard.Tool(ToolNames.Apply, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Apply, call =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
         // Ahead of the unconfigured-MO2 prompt; contract in docs/architecture/write-path.md.
         bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);   // the format value itself is unparsed — there is no known render to answer in
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return json ? JsonWire.RenderError(prompt, null) : prompt;
+            return Wire.Refuse(json, prompt);
 
-        string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
+        ToolAnswer Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
         // A lane is honoured or refused BY NAME; contract in docs/architecture/write-path.md.
@@ -148,9 +148,9 @@ public static class ApplyTools
 
         var outcome = svc.ApplyEdits(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
         // The lane the CALL named; contract in docs/architecture/write-path.md.
-        return json
+        return ToolAnswer.Outcome(outcome.Success || outcome.NeedsAcknowledge, json
             ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
-            : WriteTools.Render(outcome, max_chars, readback);
+            : WriteTools.Render(outcome, max_chars, readback));
     });
 
     // ---- input readers -------------------------------------------------------------------------------

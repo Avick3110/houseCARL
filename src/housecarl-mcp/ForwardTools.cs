@@ -50,14 +50,14 @@ public static class ForwardTools
         [Description("'text' (default) or 'json' (the same data). Either way the reply states, per record, what was copied and the winner it will out-rank once enabled; a forward whose version already wins is flagged redundant. " + LaneSentences.Epoch)]
             string? format = null,
         [Description("Character limit on the reply: the forwarded-record rows, then the read-back. " + LaneSentences.MaxCharsCut + ".")]
-            int max_chars = 0) => Guard.Tool(ToolNames.Forward, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.Forward, call =>
     {
         // format first, ahead of the unconfigured-MO2 prompt; contract in docs/architecture/write-path.md.
         bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } prompt)
-            return json ? JsonWire.RenderError(prompt, null) : prompt;
-        string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
+            return Wire.Refuse(json, prompt);
+        ToolAnswer Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
         // ---- LANE: mutually exclusive, and a dropped one is named; contract in docs/architecture/write-path.md ----
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
@@ -90,8 +90,8 @@ public static class ForwardTools
 
         var outcome = svc.ForwardRecords(targets, source.Trim(), patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run);
         // The lane the CALL named; contract in docs/architecture/write-path.md.
-        return json
+        return ToolAnswer.Outcome(outcome.Success || outcome.NeedsAcknowledge, json
             ? JsonWire.RenderForwardOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
-            : WriteTools.RenderForward(outcome, max_chars);
+            : WriteTools.RenderForward(outcome, max_chars));
     });
 }

@@ -35,12 +35,12 @@ public static class SeqTools
         [Description("'text' (default) or 'json' (the same data, machine-readable).")]
             string? format = null,
         [Description("Character ceiling on the reply; past it trailing quest rows are cut with a notice. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.WriteSeq, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.WriteSeq, call =>
     {
         bool json = Wire.WantsJson(format, out var ferr);
-        if (ferr is not null) return ferr;
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);
         if (svc.ConfigPromptOrNull() is { } cfgPrompt)
-            return json ? JsonWire.RenderError(cfgPrompt, null) : cfgPrompt;
+            return Wire.Refuse(json, cfgPrompt);
 
         // Lane exclusivity, out_path= first; contract in docs/architecture/write-path.md.
         string? outputNote = null;
@@ -50,13 +50,13 @@ public static class SeqTools
                 outputNote = "note: out_path= was given, so patch=/into= are ignored (the .seq lands in out_path, not a houseCARL patch folder).";
         }
         else if (LaneSentences.PatchIntoFolderRefusal(patch, into, ".seq") is { } laneErr)
-            return json ? JsonWire.RenderError(laneErr, null) : "error: " + laneErr;
+            return Wire.Refuse(json, Wire.RefusalPrefix + laneErr);
 
         var o = svc.WriteSeq(source, patch, into, out_path);
-        if (json) return JsonWire.RenderSeqOutcome(o, max_chars, outputNote);
+        if (json) return ToolAnswer.Outcome(o.Success, JsonWire.RenderSeqOutcome(o, max_chars, outputNote));
         // The ignored-lane note rides the refusal too.
-        if (!o.Success) return "error: " + o.Error + (outputNote is { Length: > 0 } ne ? "\n" + ne : "");
-        return Render(o, max_chars, outputNote);
+        if (!o.Success) return ToolAnswer.Refusal("error: " + o.Error + (outputNote is { Length: > 0 } ne ? "\n" + ne : ""));
+        return ToolAnswer.Served(Render(o, max_chars, outputNote));
     });
 
     internal static string Render(SeqOutcome o, int maxChars = 0, string? outputNote = null)

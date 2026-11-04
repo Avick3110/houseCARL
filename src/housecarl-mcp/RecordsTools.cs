@@ -170,13 +170,13 @@ public static partial class RecordsTools
             bool counts_only = false,
         [Description("TRANSPORT: write the complete result to this absolute .jsonl path (line 1 = manifest) and render only the manifest inline. Re-enter it via formids=[\"@<path>\"] or where=[\"formid in @<path>\"], epoch-checked. It reads every selected row's body, so it is held to the same bound as a render (see limit=). Read back the manifest, not the chat summary: it carries the query echo, identity, row_schema, sort, row_count, total, type_counts where the rows carried types, epoch, created, and notes when the result owes a clause. The file holds the complete result only when row_count equals total, and windows joined across differing epochs are not one result.")]
             string? to_file = null,
-        CancellationToken ct = default) => Guard.Tool(ToolNames.Records, () =>
+        CancellationToken ct = default) => Guard.Tool(ToolNames.Records, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
 
         // ---- TRANSPORT: format --------------------------------------------------------------------------
         var fmt = Wire.CrossQueryFormat(format, out var ferr);
-        if (ferr is not null) return ferr;
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);
         bool json = fmt is Wire.QueryFormat.Json;
         // The comparison meter's budget runs from here, so the scan and the index build count as time spent.
         var meterClock = ComparisonMeter.Clock;
@@ -661,7 +661,7 @@ public static partial class RecordsTools
         // ================================================================================================
         //  LIST lane — formids= drives; SOURCE picks the read lane.
         // ================================================================================================
-        string ListLane()
+        ToolAnswer ListLane()
         {
             var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids!, "formids");
             if (xerr is not null) return Wire.Refuse(json, xerr);
@@ -688,7 +688,7 @@ public static partial class RecordsTools
             {
                 var ioRows = svc.InfoOrderBatch(ids, demand, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts, ct);
                 if (ioRefusal is not null)
-                    return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + Wire.EpochLine(ioEpoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + ioRefusal, ioEpoch, epochLine: true);
                 if (FoldSeam(ioEpoch) is { } ioTear) return Wire.Refuse(json, ioTear, ioEpoch);
                 var e = new List<KeyValuePair<string, string>>
                 {
@@ -733,8 +733,7 @@ public static partial class RecordsTools
                                                 containerHint, readFieldDepths, ct,
                                                 draft: srcSpec.Draft, overlayWarnings: overlayWarnings, summary: form == "summary");
                 if (ovRefusal is not null)
-                    return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
-                                : "error: " + ovRefusal + Wire.EpochLine(ovEpoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + ovRefusal, ovEpoch, epochLine: true);
                 Arm(srcSpec.OverlayStatement!);
                 OverlayPostNotes();
             }
@@ -747,8 +746,7 @@ public static partial class RecordsTools
                              && !(offset == 0 && ids.Length <= lim);
                 outcomes = ReadWinners(windowRead ? ids.Skip(offset).Take(lim).ToArray() : ids, out var refusal, out var refusalEpoch);
                 if (refusal is not null)
-                    return json ? JsonWire.RenderError(refusal, refusalEpoch)
-                                : "error: " + refusal + Wire.EpochLine(refusalEpoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, refusalEpoch, epochLine: true);
                 if (!srcOverlay) Arm("winner");
             }
             else
@@ -757,8 +755,7 @@ public static partial class RecordsTools
                                                     out pole, out var refusal, out var refusalEpoch,
                                                     containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary");
                 if (refusal is not null)
-                    return json ? JsonWire.RenderError(refusal, refusalEpoch)
-                                : "error: " + refusal + Wire.EpochLine(refusalEpoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, refusalEpoch, epochLine: true);
                 Arm($"{pole!.Plugin} — {pole.Where}");
                 if (!pole.EpochCoversPole)
                 {
@@ -774,20 +771,20 @@ public static partial class RecordsTools
             outcomes = FoldRows(outcomes);
             var epoch2 = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
             if (SeamTear(epoch2) is { } seamTear)
-                return json ? JsonWire.RenderError(seamTear, epoch2) : "error: " + seamTear;
+                return Wire.Refuse(json, Wire.RefusalPrefix + seamTear, epoch2);
 
             if (form == "aggregate")
                 return RenderListAggregate(outcomes, project!.group_by!, json, epoch2, Head(null), Env(null), listCost,
                                            max_chars, svc.Types.DisplayNames(types), TableRowLimit(limit));
 
             if (counts_only && dense)
-                return JsonWire.RenderBatchDense(outcomes, form == "fields" ? readPaths : null, foldPlan, max_chars, null, out _, Env(null), listCost, countsOnly: true);
+                return ToolAnswer.Served(JsonWire.RenderBatchDense(outcomes, form == "fields" ? readPaths : null, foldPlan, max_chars, null, out _, Env(null), listCost, countsOnly: true));
             if (counts_only)
             {
                 int ok = outcomes.Count(o => o.Error is null), err = outcomes.Count - outcomes.Count(o => o.Error is null);
-                return json
+                return ToolAnswer.Served(json
                     ? JsonWire.RenderCounts(Env(null), outcomes.Count, ok, err, epoch2, max_chars)
-                    : Census($"{Head(null)}\ncount={outcomes.Count} ok={ok} errors={err}" + Wire.EpochLine(epoch2));
+                    : Census($"{Head(null)}\ncount={outcomes.Count} ok={ok} errors={err}" + Wire.EpochLine(epoch2)));
             }
 
             var winOutcomes = Windowed(dense ? unfolded : outcomes, windowRead ? ids.Length : -1);   // render window; census/aggregate/artifacts stay complete
@@ -795,7 +792,7 @@ public static partial class RecordsTools
             if (wantFile)
             {
                 var (s, aerr) = Artifacts.WriteBatch(outcomes, ArtifactTarget.Named(toFile!), "to_file", Echo(), formLevers, summary: form == "summary", scan: owed);
-                if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch2) : "error: " + aerr;
+                if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epoch2);
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render2(SpillState? sp, out bool trunc) => dense
@@ -816,7 +813,7 @@ public static partial class RecordsTools
                     listClock.Stop();
                     var allStamp = allEpoch ?? all.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
                     if ((allRefusal ?? SeamTear(allStamp)) is { } allTear)
-                        return json ? JsonWire.RenderError(allTear, allStamp) : "error: " + allTear + Wire.EpochLine(allStamp);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + allTear, allStamp, epochLine: true);
                     listCost = (listCost.Item1 + all.Count(o => o.Record is not null && !o.FromEngine), listClock.ElapsedMilliseconds);
                     outcomes = FoldRows(all);
                 }
@@ -824,14 +821,14 @@ public static partial class RecordsTools
                 var (s, aerr) = Artifacts.WriteBatch(outcomes, reservation, "ceiling", Echo(), formLevers, summary: form == "summary", scan: owed);
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
-            return rendered2;
+            return ToolAnswer.Served(rendered2);
         }
 
         // ================================================================================================
         //  WALK lane — forward walks expand the winner link graph; reverse splits on walk.follow, not on the form,
         //  and each walk hands its reached set to the same two views.
         // ================================================================================================
-        string WalkLane(string[] ids, HousecarlCore.ArtifactDemand? demand, string? echoSrc)
+        ToolAnswer WalkLane(string[] ids, HousecarlCore.ArtifactDemand? demand, string? echoSrc)
         {
             List<KeyValuePair<string, string>> Echo()
             {
@@ -862,9 +859,9 @@ public static partial class RecordsTools
                 // per-hop census is the only thing this lane renders of its own.
                 var rev = ReverseWalkBatch.Run(svc, ids, walkDepth, walkMaxNodes, demand, ct, walkExclusions, walkThrough);
                 if (rev.Refusal is not null)
-                    return json ? JsonWire.RenderError(rev.Refusal, rev.Stamp) : "error: " + rev.Refusal + Wire.EpochLine(rev.Stamp);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + rev.Refusal, rev.Stamp, epochLine: true);
                 if (SeamTear(rev.Stamp) is { } rTear)
-                    return json ? JsonWire.RenderError(rTear, rev.Stamp) : "error: " + rTear;
+                    return Wire.Refuse(json, Wire.RefusalPrefix + rTear, rev.Stamp);
                 // Every hop is named with its count, empty ones included, and a hop the budget ended says 'cut'.
                 var hopLine = string.Join(", ", rev.Hops.Select(h => $"hop {h.Depth}: {h.Reached.Count}{(h.Cut ? " (cut by walk.max_nodes)" : "")}"));
                 if (!rev.Capped && rev.Hops.Count < walkDepth)
@@ -945,7 +942,7 @@ public static partial class RecordsTools
                     var dref = epochR is null
                         ? $"artifact '{demand.Path}' carries epoch={demand.Epoch}, but no seed consulted a build to verify it against (every seed failed pre-capture) — fix the seeds and retry."
                         : RecordReads.ArtifactEpochMismatch(demand, epochR.Epoch);
-                    return json ? JsonWire.RenderError(dref, epochR) : "error: " + dref + Wire.EpochLine(epochR);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + dref, epochR, epochLine: true);
                 }
                 Arm("winner (carriers are the load-order-effective versions)");
                 // The census separates written rows from the true total and names capped seeds, so a walk.max_nodes
@@ -979,8 +976,7 @@ public static partial class RecordsTools
                         }
                     }
                     if (carrierSel.Count == 0)
-                        return json ? JsonWire.RenderError($"the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome).", epochR)
-                                    : $"error: the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome)." + Wire.EpochLine(epochR);
+                        return ToolAnswer.Refusal(json, $"error: the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome).", epochR, epochLine: true);
                     // A seed that failed contributed no carriers, and the reading form says so.
                     envelope.Add(new("selection", $"the {carrierSel.Count} record(s) the carrier walk reached (seeds included)"
                                                   + (seedErrs2 > 0 ? $"; {seedErrs2} seed error(s), listed via form='chain'" : "")));
@@ -1006,15 +1002,15 @@ public static partial class RecordsTools
                 if (cappedSeeds > 0)
                     headerLine += $"\n[!] {cappedSeeds} seed(s) hit the walk.max_nodes carrier bound ({walkMaxNodes}, per seed on this lane) — their rows are a prefix of carrier_total; raise walk.max_nodes.";
                 if (counts_only)
-                    return json
+                    return ToolAnswer.Served(json
                         ? JsonWire.RenderNamedCounts(Env(null), revCounts, epochR, max_chars)
-                        : Census($"{Head(null)}\nseeds={results.Count} carrier_rows={carrierRows} carrier_total={carrierTotal} capped_seeds={cappedSeeds} errors={seedErrs2}" + Wire.EpochLine(epochR));
+                        : Census($"{Head(null)}\nseeds={results.Count} carrier_rows={carrierRows} carrier_total={carrierTotal} capped_seeds={cappedSeeds} errors={seedErrs2}" + Wire.EpochLine(epochR)));
                 var winResults = Windowed(results);
                 SpillState? revSpill = null;
                 if (wantFile)
                 {
                     var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo());
-                    if (aerr is not null) return json ? JsonWire.RenderError(aerr, epochR) : "error: " + aerr;
+                    if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epochR);
                     revSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
                 string RenderRev(SpillState? sp, out bool trunc) => json
@@ -1027,7 +1023,7 @@ public static partial class RecordsTools
                     var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, reservation, "ceiling", Echo());
                     revRendered = RenderRev(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
-                return revRendered;
+                return ToolAnswer.Served(revRendered);
             }
 
             // Forward: one engine batch, one captured build; chain renders it and every other form consumes the
@@ -1037,9 +1033,9 @@ public static partial class RecordsTools
                                             walkExclusions, demand, out var wRefusal, out var wEpoch, ct,
                                             wantCycles: form == "chain", through: walkThrough, leftOut: fwdLeftOut);
             if (wRefusal is not null)
-                return json ? JsonWire.RenderError(wRefusal, wEpoch) : "error: " + wRefusal + Wire.EpochLine(wEpoch);
+                return ToolAnswer.Refusal(json, Wire.RefusalPrefix + wRefusal, wEpoch, epochLine: true);
             if (SeamTear(wEpoch) is { } wTear)
-                return json ? JsonWire.RenderError(wTear, wEpoch) : "error: " + wTear;
+                return Wire.Refuse(json, Wire.RefusalPrefix + wTear, wEpoch);
             SayLeftOut(fwdLeftOut.Values);
 
             if (form == "chain")
@@ -1060,9 +1056,9 @@ public static partial class RecordsTools
                     headerLine += $"\n[!] {cappedCycles} seed(s) reached the {RecordReads.WalkCycleCap}-cycle search cap — more loops are there than are counted.";
                 envelope.Add(new("walk", $"forward{(walk.follow is { } f2 ? $" follow={f2}" : " (closure)")} depth={walkDepth}"));
                 if (counts_only)
-                    return json
+                    return ToolAnswer.Served(json
                         ? JsonWire.RenderNamedCounts(Env(null), new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs), KvI("cycles", cycles), KvI("truncated_seeds", cutSeeds) }, wEpoch, max_chars)
-                        : Census($"{Head(null)}\nseeds={rows.Count} reached={reached} errors={errs} cycles={cycles}" + Wire.EpochLine(wEpoch));
+                        : Census($"{Head(null)}\nseeds={rows.Count} reached={reached} errors={errs} cycles={cycles}" + Wire.EpochLine(wEpoch)));
                 // Said only where the seeds ARE listed; a counts_only response's own cycles= is the whole answer.
                 if (cycles > 0)
                     headerLine += $"\n{cycles} cycle(s) — a record the walk reached again from itself, one per closing link, listed under its seed. A count is a lower bound on the number of distinct loops; none means none.";
@@ -1071,7 +1067,7 @@ public static partial class RecordsTools
                 if (wantFile)
                 {
                     var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo(), owed);
-                    if (aerr is not null) return json ? JsonWire.RenderError(aerr, wEpoch) : "error: " + aerr;
+                    if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, wEpoch);
                     spill = SpillState.Spilled(s!, manifestOnly: true);
                 }
                 var chainCounts = new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs), KvI("cycles", cycles) };
@@ -1085,7 +1081,7 @@ public static partial class RecordsTools
                     var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, reservation, "ceiling", Echo(), owed);
                     rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
-                return rendered;
+                return ToolAnswer.Served(rendered);
             }
 
             // Selection consumption: seeds plus reached, in walk order, deduplicated, then read under source= and
@@ -1101,8 +1097,7 @@ public static partial class RecordsTools
             }
             int seedErrs = rows.Count(r => r.Error is not null);
             if (combined.Count == 0)
-                return json ? JsonWire.RenderError($"the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome).", wEpoch)
-                            : $"error: the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome)." + Wire.EpochLine(wEpoch);
+                return ToolAnswer.Refusal(json, $"error: the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome).", wEpoch, epochLine: true);
 
             // ---- the reached set's own render bound, measured on the REACHED count rather than the seed scan's,
             // with its own remedy since the scan window is not what moves a walk. form='chain' returned above and
@@ -1126,7 +1121,7 @@ public static partial class RecordsTools
         //  COMPARISON forms on the list lane — delta (subject vs reference) and tree (every provider vs
         //  reference), riding their engine batches on one captured build per call.
         // ================================================================================================
-        string ListCompare(string[] ids, HousecarlCore.ArtifactDemand? demand, string? echoSrc)
+        ToolAnswer ListCompare(string[] ids, HousecarlCore.ArtifactDemand? demand, string? echoSrc)
         {
             List<KeyValuePair<string, string>> Echo()
             {
@@ -1153,7 +1148,7 @@ public static partial class RecordsTools
                                           out var sArm, out var rArm, out var covers, out var refusal, out var epoch,
                                           Meter(ListLever()), overlayWarnings);
                 if (refusal is not null)
-                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, epoch, epochLine: true);
                 return DeltaResponse(rows, sArm, rArm, covers, epoch, Echo());
             }
             else   // tree
@@ -1165,7 +1160,7 @@ public static partial class RecordsTools
                                          out var rArm, out var covers, out var refusal, out var epoch,
                                          Meter(ListLever()), overlayWarnings);
                 if (refusal is not null)
-                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, epoch, epochLine: true);
                 return TreeResponse(rows, rArm, covers, epoch, Echo());
             }
         }
@@ -1176,7 +1171,7 @@ public static partial class RecordsTools
 
         // The shared delta response pipeline — envelope, counts_only, window, spill, both renders — used by the
         // list and scan lanes alike.
-        string DeltaResponse(IReadOnlyList<RecordReads.DeltaRow> rows, string? sArm, string? rArm, bool covers,
+        ToolAnswer DeltaResponse(IReadOnlyList<RecordReads.DeltaRow> rows, string? sArm, string? rArm, bool covers,
                              OrderStamp? epoch, List<KeyValuePair<string, string>> echo)
         {
             Arm(sArm ?? srcSpec.Label);
@@ -1195,15 +1190,15 @@ public static partial class RecordsTools
             var notComparedCount = notCompared > 0 ? new[] { KvI("not_compared", notCompared) } : Array.Empty<KeyValuePair<string, int>>();
             var deltaCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }.Concat(notComparedCount).ToArray());
             if (counts_only)
-                return json
+                return ToolAnswer.Served(json
                     ? JsonWire.RenderNamedCounts(Env(null), deltaCounts, epoch, max_chars)
-                    : Census($"{Head(null)}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + (notCompared > 0 ? $" not_compared={notCompared}" : "") + Wire.EpochLine(epoch));
+                    : Census($"{Head(null)}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + (notCompared > 0 ? $" not_compared={notCompared}" : "") + Wire.EpochLine(epoch)));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
             {
                 var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, owed);
-                if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
+                if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render(SpillState? sp, out bool trunc) => json
@@ -1216,11 +1211,11 @@ public static partial class RecordsTools
                 var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, reservation, "ceiling", echo, owed);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
-            return rendered;
+            return ToolAnswer.Served(rendered);
         }
 
         // The shared tree response pipeline. The tree form has no subject: every provider is on the bench.
-        string TreeResponse(IReadOnlyList<RecordReads.TreeRow> rows, string? rArm, bool covers,
+        ToolAnswer TreeResponse(IReadOnlyList<RecordReads.TreeRow> rows, string? rArm, bool covers,
                             OrderStamp? epoch, List<KeyValuePair<string, string>> echo)
         {
             // The tree's reference rides the `versus` envelope key, as delta's does, so `source` keeps the
@@ -1236,15 +1231,15 @@ public static partial class RecordsTools
             int contested = rows.Count(x => x.Error is null && x.Touchers.Count > 1);
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)
-                return json
+                return ToolAnswer.Served(json
                     ? JsonWire.RenderNamedCounts(Env(null), new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch, max_chars)
-                    : Census($"{Head(null)}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch));
+                    : Census($"{Head(null)}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch)));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
             {
                 var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, owed);
-                if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
+                if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             var treeCounts = CmpCounts(KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs));
@@ -1258,12 +1253,12 @@ public static partial class RecordsTools
                 var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, reservation, "ceiling", echo, owed);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
-            return rendered;
+            return ToolAnswer.Served(rendered);
         }
 
         // The shared info_order response pipeline — envelope, counts_only, window, spill, both renders — used by
         // the list and scan lanes alike.
-        string InfoOrderResponse(IReadOnlyList<RecordReads.InfoOrderRow> rows, OrderStamp? epoch,
+        ToolAnswer InfoOrderResponse(IReadOnlyList<RecordReads.InfoOrderRow> rows, OrderStamp? epoch,
                                  List<KeyValuePair<string, string>> echo)
         {
             if (ioFold is null)
@@ -1291,15 +1286,15 @@ public static partial class RecordsTools
             int contested = rows.Count(x => x.Error is null && x.Order is { Contested: true });
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)
-                return json
+                return ToolAnswer.Served(json
                     ? JsonWire.RenderNamedCounts(Env(null), new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch, max_chars)
-                    : Census($"{Head(null)}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch));
+                    : Census($"{Head(null)}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch)));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
             {
                 var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo, owed);
-                if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
+                if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             var ioCounts = new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) };
@@ -1313,7 +1308,7 @@ public static partial class RecordsTools
                 var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, reservation, "ceiling", echo, owed);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
-            return rendered;
+            return ToolAnswer.Served(rendered);
         }
 
         // A pole reading content outside the epoch fingerprint is declared in both the envelope and the header,
@@ -1328,7 +1323,7 @@ public static partial class RecordsTools
         // ================================================================================================
         //  SCAN lane — types/plugins/where/references/conflicts_only drive; SOURCE picks the universe.
         // ================================================================================================
-        string ScanLane()
+        ToolAnswer ScanLane()
         {
             bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };
             bool hasTypes = types is { Length: > 0 };
@@ -1494,7 +1489,7 @@ public static partial class RecordsTools
                 var tear = $"the load order changed between resolving the source arm (epoch={probeEpoch.Epoch}) and the scan " +
                            $"(epoch={outcome.Epoch}) — the arm statement would describe a different world. Retry the call.";
                 // Rendered in the caller's format, like every other refusal on these paths.
-                return fmt is Wire.QueryFormat.Text ? "error: " + tear : JsonWire.RenderError(tear, outcome.Stamp);
+                return Wire.Refuse(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + tear, outcome.Stamp);
             }
             if (poleNote is not null && outcome.Error is null)
                 outcome = outcome with { ScanNote = outcome.ScanNote is null ? poleNote : poleNote + " " + outcome.ScanNote };
@@ -1567,12 +1562,12 @@ public static partial class RecordsTools
                                               out var sArm, out var rArm, out var covers, out var refusal, out var depoch,
                                               meter: Meter(ComparisonLever()));
                     if (refusal is not null)
-                        return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + Wire.EpochLine(depoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, depoch, epochLine: true);
                     if (outcome.Epoch is not null && depoch is not null && depoch.Epoch != outcome.Epoch)
                     {
                         var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the comparison " +
                                    $"(epoch={depoch.Epoch}) — the two halves would mix builds. Retry the call.";
-                        return json ? JsonWire.RenderError(tear, depoch) : "error: " + tear;
+                        return Wire.Refuse(json, Wire.RefusalPrefix + tear, depoch);
                     }
                     return DeltaResponse(rows, sArm, rArm, covers, depoch, Echo());
                 }
@@ -1582,12 +1577,12 @@ public static partial class RecordsTools
                                              out var rArm, out var covers, out var refusal, out var tepoch,
                                              meter: Meter(ComparisonLever()));
                     if (refusal is not null)
-                        return json ? JsonWire.RenderError(refusal, tepoch) : "error: " + refusal + Wire.EpochLine(tepoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, tepoch, epochLine: true);
                     if (outcome.Epoch is not null && tepoch is not null && tepoch.Epoch != outcome.Epoch)
                     {
                         var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the comparison " +
                                    $"(epoch={tepoch.Epoch}) — the two halves would mix builds. Retry the call.";
-                        return json ? JsonWire.RenderError(tear, tepoch) : "error: " + tear;
+                        return Wire.Refuse(json, Wire.RefusalPrefix + tear, tepoch);
                     }
                     return TreeResponse(rows, rArm, covers, tepoch, Echo());
                 }
@@ -1609,13 +1604,13 @@ public static partial class RecordsTools
                 }
                 var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts, ct);
                 if (ioRefusal is not null)
-                    return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + Wire.EpochLine(ioEpoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + ioRefusal, ioEpoch, epochLine: true);
                 if (FoldSeam(ioEpoch) is { } ioScanTear) return Wire.Refuse(json, ioScanTear, ioEpoch);
                 if (outcome.Epoch is not null && ioEpoch is not null && ioEpoch.Epoch != outcome.Epoch)
                 {
                     var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the merge " +
                                $"(epoch={ioEpoch?.Epoch}) — the two halves would mix builds. Retry the call.";
-                    return json ? JsonWire.RenderError(tear, ioEpoch) : "error: " + tear;
+                    return Wire.Refuse(json, Wire.RefusalPrefix + tear, ioEpoch);
                 }
                 // The scan's echo labels a named pole as a read source, which a fold is not, so the fold's
                 // statement replaces it in the artifact manifest.
@@ -1648,7 +1643,7 @@ public static partial class RecordsTools
                                                   containerHint, readDepths, ct,
                                                   draft: srcSpec.Draft, overlayWarnings: overlayWarnings, summary: summaryRows);
                     if (oref is not null)
-                        return json ? JsonWire.RenderError(oref, orefEpoch) : "error: " + oref + Wire.EpochLine(orefEpoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + oref, orefEpoch, epochLine: true);
                     OverlayPostNotes();
                 }
                 else if (srcName is not null)
@@ -1658,8 +1653,7 @@ public static partial class RecordsTools
                                                       ct, countFields, summary: summaryRows);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is honest.
                     if (bref is not null)
-                        return json ? JsonWire.RenderError(bref, brefEpoch)
-                                    : "error: " + bref + Wire.EpochLine(brefEpoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + bref, brefEpoch, epochLine: true);
                 }
                 else
                 {
@@ -1714,7 +1708,7 @@ public static partial class RecordsTools
                 {
                     var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the body read " +
                                $"(epoch={string.Join(", ", bodyEpochs.Where(e => e.Epoch != outcome.Epoch).Select(e => e.Epoch))}) — the two halves would mix builds. Retry the call.";
-                    return json ? JsonWire.RenderError(tear, outcome.Stamp) : "error: " + tear;
+                    return Wire.Refuse(json, Wire.RefusalPrefix + tear, outcome.Stamp);
                 }
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Stamp;
                 envelope.Add(new("total", outcome.Total));
@@ -1735,7 +1729,7 @@ public static partial class RecordsTools
                 if (wantFile)
                 {
                     var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches, summary: summaryRows, scan: outcome);
-                    if (aerr is not null) return json ? JsonWire.RenderError(aerr, bodyEpoch) : "error: " + aerr;
+                    if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, bodyEpoch);
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
                 var evRendered = RenderEv(evSpill, out var evTrunc);
@@ -1745,7 +1739,7 @@ public static partial class RecordsTools
                     var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches, summary: summaryRows, scan: outcome);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
-                return evRendered;
+                return ToolAnswer.Served(evRendered);
             }
 
             // ---- summary / fields / aggregate: the scan renders, envelope-stamped. ----
@@ -1760,7 +1754,7 @@ public static partial class RecordsTools
             {
                 var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, ArtifactTarget.Named(toFile!), "to_file", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 if (aerr is not null)
-                    return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
+                    return Wire.Refuse(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + aerr, outcome.Stamp);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             // "drop project=" is only actionable on detail rows; a summary-form scan has no project= to drop.
@@ -1780,13 +1774,13 @@ public static partial class RecordsTools
                 var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, reservation, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
-            return rendered;
+            return ToolAnswer.Outcome(outcome.Error is null, rendered);
         }
 
         // ================================================================================================
         //  OFF-ORDER scan: the file's own records are the universe.
         // ================================================================================================
-        string OffOrderScan(RecordReads.PoleInfo pole, ScanCall overlayRoute)
+        ToolAnswer OffOrderScan(RecordReads.PoleInfo pole, ScanCall overlayRoute)
         {
             // The file is the SELECTION statement, stated for every form except delta, whose pipeline names the
             // same file as its subject.
@@ -1898,13 +1892,13 @@ public static partial class RecordsTools
                                               out var sArm, out var rArm, out var covers, out var refusal, out var depoch,
                                               meter: Meter(ComparisonLever()));
                     if (refusal is not null)
-                        return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + Wire.EpochLine(depoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, depoch, epochLine: true);
                     // The file selection's build and the comparison's must agree, as on the in-order seam.
                     if (outcome.Epoch is not null && depoch is not null && depoch.Epoch != outcome.Epoch)
                     {
                         var tear = $"the load order changed between the file scan (epoch={outcome.Epoch}) and the comparison " +
                                    $"(epoch={depoch.Epoch}) — the two halves would mix builds. Retry the call.";
-                        return json ? JsonWire.RenderError(tear, depoch) : "error: " + tear;
+                        return Wire.Refuse(json, Wire.RefusalPrefix + tear, depoch);
                     }
                     return DeltaResponse(rows, sArm, rArm, covers, depoch, Echo());
                 }
@@ -1914,12 +1908,12 @@ public static partial class RecordsTools
                                              out var rArm, out var covers, out var refusal, out var tepoch,
                                              meter: Meter(ComparisonLever()));
                     if (refusal is not null)
-                        return json ? JsonWire.RenderError(refusal, tepoch) : "error: " + refusal + Wire.EpochLine(tepoch);
+                        return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, tepoch, epochLine: true);
                     if (outcome.Epoch is not null && tepoch is not null && tepoch.Epoch != outcome.Epoch)
                     {
                         var tear = $"the load order changed between the file scan (epoch={outcome.Epoch}) and the comparison " +
                                    $"(epoch={tepoch.Epoch}) — the two halves would mix builds. Retry the call.";
-                        return json ? JsonWire.RenderError(tear, tepoch) : "error: " + tear;
+                        return Wire.Refuse(json, Wire.RefusalPrefix + tear, tepoch);
                     }
                     return TreeResponse(rows, rArm, covers, tepoch, Echo());
                 }
@@ -1942,8 +1936,7 @@ public static partial class RecordsTools
                 var unfoldedOff = bodies;   // dense folds as it writes each row
                 bodies = FoldRows(bodies);
                 if (bref is not null)
-                    return json ? JsonWire.RenderError(bref, brefEpoch)
-                                : "error: " + bref + Wire.EpochLine(brefEpoch);
+                    return ToolAnswer.Refusal(json, Wire.RefusalPrefix + bref, brefEpoch, epochLine: true);
                 // The selection's build and the body reads' must agree, as on the in-order body seam: the bodies
                 // re-open the file, but the selection was made on the view.
                 var offBodyEpochs = bodies.Where(o => o.Epoch is not null).Select(o => o.Epoch!).Distinct().ToList();
@@ -1951,7 +1944,7 @@ public static partial class RecordsTools
                 {
                     var tear = $"the load order changed between the file scan (epoch={outcome.Epoch}) and the body read " +
                                $"(epoch={string.Join(", ", offBodyEpochs.Where(e => e != outcome.Epoch))}) — the two halves would mix builds. Retry the call.";
-                    return json ? JsonWire.RenderError(tear, outcome.Stamp) : "error: " + tear;
+                    return Wire.Refuse(json, Wire.RefusalPrefix + tear, outcome.Stamp);
                 }
                 envelope.Add(new("total", outcome.Total));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
@@ -1969,7 +1962,7 @@ public static partial class RecordsTools
                 if (wantFile)
                 {
                     var (sp, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), offLevers, matches: offMatches, scan: outcome);
-                    if (aerr is not null) return json ? JsonWire.RenderError(aerr, offEpoch) : "error: " + aerr;
+                    if (aerr is not null) return Wire.Refuse(json, Wire.RefusalPrefix + aerr, offEpoch);
                     offSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
                 var offRendered = RenderOff(offSpill, out var offTrunc);
@@ -1979,7 +1972,7 @@ public static partial class RecordsTools
                     var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches, scan: outcome);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
-                return offRendered;
+                return ToolAnswer.Served(offRendered);
             }
 
             // summary / aggregate: the shared scan renders, prefilled rows carrying the file's identities and
@@ -1989,7 +1982,7 @@ public static partial class RecordsTools
             {
                 var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, ArtifactTarget.Named(toFile!), "to_file", Echo(), LeverNames.Records);
                 if (aerr is not null)
-                    return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
+                    return Wire.Refuse(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + aerr, outcome.Stamp);
                 spill = SpillState.Spilled(sp!, manifestOnly: true);
             }
             // The off-order scan passes no field paths, so it never has a project= to drop.
@@ -2007,7 +2000,7 @@ public static partial class RecordsTools
                 var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, reservation, "ceiling", Echo(), LeverNames.Records);
                 rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
-            return rendered;
+            return ToolAnswer.Outcome(outcome.Error is null, rendered);
         }
     }, ct);
 

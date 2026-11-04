@@ -71,7 +71,7 @@ public sealed class CheckWirePathTests
         var p = CheckToolParameters().Single(x => x.Name == parameter);
         var r = _s.Call(ToolNames.Check, $$"""{"{{parameter}}": {{SampleValueFor(p.ParameterType)}}}""");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 
@@ -97,7 +97,7 @@ public sealed class CheckWirePathTests
     {
         var r = _s.Call(ToolNames.Check, $$"""{"findings":["{{family}}"]}""");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.Equal(1, r.ContentBlocks);
         Assert.Equal("text", r.FirstBlockType);
         Assert.True(r.BodyRan, r.Describe());
@@ -108,7 +108,7 @@ public sealed class CheckWirePathTests
     {
         var r = _s.Call(ToolNames.Check, "{}");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.Equal("text", r.FirstBlockType);
         Assert.True(r.BodyRan, r.Describe());
     }
@@ -122,7 +122,7 @@ public sealed class CheckWirePathTests
     {
         var r = _s.Call(ToolNames.Check, """{"findings":"errors"}""");
 
-        Assert.False(r.IsError, r.Describe());
+        Assert.True(r.IsError, r.Describe());   // the config prompt is a refusal
         Assert.True(r.BodyRan, r.Describe());
     }
 

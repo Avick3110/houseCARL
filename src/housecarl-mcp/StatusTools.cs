@@ -33,16 +33,16 @@ public static class StatusTools
             "filter=, both render.")]
             string? profile = null,
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.LoadOrderStatus, () =>
+            int max_chars = 0) => Guard.Tool(ToolNames.LoadOrderStatus, call =>
     {
         // The server line goes ahead of the config prompt: an unconfigured server is exactly the stale staged install this line exists to catch.
-        if (svc.ConfigPromptOrNull() is { } prompt) return StatusWire.ServerLine + prompt;
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(StatusWire.ServerLine + prompt);
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
         // Read only for a filter: the facts are a per-plugin locate and header read, and the whole-profile summary asks about none.
         var facts = filter is { Length: > 0 } ? svc.PluginFactsFor(filter.Trim(), data) : null;
-        return StatusWire.Render(data, logs, profiles, filter, facts, Wire.Cap(max_chars));
+        return ToolAnswer.Served(StatusWire.Render(data, logs, profiles, filter, facts, Wire.Cap(max_chars)));
     });
 }
 
