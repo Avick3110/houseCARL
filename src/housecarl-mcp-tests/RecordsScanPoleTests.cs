@@ -414,6 +414,30 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.Contains("HcRecW0", File.ReadAllText(path));
     }
 
+    /// <summary>where= alone is unbounded: the bound sentence answers ahead of the overlay route, whose plain scan of
+    /// where= alone it would refuse.</summary>
+    [Fact]
+    public void OverlayScanDeltaOverWhereAlone_IsTheBoundRefusalNotARoute()
+    {
+        var r = RecordsTools.Records(Svc, where: new[] { "editorid = HcRecW0" }, source: DraftPost("route-unbounded"),
+                                     versus: Je("\"winner\""), project: Form("delta"));
+        Refused(r, "where= is a body scan and must be combined with types=, plugins=, or a formids= set");
+        Assert.DoesNotContain("The list lane serves it", r);
+    }
+
+    /// <summary>conflicts_only= on an off-order source= is that file's own fault, said ahead of the overlay route
+    /// whose plain scan on the same source= would refuse it; an in-order source= still gets the route.</summary>
+    [Fact]
+    public void OffOrderConflictsOnlyVersusOverlay_IsTheOffOrderRefusalNotARoute()
+    {
+        var draft = DraftPost("route-offorder-conflicts");
+        var r = RecordsTools.Records(Svc, types: Weap, conflicts_only: true, source: Plugin(W.OldName), versus: draft, project: Form("delta"));
+        Refused(r, "conflicts_only= has no meaning on an out-of-load-order file");
+        Assert.DoesNotContain("The list lane serves it", r);
+        Refused(RecordsTools.Records(Svc, types: Weap, conflicts_only: true, source: Plugin(W.OverrideName), versus: draft, project: Form("delta")),
+                "plain scan of types= and conflicts_only on the same source= with to_file=");
+    }
+
     /// <summary>A scan-seeded walk under the post overlay: the route walks the file's records under the same pole.</summary>
     [Fact]
     public void OverlayScanWalk_NamesTheFileRouteAndItRuns()
