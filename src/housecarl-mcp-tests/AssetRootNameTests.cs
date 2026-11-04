@@ -48,8 +48,8 @@ public sealed class AssetRootNameTests : IDisposable
     [InlineData(@"fomodx\a.xml", true)]
     public void TheRootNamesAreHiddenUnderTheDefaultAndEmptyLists(string rel, bool shown)
     {
-        Assert.Equal(shown, Mo2SkipRules.Default.Shows(rel));
-        Assert.Equal(shown, new Mo2SkipRules(Array.Empty<string>(), Array.Empty<string>()).Shows(rel));
+        Assert.Equal(shown, Mo2SkipRules.Default.Hides(rel, linked: true) is null);
+        Assert.Equal(shown, new Mo2SkipRules(Array.Empty<string>(), Array.Empty<string>()).Hides(rel, linked: true) is null);
     }
 
     [Fact]

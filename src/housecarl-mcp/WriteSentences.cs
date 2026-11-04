@@ -436,7 +436,7 @@ internal static class WriteSentences
             OffOrderReason.NoSuchFolder     => $" — {PlaceSourceNoSuchFolder}. ",
             OffOrderReason.NoCopyInFolder   => $" — {PlaceSourceDiskFolderSearched}. ",
             OffOrderReason.FolderUnreadable => $" — {PlaceSourceFolderUnreadable}. ",
-            OffOrderReason.Hidden           => $" — {PlaceSourceFolderHidden}: {hidden?.Sentence(rel)}. ",
+            OffOrderReason.Hidden           => $" — {PlaceSourceFolderHidden}: {hidden?.Sentence()}. ",
         }
       + (unreadableName is null ? "" : $"NOTE: '{unreadableName}' could not be read ({unreadableCause}), so this may be unscanned rather than absent. ")
       + (scanIncomplete ? PlaceSourceScanIncomplete + " " : "")

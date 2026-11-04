@@ -56,12 +56,10 @@ static class AssetWalkWire
         WalkStanding.FromSource => $"FROM SOURCE: {Copy(n.Copy!)}",
         WalkStanding.Elsewhere => $"ELSEWHERE: {Copy(n.Copy!)} wins it" + (source is null ? "" : $"; \"{source}\" does not ship it"),
         WalkStanding.Present => $"WINS: {Copy(n.Copy!)}",
-        WalkStanding.Absent => "ABSENT — " + AbsentWords.Why(n.Hidden, n.Path)
-                               + (source is null || HeldBy(n.Hidden, source) ? "" : $", and \"{source}\" does not ship it"),
+        WalkStanding.Absent => "ABSENT — " + AbsentWords.Why(n.Hidden)
+                               + (source is null || n.Hidden?.HeldBy(source) == true ? "" : $", and \"{source}\" does not ship it"),
         _ => "error: " + n.Error,
     };
-
-    static bool HeldBy(HiddenCopies? h, string source) => h is not null && h.Holders.Contains(source, StringComparer.OrdinalIgnoreCase);
 
     static string Copy(PlacementSource s)
         => AssetSourceSelection.Describe(s)
@@ -127,28 +125,26 @@ static class AssetWalkWire
 
     static Dictionary<string, object?> NodeDoc(AssetWalkNode n)
     {
-        var doc = NodeFields(n);
+        var doc = new Dictionary<string, object?>
+        {
+            ["path"] = n.Path,
+            ["edge"] = n.Edge,
+            ["pulled_by"] = n.PulledBy,
+            ["standing"] = n.Standing switch
+            {
+                WalkStanding.FromSource => "from_source", WalkStanding.Elsewhere => "elsewhere",
+                WalkStanding.Present => "present", WalkStanding.Absent => "absent", _ => "error",
+            },
+            ["provider"] = n.Copy?.ProviderName,
+            ["provider_kind"] = n.Copy?.Kind == AssetKind.Bsa ? "BSA" : n.Copy is null ? null : "loose",
+            ["keyed"] = n.Keyed,
+            ["note"] = n.Note,
+            ["error"] = n.Error,
+        };
         // Only on a hidden node, so any other node is the document it always was.
-        if (n.Hidden is { } h) doc["hidden"] = h.Sentence(n.Path);
+        if (n.Hidden is { } h) doc["hidden"] = AbsentWords.Doc(h);
         return doc;
     }
-
-    static Dictionary<string, object?> NodeFields(AssetWalkNode n) => new()
-    {
-        ["path"] = n.Path,
-        ["edge"] = n.Edge,
-        ["pulled_by"] = n.PulledBy,
-        ["standing"] = n.Standing switch
-        {
-            WalkStanding.FromSource => "from_source", WalkStanding.Elsewhere => "elsewhere",
-            WalkStanding.Present => "present", WalkStanding.Absent => "absent", _ => "error",
-        },
-        ["provider"] = n.Copy?.ProviderName,
-        ["provider_kind"] = n.Copy?.Kind == AssetKind.Bsa ? "BSA" : n.Copy is null ? null : "loose",
-        ["keyed"] = n.Keyed,
-        ["note"] = n.Note,
-        ["error"] = n.Error,
-    };
 
     static string Json(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int cap, SpillState? spill, out bool truncated)
     {

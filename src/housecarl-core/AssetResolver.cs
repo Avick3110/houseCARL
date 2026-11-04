@@ -96,7 +96,8 @@ public sealed class AssetResolver : IDisposable
     internal sealed class LooseSubtree
     {
         public readonly (int RootIndex, HashSet<string> Files)[] Present;   // roots that have the dir + ≥1 file, precedence order
-        public LooseSubtree((int, HashSet<string>)[] present) { Present = present; }
+        public readonly bool AnySuffixed;                                  // a file here ends with a skip suffix, so a hidden twin may be here
+        public LooseSubtree((int, HashSet<string>)[] present, bool anySuffixed) { Present = present; AnySuffixed = anySuffixed; }
     }
 
     volatile Snapshot _snap;
@@ -315,7 +316,9 @@ public sealed class AssetResolver : IDisposable
         var st = snap.LooseCache.GetOrAdd(subtreeDir, d => WarmSubtree(d, snap, pass));
         var loose = new List<PlacementSource>();
         // A file MO2 hides is not in the Data view, whichever root holds it; archives are not filtered.
-        HiddenRule? linkedRule = _skip.Hides(opened, linked: true), dataRule = _skip.Hides(opened, linked: false);
+        // The game's Data folder is never linked, so only a root name hides there.
+        var linkedRule = _skip.Hides(opened, linked: true);
+        var dataRule = linkedRule?.Kind == HiddenKind.RootName ? linkedRule : null;
         HiddenRule? hiddenRule = null;
         string? hiddenPath = null;
         List<string>? holders = null;
@@ -335,12 +338,12 @@ public sealed class AssetResolver : IDisposable
                         LooseFilePath: Path.Combine(_looseRoots[rootIndex].Dir, opened), ArchivePath: null, EntryPath: rel));
                 else Hold(rule, opened, rootIndex);
             }
-            else if (rule is null && linked)
-                // MO2's Hide renames x to x.mohidden: the root that holds only the twin has x, hidden.
-                foreach (var s in _skip.FileSuffixes)
-                    if (files.Contains(fname + s)) { Hold(new HiddenRule(HiddenKind.SkipSuffix, s), opened + s, rootIndex); break; }
+            // The root that holds only x's hidden twin has x, hidden.
+            else if (rule is null && linked && st.AnySuffixed && _skip.Twin(fname, files.Contains) is { } twin)
+                Hold(twin.Rule, opened + twin.Rule.Token, rootIndex);
         }
-        var hidden = hiddenRule is null ? null : new HiddenCopies(hiddenRule, hiddenPath!, holders!);
+        var hidden = hiddenRule is null ? null
+            : new HiddenCopies(hiddenRule, hiddenPath!, holders!, Twin: !string.Equals(hiddenPath, opened, StringComparison.OrdinalIgnoreCase));
 
         // ---- BSA, highest plugin rank first ----
         var bsa = new List<(PlacementSource source, int rank)>();
@@ -651,7 +654,7 @@ public sealed class AssetResolver : IDisposable
             Watch(dir, roots[i].Dir, snap, names, absent);           // the baseline for an appear/disappear, on the build's shared watch set
             if (files is { Count: > 0 }) present.Add((i, files));
         }
-        return new LooseSubtree(present.ToArray());
+        return new LooseSubtree(present.ToArray(), present.Any(p => _skip.AnySuffixed(p.Item2)));
     }
 
     /// <summary>One root's copy of a subtree off listings no older than the pass, top down; false sends it to <see cref="SafeListing"/>.</summary>
@@ -891,7 +894,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>A normalized path spelt segment by segment as Windows opens it, for the loose lookup.</summary>
-    internal static string AsWindowsOpens(string rel)
+    static string AsWindowsOpens(string rel)
     {
         var segs = rel.Split('\\');
         for (int i = 0; i < segs.Length; i++) segs[i] = AsWindowsOpens(segs[i], last: i == segs.Length - 1);

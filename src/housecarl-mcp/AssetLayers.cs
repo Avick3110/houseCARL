@@ -794,7 +794,7 @@ internal sealed partial class AssetLayers
                 // A model path off a record is stored relative to meshes\, so a flat ABSENT is a dead end. The hint is re-resolved, never guessed.
                 var hint = place.Hidden is null ? AssetPathHint.MeshHint(view, rel) : null;
                 return new NifInspectData(rel, null, providers, place.Ambiguous, Absent: true, null,
-                    "ABSENT — " + AbsentWords.Why(place.Hidden, place.RelPath, "this mesh path") + "." + (hint is null ? "" : " " + hint));
+                    "ABSENT — " + AbsentWords.Why(place.Hidden, "this mesh path") + "." + (hint is null ? "" : " " + hint));
             }
             chosen = place.Sources[0];
         }
@@ -840,7 +840,7 @@ internal sealed partial class AssetLayers
         if (pick.Verdict == AssetSourceVerdict.Selected) return (pick.Source, null, false);
         // The winner pole over an empty universe is the ABSENT case, not a named miss, and Absent travels with it.
         if (choice.Pole != AssetSourcePole.Named)
-            return (null, "ABSENT — " + AbsentWords.Why(place.Hidden, place.RelPath, $"'{rel}'") + ", so there is no winner to read."
+            return (null, "ABSENT — " + AbsentWords.Why(place.Hidden, $"'{rel}'") + ", so there is no winner to read."
                         + (place.Hidden is null && AssetPathHint.MeshHint(view, rel) is { } wh ? " " + wh : ""), true);
         // A named miss is NOT an absence — it says which mod and carries its own inline caveat instead.
         return (null, WriteSentences.PlaceSourceNamedAbsent(
@@ -909,7 +909,7 @@ internal sealed partial class AssetLayers
             {
                 var hint = place.Hidden is null ? AssetPathHint.MeshHint(view, rel) : null;   // same verified re-resolve as nif_inspect's ABSENT
                 return NifSetResult.Fail(HedgedAbsent(
-                    $"ABSENT — {AbsentWords.Why(place.Hidden, place.RelPath, $"'{rel}'")}, so there is no copy to edit." + (hint is null ? "" : " " + hint)),
+                    $"ABSENT — {AbsentWords.Why(place.Hidden, $"'{rel}'")}, so there is no copy to edit." + (hint is null ? "" : " " + hint)),
                     providers, profileName);
             }
             chosen = place.Sources[0];
@@ -1151,7 +1151,7 @@ internal sealed partial class AssetLayers
             // A path a root holds hidden: said, and no mod name is taught, because naming one does not reach a hidden file.
             if (pick.Verdict == AssetSourceVerdict.NoProvider && srcRes.Hidden is { } hidden)
                 return PlaceResult.Fail(rel,
-                    $"nothing in the active load order provides '{srcRel}': it is {hidden.Sentence(srcRel)}, so there is no copy to "
+                    $"nothing in the active load order provides '{srcRel}': it is {hidden.Sentence()}, so there is no copy to "
                     + (sourceNamed ? "read" : "auto-place") + ", and naming its mod with source_provider= does not reach it either."
                     + (srcRes.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : ""),
                     winner);

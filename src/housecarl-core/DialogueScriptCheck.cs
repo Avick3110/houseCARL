@@ -139,7 +139,7 @@ public static class DialogueScriptCheck
             var hit = av.Resolve(relPex);
             if (hit.Exists) continue;
             missing.Add(relPex);
-            hiddenNote ??= hit.Hidden?.Sentence(relPex) is { } h ? $" ('{relPex}' is {h})" : null;
+            hiddenNote ??= hit.Hidden?.Sentence() is { } h ? $" ('{relPex}' is {h})" : null;
         }
 
         if (missing.Count == 0)

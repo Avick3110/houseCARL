@@ -139,7 +139,7 @@ internal static class AssetArtifact
         w.WriteEndArray();
         w.WriteBoolean("ambiguous", hit.Ambiguous);
         // Only where a root holds the path hidden, so any other row is the row it always was.
-        AbsentWords.Write(w, hit.Hidden, hit.RelPath);
+        AbsentWords.Write(w, hit.Hidden);
         Str(w, "pair_path", r.PairPath);
         if (r.PairHit is { } pair)
         {

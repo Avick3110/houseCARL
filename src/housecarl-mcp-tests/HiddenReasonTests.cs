@@ -187,7 +187,7 @@ public sealed class HiddenReasonTests : IDisposable
 
         var lines = File.ReadAllLines(file);
         Assert.Contains(lines, l => l.Contains("\"note\",\"error\",\"hidden\""));
-        Assert.Contains(lines, l => l.Contains("\"hidden\":\"hidden by MO2"));
+        Assert.Contains(lines, l => l.Contains("\"hidden\":{\"rule\":\"root_name\""));
     }
 
     [Fact]
@@ -301,7 +301,7 @@ public sealed class HiddenReasonTests : IDisposable
         var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: true);
         Assert.Contains("ABSENT — hidden by MO2", text);
         var json = AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: true, format: "json");
-        Assert.Contains("\"hidden\":\"hidden by MO2", json);
+        Assert.Contains("\"hidden\":{\"rule\":\"root_name\"", json);
     }
 
     [Fact]
