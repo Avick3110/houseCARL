@@ -65,6 +65,17 @@ public sealed class SkyPatcherReachTests
         Assert.Equal(new[] { 1, 2, 3 }, AppliedLines(r, "weight"));
     }
 
+    // restrictToSkills only removes: a one-handed weapon the keyword finds is removed by a two-handed restriction
+    [Fact]
+    public void RestrictToSkillsIsANarrower()
+    {
+        var w = NewWeapon(new FormKey(Mine, 0x903), Kw);
+        var r = Apply(w, w.FormKey, w.EditorID, "weapon", "Weapon", new StubResolver(),
+            L(1, "filterByKeywords=HcKw.esp|801:restrictToSkills=twohanded:weight=3"),
+            L(2, "filterByKeywords=HcKw.esp|801:restrictToSkills=onehanded:weight=4"));
+        Assert.Equal(new[] { 2 }, AppliedLines(r, "weight"));
+    }
+
     // a narrower with no static evaluation beside the direct list does not stop it: the listed NPC is patched
     [Fact]
     public void AnUnevaluableNarrowerDoesNotStopTheDirectList()
