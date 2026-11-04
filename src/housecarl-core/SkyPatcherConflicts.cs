@@ -14,11 +14,11 @@ public static class SkyPatcherConflicts
     {
         /// <summary>The write the DLL leaves in place — the last entry in apply order.</summary>
         public SkyPatcherConflictEntry Winner => Entries[^1];
-        /// <summary>True when ANY entry's applicability also hangs on non-primary filters.</summary>
+        /// <summary>True when ANY entry is conditional.</summary>
         public bool Conditional => Entries.Any(e => e.Conditional);
     }
 
-    /// <summary>One conflicting write; <see cref="Conditional"/> means the line carries filters beyond the primary, so whether it applies to the target depends on them.</summary>
+    /// <summary>One conflicting write; <see cref="Conditional"/> means a gate, finder or narrower on the line decides whether it reaches the target (<see cref="TargetsOf"/>).</summary>
     public sealed record SkyPatcherConflictEntry(string File, int Line, string Op, string Value, bool Conditional);
 
     /// <summary>One file's ITM-class finding for one field — the dead writes only, in line order; the entry count is the physical dead-write count.</summary>
@@ -39,7 +39,7 @@ public static class SkyPatcherConflicts
         string Target,
         IReadOnlyList<SkyPatcherConflictEntry> Entries)
     {
-        /// <summary>True when ANY entry's applicability also hangs on non-primary filters.</summary>
+        /// <summary>True when ANY entry is conditional.</summary>
         public bool Conditional => Entries.Any(e => e.Conditional);
     }
 

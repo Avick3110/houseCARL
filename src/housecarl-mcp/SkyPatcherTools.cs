@@ -148,7 +148,7 @@ static class SkyPatcherWire
                 m => m.Entries.Select(e => "      :" + e.Line + "  " + e.Op + "=" + e.Value + "  @ " + e.Targets
                     + "   ← DEAD (overwritten by "
                     + string.Join(", ", e.KillerLines.Select(k => k == e.Line ? $":{k} (a later op on the same line)" : $":{k}")) + ")"
-                    + (e.Conditional ? "   [carries further filters — dead regardless: the overwrite is unconditional]" : "") + "\n")))
+                    + (e.Conditional ? "   [conditional — a gate, finder or narrower on the line decides whether it reaches this target; dead regardless: the overwrite is unconditional]" : "") + "\n")))
             missed.Add(ReportNames[1]);
 
         if (d.Duplicates.Count > 0 && !Section(sb, budget,
