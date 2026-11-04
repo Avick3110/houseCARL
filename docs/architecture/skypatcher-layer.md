@@ -228,7 +228,9 @@ hardened.
   stateful; that is not the paragraph's leaf-type check, and the stateful-numeric-on-a-non-numeric-leaf, flags-on-a-non-enum
   and dict-on-a-non-dict checks have no self-test arm.
 - *The grammar*: `SkyPatcherParseTests` — a segment with no `=` or an empty key is noted
-  and still surfaced, and a doubled `,` is noted and skipped.
+  and still surfaced, a doubled `,` is noted and skipped, a comment after a rule is not part of the value
+  (`ATrailingCommentIsNotPartOfTheValue`), and a duplicate key's second copy is ignored and noted
+  (`ADuplicateKeysSecondCopyIsIgnored`).
 - *Addressing*: `SkyPatcherParseTests` — a bare EditorID is left un-addressed, and the FormID side trims leading
   zeros; `SkyPatcherOverlayWeaponReplayTests.AFullEslFormIdWithANonZeroSlotKeepsOnlyTheLocalId` (`FE001800`) — a
   full ESL FormID keeps its 12-bit local id.
@@ -250,7 +252,7 @@ hardened.
   directive; `SkyPatcherOverlayFilterTests`, `SkyPatcherOverlayEntryOpsTests` and `SkyPatcherOverlayOpClosureTests`
   — the filter kinds, the entry and list ops, and the op closures.
 - *Tiered honesty*, which warnings ride a read: `SkyPatcherWarningRelevanceTests` — a record no line reaches gets the
-  pointer and no warning text, a matched Or line and a bare line stopped by a missing keyword ride, an unknown key
+  pointer and no warning text, a matched Or line and a bare line that reaches the record past a missing keyword ride, an unknown key
   always rides, a draft's line rides whatever its verdict, and `filter=` lists the lint under its line.
 - *How the overlay replays onto a record*: `SkyPatcherFieldMapGuardTests.AMappedHardOpIsCaught` — CI rejects a
   HARD op that acquires a mapping.
