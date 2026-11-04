@@ -255,7 +255,7 @@ public static class NifTools
             string.IsNullOrWhiteSpace(patch) ? null : patch,
             string.IsNullOrWhiteSpace(into) ? null : into,
             in_place, acknowledge);
-        return ToolAnswer.Outcome(data.NeedsAcknowledge || (data.Report is not null && data.Error is null), NifSetWire.Render(data));
+        return ToolAnswer.Outcome(data.State != NifSetState.Refused, NifSetWire.Render(data));
     });
 
     /// <summary>Turn the flat tool params into one <see cref="NifSetOp"/>, or a named error before the value reaches the
@@ -738,14 +738,14 @@ static class NifSetWire
           .Append("  (profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)").Append("')\n");
 
         // in-place first-touch consent: a required confirmation returned verbatim, not an error.
-        if (d.NeedsAcknowledge)
+        if (d.State == NifSetState.Consent)
         {
             sb.Append('\n').Append(d.AckPrompt).Append('\n');
             return sb.ToString().TrimEnd('\n');
         }
 
         // refusal — nothing written.
-        if (d.Report is null || d.Error is not null)
+        if (d.State == NifSetState.Refused)
         {
             sb.Append('\n').Append(d.Error ?? "unknown error").Append('\n');
             // This render takes no max_chars, so the roots are cut against the server default.
@@ -762,12 +762,13 @@ static class NifSetWire
             sb.Append("  note: more than one source provides this mesh — the winner above was edited (loose beats BSA). Pass source_provider= to edit another copy.\n");
 
         sb.Append("\n  applied + VERIFIED (two gates: only the op's block/header changed; reload re-reads the value; census intact):\n");
-        foreach (var o in d.Report.Ops)
+        var report = d.Report!;   // Written carries a report
+        foreach (var o in report.Ops)
             sb.Append("    ").Append(o.Op).Append(" on '").Append(o.Target).Append("': ").Append(o.Before).Append("  ->  ").Append(o.After).Append('\n');
         sb.Append("  verification: ")
-          .Append(d.Report.HeaderChanged ? "header string table" : "no header change")
-          .Append(d.Report.ChangedBlocks.Count > 0 ? $" + block(s) [{string.Join(", ", d.Report.ChangedBlocks)}]" : " + 0 blocks")
-          .Append("; net size vs source ").Append(d.Report.SizeDelta >= 0 ? "+" : "").Append(d.Report.SizeDelta)
+          .Append(report.HeaderChanged ? "header string table" : "no header change")
+          .Append(report.ChangedBlocks.Count > 0 ? $" + block(s) [{string.Join(", ", report.ChangedBlocks)}]" : " + 0 blocks")
+          .Append("; net size vs source ").Append(report.SizeDelta >= 0 ? "+" : "").Append(report.SizeDelta)
           .Append(" byte(s) (includes nifly's canonical re-serialization, not just the edit)\n");
 
         // lane outcome
