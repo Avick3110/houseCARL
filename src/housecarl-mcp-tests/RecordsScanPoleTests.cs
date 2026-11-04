@@ -435,7 +435,7 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Refused(r, "conflicts_only= has no meaning on an out-of-load-order file");
         Assert.DoesNotContain("The list lane serves it", r);
         Refused(RecordsTools.Records(Svc, types: Weap, conflicts_only: true, source: Plugin(W.OverrideName), versus: draft, project: Form("delta")),
-                "plain scan of types= and conflicts_only on the same source= with to_file=");
+                "plain scan of types= and conflicts_only=true on the same source= with to_file=");
     }
 
     /// <summary>A scan-seeded walk under the post overlay: the route walks the file's records under the same pole.</summary>
