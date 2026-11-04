@@ -132,6 +132,19 @@ public sealed class SkyPatcherDiscoveryTests : IDisposable
         Assert.Equal(new[] { "weapon", "armor", "light" }, order);
     }
 
+    // a switch value reads as its leading integer (atoi): 2 and 1x are on, x1 and -0 are off
+    [Fact]
+    public void ASwitchReadsAsItsLeadingInteger()
+    {
+        Write(Path.Combine(_mods, "ModA"), "SKSE/Plugins/SkyPatcher.ini",
+            "[Patcher]\niEnableWeaponPatching=2\niEnableArmorPatching=1x\niEnableNpcPatching=x1\niEnableLightPatching=-0\n");
+        var scan = Scan();
+        Assert.True(Folder(scan, "weapon").PatchingEnabled);
+        Assert.True(Folder(scan, "armor").PatchingEnabled);
+        Assert.False(Folder(scan, "npc").PatchingEnabled);
+        Assert.False(Folder(scan, "light").PatchingEnabled);
+    }
+
     // with no SkyPatcher.ini every patcher but Light is off, said once
     [Fact]
     public void NoSwitchFileLeavesEveryPatcherButLightOff()
