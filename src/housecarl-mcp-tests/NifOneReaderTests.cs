@@ -84,7 +84,7 @@ public sealed class NifOneReaderTests : IDisposable
 
         Assert.Contains("texture — shape 'Glow' effect source texture: `" + Shared + "`", paths, StringComparison.Ordinal);
         Assert.Contains("texture — shape 'Body' texture slot 4: `" + Shared + "`", paths, StringComparison.Ordinal);
-        Assert.Equal(1, Count(links, "`" + Shared + "`"));
+        Assert.Equal(1, CheckMergeFixture.Count(links, "`" + Shared + "`"));
         Assert.Contains("texture — shape 'Glow' effect source texture: `" + Shared + "`", links, StringComparison.Ordinal);
     }
 
@@ -131,8 +131,6 @@ public sealed class NifOneReaderTests : IDisposable
     /// <summary>The distinct Data path lines a render prints, each with its standing.</summary>
     static string[] DataLines(string text) => Regex.Matches(text, @"data path: [^\n]*").Select(m => m.Value)
                                                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-
-    static int Count(string text, string part) => Regex.Matches(text, Regex.Escape(part)).Count;
 
     /// <summary>A two-shape SE mesh: 'Glow' drawn by an effect shader with <paramref name="effect"/>, then 'Body' whose
     /// lighting shader's texture set holds <paramref name="slots"/>; the root carries the SMP and BODYTRI strings given.</summary>

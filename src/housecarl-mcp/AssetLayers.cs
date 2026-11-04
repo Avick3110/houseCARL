@@ -180,7 +180,7 @@ internal sealed partial class AssetLayers
                           { Standing = ProviderStandings.Of(hit, provider) };
                 if (links && hit.Exists && p.EndsWith(".nif", StringComparison.OrdinalIgnoreCase))
                 {
-                    var (read, readErr) = ReadMeshLinks(view, view.ResolveForPlacement(p).Sources[0]);
+                    var (read, readErr) = ResolveLinks(view, MeshLinks(view.ResolveForPlacement(p).Sources[0]));
                     row = row with { Links = read, LinksError = readErr };
                 }
                 results.Add(row);
@@ -197,11 +197,8 @@ internal sealed partial class AssetLayers
                                    Provider: provider);
     }
 
-    /// <summary>The files one copy of a mesh names, each once, resolved against the load order; or why they could not be read.</summary>
-    internal static (IReadOnlyList<ResolvedNifLink>? Links, string? Error) ReadMeshLinks(AssetResolver.AssetView view, PlacementSource copy)
-        => ResolveLinks(view, MeshLinks(copy));
-
-    /// <summary>Each link's Data path resolved against the load order, whatever copy the links were read from.</summary>
+    /// <summary>Each link's Data path resolved against the load order, whatever copy the links were read from: the one
+    /// resolve asset_status links= and nif_inspect's paths section share.</summary>
     static (IReadOnlyList<ResolvedNifLink>? Links, string? Error) ResolveLinks(AssetResolver.AssetView view, (IReadOnlyList<NifLink>? Links, string? Error) read)
         => read.Links is not { } links ? (null, read.Error)
          : (links.Select(l => new ResolvedNifLink(l, l.DataPath is { } d ? view.Resolve(d) : null)).ToList(), null);
@@ -768,7 +765,7 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>One path's inspect against the already-captured view. Every failure is a named per-path outcome, never a throw.</summary>
-    static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? sourceProvider, bool links = false)
+    static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? sourceProvider, bool links)
     {
         if (rel.Length == 0)
             return NifInspectData.Fail("", "empty mesh path. Pass a Data-relative path, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.");
@@ -805,11 +802,11 @@ internal sealed partial class AssetLayers
             return new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous,
                 false, null, readErr ?? "could not read the resolved mesh bytes.");
 
-        var outcome = NifService.Inspect(bytes);
+        // One parse gives the model and, when the paths section wants them, the links of the copy read, every site.
+        var outcome = NifService.Inspect(bytes, links);
         var data = new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous, false, outcome.Inspect, outcome.Error);
         if (!links || outcome.Inspect is null) return data;
-        // The links of the copy read, every site, through the reader and resolve links= uses.
-        var (read, linksErr) = ResolveLinks(view, NifLinks.Read(bytes));
+        var (read, linksErr) = ResolveLinks(view, (outcome.Links, outcome.LinksError));
         return data with { Links = read, LinksError = linksErr };
     }
 

@@ -31,7 +31,12 @@ public static class NifLinks
     public static (IReadOnlyList<NifLink>? Links, string? Error) Read(byte[] bytes)
     {
         var (nif, err) = NifService.Load(bytes);
-        if (nif is null) return (null, err);
+        return nif is null ? (null, err) : Read(nif);
+    }
+
+    /// <summary>The links of a mesh already parsed, so an inspect that also wants them parses once.</summary>
+    internal static (IReadOnlyList<NifLink>? Links, string? Error) Read(NifFile nif)
+    {
         try { return (Collect(nif), null); }
         catch (Exception ex) { return (null, $"the mesh parsed but reading its links failed — {ex.GetType().Name}: {ex.Message}"); }
     }
