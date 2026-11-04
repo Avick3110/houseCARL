@@ -372,7 +372,33 @@ public sealed class HiddenReasonTests : IDisposable
         var t = PlaceTools.Place(_p.Open(), Assets("""[{"path":"meta.ini"}]"""));
 
         Assert.Contains("it is hidden by MO2", t);
+        Assert.Contains("no copy to auto-place", t);
         Assert.DoesNotContain(WriteSentences.PlaceSourceNameReachesUnticked, t);
+    }
+
+    [Fact]
+    public void PlaceFromAHiddenSourcePathSaysThereIsNoCopyToRead()
+    {
+        var t = PlaceTools.Place(_p.Open(), Assets("""[{"path":"meshes/new.nif","source":"meta.ini"}]"""));
+
+        Assert.Contains("provides 'meta.ini': it is hidden by MO2", t);
+        Assert.Contains("no copy to read", t);
+    }
+
+    [Fact]
+    public void PlaceOnAHiddenPathBesideAFolderThatDidNotReadSaysTheScanIsIncomplete()
+    {
+        PlaceInstance.Loose(_p.Mod("ModA"), @"textures\deny\h.dds.mohidden", X);
+        var deny = Path.Combine(_p.Mods, "ModD", "textures", "deny");
+        Assert.True(PlaceInstance.TryDenyList(deny), "the list deny did not bite on this machine");
+        try
+        {
+            var t = PlaceTools.Place(_p.Open(), Assets("""[{"path":"textures/deny/h.dds.mohidden"}]"""));
+
+            Assert.Contains("it is hidden by MO2", t);
+            Assert.Contains(WriteSentences.PlaceSourceScanIncomplete, t);
+        }
+        finally { PlaceInstance.UndenyList(deny); }
     }
 
     // ---- R11: a named folder never reaches a hidden file ------------------------------------------
