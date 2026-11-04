@@ -45,6 +45,30 @@ public sealed class SkyPatcherLineIndexTests : IDisposable
     }
 }
 
+/// <summary>A direct list beside a finder is not indexed under its named records alone: the record only the finder reaches is patched.</summary>
+[Trait("tier", "integration")]
+public sealed class SkyPatcherLineIndexFinderTests : IDisposable
+{
+    // :1 names HcPlainCuirass; its keyword finder HcKw2 reaches HcBothBoots, which the line does not name.
+    readonly SkyPatcherRelevanceWorld _w = new(new[]
+    {
+        ("HcIndexFinder.ini", "filterByArmors=HcSpRel.esp|000811:filterByKeywords=HcSpRel.esp|000802:value=13\r\n"),
+    });
+
+    public void Dispose() => _w.Dispose();
+
+    string Post(string fid) => RecordsTools.Records(_w.Svc, formids: new[] { fid }, source: SkyPatcherRelevanceWorld.Post(),
+        project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Value" } });
+
+    [Fact]
+    public void ARecordOnlyTheFinderReachesIsPatched()
+    {
+        Assert.Contains("Value = 13", Post(_w.Both));
+        Assert.Contains("Value = 13", Post(_w.Plain));
+        Assert.Contains("Value = 0", Post(_w.Heel));
+    }
+}
+
 /// <summary>The merged line list keeps file order, and only a primary filter's FormIDs index a line.</summary>
 [Trait("tier", "integration")]
 public sealed class SkyPatcherLineIndexOrderTests : IDisposable
