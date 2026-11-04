@@ -273,6 +273,14 @@ public sealed class HiddenReasonTests : IDisposable
     }
 
     [Fact]
+    public void SeveralHiddenPathsByOneRuleAreCountedInThePluralWithTheRuleOnce()
+    {
+        var text = Status(_p.Open(), under: new[] { "**/*.mohidden" }, provider: "ModA");
+
+        Assert.Contains("MO2 hides 3 matching paths (skipped by MO2's VFS, by the '.mohidden' suffix), e.g. '", text);
+    }
+
+    [Fact]
     public void AFolderGlobNamedLikeARootFileDoesNotSayItIsHidden()
     {
         var text = Status(_p.Open(), under: new[] { "meta.ini/**" });
