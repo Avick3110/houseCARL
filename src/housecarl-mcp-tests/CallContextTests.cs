@@ -218,6 +218,21 @@ public sealed class CallContextTests : IDisposable
         Call(() => Host.CaptureAssets());                       // the rerun answers off the changed profile
     }
 
+    // Pins unchanged behaviour: a file read inside the write gate re-takes the files, and the call keeps that view after
+    // the gate (known limit r1 #5: across a profile switch it adopts the new profile).
+    [Fact]
+    public void AFileReadInsideTheWriteGateReplacesTheCallsFiles()
+    {
+        Call(() => { _ = Host.Resolver; Host.CaptureAssets(); });   // warm both sides on Default
+        Call(() =>
+        {
+            Assert.Equal("Default", Host.CaptureAssets().ProfileName);
+            SelectOther();
+            lock (Host.WriteGate) Assert.Equal("Other", Host.CaptureAssets().ProfileName);
+            Assert.Equal("Other", Host.CaptureAssets().ProfileName);
+        });
+    }
+
     // A lane that folds the throw into a row still has its whole call refused.
     [Fact]
     public void ASplitALaneFoldsIntoARowStillRefusesTheCall()
