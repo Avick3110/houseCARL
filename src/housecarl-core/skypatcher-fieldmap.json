@@ -11,6 +11,8 @@
                         "filterByHasAmmoFromWeaponList":  {"unmapped": "the reference names this filter but documents no semantics - whether a line carrying it applies cannot be evaluated"}
                     },
         "ops":  {
+                    "setFlags":  {"unmapped": "added in the 8.0.1 transcription; the 8.0.1 article's weapon flag tokens are not transcribed yet"},
+                    "removeFlags":  {"unmapped": "added in the 8.0.1 transcription; the 8.0.1 article's weapon flag tokens are not transcribed yet"},
                     "fullName":  {
                                      "semantic":  "set",
                                      "path":  "Name"
@@ -220,6 +222,10 @@
         "subfolder":  "npc",
         "recordType":  "Npc",
         "filters":  {
+                    "filterByCombatStyle":  {"eval": "formEquals", "path": "CombatStyle", "formType": "CombatStyle"},
+                    "restrictToCombatStyle":  {"eval": "formEquals", "path": "CombatStyle", "formType": "CombatStyle"},
+                    "filterByTemplate":  {"eval": "formEquals", "path": "Template", "formType": "NpcSpawn", "note": "the NPC's own template link; whether the DLL also walks the template chain is unverified"},
+                    "filterByTemplateFlag":  {"eval": "flagAnyOf", "path": "Configuration.TemplateFlags", "valueMap": {"spells": "SpellList", "unused": "ModelAnimation", "aidefpacklist": "DefPackList"}, "note": "documented only as filterByTemplateFlagExclude; the flag tokens are setTemplateFlags' (copiedtemplate has no member and evaluates UNRESOLVED loud)"},
                         "filterByRaces":  {"eval": "formEquals", "path": "Race", "formType": "Race"},
                         "restrictToRaces":  {"eval": "formEquals", "path": "Race", "formType": "Race", "note": "post-match narrowing - for a single record the verdict is identical to a filter"},
                         "filterByDefaultOutfits":  {"eval": "formEquals", "path": "DefaultOutfit", "formType": "Outfit"},
@@ -239,6 +245,11 @@
                         "rvsRestrictToTraits":  {"unmapped": "scopes setRandomVisualStyle, a non-deterministic HARD op - the line it rides has no static resolution anyway"}
                     },
         "ops":  {
+                    "haircolor":  {"semantic": "set", "path": "HairColor", "formType": "ColorRecord"},
+                    "speedMultiplier":  {"unmapped": "added in the 8.0.1 transcription; the 8.0.1 article names it without a field the reader can tie it to yet"},
+                    "clearClassFromAttributes":  {"unmapped": "added in the 8.0.1 transcription; what the DLL changes is not documented beyond the name"},
+                    "raceAttack":  {"unmapped": "read but does nothing in SkyPatcher 8.0.1 (NPC article)"},
+                    "changeBaseObject":  {"unmapped": "read but does nothing in SkyPatcher 8.0.1 (NPC article)"},
                     "fullName":  {
                                      "semantic":  "set",
                                      "path":  "Name"
@@ -617,6 +628,8 @@
                         "filterByVoiceType":  {"eval": "formEquals", "paths": ["Voices.Male", "Voices.Female"], "formType": "VoiceType", "note": "documented only as ...Or - a race matches when EITHER gendered voice is listed"}
                     },
         "ops":  {
+                    "voiceTypeMale":  {"unmapped": "added in the 8.0.1 transcription; Race.Voices is a gendered pair the set verb cannot address yet"},
+                    "voiceTypeFemale":  {"unmapped": "added in the 8.0.1 transcription; Race.Voices is a gendered pair the set verb cannot address yet"},
                     "heightMale":  {
                                        "semantic":  "set",
                                        "path":  "Height.Male"
@@ -1322,6 +1335,9 @@
                         "filterByArmorAddons":  {"eval": "formInList", "path": "Armature", "formType": "ArmorAddon", "eidSubstring": true, "note": "the reference documents EditorID SUBSTRING matching - a value that resolves to no form substring-matches the attached addons' winner EditorIDs"}
                     },
         "ops":  {
+                    "armaRaceToAdd":  {"unmapped": "added in the 8.0.1 transcription; adds races to the armor's addons, a write onto other records"},
+                    "modelMale":  {"unmapped": "added in the 8.0.1 transcription; value syntax not transcribed yet"},
+                    "modelFemale":  {"unmapped": "added in the 8.0.1 transcription; value syntax not transcribed yet"},
                     "fullName":  {
                                      "semantic":  "set",
                                      "path":  "Name",
@@ -1472,6 +1488,7 @@
                         "restrictToBolts":  {"eval": "flagBool", "path": "Flags", "flag": "NonBolt", "invert": true, "note": "true = bolts only (the NonBolt flag NOT set); false = non-bolts (arrows)"}
                     },
         "ops":  {
+                    "addToFormList":  {"unmapped": "added in the 8.0.1 transcription; adds the ammo to a form list, a write onto another record"},
                     "fullName":  {
                                      "semantic":  "set",
                                      "path":  "Name"
@@ -1562,10 +1579,14 @@
         "subfolder":  "spell",
         "recordType":  "Spell",
         "filters":  {
+                    "filterByCastingPerk":  {"unmapped": "added in the 8.0.1 transcription; which perk field the DLL reads is not documented"},
+                    "filterByType":  {"unmapped": "added in the 8.0.1 transcription; the type tokens are not transcribed yet"},
+                    "restrictToSchool":  {"unmapped": "added in the 8.0.1 transcription; the school is the magic effects' skill, read off other records"},
                         "filterByFlags":  {"eval": "flagAnyOf", "path": "Flags", "valueMap": {"costoverride": "ManualCostCalc", "pcstartspell": "PCStartSpell", "ignoreloscheck": "AreaEffectIgnoresLOS", "ignoreresistance": "IgnoreResistance", "noabsorb": "NoAbsorbOrReflect", "nodualcastmods": "NoDualCastModification"}, "note": "fooditem/extendduration/instantcast have no SpellDataFlag member (see setFlags) - those tokens evaluate UNRESOLVED loud"},
                         "restrictToCastingType":  {"eval": "enumEquals", "path": "CastType", "note": "documented token 'scroll' has no Mutagen CastType member and can never match - warned loud at eval"}
                     },
         "ops":  {
+                    "equipSlot":  {"semantic": "set", "path": "EquipmentType", "formType": "EquipType"},
                     "fullName":  {
                                      "semantic":  "set",
                                      "path":  "Name"
@@ -1634,6 +1655,13 @@
     {
         "subfolder":  "scroll",
         "recordType":  "Scroll",
+        "filters":  {
+                    "filterByFlags":  {"eval": "flagAnyOf", "path": "Flags", "valueMap": {"costoverride": "ManualCostCalc", "pcstartspell": "PCStartSpell", "ignoreloscheck": "AreaEffectIgnoresLOS", "ignoreresistance": "IgnoreResistance", "noabsorb": "NoAbsorbOrReflect", "nodualcastmods": "NoDualCastModification"}, "note": "the spell flag set; fooditem/extendduration/instantcast have no SpellDataFlag member and evaluate UNRESOLVED loud"},
+                    "filterByMinimumSkillLevel":  {"unmapped": "added in the 8.0.1 transcription; the skill level is the magic effects', read off other records"},
+                    "filterByType":  {"unmapped": "added in the 8.0.1 transcription; the type tokens are not transcribed yet"},
+                    "restrictToCastingType":  {"eval": "enumEquals", "path": "CastType", "note": "as the spell patcher's restrictToCastingType"},
+                    "restrictToSchool":  {"unmapped": "added in the 8.0.1 transcription; the school is the magic effects' skill, read off other records"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -1793,6 +1821,8 @@
         "subfolder":  "magicEffect",
         "recordType":  "MagicEffect",
         "filters":  {
+                    "filterByDamageHealthMgefs":  {"unmapped": "added in the 8.0.1 transcription; which effects count as damage-health is not documented beyond the name"},
+                    "restrictToMagicSkill":  {"unmapped": "added in the 8.0.1 transcription; the skill tokens are not transcribed yet"},
                         "filterByArchetypes":  {"eval": "enumEquals", "path": "Archetype.Type", "valueMap": {"boundweapon": "Bound"}, "note": "documented tokens darkness/nighteye have no MagicEffectArchetype.TypeEnum member and can never match - warned loud at eval"},
                         "filterBySounds":  {"eval": "formInList", "path": "Sounds", "keyPath": "Sound", "formType": "SoundDescriptor", "note": "matches the sound in ANY slot (the documented semantics)"},
                         "effectShaders":  {"eval": "formEquals", "paths": ["HitShader", "EnchantShader"], "formType": "EffectShader", "note": "documented only as effectShadersExcluded; 'carrying a given effect shader' reads BOTH shader slots"},
@@ -1804,6 +1834,7 @@
                         "restrictToAreaEffects":  {"unmapped": "no single static MGEF field answers 'is an area effect' (area lives on each SPEL/ENCH effect entry, not the MGEF; the NoArea flag governs spellmaking only) - which source the DLL tests needs empirical verification"}
                     },
         "ops":  {
+                    "magicItemDescription":  {"unmapped": "added in the 8.0.1 transcription; value syntax not transcribed yet"},
                     "fullName":  {
                                      "semantic":  "set",
                                      "path":  "Name"
@@ -1940,6 +1971,9 @@
     {
         "subfolder":  "ingestible",
         "recordType":  "Ingestible",
+        "filters":  {
+                    "filterByType":  {"unmapped": "added in the 8.0.1 transcription; the type tokens are not transcribed yet"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -1992,6 +2026,9 @@
     {
         "subfolder":  "ingredient",
         "recordType":  "Ingredient",
+        "filters":  {
+                    "filterByType":  {"unmapped": "added in the 8.0.1 transcription; the type tokens are not transcribed yet"}
+                    },
         "ops":  {
                     "fullName":  {
                                      "semantic":  "set",
@@ -2054,6 +2091,7 @@
         "subfolder":  "book",
         "recordType":  "Book",
         "filters":  {
+                    "filterBySpellKeywords":  {"unmapped": "added in the 8.0.1 transcription; reads the keywords of the spell the book teaches, another record"},
                         "filterByCastingPerk":  {"unmapped": "no static BOOK field carries a casting perk (Mutagen models Teaches and Flags only) - what the DLL reads needs empirical verification"},
                         "filterByFlags":  {"eval": "flagAnyOf", "path": "Flags", "valueMap": {"canttake": "CantBeTaken"}, "note": "only canttake is a real Book.Flag bit; advancesactorvalue/teachesspell live in the polymorphic Teaches field and hasbeenread is runtime state - those tokens evaluate UNRESOLVED loud"}
                     },
@@ -2411,7 +2449,11 @@
     {
         "subfolder":  "projectile",
         "recordType":  "Projectile",
+        "filters":  {
+                    "filterByAlternateTextures":  {"unmapped": "SkyPatcher 8.0.1: finds no projectiles, so a line with only this filter patches nothing"}
+                    },
         "ops":  {
+                    "model":  {"unmapped": "added in the 8.0.1 transcription; value syntax not transcribed yet"},
                     "range":  {
                                   "semantic":  "set",
                                   "path":  "Range"
@@ -2544,6 +2586,9 @@
         "subfolder":  "faction",
         "recordType":  "Faction",
         "ops":  {
+                    "relationshipToRemove":  {"unmapped": "added in the 8.0.1 transcription; the relation value syntax is not transcribed yet"},
+                    "relationshipToChange":  {"unmapped": "added in the 8.0.1 transcription; the relation value syntax is not transcribed yet"},
+                    "relationshipToAdd":  {"unmapped": "added in the 8.0.1 transcription; the relation value syntax is not transcribed yet"},
                     "setFlags":  {
                                      "semantic":  "flagsSet",
                                      "path":  "Flags",
@@ -2590,9 +2635,16 @@
         "subfolder":  "cell",
         "recordType":  "Cell",
         "filters":  {
+                    "filterByLocations":  {"eval": "formEquals", "path": "Location", "formType": "Location"},
+                    "filterByAcousticSpace":  {"eval": "formEquals", "path": "AcousticSpace", "formType": "AcousticSpace"},
+                    "filterByMusicType":  {"eval": "formEquals", "path": "Music", "formType": "MusicType"},
+                    "filterBySkyRegion":  {"eval": "formEquals", "path": "SkyAndWeatherFromRegion", "formType": "Region"},
+                    "filterByImageSpace":  {"eval": "formEquals", "path": "ImageSpace", "formType": "ImageSpace"},
                         "skipRecordByLightingTemplateFromMod":  {"eval": "linkedOriginPlugin", "path": "LightingTemplate", "invert": true, "note": "DECLARED ASSUMPTION: 'the cell's lighting template comes from mod X' = the linked LGTM's defining master (the ELFX/Lux yield case); empirical-gate item"}
                     },
         "ops":  {
+                    "fullName":  {"semantic": "set", "path": "Name"},
+                    "location":  {"semantic": "set", "path": "Location", "formType": "Location"},
                     "fogNear":  {
                                     "semantic":  "set",
                                     "path":  "Lighting.FogNear"
@@ -2791,12 +2843,31 @@
         "subfolder":  "reference",
         "recordType":  "PlacedObject",
         "ops":  {
+                    "replaceBaseObject":  {"unmapped": "added in the 8.0.1 transcription; references are not replayed; the base object is runtime placement data"},
                     "disable":  {
                                     "semantic":  "flagBool",
                                     "path":  "SkyrimMajorRecordFlags",
                                     "flag":  "InitiallyDisabled",
                                     "note":  "REFR is the least-mature SkyPatcher surface — gated by the global iUpdateRefs setting and flagged in-development by the author; NPCs are excluded from disabling. InitiallyDisabled is a record-header flag (PlacedObject has no separate MajorFlags field in the corpus; SkyrimMajorRecordFlags carries it)"
                                 }
+                }
+    },
+    {
+        "subfolder":  "light",
+        "recordType":  "Light",
+        "ops":  {
+                    "radius":  {"semantic": "set", "path": "Radius"},
+                    "fade":  {"semantic": "set", "path": "FadeValue"},
+                    "falloffExponent":  {"semantic": "set", "path": "FalloffExponent"},
+                    "fov":  {"semantic": "set", "path": "FOV"},
+                    "nearDistance":  {"semantic": "set", "path": "NearClip"},
+                    "time":  {"semantic": "set", "path": "Time"},
+                    "flickerPeriod":  {"semantic": "set", "path": "FlickerPeriod"},
+                    "flickerIntensityAmplitude":  {"semantic": "set", "path": "FlickerIntensityAmplitude"},
+                    "flickerMovementAmplitude":  {"semantic": "set", "path": "FlickerMovementAmplitude"},
+                    "color":  {"unmapped": "three values (r,g,b) onto one Color leaf; not mapped yet"},
+                    "setFlags":  {"semantic": "flagsSet", "path": "Flags", "valueMap": {"cancarry": "CanBeCarried", "spotlight": "SpotLight", "spotshadow": "ShadowSpotlight", "hemishadow": "ShadowHemisphere", "omnishadow": "ShadowOmnidirectional"}, "note": "deepcopy has no Light.Flag member and cannot resolve"},
+                    "removeFlags":  {"semantic": "flagsRemove", "path": "Flags", "valueMap": {"cancarry": "CanBeCarried", "spotlight": "SpotLight", "spotshadow": "ShadowSpotlight", "hemishadow": "ShadowHemisphere", "omnishadow": "ShadowOmnidirectional"}, "note": "deepcopy has no Light.Flag member and cannot resolve"}
                 }
     }
 ]

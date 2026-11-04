@@ -13,6 +13,12 @@ public sealed class SkyPatcherCatalog
     /// <summary>Every record type's catalog, in load order.</summary>
     public IReadOnlyList<SkyPatcherRecordCatalog> Records { get; }
 
+    /// <summary>The SkyPatcher version the catalog is transcribed from.</summary>
+    public string Version { get; }
+
+    /// <summary>The subfolders in the order the DLL runs their patchers.</summary>
+    public IReadOnlyList<string> PatcherOrder { get; }
+
     readonly Dictionary<string, SkyPatcherRecordCatalog> _bySubfolder;   // subfolder (case-insensitive) → catalog
     readonly Dictionary<string, RecordLookup> _lookup;                    // subfolder (case-insensitive) → name maps
 
@@ -20,8 +26,10 @@ public sealed class SkyPatcherCatalog
         Dictionary<string, SkyPatcherFilterDef> Filters,   // base filter name (case-insensitive) → def
         Dictionary<string, SkyPatcherOpDef> Operations);   // op name (case-insensitive) → def
 
-    SkyPatcherCatalog(IReadOnlyList<SkyPatcherRecordCatalog> records)
+    SkyPatcherCatalog(string version, IReadOnlyList<string> patcherOrder, IReadOnlyList<SkyPatcherRecordCatalog> records)
     {
+        Version = version;
+        PatcherOrder = patcherOrder;
         Records = records;
         _bySubfolder = new(StringComparer.OrdinalIgnoreCase);
         _lookup = new(StringComparer.OrdinalIgnoreCase);
@@ -75,11 +83,21 @@ public sealed class SkyPatcherCatalog
     public static SkyPatcherCatalog LoadFrom(string json)
     {
         using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("SkyPatcher catalog: the root is not an object with 'version', 'patcherOrder' and 'records'.");
         var records = new List<SkyPatcherRecordCatalog>();
-        foreach (var el in doc.RootElement.EnumerateArray())
-            records.Add(ParseRecord(el));
-        return new SkyPatcherCatalog(records);
+        if (root.TryGetProperty("records", out var rs) && RequireArray(rs, "records", "root"))
+            foreach (var el in rs.EnumerateArray())
+                records.Add(ParseRecord(el));
+        return new SkyPatcherCatalog(Str(root, "version"), StrList(root, "patcherOrder", "root"), records);
     }
+
+    /// <summary>A string array property; absent reads as empty, a wrong kind throws loudly.</summary>
+    static string[] StrList(JsonElement el, string prop, string ctx)
+        => el.TryGetProperty(prop, out var a) && RequireArray(a, prop, ctx)
+            ? a.EnumerateArray().Select(x => x.GetString() ?? throw new InvalidOperationException($"SkyPatcher catalog [{ctx}]: '{prop}' holds a non-string.")).ToArray()
+            : Array.Empty<string>();
 
     static SkyPatcherRecordCatalog ParseRecord(JsonElement el)
     {
@@ -96,7 +114,8 @@ public sealed class SkyPatcherCatalog
                     f.TryGetProperty("connectives", out var cs) && RequireArray(cs, "connectives", recordType)
                         ? cs.EnumerateArray().Select(c => c.GetString() ?? "").ToArray()
                         : new[] { "" },
-                    OptStr(f, "selects")));
+                    OptStr(f, "selects"),
+                    ParseRole(Str(f, "role"), recordType)));
 
         if (el.TryGetProperty("operations", out var opsEl) && RequireArray(opsEl, "operations", recordType))
             foreach (var o in opsEl.EnumerateArray())
@@ -107,10 +126,39 @@ public sealed class SkyPatcherCatalog
                     o.TryGetProperty("stateful", out var st) && st.ValueKind == JsonValueKind.True,
                     OptStr(o, "note")));
 
+        var sources = new List<SkyPatcherKeywordSource>();
+        if (el.TryGetProperty("keywordsAlsoFrom", out var ks) && RequireArray(ks, "keywordsAlsoFrom", recordType))
+            foreach (var k in ks.EnumerateArray())
+                sources.Add(new SkyPatcherKeywordSource(Str(k, "path"), OptStr(k, "keyPath")));
+        var player = el.TryGetProperty("player", out var pl) ? pl : default;
         return new SkyPatcherRecordCatalog(
             recordType, Str(el, "sig"), Str(el, "subfolder"), Str(el, "primaryFilter"),
-            filters, ops, OptStr(el, "note"));
+            filters, ops, OptStr(el, "note"))
+        {
+            FilterlessPatchesNothing = OptStr(el, "filterless") switch
+            {
+                null => false,
+                "nothing" => true,
+                var x => throw new InvalidOperationException($"SkyPatcher catalog [{recordType}]: unknown filterless value '{x}'."),
+            },
+            Ignores = StrList(el, "ignores", recordType),
+            DirectNarrowedBy = StrList(el, "directNarrowedBy", recordType),
+            PlayerFoundBy = player.ValueKind == JsonValueKind.Object ? StrList(player, "foundBy", recordType) : Array.Empty<string>(),
+            PlayerNeverRemovedBy = player.ValueKind == JsonValueKind.Object ? StrList(player, "neverRemovedBy", recordType) : Array.Empty<string>(),
+            KeywordsAlsoFrom = sources,
+            EnabledWithoutSwitch = el.TryGetProperty("enabledWithoutSwitch", out var ew) && ew.ValueKind == JsonValueKind.True,
+        };
     }
+
+    static SkyPatcherFilterRole ParseRole(string s, string ctx) => s switch
+    {
+        "direct" => SkyPatcherFilterRole.Direct,
+        "finder" => SkyPatcherFilterRole.Finder,
+        "narrower" => SkyPatcherFilterRole.Narrower,
+        "gate" => SkyPatcherFilterRole.Gate,
+        "all" => SkyPatcherFilterRole.All,
+        _ => throw new InvalidOperationException($"SkyPatcher catalog [{ctx}]: unknown filter role '{s}'."),
+    };
 
     /// <summary>True when the (present) node is an array; throws loudly on any other kind.</summary>
     static bool RequireArray(JsonElement el, string prop, string ctx)
@@ -160,8 +208,14 @@ public sealed class SkyPatcherCatalog
     };
 }
 
-/// <summary>How a filter combines its values (by suffix): Primary is the record's own filterBy&lt;Type&gt;.</summary>
+/// <summary>How a filter's values are evaluated: Primary is the record's own filterBy&lt;Type&gt;.</summary>
 public enum SkyPatcherFilterKind { Primary, CrossCutting, RecordSpecific, Restrict, HasPlugins, OverrideAware, NoFilter }
+
+/// <summary>What a filter does to a line's reach: Direct always patches the records it names, a Finder finds records on its own, a Narrower only removes, a Gate stops the whole line, All finds every record of its class.</summary>
+public enum SkyPatcherFilterRole { Direct, Finder, Narrower, Gate, All }
+
+/// <summary>Another record whose keywords a patcher's keyword filters also read: a link at <see cref="Path"/>, or each entry's <see cref="KeyPath"/> link of the list at <see cref="Path"/>.</summary>
+public sealed record SkyPatcherKeywordSource(string Path, string? KeyPath);
 
 /// <summary>The value-grammar shape of an operation.</summary>
 public enum SkyPatcherOpShape { Set, Mult, AddNumeric, Collection, Mirror, Flags, Rename, NullClear, Compound }
@@ -172,8 +226,9 @@ public enum SkyPatcherTractability { Clean, Collection, Hard }
 /// <summary>What a classified segment key is.</summary>
 public enum SkyPatcherKeyRole { Filter, Operation, Unknown }
 
-/// <summary>One documented filter token (base name; connective variants are in <see cref="Connectives"/>).</summary>
-public sealed record SkyPatcherFilterDef(string Name, SkyPatcherFilterKind Kind, IReadOnlyList<string> Connectives, string? Selects);
+/// <summary>One documented filter token (base name; connective variants are in <see cref="Connectives"/>); an Excluded or Exclude connective narrows whatever the row's <see cref="Role"/>.</summary>
+public sealed record SkyPatcherFilterDef(string Name, SkyPatcherFilterKind Kind, IReadOnlyList<string> Connectives, string? Selects,
+    SkyPatcherFilterRole Role = SkyPatcherFilterRole.Finder);
 
 /// <summary>One documented operation token, with its shape, tractability, and stateful-value flag.</summary>
 public sealed record SkyPatcherOpDef(string Name, SkyPatcherOpShape Shape, SkyPatcherTractability Tractability, bool Stateful, string? Note);
@@ -186,7 +241,29 @@ public sealed record SkyPatcherRecordCatalog(
     string PrimaryFilter,
     IReadOnlyList<SkyPatcherFilterDef> Filters,
     IReadOnlyList<SkyPatcherOpDef> Operations,
-    string? Note);
+    string? Note)
+{
+    /// <summary>A line without filters patches nothing (Leveled List, Reference) instead of every record.</summary>
+    public bool FilterlessPatchesNothing { get; init; }
+
+    /// <summary>Filter names this patcher does not read: a line carrying one applies as if it were absent.</summary>
+    public IReadOnlyList<string> Ignores { get; init; } = Array.Empty<string>();
+
+    /// <summary>Keys, as a line spells them with their connective, that also remove records of the direct list.</summary>
+    public IReadOnlyList<string> DirectNarrowedBy { get; init; } = Array.Empty<string>();
+
+    /// <summary>The finders that can find the player; every other finder and a filterless line never do.</summary>
+    public IReadOnlyList<string> PlayerFoundBy { get; init; } = Array.Empty<string>();
+
+    /// <summary>Keys, with their connective, that never remove the player.</summary>
+    public IReadOnlyList<string> PlayerNeverRemovedBy { get; init; } = Array.Empty<string>();
+
+    /// <summary>Other records whose keywords this patcher's keyword filters also read.</summary>
+    public IReadOnlyList<SkyPatcherKeywordSource> KeywordsAlsoFrom { get; init; } = Array.Empty<SkyPatcherKeywordSource>();
+
+    /// <summary>The patcher runs when SkyPatcher.ini has no switch for it (Light).</summary>
+    public bool EnabledWithoutSwitch { get; init; }
+}
 
 /// <summary>One segment key's classification: a filter with its connective-stripped <see cref="BaseKey"/> (the line's own spelling), an <see cref="Operation"/>, or Unknown.</summary>
 public sealed record SkyPatcherKeyClass(
@@ -194,4 +271,11 @@ public sealed record SkyPatcherKeyClass(
     string BaseKey,
     string? Connective,
     SkyPatcherFilterDef? Filter,
-    SkyPatcherOpDef? Operation);
+    SkyPatcherOpDef? Operation)
+{
+    /// <summary>A filter's role on its line: an Excluded or Exclude connective narrows, otherwise the row's role.</summary>
+    public SkyPatcherFilterRole FilterRole => Connective is "Excluded" or "Exclude" ? SkyPatcherFilterRole.Narrower : Filter!.Role;
+
+    /// <summary>The catalog's spelling of the key with its connective, as the per-patcher lists name it.</summary>
+    public string CatalogKey => Filter!.Name + (Connective ?? "");
+}
