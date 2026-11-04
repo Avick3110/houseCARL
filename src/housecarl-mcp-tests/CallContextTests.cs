@@ -272,6 +272,8 @@ public sealed class CallContextTests : IDisposable
         Assert.StartsWith(Wire.RefusalPrefix + "the load order changed while this call was running", answer);
         Assert.Contains("after houseCARL had written HcCcOut.esp", answer);
         Assert.DoesNotContain("nothing was answered or written", answer);
+        if (pluginChangedToo) Assert.Contains("'hc_cc.txt' changed on disk during this call", answer);
+        else Assert.DoesNotContain("changed on disk", answer);
     }
 
     [Theory]
