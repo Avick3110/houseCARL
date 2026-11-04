@@ -1,0 +1,1 @@
+- **A file MO2 hides now reads "hidden by MO2", with the rule and the mod holding it, wherever houseCARL would have said nothing provides it, and naming that mod no longer reads it.** Check: `asset_status asset_paths=["meta.ini"]`, or `nif_inspect` on a `.mohidden` mesh with `source_provider=` its mod.
