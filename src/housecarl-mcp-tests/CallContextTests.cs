@@ -27,20 +27,12 @@ public sealed class CallContextTests : IDisposable
         mod.BeginWrite.ToPath(_mo2.InMod("CcBase", _base)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         new SkyrimMod(_late, SkyrimRelease.SkyrimSE).BeginWrite.ToPath(_mo2.InMod("CcLate", _late)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         File.WriteAllText(Path.Combine(_mo2.ModsDir, "CcBase", "hc_cc.txt"), "loose");
-        BaseOnly(_mo2.Profiles);
-        BaseOnly(Path.Combine(_mo2.Instance, "profiles", "Other"));
+        foreach (var profile in new[] { "Default", "Other" })
+            _mo2.Profile(_base.FileName + "\r\n", "*" + _base.FileName + "\r\n", "+CcBase\r\n", profile);
         _svc = _mo2.Open();
     }
 
     public void Dispose() { _svc.Dispose(); _mo2.Delete(); }
-
-    void BaseOnly(string dir)
-    {
-        Directory.CreateDirectory(dir);
-        File.WriteAllText(Path.Combine(dir, "loadorder.txt"), "# header\r\n" + _base.FileName + "\r\n");
-        File.WriteAllText(Path.Combine(dir, "plugins.txt"), "*" + _base.FileName + "\r\n");
-        File.WriteAllText(Path.Combine(dir, "modlist.txt"), "# header\r\n+CcBase\r\n");
-    }
 
     void AddLate()
     {
@@ -48,11 +40,7 @@ public sealed class CallContextTests : IDisposable
         _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")), "+CcLate\r\n+CcBase\r\n");
     }
 
-    void SelectOther()
-    {
-        var ini = Path.Combine(_mo2.Instance, "ModOrganizer.ini");
-        File.WriteAllText(ini, File.ReadAllText(ini).Replace("@ByteArray(Default)", "@ByteArray(Other)"));
-    }
+    void SelectOther() => _mo2.SelectProfile("Other");
 
     bool FilesBuilt() => typeof(LoadOrderService).GetField("_assetResolver", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(_svc) is not null;
 
@@ -118,7 +106,11 @@ public sealed class CallContextTests : IDisposable
             var before = _svc.CapturePin();
             AddLate();
             LoadOrderService.ViewPin inGate;
-            lock (Host.WriteGate) inGate = _svc.CapturePin();
+            lock (Host.WriteGate)
+            {
+                inGate = _svc.CapturePin();
+                Assert.Same(inGate, _svc.CapturePin());          // a re-read of an unmoved build keeps the pin
+            }
             Assert.NotSame(before, inGate);
             Assert.Contains(_late.FileName.String, inGate.Resolver.PluginNames);
             Assert.Same(inGate, _svc.CapturePin());
@@ -141,7 +133,7 @@ public sealed class CallContextTests : IDisposable
     public void ACallChecksRecordsOnceAndFilesOnceAtTheirFirstRead()
     {
         Call(() => Host.CaptureAssets());                       // warm both sides
-        var (records, files) = (_svc.Counters.RecordFreshnessChecks, _svc.Counters.FileFreshnessChecks);
+        var (profile, files) = (_svc.Counters.ProfileFreshnessChecks, _svc.Counters.FileFreshnessChecks);
         Call(() =>
         {
             for (int i = 0; i < 3; i++) _ = Host.Resolver;
@@ -150,7 +142,7 @@ public sealed class CallContextTests : IDisposable
             Host.CapturePinAndAssets(null);                     // the one-hold capture reads the held files too
         });
         // The profile is checked at the first record read and again at the first file read, which must refuse a switch between them.
-        Assert.Equal(records + 2, _svc.Counters.RecordFreshnessChecks);
+        Assert.Equal(profile + 2, _svc.Counters.ProfileFreshnessChecks);
         Assert.Equal(files + 1, _svc.Counters.FileFreshnessChecks);
     }
 

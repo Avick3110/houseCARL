@@ -6,8 +6,8 @@ namespace HousecarlCore;
 /// only held to by the cost tests. The service owns one and its resolver carries it across a rebuild.</summary>
 public sealed class CostCounters
 {
-    /// <summary>Record freshness checks (the profile stat, and on a record read the plugin stat sweep) the service's getters ran.</summary>
-    public long RecordFreshnessChecks;
+    /// <summary>Profile freshness checks (the ini and profile-file stats) the service ran.</summary>
+    public long ProfileFreshnessChecks;
 
     /// <summary>File freshness checks (the archive and watched-folder sweep) the service's getters ran.</summary>
     public long FileFreshnessChecks;
