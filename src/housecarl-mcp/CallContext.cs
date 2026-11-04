@@ -3,8 +3,8 @@ using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>One tool call's view of the load order, opened by <see cref="ToolCall"/>: the record pin, whose view carries
-/// the epoch, taken at the call's first record read; the file view, taken only at its first file read; and the roots and
-/// order the latest record pin was taken against, else the file view's. The service's getters fill and serve it under their own lock; outside a
+/// the epoch, taken at the call's first record read; the file view, taken only at its first file read; and the build, the
+/// roots and order each record pin sets, else the first file view's. The service's getters fill and serve it under their own lock; outside a
 /// call there is none and every getter refreshes.</summary>
 internal sealed class CallContext
 {
@@ -16,7 +16,7 @@ internal sealed class CallContext
     /// <summary>The call's file view; null until its first file read, so a records-only call never builds one.</summary>
     internal FileView? Files { get; private set; }
 
-    /// <summary>The roots and order the latest record pin was taken against, else the file view's, whose order is null before any index.</summary>
+    /// <summary>The roots and order the latest record pin was taken against, else the first file view's, whose order is null before any index.</summary>
     internal (Mo2Roots Roots, LoadOrderResolver? Order)? Build { get; private set; }
 
     /// <summary>The call's roots, once it holds a view.</summary>
@@ -48,7 +48,7 @@ internal sealed class CallContext
     /// <summary>Hold <paramref name="pin"/> for the rest of the call; a write's pin taken inside the write gate replaces an earlier one.</summary>
     internal void HoldPin(LoadOrderService.ViewPin pin, Mo2Roots roots) { Pin = pin; Build = (roots, pin.Resolver); }
 
-    /// <summary>Hold the file view for the rest of the call; the first view taken sets the build.</summary>
+    /// <summary>Hold the file view for the rest of the call; it sets the build only when none is held.</summary>
     internal void HoldFiles(FileView files, Mo2Roots roots, LoadOrderResolver? order) { Files = files; Build ??= (roots, order); }
 
     /// <summary>True once the call's two views were found to describe two builds.</summary>
