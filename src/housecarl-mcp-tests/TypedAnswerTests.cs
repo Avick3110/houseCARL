@@ -222,7 +222,8 @@ public sealed class TypedAnswerCompileTests(ScriptsFixture f)
         var (text, refused) = TypedAnswerTests.Answer(() => CompileTools.CompileScript(W.Svc, bridge, store,
             Path.Combine(own, "TaScript.psc"), auto_imports: false, out_path: Path.Combine(own, "out")));
         Assert.True(refused, text);
-        Assert.DoesNotContain("TaScript.pex written", text);
+        // The compile itself ran and failed, not a refusal ahead of it.
+        Assert.StartsWith($"error: could not run the Papyrus compiler at '{stub}'", text);
     }
 }
 
