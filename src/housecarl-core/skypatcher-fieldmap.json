@@ -1078,7 +1078,7 @@
                                            "semantic":  "replaceForm",
                                            "path":  "Items",
                                            "pack":  "eq",
-                                           "note":  "docs pack the pair with \u0027=\u0027 (leveledList uses \u0027~\u0027 for the same op); documented as FormID-only"
+                                           "note":  "docs pack the pair with \u0027=\u0027 (leveledList uses \u0027~\u0027 for the same op); takes Plugin|FormID or EditorID"
                                        },
                     "clear":  {
                                   "semantic":  "clearList",
@@ -1106,7 +1106,7 @@
                                            "semantic":  "replaceForm",
                                            "path":  "Items",
                                            "pack":  "eq",
-                                           "note":  "docs pack the pair with \u0027=\u0027 (leveledList uses \u0027~\u0027 for the same op); documented as FormID-only"
+                                           "note":  "docs pack the pair with \u0027=\u0027 (leveledList uses \u0027~\u0027 for the same op); takes Plugin|FormID or EditorID"
                                        },
                     "clear":  {
                                   "semantic":  "clearList",
