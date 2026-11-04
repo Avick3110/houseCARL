@@ -218,6 +218,20 @@ public sealed class CallContextTests : IDisposable
         Call(() => Host.CaptureAssets());                       // the rerun answers off the changed profile
     }
 
+    // A lane that folds the throw into a row still has its whole call refused.
+    [Fact]
+    public void ASplitALaneFoldsIntoARowStillRefusesTheCall()
+    {
+        Call(() => Host.CaptureAssets());                       // warm both sides on Default
+        var answer = Answer(() =>
+        {
+            _svc.CapturePin();
+            SelectOther();
+            try { Host.CaptureAssets(); } catch (LoadOrderMovedMidCallException) { }
+        });
+        Assert.Equal(Wire.RefusalPrefix + CallContext.MovedBetweenViews, answer);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
