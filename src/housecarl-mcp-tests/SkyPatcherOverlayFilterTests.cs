@@ -34,6 +34,18 @@ public sealed class SkyPatcherOverlayFilterTests
     [Fact] // flagAnyOf: boundweapon flag matched (weight=3)
     public void AFlagAnyOfFilterMatchesIgnoringCase() => Assert.Equal(3f, Bow().BasicStats!.Weight, 3);
 
+    [Fact] // scroll filterByFlags reads the spell flag set through its valueMap: costoverride matches, noabsorb does not
+    public void AScrollFlagFilterMatchesThroughItsValueMap()
+    {
+        var s = NewMod().Scrolls.AddNew();
+        s.EditorID = "HcScroll";
+        s.Flags = SpellDataFlag.ManualCostCalc;
+        var r = Apply(s, s.FormKey, s.EditorID, "scroll", "Scroll", new StubResolver(),
+            L(1, "filterByFlags=costoverride:weight=4"),
+            L(2, "filterByFlags=noabsorb:weight=9"));
+        Assert.Equal(new[] { 1 }, AppliedLines(r, "weight"));
+    }
+
     [Fact] // formEquals keeps the keyword filters' missing-token rule: a narrower whose tokens all miss removes nothing, an Or finder's misses do not decide, a bare finder's still do (unchanged)
     public void AFormEqualsFiltersMissingTokensFollowTheOneRule()
     {
