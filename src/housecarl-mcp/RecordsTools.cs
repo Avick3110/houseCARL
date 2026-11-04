@@ -1335,12 +1335,13 @@ public static partial class RecordsTools
                 return Wire.Refuse(json, OverlayComparisonRefusal(versusSpec, overlayRoute));
             if (srcOverlay && comparisonForm)
                 return Wire.Refuse(json, OverlayComparisonRefusal(srcSpec, overlayRoute));
+            // Ahead of the to_file= route, which names a formids= re-run that fields_source= refuses.
+            if (srcSpec.ReplaysOverlay && winnerFields)
+                return Wire.Refuse(json, "error: fields_source='winner' and an overlay source= on a scan are TWO display poles on one call — the post-SkyPatcher version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').");
             if (srcSpec.ReplaysOverlay && wantFile)
                 return Wire.Refuse(json, OverlayScanRefusal("to_file= holds every match", overlayRoute));
             if (srcSpec.ReplaysOverlay && walk is not null)
                 return Wire.Refuse(json, OverlayScanRefusal("a walk reads every record it reaches", overlayRoute));
-            if (srcSpec.ReplaysOverlay && winnerFields)
-                return Wire.Refuse(json, "error: fields_source='winner' and an overlay source= on a scan are TWO display poles on one call — the post-SkyPatcher version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').");
             // What the pole did not decide on this call, carried on the scan's own note.
             string? poleNote = null;
             bool hasBodyFilter = where is { Length: > 0 } || references is { Length: > 0 };

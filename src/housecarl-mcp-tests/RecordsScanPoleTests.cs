@@ -397,6 +397,23 @@ public sealed class RecordsScanPoleTests : RecordsTestBase
         Assert.DoesNotContain("HcRecW1", r);
     }
 
+    /// <summary>fields_source='winner' beside the post overlay is the call's own fault: to_file= names the two display
+    /// poles, not a formids= route fields_source= refuses, and the sentence's keep-winner call runs. A walk never
+    /// reaches the scan lane with fields_source= (its own sentence, unchanged, names source=).</summary>
+    [Fact]
+    public void OverlayScanWinnerFieldsToFile_NamesTheTwoDisplayPolesAndTheWinnerCallRuns()
+    {
+        var draft = DraftPost("route-winnerfields");
+        var tofile = RecordsTools.Records(Svc, types: Weap, source: draft, fields_source: "winner", to_file: W.Scratch("route-winnerfields", "never.jsonl"));
+        Refused(tofile, "TWO display poles", "drop source= and keep fields_source='winner'");
+        Assert.DoesNotContain("formids=", tofile);
+        Refused(RecordsTools.Records(Svc, types: Weap, source: draft, fields_source: "winner", walk: new RecordsTools.RecordsWalk()),
+                "a walk's reading forms display the source= pole's version of the reached set");
+        var path = W.Scratch("route-winnerfields", "winner.jsonl");
+        Served(RecordsTools.Records(Svc, types: Weap, fields_source: "winner", to_file: path, project: Fields("BasicStats.Damage")), "complete result");
+        Assert.Contains("HcRecW0", File.ReadAllText(path));
+    }
+
     /// <summary>A scan-seeded walk under the post overlay: the route walks the file's records under the same pole.</summary>
     [Fact]
     public void OverlayScanWalk_NamesTheFileRouteAndItRuns()
