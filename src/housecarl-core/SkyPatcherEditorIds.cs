@@ -39,8 +39,8 @@ public static class SkyPatcherEditorIds
         return null;
     }
 
-    /// <summary>The sentence a warning names when an EditorID of <paramref name="mutagenType"/> cannot be seen, or null when it can.</summary>
+    /// <summary>The sentence a warning names when an EditorID of <paramref name="mutagenType"/> cannot be seen, or null when it can; a null type (an untyped filter, a folder with no field map) says "most" records.</summary>
     public static string? Gap(string? tweaksMissing, string? mutagenType)
         => tweaksMissing is null || (mutagenType is not null && Kept.Contains(mutagenType)) ? null
-            : $"{tweaksMissing}, so the game keeps no EditorIDs of {mutagenType ?? "this"} records";
+            : $"{tweaksMissing}, so the game keeps no EditorIDs of {mutagenType ?? "most"} records";
 }
