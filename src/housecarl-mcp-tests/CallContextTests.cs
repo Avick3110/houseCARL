@@ -147,6 +147,7 @@ public sealed class CallContextTests : IDisposable
             for (int i = 0; i < 3; i++) _ = Host.Resolver;
             Assert.Equal(files, _svc.Counters.FileFreshnessChecks);   // a records read checks no files
             for (int i = 0; i < 3; i++) Host.CaptureAssets();
+            Host.CapturePinAndAssets(null);                     // the one-hold capture reads the held files too
         });
         // The profile is checked at the first record read and again at the first file read, which must refuse a switch between them.
         Assert.Equal(records + 2, _svc.Counters.RecordFreshnessChecks);
