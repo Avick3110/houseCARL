@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-25
+updated: 2026-11-05
 covers: [src/housecarl-core/DeletedRecordRule.cs, src/housecarl-core/ErrorCheck.cs, src/housecarl-core/SweepExclusion.cs, src/housecarl-core/SweepFamilies.cs, src/housecarl-core/SweepScope.cs, src/housecarl-mcp/CheckOutcome.cs, src/housecarl-mcp/RecordChecks.cs, src/housecarl-mcp/CheckTools.cs, src/housecarl-mcp/CheckAccounting.cs, src/housecarl-mcp/CheckArtifact.cs, src/housecarl-mcp/CheckTextRender.cs, src/housecarl-mcp/CheckSentences.cs, src/housecarl-mcp/CheckSweep.cs, src/housecarl-mcp/SweepSharedInput.cs, src/housecarl-mcp/SweepOffOrderScope.cs, src/housecarl-mcp/FaceGenSweepRender.cs]
 ---
 # The check families' contracts
@@ -239,7 +239,7 @@ accounting's emitted counts, the `limit=` and `max_chars=` echoes, `findings_def
 
 What the area needs from outside itself is the members of `ICheckHost`, declared at the top of `RecordChecks.cs`:
 the FormID door from the head, and the dialogue sweep's capture, `CapturePinRootsAndAssets(afterPin)`, which is
-the pin-and-roots hold plus the live asset resolver. The type filter is `ILoadOrderHost.Types` and the pin-and-roots
+the pin-and-roots hold plus the asset resolver (in a call, its frozen copy). The type filter is `ILoadOrderHost.Types` and the pin-and-roots
 capture the errors sweep takes is `CapturePinAndRoots(afterPin)`; both are on the shared door. The dialogue fold
 is a static, `RecordReads.OpenDialogueFold`, so it is called directly. The members every area
 shares come through the door it extends, `ILoadOrderHost` in `src/housecarl-mcp/LoadOrderHost.cs`

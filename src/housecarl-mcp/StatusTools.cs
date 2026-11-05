@@ -4,7 +4,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>Read-only view of the active MO2 profile's load-order composition; the enabled/disabled picture is read fresh each call, while the resolved and record counts reflect the resolver's last build.</summary>
+/// <summary>Read-only view of the active MO2 profile's load-order composition; the enabled/disabled picture and the counts are the call's build, re-read at its start when the profile changed.</summary>
 [McpServerToolType]
 public static class StatusTools
 {
@@ -13,9 +13,9 @@ public static class StatusTools
          "Report what houseCARL sees in the active MO2 profile: enabled and disabled mods, active and inactive plugins, " +
          "the implicit force-loaded masters and CC, how many plugins resolved to real files, and any load-order " +
          "warnings; filter= swaps the name lists and warnings for a verdict on one mod or plugin (enabled? localized?). " +
-         "The enabled/disabled picture is read fresh each call, so a toggle in MO2 shows at once; the resolved count " +
-         "is rebuilt automatically when the profile changed, with no restart (a 'refresh still pending' note means MO2 " +
-         "was mid-write). Without filter=, also reports the resolved Papyrus script-log and SKSE crash-log folders, " +
+         "The enabled/disabled picture and the resolved count are re-read at the start of a call when the profile " +
+         "changed, so a toggle in MO2 shows with no restart; while another call is writing, the re-read waits for it " +
+         "and a 'refresh still pending' note says the picture is the one from before the change. Without filter=, also reports the resolved Papyrus script-log and SKSE crash-log folders, " +
          "where to read logs for triage (auto-detected, or set with " + ToolNames.SetToolPath + "). Every call " +
          "reports the running server's build version (the release version, then '+' and the full commit sha). " +
          "Changes nothing.")]
