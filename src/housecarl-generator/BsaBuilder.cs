@@ -18,15 +18,16 @@ public static class BsaBuilder
         return b;
     }
 
-    /// <summary>Author a byte-exact uncompressed BSA (folder+file names present, little-endian) — the standard
-    /// header -> folder records -> folder blocks -> file-name block -> file data layout Mutagen's reader parses.</summary>
+    /// <summary>Author a byte-exact uncompressed little-endian BSA — the standard header -> folder records -> folder
+    /// blocks -> file-name block -> file data layout Mutagen's reader parses. Folder names (and their header length)
+    /// are written only with <see cref="HasFolderNames"/>; the file-name block is written whatever the flags.</summary>
     public static byte[] Build(uint version, uint archiveFlags, (string Folder, (string Name, byte[] Data)[] Files)[] folders)
     {
         int frSize = version == 105 ? 24 : 16;
         bool named = (archiveFlags & HasFolderNames) != 0;               // without the flag no folder name is written
         uint folderCount = (uint)folders.Length;
         uint fileCount = (uint)folders.Sum(f => f.Files.Length);
-        uint totalFolderNameLen = (uint)folders.Sum(f => f.Folder.Length + 1);
+        uint totalFolderNameLen = named ? (uint)folders.Sum(f => f.Folder.Length + 1) : 0;
         uint totalFileNameLen = (uint)folders.SelectMany(f => f.Files).Sum(x => x.Name.Length + 1);
 
         long folderRecordsEnd = 36 + (long)folderCount * frSize;
