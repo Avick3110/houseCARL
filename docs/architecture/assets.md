@@ -198,8 +198,9 @@ resolver reads no profile.
   that reads archive bytes or probes an archive goes through: a provider's bytes (`ReadSource`), one entry of a
   named archive (`ReadEntry`, the raw `place` path included), and the off-order lane's root-archive probe. The reader
   is the view's own, empty at `Capture()`: it opens an archive at the view's first read of it, keyed by full path,
-  keeps the Mutagen reader (which holds no handle) and looks entries up by folder, and never stats that archive again
-  for the view's life; each read takes the entry's bytes off the file as it is then. An archive that will not open
+  keeps the Mutagen reader (which holds no handle) and looks entries up by folder, or through one whole-archive table
+  when the archive has no such folder, no folder names, or no folder index (first spelling of a name wins), and never
+  stats that archive again for the view's life; each read takes the entry's bytes off the file as it is then. An archive that will not open
   is tried once and answers every read with the same sentence. Loose bytes are read off disk at the read.
 - **The asset door's memory rule:** each archive's table is read at most once per asset view, besides the build's
   own read, and no reader, table or handle is kept between calls. Each `Capture()` makes one reader, and every lane
@@ -508,11 +509,18 @@ provided either; the generic lane does not, because it legitimately answers for 
   (rename *and* delete while the resolver lives) and, for single-entry extraction,
   `PlaceCoreTests.TheArchiveIsNotHeldOpenAfterTheRead`.
 - *One build per call*: the memory rule, by `ArchiveReadOnceTests`: a walk (meshes and scripts, and with
-  `source_provider=` its off-order probes), `links=`, a `nif_inspect` batch, native pairing (packed DLLs and scripts),
-  the config audit, a `place` batch (resolved, named and raw-path entries) and a voice carry each read one archive's
-  table once for two or more of its entries; an archive that will not open is tried once; a view does not stat its
-  archive again, and the next view after a refresh reads the new file (R18). The batch-of-one sentences are pinned
-  there too; the off-order lane's unreadable root archive by `PlaceOffOrderLaneTests`. `ScriptsReadOnceTests` keeps
+  `source_provider=` its off-order probes), an off-order hit and its byte read, `links=`, a `nif_inspect` batch,
+  `nif_set`, native pairing (packed DLLs and scripts), the config audit, a `place` batch (resolved, named and raw-path
+  entries), a voice carry, and a compaction's and a merge's FaceGen and voice carries each read an archive's table once
+  for two or more of its entries; where a test drives two lanes (the walk, the probe, native pairing), each lane reads
+  its own archive, so the count is one per lane. An archive without folder names
+  (`AnArchiveWithoutFolderNamesReadsThroughTheWholeArchiveTable`) and one with two folder records equal ignoring case
+  (`AnArchiveWithTwoSpellingsOfOneFolderReadsBoth`) or slash (`AnArchiveWithTwoSlashSpellingsOfOneFolderReadsBoth`)
+  read through the whole-archive table. An archive that will not open is tried once; a view does not stat its archive
+  again, and the next view after a refresh reads the new file (R18). The read sentences are pinned whole on their
+  triggers: native pairing's unreadable archive and vanished script, the scripts sweep's vanished script, the walk's
+  unreadable mesh and script archive and its unparsable script (the `…AsBefore` tests), and the batch-of-one
+  sentences; the off-order lane's unreadable root archive by `PlaceOffOrderLaneTests`. `ScriptsReadOnceTests` keeps
   the scripts sweep at one table per archive, read off the view. `ArchiveReadOnceTests` also holds these two lines in this note.
 - *One build per call*: `AssetResolverTests.ResolveManyAndACapturedViewAnswerFromOneBuild` reads a batch and a captured
   view off one build; `ACapturedViewKeepsItsBuildAcrossARebuild` in the same class pins the `Capture()` sentence
