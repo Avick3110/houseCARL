@@ -179,6 +179,7 @@ internal sealed partial class RecordWrites
         if (!anyInfo) return outcome;
 
         VoiceReport report;
+        AfterCommitForGuard?.Invoke();                                     // test seam; null in the product
         try { report = VoiceCheck.Run(outcome.OutputPath, outcome.Created, resolver, _host.Assets); }
         catch (Exception ex) { report = VoiceReport.Empty with { CheckError = $"{ex.GetType().Name}: {ex.Message}" }; }
         return report.IsEmpty ? outcome : outcome with { Voice = report };
