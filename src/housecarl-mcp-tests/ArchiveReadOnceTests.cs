@@ -147,6 +147,17 @@ public sealed class ArchiveReadOnceTests : IDisposable
                                                           null, "HcroSet", null, inPlace: false, acknowledge: false)));
     }
 
+    /// <summary>An archive without folder names answers through the whole-archive table: its entries' paths are bare
+    /// names, as main read them.</summary>
+    [Fact]
+    public void AnArchiveWithoutFolderNamesReadsThroughTheWholeArchiveTable()
+    {
+        var bsa = _p.Scratch("NoNames.bsa", BsaBuilder.Build(105, BsaBuilder.HasFileNames, new[]
+            { ("meshes", new[] { ("a.nif", BsaBuilder.Bytes("bare", 32)) }) }));
+        using var assets = AssetResolver.Build("", "", _p.Data, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+        Assert.Equal(BsaBuilder.Bytes("bare", 32), assets.Capture().ReadEntry(bsa, "a.nif"));
+    }
+
     [Fact]
     public void AVoiceCarryReadsOneArchiveOnceForEveryLine()
     {

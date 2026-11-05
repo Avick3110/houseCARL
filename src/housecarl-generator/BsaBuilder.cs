@@ -23,13 +23,14 @@ public static class BsaBuilder
     public static byte[] Build(uint version, uint archiveFlags, (string Folder, (string Name, byte[] Data)[] Files)[] folders)
     {
         int frSize = version == 105 ? 24 : 16;
+        bool named = (archiveFlags & HasFolderNames) != 0;               // without the flag no folder name is written
         uint folderCount = (uint)folders.Length;
         uint fileCount = (uint)folders.Sum(f => f.Files.Length);
         uint totalFolderNameLen = (uint)folders.Sum(f => f.Folder.Length + 1);
         uint totalFileNameLen = (uint)folders.SelectMany(f => f.Files).Sum(x => x.Name.Length + 1);
 
         long folderRecordsEnd = 36 + (long)folderCount * frSize;
-        var blockSizes = folders.Select(f => 1L + (f.Folder.Length + 1) + f.Files.Length * 16L).ToArray();
+        var blockSizes = folders.Select(f => (named ? 1L + (f.Folder.Length + 1) : 0) + f.Files.Length * 16L).ToArray();
         long nameBlockStart = folderRecordsEnd + blockSizes.Sum();
         long fileDataStart = nameBlockStart + totalFileNameLen;
 
@@ -60,10 +61,13 @@ public static class BsaBuilder
         var dataOrder = new List<byte[]>();
         foreach (var (folder, files) in folders)
         {
-            var fn = Encoding.ASCII.GetBytes(folder);
-            bw.Write((byte)(fn.Length + 1));   // bzstring length INCLUDING the null
-            bw.Write(fn);
-            bw.Write((byte)0);
+            if (named)
+            {
+                var fn = Encoding.ASCII.GetBytes(folder);
+                bw.Write((byte)(fn.Length + 1));   // bzstring length INCLUDING the null
+                bw.Write(fn);
+                bw.Write((byte)0);
+            }
             foreach (var (_, data) in files)
             {
                 bw.Write(0UL);                 // file name hash
