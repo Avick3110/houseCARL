@@ -120,7 +120,7 @@ public sealed class ServingCopyTests
     {
         using var w = new ServingCopyWorld(highFirst: true);
         w.Svc.Stats();                                          // the index is built off the high copy
-        string low = Md5(w.LowPath);
+        string low = Md5(w.LowPath), high = Md5(w.HighPath);
         (bool Success, string? Error) r = default;
         w.Svc.WriteArea.AfterInGatePinForGuard = w.SwitchHighModOff;
 
@@ -136,6 +136,7 @@ public sealed class ServingCopyTests
 
         Assert.DoesNotContain("index still had", r.Error ?? "");
         Assert.True(r.Success, r.Error);
+        Assert.NotEqual(high, Md5(w.HighPath));                 // the pin's copy was written
         Assert.Equal(low, Md5(w.LowPath));
 
         static (bool, string?) Out(dynamic o) => (o.Success, o.Error);
