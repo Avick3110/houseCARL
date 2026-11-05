@@ -325,6 +325,20 @@ public sealed class CallContextTests : IDisposable
         Call(() => Assert.Contains("UNTICKED", Ghost()));          // the next call reads the moved roots
     }
 
+    /// <summary>A status filter= in a call, after another call followed the roots elsewhere: the plugin's copy has not
+    /// moved in the call's build, so no index move is reported.</summary>
+    [Fact]
+    public void AStatusFilterAfterAnotherCallMovedTheRootsReportsNoIndexMove()
+    {
+        Call(() =>
+        {
+            var status = _svc.StatusData();
+            MoveRoots();
+            OutsideTheCall(() => _ = Host.Resolver);             // another call follows the move
+            Assert.Null(_svc.PluginFactsFor(_base.FileName, status)!.Moved);
+        });
+    }
+
     [Fact]
     public void ACallKeepsItsRootsAndFilesWhenAnotherCallSwitchesProfile()
     {

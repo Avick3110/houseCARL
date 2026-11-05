@@ -77,6 +77,7 @@ internal sealed partial class RecordWrites
             var snapshot = _host.ConfiguredRoots();                       // the lane's one read of the MO2 roots and plugin names
             var roots = snapshot.Roots;
             var view = resolver.Capture();
+            AfterInGatePinForGuard?.Invoke();                             // test seam; null in the product
             if (!Directory.Exists(roots.ModsDir))
                 return WritePatchBuilder.CompactOutcome.Fail($"cannot write: ModsDir '{roots.ModsDir}' does not exist. Check HouseCarl:ModsDir.");
 

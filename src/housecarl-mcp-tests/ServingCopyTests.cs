@@ -71,6 +71,61 @@ public sealed class ServingCopyTests
         Assert.Equal(low, Md5(w.LowPath));
     }
 
+    /// <summary>Q1: the target's mod switched off after the write's in-gate pin; the write finishes on the pin's copy with no refusal.</summary>
+    [Theory]
+    [InlineData("apply")]
+    [InlineData("compact")]
+    public void AnInPlaceWriteFinishesOnItsPinsCopyWhenTheTargetsModGoesOffAfterThePin(string lane)
+    {
+        using var w = new ServingCopyWorld(highFirst: true);
+        w.Svc.Stats();                                          // the index is built off the high copy
+        string low = Md5(w.LowPath);
+        (bool Success, string? Error) r = default;
+        w.Svc.WriteArea.AfterInGatePinForGuard = w.SwitchHighModOff;
+
+        Assert.Equal("ok", Guard.Tool("housecarl_probe", _ =>
+        {
+            r = lane == "apply"
+                ? Out(w.Svc.ApplyEdits(new[] { new BulkOp { Formid = ServingCopyWorld.Fid(w.Weapon), FieldPath = "EditorID", Value = "HcServeEdited" } },
+                                       null, null, target: ServingCopyWorld.Target, inPlace: true, acknowledge: true))
+                : Out(w.Svc.CompactPlugin(ServingCopyWorld.Target, inPlace: true, acknowledge: true));
+            return ToolAnswer.Served("ok");
+        }));
+        w.Svc.WriteArea.AfterInGatePinForGuard = null;
+
+        Assert.DoesNotContain("index still had", r.Error ?? "");
+        Assert.True(r.Success, r.Error);
+        Assert.Equal(low, Md5(w.LowPath));
+
+        static (bool, string?) Out(dynamic o) => (o.Success, o.Error);
+    }
+
+    /// <summary>A named-copy read in a call, after another call followed a switch to a profile with HighMod off, is judged
+    /// against the call's own profile, where HighMod's new copy serves.</summary>
+    [Fact]
+    public void ANamedCopyReadAfterAnotherCallsSwitchIsJudgedOnTheCallsProfile()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();                                          // the index is built off the low copy
+        string read = "";
+
+        Assert.Equal("ok", Guard.Tool("housecarl_probe", _ =>
+        {
+            w.Svc.CapturePin();
+            w.AddHighCopy();
+            w.SelectOtherWithHighModOff();
+            var other = new Thread(() => GC.KeepAlive(((ILoadOrderHost)w.Svc).Resolver));   // another call follows the switch
+            other.UnsafeStart();
+            other.Join();
+            read = Read(w, Je($"{{\"file\": \"{ServingCopyWorld.Target}\", \"mod\": \"HighMod\"}}"));
+            return ToolAnswer.Served("ok");
+        }));
+
+        Assert.Contains("HighMod", read);
+        Assert.DoesNotContain(ServingCopyWorld.LowEdid, read);
+        Assert.DoesNotContain("changed again during this call", read);
+    }
+
     /// <summary>source={file, mod: HighMod} never answers from the low copy, and the rerun reads the high copy's bytes.</summary>
     [Fact]
     public void ASourceNamingTheHigherModReadsThatModsCopy()
@@ -308,6 +363,22 @@ public sealed class ServingCopyWorld : IDisposable
 
     /// <summary>Drop the high copy into HighMod; no profile file changes.</summary>
     public void AddHighCopy() => Write(HighPath, HighEdid);
+
+    /// <summary>Switch HighMod off in the Default profile's mod list, as a toggle in MO2 does.</summary>
+    public void SwitchHighModOff() => File.WriteAllText(Path.Combine(Root, "instance", "profiles", "Default", "modlist.txt"), "# header\r\n-HighMod\r\n+LowMod\r\n");
+
+    /// <summary>Select a profile "Other" with the same plugins and HighMod off, as a profile switch in MO2 does.</summary>
+    public void SelectOtherWithHighModOff()
+    {
+        var instance = Path.Combine(Root, "instance");
+        var other = Path.Combine(instance, "profiles", "Other");
+        Directory.CreateDirectory(other);
+        foreach (var f in new[] { "loadorder.txt", "plugins.txt" }) File.Copy(Path.Combine(instance, "profiles", "Default", f), Path.Combine(other, f));
+        File.WriteAllText(Path.Combine(other, "modlist.txt"), "# header\r\n-HighMod\r\n+LowMod\r\n");
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Other)\r\ngamePath=@ByteArray("
+            + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
+    }
 
     void Write(string path, string edid)
     {
