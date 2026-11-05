@@ -10,20 +10,28 @@ internal sealed class CallContext
 {
     static readonly AsyncLocal<CallContext?> Current = new();
 
-    /// <summary>The call's record pin; null until its first record read.</summary>
+    /// <summary>The call's record pin, over a frozen copy of the resolver; null until its first record read.</summary>
     internal LoadOrderService.ViewPin? Pin { get; private set; }
 
     /// <summary>The call's file view; null until its first file read, so a records-only call never builds one.</summary>
     internal FileView? Files { get; private set; }
 
-    /// <summary>The roots and order the latest record pin was taken against, else the first file view's, whose order is null before any index.</summary>
-    internal (Mo2Roots Roots, LoadOrderResolver? Order)? Build { get; private set; }
+    /// <summary>The build the latest record pin was taken against, else the first file view's, whose order is null before any index.</summary>
+    internal CallBuild? Build { get; private set; }
 
     /// <summary>The call's roots, once it holds a view.</summary>
-    internal Mo2Roots Roots => Build!.Value.Roots;
+    internal Mo2Roots Roots => Build!.Roots;
 
-    /// <summary>The asset build a call holds once it first asks a file question, with what was read beside it.</summary>
-    internal sealed record FileView(AssetResolver Resolver, IReadOnlyList<string> Warnings, IReadOnlyList<ActiveArchive> Archives,
+    /// <summary>True once a write took its view inside the write gate; every later read in the call serves it.</summary>
+    internal bool WriteViewTaken { get; private set; }
+
+    /// <summary>What a call's view was taken against: the roots, the live order (null before any index), the profile read
+    /// behind it (null when none was kept) and the profile's name.</summary>
+    internal sealed record CallBuild(Mo2Roots Roots, LoadOrderResolver? Order, Mo2Composition? Composition, string ProfileName);
+
+    /// <summary>The asset build a call holds once it first asks a file question, with what was read beside it: a frozen
+    /// copy, and the live build it was taken from.</summary>
+    internal sealed record FileView(AssetResolver Resolver, AssetResolver Source, IReadOnlyList<string> Warnings, IReadOnlyList<ActiveArchive> Archives,
                                     IReadOnlyList<string> EnabledMods, string ProfileName);
 
     /// <summary>Open the context for one call; a nested tool body shares the outer call's, as the mark and the language do. Dispose ends it.</summary>
@@ -46,10 +54,16 @@ internal sealed class CallContext
     internal static CallContext? Open => Current.Value;
 
     /// <summary>Hold <paramref name="pin"/> for the rest of the call; a write's pin taken inside the write gate replaces an earlier one.</summary>
-    internal void HoldPin(LoadOrderService.ViewPin pin, Mo2Roots roots) { Pin = pin; Build = (roots, pin.Resolver); }
+    internal void HoldPin(LoadOrderService.ViewPin pin, CallBuild build) { Pin = pin; Build = build; }
 
     /// <summary>Hold the file view for the rest of the call; it sets the build only when none is held.</summary>
-    internal void HoldFiles(FileView files, Mo2Roots roots, LoadOrderResolver? order) { Files = files; Build ??= (roots, order); }
+    internal void HoldFiles(FileView files, CallBuild build) { Files = files; Build ??= build; }
+
+    /// <summary>Let go of files a write's in-gate pin moved past, so its next file read takes the pin's build.</summary>
+    internal void DropFiles() => Files = null;
+
+    /// <summary>Mark the write's view taken; the gate holds it for the rest of the call.</summary>
+    internal void TakeWriteView() => WriteViewTaken = true;
 
     /// <summary>True once the call's two views were found to describe two builds.</summary>
     bool _split;
