@@ -110,7 +110,7 @@ internal sealed partial class AssetLayers
                 if (n.Copy is null) continue;
                 if (n.Path.EndsWith(".nif", StringComparison.OrdinalIgnoreCase))
                 {
-                    var (links, err) = MeshLinks(n.Copy);
+                    var (links, err) = MeshLinks(view, n.Copy);
                     if (links is null) { notes.Add($"{n.Path}: its links were not read — {err}"); continue; }
                     foreach (var l in links)
                     {
@@ -120,7 +120,7 @@ internal sealed partial class AssetLayers
                 }
                 else if (n.Path.EndsWith(".pex", StringComparison.OrdinalIgnoreCase))
                 {
-                    var (bytes, readErr) = AssetResolver.ReadPlacementSource(n.Copy);
+                    var (bytes, readErr) = view.ReadSource(n.Copy);
                     if (bytes is null) { nodes.Add(ErrorNode(n.Path, "parent", n.Path, $"its parent class was not read — {readErr ?? "could not read the script bytes."}")); continue; }
                     try { if (AssetWalkEdges.ParentPex(bytes) is { } parent) AddFile(parent, "parent", n.Path); }
                     catch (Exception ex) { nodes.Add(ErrorNode(n.Path, "parent", n.Path, $"its parent class was not read — {ex.Message}")); }
@@ -139,9 +139,9 @@ internal sealed partial class AssetLayers
         => new(path, edge, pulledBy, WalkStanding.Error, null, Error: error);
 
     /// <summary>The files one copy of a mesh names, each once at its first site, unresolved; or why they could not be read.</summary>
-    internal static (IReadOnlyList<NifLink>? Links, string? Error) MeshLinks(PlacementSource copy)
+    internal static (IReadOnlyList<NifLink>? Links, string? Error) MeshLinks(AssetResolver.AssetView view, PlacementSource copy)
     {
-        var (bytes, readErr) = AssetResolver.ReadPlacementSource(copy);
+        var (bytes, readErr) = view.ReadSource(copy);
         if (bytes is null) return (null, readErr ?? "could not read the mesh bytes.");
         var (links, err) = NifLinks.Read(bytes);
         return links is null ? (null, err) : (NifLinks.FirstSites(links), null);

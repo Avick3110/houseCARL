@@ -208,77 +208,19 @@ public sealed class AssetResolver : IDisposable
         return new Snapshot(tables, stamps, failures);
     }
 
-    /// <summary>Read one BSA's file table with Mutagen's native reader into a string set. IArchiveReader is not
-    /// IDisposable in Mutagen 0.53.1, so the finally's cast disposes nothing and is not the release mechanism.</summary>
+    /// <summary>Read one BSA's file table with Mutagen's native reader into a string set. The reader holds no handle
+    /// and is dropped here; a view's byte reads open their own (<see cref="ArchiveReader"/>).</summary>
     static HashSet<string> ReadArchiveTable(string archivePath)
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var reader = Archive.CreateReader(GameRelease.SkyrimSE, archivePath);
-        try
-        {
-            foreach (var file in reader.Files)
-                set.Add(Normalize(file.Path));
-        }
-        finally { (reader as IDisposable)?.Dispose(); }           // disposes nothing in 0.53.1 — see the summary
+        foreach (var file in Archive.CreateReader(GameRelease.SkyrimSE, archivePath).Files)
+            set.Add(Normalize(file.Path));
         return set;
     }
 
-    /// <summary>Read ONE entry's bytes out of a BSA with Mutagen's native reader. Returns a fresh array, null when
-    /// the entry is not in the archive, and THROWS when the archive cannot be read so the caller reports it.</summary>
-    public static byte[]? TryReadArchiveEntry(string archivePath, string entryPath)
-    {
-        var want = Normalize(entryPath);
-        var reader = Archive.CreateReader(GameRelease.SkyrimSE, archivePath);
-        try
-        {
-            foreach (var file in reader.Files)
-                // OrdinalIgnoreCase — BSA tables store paths lowercased, so a case-sensitive compare would miss the entry.
-                if (string.Equals(Normalize(file.Path), want, StringComparison.OrdinalIgnoreCase))
-                    return file.GetBytes();                        // fresh array; no held handle (see the summary)
-            return null;                                           // archive read fine, entry simply not present
-        }
-        finally { (reader as IDisposable)?.Dispose(); }           // disposes nothing in 0.53.1 — see ReadArchiveTable
-    }
-
-    /// <summary>Is <paramref name="entryPath"/> inside this archive? The existence half of <see cref="TryReadArchiveEntry"/> — same match, no GetBytes.</summary>
-    public static bool ArchiveHasEntry(string archivePath, string entryPath)
-    {
-        var want = Normalize(entryPath);
-        var reader = Archive.CreateReader(GameRelease.SkyrimSE, archivePath);
-        try
-        {
-            foreach (var file in reader.Files)
-                if (string.Equals(Normalize(file.Path), want, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            return false;
-        }
-        finally { (reader as IDisposable)?.Dispose(); }           // disposes nothing in 0.53.1 — see ReadArchiveTable
-    }
-
-    /// <summary>Read many entries out of ONE archive in a single table walk, where the single-entry call costs an
-    /// open and a full table scan each. A wanted key missing from the result means the entry is not in the archive;
-    /// an archive that cannot be opened THROWS, never a silent empty map.</summary>
-    public static Dictionary<string, byte[]> TryReadArchiveEntries(string archivePath, IReadOnlyCollection<string> entryPaths)
-    {
-        var wanted = new Dictionary<string, string>(entryPaths.Count, StringComparer.OrdinalIgnoreCase);
-        foreach (var p in entryPaths) wanted[Normalize(p)] = p;                 // normalized key → the caller's original string
-        var result = new Dictionary<string, byte[]>(entryPaths.Count, StringComparer.OrdinalIgnoreCase);
-        var reader = Archive.CreateReader(GameRelease.SkyrimSE, archivePath);
-        try
-        {
-            foreach (var file in reader.Files)
-            {
-                if (result.Count == wanted.Count) break;                        // everything found — stop walking the table
-                if (wanted.TryGetValue(Normalize(file.Path), out var original) && !result.ContainsKey(original))
-                    result[original] = file.GetBytes();
-            }
-            return result;
-        }
-        finally { (reader as IDisposable)?.Dispose(); }
-    }
-
-    /// <summary>Read the bytes of ONE resolved provider — the shared home for the loose-vs-BSA winner read.</summary>
-    public static (byte[]? Bytes, string? Error) ReadPlacementSource(PlacementSource s)
+    /// <summary>Read the bytes of ONE resolved provider through <paramref name="archives"/> — the shared home for the
+    /// loose-vs-BSA winner read. Loose bytes are read off disk at the read.</summary>
+    static (byte[]? Bytes, string? Error) ReadSource(PlacementSource s, ArchiveReader archives)
     {
         if (s.Kind == AssetKind.Loose)
         {
@@ -289,7 +231,7 @@ public sealed class AssetResolver : IDisposable
         }
         try
         {
-            var b = s.ArchivePath is null ? null : TryReadArchiveEntry(s.ArchivePath, s.EntryPath);
+            var b = s.ArchivePath is null ? null : archives.ReadEntry(s.ArchivePath, s.EntryPath);
             return b is null ? (null, $"entry '{s.EntryPath}' not found inside '{Path.GetFileName(s.ArchivePath ?? "?")}'") : (b, null);
         }
         catch (Exception ex) { return (null, $"could not read archive '{Path.GetFileName(s.ArchivePath ?? "?")}': {ex.Message}"); }
@@ -418,14 +360,15 @@ public sealed class AssetResolver : IDisposable
     /// when the built universe has no answer for that name at that path. <see cref="OffOrderAssetSource"/> owns the
     /// lane; the <see cref="PlacementSource.OwnerEnabled"/> qualifier for a copy in an enabled mod is set here.</summary>
     public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
-        => TryResolveOffOrderProvider(providerName, relPath, BeginPass().Listings);
+        => TryResolveOffOrderProvider(providerName, relPath, BeginPass().Listings, new ArchiveReader());
 
-    /// <summary>As above; an enabled folder is read off the call's <paramref name="listings"/>, an unticked one directly.</summary>
-    OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath, LooseListings listings)
+    /// <summary>As above; an enabled folder is read off the call's <paramref name="listings"/>, an unticked one directly,
+    /// and the folder's root archives through <paramref name="archives"/>.</summary>
+    OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath, LooseListings listings, ArchiveReader archives)
     {
         var enabled = providerName is not null && IsEnabledMod(providerName.Trim());
         var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, AsWindowsOpens(Normalize(relPath)), relPath, _skip,
-                                               enabled ? listings : null);
+                                               archives, enabled ? listings : null);
         return look.Source is { } s && enabled
             ? look with { Source = s with { OwnerEnabled = true } }
             : look;
@@ -548,7 +491,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Capture the CURRENT build as a pinned read view, so a bulk scan and its read-failure list answer from one build.</summary>
-    public AssetView Capture() { var (snap, listings) = BeginPass(); return new(this, snap, listings); }
+    public AssetView Capture() { var (snap, listings) = BeginPass(); return new(this, snap, listings, new ArchiveReader()); }
 
     /// <summary>A copy for one call: it holds the current build's snapshot, shares its loose cache, and reads the loose
     /// folders off <paramref name="listings"/> (a new set when none is given) for every view it captures; contract in
@@ -564,13 +507,29 @@ public sealed class AssetResolver : IDisposable
     /// listing taken before this call answers it.</summary>
     (Snapshot Snap, LooseListings Listings) BeginPass() => (_snap, _callListings ?? new LooseListings());
 
-    /// <summary>A read view pinned to ONE captured build (see <see cref="Capture"/>). No handles — safe to hold for a call.</summary>
+    /// <summary>A read view pinned to ONE captured build (see <see cref="Capture"/>), with its own archive reader:
+    /// existence is the pinned build; bytes are read when used, each archive's table at most once for the view. No
+    /// handles — safe to hold for a call.</summary>
     public readonly struct AssetView
     {
         readonly AssetResolver _r;
         readonly Snapshot _s;
         readonly LooseListings _l;                                              // the loose listings this view reads
-        internal AssetView(AssetResolver r, Snapshot s, LooseListings l) { _r = r; _s = s; _l = l; }   // only Capture() constructs
+        readonly ArchiveReader _a;                                              // this view's archive reads
+        internal AssetView(AssetResolver r, Snapshot s, LooseListings l, ArchiveReader a) { _r = r; _s = s; _l = l; _a = a; }   // only Capture() constructs
+
+        /// <summary>How many archive tables this view has read; a test seam.</summary>
+        internal int ArchiveTablesRead => _a.ArchiveTablesRead;
+
+        /// <summary>How many archive folder name tables this view has walked; a test seam.</summary>
+        internal int FolderListsRead => _a.FolderListsRead;
+
+        /// <summary>The bytes of one resolved provider, loose or packed, or the sentence saying why they could not be read.</summary>
+        public (byte[]? Bytes, string? Error) ReadSource(PlacementSource s) => AssetResolver.ReadSource(s, _a);
+
+        /// <summary>One entry's bytes out of the archive at <paramref name="archivePath"/>, in the order or not; null when
+        /// the archive does not hold it; THROWS when the archive cannot be read.</summary>
+        public byte[]? ReadEntry(string archivePath, string entryPath) => _a.ReadEntry(archivePath, entryPath);
 
         public IReadOnlyList<string> BsaFailures => _s.Failures;
 
@@ -596,7 +555,7 @@ public sealed class AssetResolver : IDisposable
         /// Deliberately NOT pinned to this view's build: an off-order folder contributes to no build. An ENABLED
         /// folder is read off this view's listings.</summary>
         public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
-            => _r.TryResolveOffOrderProvider(providerName, relPath, _l);
+            => _r.TryResolveOffOrderProvider(providerName, relPath, _l, _a);
 
         public IReadOnlyList<AssetHit> ResolveMany(IEnumerable<string> relPaths)
         {

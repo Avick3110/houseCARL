@@ -51,8 +51,8 @@ public sealed class PlaceCoreTests : IDisposable
         var bsa = Path.Combine(_root, "read.bsa");
         File.WriteAllBytes(bsa, PlaceInstance.FaceArchive());
 
-        Assert.Equal(PlaceInstance.ArchiveFaceBytes, AssetResolver.TryReadArchiveEntry(bsa, PlaceInstance.FacegenRel));
-        Assert.Null(AssetResolver.TryReadArchiveEntry(bsa, @"meshes\nope\not-in-archive.nif"));
+        Assert.Equal(PlaceInstance.ArchiveFaceBytes, new ArchiveReader().ReadEntry(bsa, PlaceInstance.FacegenRel));
+        Assert.Null(new ArchiveReader().ReadEntry(bsa, @"meshes\nope\not-in-archive.nif"));
     }
 
     // Probe B: "the .bsa stays renamable AND deletable after extraction — zero handles held at rest".
@@ -61,7 +61,7 @@ public sealed class PlaceCoreTests : IDisposable
     {
         var bsa = Path.Combine(_root, "held.bsa");
         File.WriteAllBytes(bsa, PlaceInstance.FaceArchive());
-        Assert.NotNull(AssetResolver.TryReadArchiveEntry(bsa, PlaceInstance.FacegenRel));
+        Assert.NotNull(new ArchiveReader().ReadEntry(bsa, PlaceInstance.FacegenRel));
 
         File.Move(bsa, bsa + ".moved");
         File.Move(bsa + ".moved", bsa);
