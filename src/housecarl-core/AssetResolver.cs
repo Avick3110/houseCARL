@@ -56,6 +56,7 @@ public sealed class AssetResolver : IDisposable
         public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
         public readonly ConcurrentDictionary<string, WatchedDir> DirWatch;   // watched dir → what must not change about it; the whole loose freshness check
         public int WarmListings;                                             // directory listings the warm took; a test seam, never the check's
+        public int Warms;                                                    // subtree warms finished on this build, counted after their watches
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
         {
             Tables = tables; Stamps = stamps; Failures = failures;
@@ -85,21 +86,19 @@ public sealed class AssetResolver : IDisposable
         public readonly ConcurrentDictionary<string, byte> FileHeld = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>One directory a subtree's answer was read off, and what about it decided that answer: its whole listing
-    /// (<see cref="Entries"/>), or one name missing from it, or one name a file holds.</summary>
-    internal readonly record struct ReadOff(string Dir, HashSet<string>? Entries, string? Name, bool FileHeld);
-
     /// <summary>One subtree directory's loose resolution: the filename sets of the roots that have it, in precedence
-    /// order, and the directories it was read off. Its freshness between calls is not held here — warming puts one
-    /// directory per root under the build's shared <see cref="Snapshot.DirWatch"/>, so two subtrees answered by the
-    /// same directory are read once.</summary>
+    /// order. Its freshness is not held here — warming puts one directory per root under the build's shared
+    /// <see cref="Snapshot.DirWatch"/>, so two subtrees answered by the same directory are read once. <see cref="Warmed"/>
+    /// orders it against a call's freshness check, and <see cref="Listed"/> holds the whole listings it was read off,
+    /// which must still be the watch's baselines for a checked call to take it.</summary>
     internal sealed class LooseSubtree
     {
         public readonly (int RootIndex, HashSet<string> Files)[] Present;   // roots that have the dir + ≥1 file, precedence order
         public readonly bool AnySuffixed;                                  // a file here ends with a skip suffix, so a hidden twin may be here
-        public readonly ReadOff[] From;                                    // what a call's listings must still show for this answer to serve it
-        public LooseSubtree((int, HashSet<string>)[] present, bool anySuffixed, ReadOff[] from)
-        { Present = present; AnySuffixed = anySuffixed; From = from; }
+        public readonly (string Dir, HashSet<string> Names)[] Listed;      // the subtree dirs this was read off, each whole
+        public readonly int Warmed;                                        // the build's warm count once this warm's watches were in place
+        public LooseSubtree((int, HashSet<string>)[] present, bool anySuffixed, (string, HashSet<string>)[] listed, int warmed)
+        { Present = present; AnySuffixed = anySuffixed; Listed = listed; Warmed = warmed; }
     }
 
     volatile Snapshot _snap;
@@ -506,7 +505,7 @@ public sealed class AssetResolver : IDisposable
                 foreach (var name in listing.Names)
                 {
                     var f = LooseListings.OnDisk(dir, name);
-                    if (!listing.Files.Contains(name)) { pending.Enqueue(f); continue; }
+                    if (!listing.IsFile(name)) { pending.Enqueue(f); continue; }
                     // Re-rooted on the NORMALIZED prefix, not sliced off rootDir, which would carry the caller's casing.
                     var rel = withSep + Normalize(f.Substring(baseDir.Length));
                     if (_skip.Hides(rel, linked) is not { } rule) Take(rel);
@@ -611,17 +610,23 @@ public sealed class AssetResolver : IDisposable
     /// watch — and rebuild in one reference swap if any changed. A changed archive or mod SET is an order change
     /// instead. The watch set holds each directory ONCE however many subtrees answer from it, so the check costs one
     /// listing per watched directory rather than one per root per warmed subtree. Given a call's
-    /// <paramref name="listings"/>, the check lists into them, so what it read is what the call reads.</summary>
+    /// <paramref name="listings"/>, the check lists into them, so what it read is what the call reads, and a build it
+    /// finds fresh is marked checked for that call up to the subtrees warmed before it began.</summary>
     public bool RefreshIfStale(LooseListings? listings = null)
     {
         var snap = _snap;
+        var warmed = Volatile.Read(ref snap.Warms);                   // every warm counted here has its watches in place
         bool stale = false;
         foreach (var a in _archives)
             if (!snap.Stamps.TryGetValue(a.Path, out var s) || FileStamp.Of(a.Path) != s) { stale = true; break; }
         if (!stale)
             foreach (var kv in snap.DirWatch)                          // one listing per watched directory
                 if (WatchedDirStale(kv.Value, listings is null ? TryList(kv.Key) : listings.TryGet(kv.Key))) { stale = true; break; }
-        if (!stale) return false;
+        if (!stale)
+        {
+            listings?.Checked(snap, warmed);
+            return false;
+        }
         _snap = BuildTables();                                        // BSA tables re-read; loose cache starts empty, re-warms lazily
         return true;
     }
@@ -643,7 +648,7 @@ public sealed class AssetResolver : IDisposable
         // A name a file was holding: gone, or now a directory, and the root may provide the subtree after all. Only a
         // mod with a FILE called `meshes` (or the like) has one at all.
         foreach (var name in w.FileHeld.Keys)
-            if (!now.Files.Contains(name)) return true;
+            if (!now.IsFile(name)) return true;
         return false;
     }
 
@@ -656,27 +661,27 @@ public sealed class AssetResolver : IDisposable
         catch { return null; }
     }
 
-    /// <summary>The subtree this call resolves <paramref name="subtreeDir"/> from: the build's, while every directory
-    /// it was read off shows, in this call's listings, what it showed then; else warmed again off those listings.</summary>
+    /// <summary>The subtree this call resolves <paramref name="subtreeDir"/> from: the build's when this call warmed it,
+    /// or when this call's freshness check covered it — warmed before the check began, and still resolving from the
+    /// listings the check compared; else warmed again off this call's listings, so the call reads every folder once.</summary>
     LooseSubtree Subtree(string subtreeDir, Snapshot snap, LooseListings listings)
     {
         if (listings.Subtrees.TryGetValue(subtreeDir, out var mine)) return mine;
         LooseSubtree? made = null;
         var st = snap.LooseCache.GetOrAdd(subtreeDir, d => made = WarmSubtree(d, snap, listings));
-        if (!ReferenceEquals(st, made) && !StillListed(st, listings))
+        if (!ReferenceEquals(st, made) && !CheckedFor(st, snap, listings))
             snap.LooseCache[subtreeDir] = st = WarmSubtree(subtreeDir, snap, listings);
         return listings.Subtrees.GetOrAdd(subtreeDir, st);
     }
 
-    /// <summary>Does every directory <paramref name="st"/> was read off still show, in this call's listings, what decided it?</summary>
-    static bool StillListed(LooseSubtree st, LooseListings listings)
+    /// <summary>Did this call's freshness check cover <paramref name="st"/>? Every directory a warm reads off is
+    /// watched, so a build the check found fresh agrees with the call's listings for each subtree warmed before it
+    /// began, as long as the whole listings the subtree resolves from are still the ones the check compared.</summary>
+    static bool CheckedFor(LooseSubtree st, Snapshot snap, LooseListings listings)
     {
-        foreach (var from in st.From)
-        {
-            if (listings.TryGet(from.Dir) is not { } now) return false;
-            if (from.Entries is { } was) { if (!ReferenceEquals(was, now.Names) && !now.Names.SetEquals(was)) return false; }
-            else if (from.FileHeld ? !now.Files.Contains(from.Name!) : now.Names.Contains(from.Name!)) return false;
-        }
+        if (!listings.CheckedUpTo(snap, st.Warmed)) return false;
+        foreach (var (dir, names) in st.Listed)
+            if (!snap.DirWatch.TryGetValue(dir, out var w) || !ReferenceEquals(w.Entries, names)) return false;
         return true;
     }
 
@@ -687,28 +692,30 @@ public sealed class AssetResolver : IDisposable
         var roots = _looseRoots;
         var segments = subtreeDir.Length == 0 ? Array.Empty<string>() : subtreeDir.Split('\\');
         var present = new List<(int, HashSet<string>)>();
-        var from = new List<ReadOff>();
+        var listed = new List<(string, HashSet<string>)>();
         for (int i = 0; i < roots.Count; i++)
         {
             // Most roots are answered off listings this call already took, top folder down, with no stat of their own.
-            if (TryDescend(roots[i].Dir, segments, snap, listings, from, out var listed))
+            if (TryDescend(roots[i].Dir, segments, snap, listings, listed, out var files))
             {
-                if (listed is { Count: > 0 }) present.Add((i, listed));
+                if (files is { Count: > 0 }) present.Add((i, files));
                 continue;
             }
             var dir = subtreeDir.Length == 0 ? roots[i].Dir : LooseListings.OnDisk(roots[i].Dir, subtreeDir);
             // ONE read of this root's copy: the whole listing is the watch baseline, the filenames in it are what the
             // subtree resolves from. Two reads of one directory would only differ by the split second between them.
-            var (names, files, absent) = SafeListing(dir, roots[i].Name, roots[i].Dir, subtreeDir, snap, listings);
-            Watch(dir, roots[i].Dir, snap, names, absent, from);     // the baseline for an appear/disappear, on the build's shared watch set
-            if (files is { Count: > 0 }) present.Add((i, files));
+            var (names, held, absent) = SafeListing(dir, roots[i].Name, roots[i].Dir, subtreeDir, snap, listings);
+            Watch(dir, roots[i].Dir, snap, names, absent);           // the baseline for an appear/disappear, on the build's shared watch set
+            if (names is not null) listed.Add((dir, names));
+            if (held is { Count: > 0 }) present.Add((i, held));
         }
-        return new LooseSubtree(present.ToArray(), present.Any(p => _skip.AnySuffixed(p.Item2)), from.ToArray());
+        return new LooseSubtree(present.ToArray(), present.Any(p => _skip.AnySuffixed(p.Item2)), listed.ToArray(),
+                                Interlocked.Increment(ref snap.Warms));
     }
 
     /// <summary>One root's copy of a subtree off the call's listings, top down; false sends it to <see cref="SafeListing"/>.</summary>
-    static bool TryDescend(string rootDir, string[] segments, Snapshot snap, LooseListings listings, List<ReadOff> from,
-                           out HashSet<string>? files)
+    static bool TryDescend(string rootDir, string[] segments, Snapshot snap, LooseListings listings,
+                           List<(string, HashSet<string>)> listed, out HashSet<string>? files)
     {
         files = null;
         var dir = rootDir;
@@ -719,7 +726,7 @@ public sealed class AssetResolver : IDisposable
             if (leaf)
             {
                 snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).Entries = listing.Names;
-                from.Add(new ReadOff(dir, listing.Names, null, false));
+                listed.Add((dir, listing.Names));
                 files = listing.Files;
                 return true;
             }
@@ -728,13 +735,11 @@ public sealed class AssetResolver : IDisposable
             if (!listing.Names.Contains(name))
             {
                 snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).Forbidden[name] = 0;
-                from.Add(new ReadOff(dir, null, name, false));
                 return true;
             }
-            if (listing.Files.Contains(name))
+            if (listing.IsFile(name))
             {
                 snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).FileHeld[name] = 0;
-                from.Add(new ReadOff(dir, null, name, true));
                 return true;
             }
             dir = LooseListings.OnDisk(dir, name);
@@ -743,12 +748,11 @@ public sealed class AssetResolver : IDisposable
 
     /// <summary>Watch this root's copy of a subtree, off reads taken at this warm: its own listing, else the missing name on
     /// the deepest ancestor that stats; nothing where the absence was not proved (a root failure already named).</summary>
-    static void Watch(string dir, string rootDir, Snapshot snap, HashSet<string>? entries, bool provedAbsent, List<ReadOff> from)
+    static void Watch(string dir, string rootDir, Snapshot snap, HashSet<string>? entries, bool provedAbsent)
     {
         if (entries is not null)                                       // the warm's own listing of this root's copy
         {
             snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).Entries = entries;
-            from.Add(new ReadOff(dir, entries, null, false));
             return;
         }
         if (!provedAbsent) return;                                     // not proved: a name listed that will not stat, or an ancestor that will not list
@@ -765,12 +769,10 @@ public sealed class AssetResolver : IDisposable
                 continue;
             }
             var name = Path.GetFileName(child);                          // stats as no directory: the walk climbed past it
-            bool held = File.Exists(child);
-            if (held)                                                    // a FILE holds the name: watched for becoming a directory
+            if (File.Exists(child))                                      // a FILE holds the name: watched for becoming a directory
                 snap.DirWatch.GetOrAdd(up, _ => new WatchedDir()).FileHeld[name] = 0;
             else                                                         // neither: watched for appearing
                 snap.DirWatch.GetOrAdd(up, _ => new WatchedDir()).Forbidden[name] = 0;
-            from.Add(new ReadOff(up, null, name, held));
             break;
         }
     }

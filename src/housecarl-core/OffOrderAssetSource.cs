@@ -167,7 +167,7 @@ public static class OffOrderAssetSource
     {
         cause = null;
         var read = listings.Get(Path.GetDirectoryName(path)!);
-        if (read.Listing is { } listing) return listing.Files.Contains(Path.GetFileName(path)) ? Probe.Present : Probe.Absent;
+        if (read.Listing is { } listing) return listing.IsFile(Path.GetFileName(path)) ? Probe.Present : Probe.Absent;
         return read.Failure is DirectoryNotFoundException ? Probe.Absent : ProbeFile(path, out cause);
     }
 
