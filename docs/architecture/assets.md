@@ -110,18 +110,22 @@ resolver reads no profile.
   new build**, which `RefreshIfStale` makes when an archive or a warmed subtree changes and the service makes when
   the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder
   toggles something in MO2, or restarts the server, and the next call reads the folder again.
-- **One listing per loose folder per call** (`LooseListings`, #1310). Every loose read a view makes — a resolve's warm,
-  the `EnumerateUnder` walk, `LooseRootFiles`, the freshness check at the call's first file read, and an ENABLED
-  folder's off-order probe — reads a folder off the call's one listing of it, taken at first touch and dropped with the
-  call, so a file the call lists is never absent later in it, and one it resolves is never missing from its listing.
-  Each enters a folder the one way, `LooseListings.Descend`: from the root's own folder (as the build keys it, never
-  re-spelt) down through the call's listing of each folder on the way, so a folder the call listed as absent stays
-  absent below it, and one it listed stays listed after it goes. The call is a frozen copy's every view (`Frozen(listings)`, which the service holds per call); outside one, each
-  `Capture()` or single-shot read is its own. A listing taken before a call began never answers it, and a folder that
-  will not list keeps its failure for the call, then falls back to the stat-and-prove path.
+- **One listing per loose folder per file view** (`LooseListings`, #1310). Every loose read a view makes — a resolve's
+  warm, the `EnumerateUnder` walk, `LooseRootFiles`, the freshness check at the call's first file read, and an ENABLED
+  folder's off-order probe — reads a folder off the view's one listing of it, taken at first touch and dropped with
+  the view, so a file the view lists is never absent later in it, and one it resolves is never missing from its
+  listing. Each enters a folder the one way, `LooseListings.Descend`: from the root's own folder (as the build keys
+  it, never re-spelt) down through the listing of each folder on the way, so a folder the view listed as absent stays
+  absent below it, and one it listed stays listed after it goes. A call holds one file view (`Frozen(listings)`), so
+  one set of listings; a write's first read inside the write gate takes a new file view and a new set with it
+  (load-order-service.md), so its reads before the gate and inside it are two listings. Outside a call, each
+  `Capture()` or single-shot read is its own. A listing taken before a view began never answers it, and a folder that
+  will not list keeps its failure for the view, then falls back to the stat-and-prove path.
 - **A folder is warmed across roots top-down**, each root answered off the call's listings of its mod folder and of
   each folder below it that its parent lists as a directory, so a call warming many folders lists each directory on the
-  way once, not once per folder per root. Every folder a warm reads off is watched, so the freshness check,
+  way once, not once per folder per root. A warm watches, per root, the folder the subtree resolves from (its whole
+  listing), or the folder whose listing lacks the next name (watched for it appearing) or holds it as a file (watched
+  for it becoming a folder or going); a folder it only passed through on the way is not watched. The freshness check,
   which lists every watched folder into the call, decides which `LooseCache` subtrees a call may take as they are:
   a check that finds the build fresh marks the call's listings checked for every subtree warmed before it began (a
   warm counts once its watches are in place), as long as the whole listings the subtree resolves from are still the
@@ -135,11 +139,12 @@ resolver reads no profile.
   folder, or any subfolder that refuses, ends that root's walk with "could not walk", keeping what it took before,
   as the enumeration did.
 - **A freshness baseline is read at the warm, never off an older memo.** Every directory a warmed subtree puts under
-  watch is baselined by what that warm reads — a listing taken in the warm's own read pass, which is also what
+  watch is baselined by what that warm reads — the call's listing the warm read, which is also what
   the answer came from; on the fallback path, the whole listing for a root's own copy, or for a root that has nothing
   there, two stats on the missing name (no directory, no file), taken only once the absence is proved; where it is
   not (a name listed that will not stat, or an ancestor that stats but will not list, both of which look absent to
-  the two stats) the root is a named failure and nothing is watched. A memo from an earlier pass answers the
+  the two stats) the root is a named failure and nothing is watched. A memo from an earlier call (outside a call, an
+  earlier `Capture()`) answers the
   absence VERDICT and nothing else, because it can predate the warm by any number of calls, and a baseline older
   than the warm makes a file that goes and comes back invisible for the life of the build.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
@@ -148,12 +153,16 @@ resolver reads no profile.
   Windows opens it (the last loses trailing dots and spaces, any other one trailing dot), so it finds the file a file
   open would; the archive match and the reported path use the path as asked.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `LooseListings.OnDisk(modRoot, rel)`.
-- **One join of a Data path onto a disk folder.** `LooseListings.OnDisk` is the only place a Data-relative path (or a
-  folder name) meets a disk folder: the resolver's loose paths and walks, the off-order lane, the write lanes (`place`,
-  `nif_set`, the carries, `.seq`, `bsa_extract`), and the side lookups (output folders, `write_seq`'s `mod=`,
-  `update_status`'s `meta.ini`, the SKSE `meta.ini` and loader probes, the Papyrus source roots). It needs no file
-  view, so a side lookup builds none. On Windows it is the plain join, today's string; a case-folding match per
-  segment is where a case-sensitive file system would need one, not built here.
+- **One join of a Data path onto a disk folder.** `LooseListings.OnDisk` is the join a Data-relative path (or a
+  folder name) takes onto a disk folder in: the resolver's loose roots, paths and walks; the off-order lane and
+  `source_provider`'s folder gate; the write lanes (`place`, `nif_set`, the carries, `.seq`, `bsa_extract`); output-folder
+  discovery and `into=`, with their `Scripts`, `Source\Scripts`, `SEQ` and `meta.ini`; plugin locate, `mod=` included;
+  archive discovery; the `Strings` tables; owner meta; `update_status`'s `meta.ini`; the SKSE `meta.ini`, loader and
+  dependency probes; the Papyrus source roots and compile output. It needs no file view, so none of these builds one.
+  Joins outside these still use `Path.Combine`, among them the instance layout, game INIs and profiles, and the
+  folders and plugin paths the merge, compact, reshape and BSA writes make (`RecordWrites.cs`, `RecordReshape.cs`,
+  `BsaTools.cs`). On Windows the join is the plain one,
+  today's string; a case-folding match per segment is where a case-sensitive file system would need one, not built here.
 
 ### One build per call
 
@@ -462,13 +471,13 @@ provided either; the generic lane does not, because it legitimately answers for 
 - *What an answer may claim*: Pinned by `AssetLooseFreshnessTests` — a freshness baseline is read at the warm, never
   off an older memo (`AFileDeletedAndPutBackBetweenCallsIsSeen`, `ASubtreeDeletedAfterASweepMemoizedItsParentIsSeenComingBack`,
   `AFileAddedToASecondRootAfterAnotherFolderWarmedIsSeen`), and never off a listing an earlier call took, checked or
-  not (`AFileDeletedWithNoCheckBetweenCallsReadsAbsent`); a read pass lists each directory once, the next call lists
+  not (`AFileDeletedWithNoCheckBetweenCallsReadsAbsent`); a call (outside one, a `Capture()`) lists each directory once, the next lists
   again, and the absence stays watched (`APassListsEachDirectoryOnceAndALaterCallListsItAgain`); a segment resolves as
   a file open does (`ATrailingDotOrSpaceResolvesAsAFileOpenDoes`), an archive entry as asked
   (`AssetResolverTests.ATrailingDotReachesTheLooseFileButNotTheArchiveEntry`), and one that opens as no name is refused
   (`ASegmentWindowsOpensAsNoNameIsRefused`, `PlaceOffOrderLaneTests.ADestinationEndingInADotsOnlySegmentIsRefused`);
-  two interleaved passes do not list for each other (`TwoInterleavedPassesDoNotListForEachOther`); a folder that will
-  not list is tried once per pass (`AFolderThatWillNotListIsTriedOncePerPass`); a file holding a name under a folder
+  two interleaved captures do not list for each other (`TwoInterleavedPassesDoNotListForEachOther`); a folder that will
+  not list is tried once per capture (`AFolderThatWillNotListIsTriedOncePerPass`); a file holding a name under a folder
   only passed through is still watched (`AFileHoldingANameUnderAPassedThroughFolderIsStillWatched`); on the fallback path an absence is watched only
   once it is proved (`AModFolderThatWillNotListDoesNotMakeEveryCallStale`,
   `AMemoThatWronglyProvesAnAbsenceCostsOneRebuildNotOnePerCall`); a memo never makes a failure

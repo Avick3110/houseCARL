@@ -125,7 +125,7 @@ public sealed class AssetResolver : IDisposable
     /// answers for a subtree, which is not the same as one per root per subtree.</summary>
     internal int WatchedDirectoryCount => _snap.DirWatch.Count;
 
-    /// <summary>How many directory listings this build's warms have taken, so a test can assert a read pass lists each directory once.</summary>
+    /// <summary>How many directory listings this build's warms have taken, so a test can assert a call, or a capture outside one, lists each directory once.</summary>
     internal int WarmListingCount => Volatile.Read(ref _snap.WarmListings);
 
     /// <summary>The unread loose roots as ONE short clause, for a per-item reason with no caveat block above it to
