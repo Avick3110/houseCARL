@@ -296,6 +296,7 @@ internal sealed partial class RecordWrites
             VoiceCarryOutcome voiceRename;
             bool? seqGate = null;                                          // the VFS gate result — SET the moment the view resolves, BEFORE the carries
             var srcSeqRel = $@"SEQ\{Path.GetFileNameWithoutExtension(srcPath)}.seq";
+            AfterCommitForGuard?.Invoke();                                 // test seam; null in the product
             try
             {
                 var assetView = _host.Assets.Capture();
@@ -646,6 +647,7 @@ internal sealed partial class RecordWrites
             AssetRenameOutcome assetRename;
             VoiceCarryOutcome voiceRename;
             bool? seqGate = null;                                          // the VFS answer, set the moment the view resolves
+            AfterCommitForGuard?.Invoke();                                 // test seam; null in the product
             try
             {
                 var assetView = _host.Assets.Capture();
