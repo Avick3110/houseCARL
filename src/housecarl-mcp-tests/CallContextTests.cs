@@ -160,7 +160,102 @@ public sealed class CallContextTests : IDisposable
             OutsideTheCall(() => rebuilt = Host.Resolver.Epoch);   // another call re-indexes the changed plugin
             Assert.NotEqual(view.Epoch, rebuilt);
             Assert.Equal(view.Epoch, _svc.CaptureView().Epoch);
+            Assert.Equal(view.Epoch, Host.Resolver.Capture().Epoch);   // the held resolver is a frozen copy, not the rebuilt one (r1 #1)
         });
+    }
+
+    static bool Present(AssetCapture files) => files.View.Resolve("hc_cc.txt").Exists;
+
+    // r1 #3: the held file view is a frozen copy, so another call's content refresh does not reach it.
+    [Fact]
+    public void AFileRefreshedByAnotherCallLeavesTheCallOnItsFiles()
+    {
+        Call(() => Host.CaptureAssets());                       // warm both sides
+        Call(() =>
+        {
+            Assert.True(Present(Host.CaptureAssets()));          // warms the loose subtree
+            File.Delete(Path.Combine(_mo2.ModsDir, "CcBase", "hc_cc.txt"));
+            OutsideTheCall(() => Assert.False(Present(Host.CaptureAssets())));   // another call's content check rebuilds
+            Assert.True(Present(Host.CaptureAssets()));
+            Assert.True(Host.Assets.Capture().Resolve("hc_cc.txt").Exists);
+        });
+        Call(() => Assert.False(Present(Host.CaptureAssets())));
+    }
+
+    // Q2 (#1128): a file read during another call's write runs the content check, since that write reads its own frozen copy.
+    [Fact]
+    public void AFileReadDuringAnotherCallsWriteSeesAChangedFile()
+    {
+        Call(() => Assert.True(Present(Host.CaptureAssets())));  // warms the loose subtree
+        File.Delete(Path.Combine(_mo2.ModsDir, "CcBase", "hc_cc.txt"));
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var writer = new Thread(() => { lock (Host.WriteGate) { held.Set(); release.Wait(); } });
+        writer.Start();
+        held.Wait();
+        try { Call(() => Assert.False(Present(Host.CaptureAssets()))); }
+        finally { release.Set(); writer.Join(); }
+    }
+
+    // Pins unchanged behaviour: a write refused before its commit builds no file view.
+    [Fact]
+    public void AWriteRefusedBeforeItsCommitBuildsNoFileView()
+    {
+        Call(() =>
+        {
+            var refused = _svc.ApplyEdits(new[] { new BulkOp { Formid = "000FFF:" + _base.FileName, FieldPath = "EditorID", Value = "HcCcNope" } }, "HcCcRefused", null);
+            Assert.False(refused.Success);
+        });
+        Assert.False(FilesBuilt());
+    }
+
+    /// <summary>Move every root another call can follow: the mods and profiles under a new base folder, whose profile
+    /// lists an unticked plugin, and the game under a new folder; both games' Data ship Papyrus sources.</summary>
+    void MoveRoots()
+    {
+        var alt = Path.Combine(_mo2.Root, "alt");
+        var game2 = Path.Combine(_mo2.Root, "game2");
+        foreach (var f in Directory.GetFiles(Path.Combine(_mo2.ModsDir, "CcBase")))
+        {
+            Directory.CreateDirectory(Path.Combine(alt, "mods", "CcBase"));
+            File.Copy(f, Path.Combine(alt, "mods", "CcBase", Path.GetFileName(f)));
+        }
+        var profile = Path.Combine(alt, "profiles", "Default");
+        Directory.CreateDirectory(profile);
+        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + _base.FileName + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + _base.FileName + "\r\nHcCcGhost.esp\r\n");
+        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+CcBase\r\n");
+        Directory.CreateDirectory(Path.Combine(game2, "Data", "Source", "Scripts"));
+        File.WriteAllText(Path.Combine(game2, "Data", "Source", "Scripts", "HcCc.psc"), "ScriptName HcCc");
+        File.WriteAllText(Path.Combine(_mo2.Instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + game2.Replace(@"\", @"\\") + ")\r\n[Settings]\r\nbase_directory=@ByteArray(" + alt.Replace(@"\", @"\\") + ")\r\n");
+    }
+
+    string? Ghost() => _svc.ResolveBatch(new[] { "000800:HcCcGhost.esp" }, null, false).Single().Error;
+
+    // r1 #48: the head's root reads answer the call's roots and profile read, after another call followed a move.
+    [Fact]
+    public void TheHeadsRootReadsAnswerTheCallsRootsAfterAnotherCallMovedThem()
+    {
+        var source = Path.Combine(_mo2.DataDir, "Source", "Scripts");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(source, "HcCc.psc"), "ScriptName HcCc");
+        Call(() =>
+        {
+            _svc.CapturePin();
+            Host.CaptureAssets();
+            var status = _svc.StatusData();
+            MoveRoots();
+            OutsideTheCall(() => _ = Host.Resolver);             // another call follows the move
+            var after = _svc.StatusData();
+            Assert.Equal((status.ProfileDir, status.ModsDir, status.DataDir, status.ProfileName), (after.ProfileDir, after.ModsDir, after.DataDir, after.ProfileName));
+            Assert.DoesNotContain("HcCcGhost.esp", after.Composition.InactivePluginNames);
+            Assert.Equal(_mo2.ModsDir, _svc.ModsRootOrNull);
+            Assert.Equal(Path.GetFullPath(source), _svc.PapyrusSourceImportDirs().GameDataSources);
+            Assert.DoesNotContain("UNTICKED", Ghost());
+        });
+        Call(() => Assert.Contains("UNTICKED", Ghost()));          // the next call reads the moved roots
     }
 
     [Fact]
@@ -279,23 +374,30 @@ public sealed class CallContextTests : IDisposable
         else Assert.DoesNotContain("changed on disk", answer);
     }
 
-    // A write's first file read, inside the gate after its commit, is checked against its in-gate pin.
+    // A write's first file read, inside the gate after its in-gate pin and its commit, takes the pin's build: a switch
+    // after the pin is the next call's, and every read in between serves the pin with no refresh.
     [Fact]
-    public void AFirstFileReadInsideTheWriteGateAfterACommitRefusesASwitch()
+    public void AFirstFileReadInsideTheWriteGateAfterACommitTakesThePinsBuild()
     {
         Call(() => Host.CaptureAssets());                       // warm both sides on Default
-        var answer = Answer(() =>
+        Call(() =>
         {
             lock (Host.WriteGate)
             {
-                _svc.CapturePin();
+                var pin = _svc.CapturePin();
+                var roots = Host.CaptureRoots();
                 HousecarlCore.MidCallChange.AfterCommit(Path.Combine(_mo2.ModsDir, "CcOut", "HcCcOut.esp"));
                 SelectOther();
-                try { Host.CaptureAssets(); } catch (LoadOrderMovedMidCallException) { }
+                var checks = _svc.Counters.ProfileFreshnessChecks;
+                var files = Host.CaptureAssets();
+                Assert.Equal("Default", files.ProfileName);
+                Assert.Equal(roots, files.Roots);
+                Assert.Same(pin, _svc.CapturePin());
+                Assert.Equal(roots, Host.ConfiguredRoots().Roots);
+                Assert.Equal(checks, _svc.Counters.ProfileFreshnessChecks);
             }
         });
-        Assert.StartsWith(Wire.RefusalPrefix + "the load order changed while this call was running", answer);
-        Assert.Contains("after houseCARL had written HcCcOut.esp", answer);
+        Call(() => Assert.Equal("Other", Host.CaptureAssets().ProfileName));
     }
 
     [Theory]
