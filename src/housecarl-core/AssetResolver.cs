@@ -426,7 +426,7 @@ public sealed class AssetResolver : IDisposable
         var enabled = providerName is not null && IsEnabledMod(providerName.Trim());
         var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, AsWindowsOpens(Normalize(relPath)), relPath, _skip,
                                                enabled ? listings : null);
-        return look.Source is { } s && IsEnabledMod(s.ProviderName)
+        return look.Source is { } s && enabled
             ? look with { Source = s with { OwnerEnabled = true } }
             : look;
     }
@@ -615,16 +615,17 @@ public sealed class AssetResolver : IDisposable
     public bool RefreshIfStale(LooseListings? listings = null)
     {
         var snap = _snap;
+        listings ??= new LooseListings();
         var warmed = Volatile.Read(ref snap.Warms);                   // every warm counted here has its watches in place
         bool stale = false;
         foreach (var a in _archives)
             if (!snap.Stamps.TryGetValue(a.Path, out var s) || FileStamp.Of(a.Path) != s) { stale = true; break; }
         if (!stale)
             foreach (var kv in snap.DirWatch)                          // one listing per watched directory
-                if (WatchedDirStale(kv.Value, listings is null ? TryList(kv.Key) : listings.TryGet(kv.Key))) { stale = true; break; }
+                if (WatchedDirStale(kv.Value, listings.TryGet(kv.Key))) { stale = true; break; }
         if (!stale)
         {
-            listings?.Checked(snap, warmed);
+            listings.Checked(snap, warmed);
             return false;
         }
         _snap = BuildTables();                                        // BSA tables re-read; loose cache starts empty, re-warms lazily

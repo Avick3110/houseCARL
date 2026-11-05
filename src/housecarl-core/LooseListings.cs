@@ -55,6 +55,9 @@ public sealed class LooseListings
     /// <summary>This call's listing of <paramref name="dir"/>, taken now if it is the first touch;
     /// <paramref name="fresh"/> runs only when this read took it.</summary>
     internal Read Get(string dir, Action? fresh = null) =>
+        _reads.TryGetValue(dir, out var held) ? held.Value : Take(dir, fresh);
+
+    Read Take(string dir, Action? fresh) =>
         _reads.GetOrAdd(dir, d => new Lazy<Read>(() =>
         {
             Interlocked.Increment(ref _count);
