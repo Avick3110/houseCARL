@@ -44,10 +44,6 @@ public sealed class LooseListings
             catch (Exception ex) { return new Read(null, ex); }
         })).Value;
 
-    /// <summary>This call's listing of <paramref name="dir"/> if it has taken one; never lists.</summary>
-    internal Listing? Peek(string dir) =>
-        _reads.TryGetValue(dir, out var r) && r.IsValueCreated ? r.Value.Listing : null;
-
     /// <summary>This call's listing of <paramref name="dir"/>, or null when it would not list.</summary>
     internal Listing? TryGet(string dir, Action? fresh = null) => Get(dir, fresh).Listing;
 

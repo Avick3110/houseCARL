@@ -148,6 +148,18 @@ public sealed class LooseListingsTests : IDisposable
         Assert.True(held.Source is { OwnerEnabled: true, Kind: AssetKind.Loose });
     }
 
+    [Fact]
+    public void AnEnabledFoldersRootArchiveAddedAfterTheCallListedItIsNotFound()
+    {
+        using var r = Build();
+        var view = r.Capture();
+        Assert.True(view.Resolve("ModA.esp").Exists);            // this call lists the mod folder's top
+        File.WriteAllBytes(Path.Combine(_modA, "Late.bsa"), PlaceInstance.FaceArchive());
+
+        Assert.Null(view.TryResolveOffOrderProvider("ModA", PlaceInstance.FacegenRel).Source);
+        Assert.True(r.Capture().TryResolveOffOrderProvider("ModA", PlaceInstance.FacegenRel).Source is { OwnerEnabled: true, Kind: AssetKind.Bsa });
+    }
+
     /// <summary>The cross-call route: a copy frozen for a call that took no freshness check (another call held the
     /// write gate) still lists and resolves as one read.</summary>
     [Fact]
