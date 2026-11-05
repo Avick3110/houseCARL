@@ -422,7 +422,7 @@ public static class ScriptPropertyCheck
                 pex = PexFile.CreateFromFile(src.LooseFilePath, GameCategory.Skyrim);
             else if (src.ArchivePath is not null)
             {
-                var bytes = reads.ReadEntry(src.ArchivePath, src.EntryPath);
+                var bytes = av.ReadEntry(src.ArchivePath, src.EntryPath);
                 if (bytes is null) { reason = $"'{rel}' vanished from '{Path.GetFileName(src.ArchivePath)}' between listing and read."; return false; }
                 using var ms = new MemoryStream(bytes);
                 pex = PexFile.CreateFromStream(ms, GameCategory.Skyrim);
@@ -438,8 +438,8 @@ public static class ScriptPropertyCheck
         }
     }
 
-    /// <summary>One sweep's .pex reads: each archive's reader is opened once and each .pex parsed once, keeping only
-    /// its properties and parent. It lives for one sweep, never longer.</summary>
+    /// <summary>One sweep's .pex reads: each .pex parsed once, keeping only its properties and parent, its bytes read
+    /// through the view's archive reader. It lives for one sweep, never longer.</summary>
     internal sealed class PexReads(AssetResolver.AssetView av)
     {
         /// <summary>One parsed script: its Auto properties (null when the .pex held no script object) and parent, or
@@ -448,20 +448,8 @@ public static class ScriptPropertyCheck
 
         // Keyed by exact spelling, so every name and reason reads exactly as a fresh load would word it.
         readonly Dictionary<string, Link> _links = new(StringComparer.Ordinal);
-        readonly Dictionary<string, HeldArchive> _archives = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>One opened archive: its reader, the stamp it was opened at, and the name tables walked so far.</summary>
-        sealed class HeldArchive(IArchiveReader reader, FileStamp stamp)
-        {
-            internal IArchiveReader Reader { get; } = reader;
-            internal FileStamp Stamp { get; } = stamp;
-            internal Dictionary<string, Dictionary<string, IArchiveFile>> Folders { get; } = new(StringComparer.OrdinalIgnoreCase);
-            internal Dictionary<string, IArchiveFile>? WholeArchive { get; set; }
-        }
 
         internal AssetResolver.AssetView Av { get; } = av;
-        internal int ArchiveTablesRead { get; private set; }
-        internal int FolderListsRead { get; private set; }
         internal int PexLoads { get; private set; }
 
         internal Link Load(string scriptClass)
@@ -470,40 +458,6 @@ public static class ScriptPropertyCheck
             PexLoads++;
             return _links[scriptClass] = TryLoadPex(this, scriptClass, out var pex, out var reason)
                 ? Parse(scriptClass, pex!) : new Link(null, null, reason);
-        }
-
-        /// <summary>One entry's bytes through the archive's reader, opened on first use and again when the file's
-        /// stamp has changed, so a replaced archive is read fresh. Null when the entry is not there; THROWS when the
-        /// archive cannot be read. The reader holds no handle: each <c>GetBytes</c> reopens the file.</summary>
-        internal byte[]? ReadEntry(string archivePath, string entryPath)
-        {
-            var stamp = FileStamp.Of(archivePath);
-            if (!_archives.TryGetValue(archivePath, out var held) || held.Stamp != stamp)
-            {
-                _archives[archivePath] = held = new HeldArchive(Archive.CreateReader(GameRelease.SkyrimSE, archivePath), stamp);
-                ArchiveTablesRead++;
-            }
-            var want = AssetResolver.Normalize(entryPath);
-            var dir = Path.GetDirectoryName(want) ?? "";
-            if (!held.Folders.TryGetValue(dir, out var names))
-            {
-                // A folder the archive lacks shares the one whole-archive table.
-                names = held.Reader.TryGetFolder(dir, out var folder)
-                    ? NameTable(folder.Files)
-                    : held.WholeArchive ??= NameTable(held.Reader.Files);
-                held.Folders[dir] = names;
-            }
-            return names.TryGetValue(want, out var entry) ? entry.GetBytes() : null;
-        }
-
-        /// <summary>Normalized name to entry over one walk of <paramref name="files"/>; the first spelling wins.</summary>
-        Dictionary<string, IArchiveFile> NameTable(IEnumerable<IArchiveFile> files)
-        {
-            var names = new Dictionary<string, IArchiveFile>(StringComparer.OrdinalIgnoreCase);
-            foreach (var file in files)
-                names.TryAdd(AssetResolver.Normalize(file.Path), file);
-            FolderListsRead++;
-            return names;
         }
     }
 

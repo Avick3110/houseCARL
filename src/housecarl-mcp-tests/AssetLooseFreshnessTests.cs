@@ -212,7 +212,7 @@ public sealed class AssetLooseFreshnessTests : IDisposable
 
         r.RefreshIfStale();
         var source = Assert.Single(r.ResolveForPlacement(Provided).Sources);
-        var (bytes, error) = AssetResolver.ReadPlacementSource(source);
+        var (bytes, error) = r.Capture().ReadSource(source);
         Assert.Null(error);
         Assert.Equal("second and longer", System.Text.Encoding.UTF8.GetString(bytes!));
     }

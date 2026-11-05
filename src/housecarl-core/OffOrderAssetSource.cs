@@ -40,10 +40,11 @@ public static class OffOrderAssetSource
     /// raw off the wire and is about to be joined to <paramref name="modsDir"/>. <paramref name="opened"/> is the
     /// path as Windows opens it, which MO2's rules are asked about. <paramref name="listings"/> is the call's, given
     /// for an ENABLED folder, whose loose copy and root archives are then read off them; an unticked folder (null)
-    /// is read directly, never memoised. Never throws.</summary>
-    public static OffOrderLookup Resolve(string modsDir, Func<string, bool> isReservedProviderName,
-                                         string? providerName, string opened, string relPath, Mo2SkipRules skip,
-                                         LooseListings? listings = null)
+    /// is read directly, never memoised. The root archives are probed through <paramref name="reader"/>, the
+    /// caller's view's reader. Never throws.</summary>
+    internal static OffOrderLookup Resolve(string modsDir, Func<string, bool> isReservedProviderName,
+                                           string? providerName, string opened, string relPath, Mo2SkipRules skip,
+                                           ArchiveReader reader, LooseListings? listings = null)
     {
         var name = providerName?.Trim() ?? "";
         if (name.Length == 0 || modsDir.Length == 0 || relPath.Length == 0) return OffOrderLookup.NotConsulted;
@@ -98,7 +99,7 @@ public static class OffOrderAssetSource
         {
             bool has;
             // An archive that will not READ is an unknown, not a miss; named and carried out as data.
-            try { has = AssetResolver.ArchiveHasEntry(bsa, relPath); }
+            try { has = reader.HasEntry(bsa, relPath); }
             catch (Exception ex)
             {
                 unreadableName ??= Path.GetFileName(bsa);

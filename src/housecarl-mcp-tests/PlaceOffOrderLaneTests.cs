@@ -461,7 +461,7 @@ public sealed class PlaceOffOrderGuardTests
         Directory.CreateDirectory(nested);
         File.WriteAllBytes(Path.Combine(nested, "Nested.bsa"), FaceArchive());
         p.TouchModlist();
-        Assert.True(AssetResolver.ArchiveHasEntry(Path.Combine(nested, "Nested.bsa"), FacegenRel));
+        Assert.True(new ArchiveReader().HasEntry(Path.Combine(nested, "Nested.bsa"), FacegenRel));
 
         var r = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, FacegenRel, "DisabledNested") }, null, null).Results[0];
 

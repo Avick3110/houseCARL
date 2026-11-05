@@ -180,7 +180,7 @@ internal sealed partial class AssetLayers
                           { Standing = ProviderStandings.Of(hit, provider) };
                 if (links && hit.Exists && p.EndsWith(".nif", StringComparison.OrdinalIgnoreCase))
                 {
-                    var (read, readErr) = ResolveLinks(view, MeshLinks(view.ResolveForPlacement(p).Sources[0]));
+                    var (read, readErr) = ResolveLinks(view, MeshLinks(view, view.ResolveForPlacement(p).Sources[0]));
                     row = row with { Links = read, LinksError = readErr };
                 }
                 results.Add(row);
@@ -340,7 +340,7 @@ internal sealed partial class AssetLayers
                 readError = OverCapNote(new FileInfo(lp).Length);
             else
             {
-                var (bytes, err) = AssetResolver.ReadPlacementSource(winner);
+                var (bytes, err) = view.ReadSource(winner);
                 if (err is not null) readError = err;
                 else if (bytes!.Length > SkseConfigSizeCap) readError = OverCapNote(bytes.Length);
                 else { text = DecodeConfigText(bytes); utf8 = Utf8Body(bytes); }
@@ -442,7 +442,7 @@ internal sealed partial class AssetLayers
                 try
                 {
                     // PE-screen the packed copy too: a packed NotSkse dependency must not count as a candidate.
-                    if (AssetResolver.TryReadArchiveEntry(winner.ArchivePath!, winner.EntryPath) is { } bytes)
+                    if (view.ReadEntry(winner.ArchivePath!, winner.EntryPath) is { } bytes)
                         info = SksePluginReader.ReadBytes(Path.GetFileName(rel), bytes);
                 }
                 catch { /* unreadable archive rides the view's BsaFailures caveat; the candidate keeps its blocker */ }
@@ -466,8 +466,8 @@ internal sealed partial class AssetLayers
             }
         }
 
-        // ---- the .pex sweep, two phases: loose winners parse in place, BSA winners defer to a per-archive batch,
-        //      because a per-entry read re-opens the archive and walks its whole table each time. ----
+        // ---- the .pex sweep, two phases: loose winners parse in place, BSA winners defer to a per-archive batch
+        //      through the view's reader, so an unreadable archive is one sentence per entry it held. ----
         var pexPaths = view.EnumerateUnder("Scripts")
             .Where(p => Path.GetExtension(p).Equals(".pex", StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
@@ -502,8 +502,12 @@ internal sealed partial class AssetLayers
 
         foreach (var g in bsaWanted.GroupBy(w => w.ArchivePath, StringComparer.OrdinalIgnoreCase))
         {
-            Dictionary<string, byte[]> got;
-            try { got = AssetResolver.TryReadArchiveEntries(g.Key, g.Select(w => w.EntryPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList()); }
+            var got = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var entry in g.Select(w => w.EntryPath).Distinct(StringComparer.OrdinalIgnoreCase))
+                    if (view.ReadEntry(g.Key, entry) is { } b) got[entry] = b;
+            }
             catch (Exception ex)
             {
                 foreach (var w in g)
@@ -797,7 +801,7 @@ internal sealed partial class AssetLayers
             chosen = place.Sources[0];
         }
 
-        var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
+        var (bytes, readErr) = view.ReadSource(chosen);
         if (bytes is null)
             return new NifInspectData(rel, NifProviderFor(chosen), providers, place.Ambiguous,
                 false, null, readErr ?? "could not read the resolved mesh bytes.");
@@ -899,7 +903,7 @@ internal sealed partial class AssetLayers
             chosen = place.Sources[0];
         }
 
-        var (bytes, readErr) = AssetResolver.ReadPlacementSource(chosen);
+        var (bytes, readErr) = view.ReadSource(chosen);
         if (bytes is null) return NifSetResult.Fail(readErr ?? "could not read the resolved mesh bytes.", providers, profileName);
 
         // ---- apply and verify (pure; nothing is written unless this returns verified bytes) ----
@@ -1100,7 +1104,7 @@ internal sealed partial class AssetLayers
             // An on-disk source already IS one exact copy, so a pole cannot apply to it — said, never dropped.
             if (!string.IsNullOrEmpty(providerSel))
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceProviderNeedsRelPath, winner);
-            var (b, desc, err) = ReadExplicitSource(explicitSrc!, rel);
+            var (b, desc, err) = ReadExplicitSource(view, explicitSrc!, rel);
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!; sourceDesc = desc!;
         }
@@ -1162,7 +1166,7 @@ internal sealed partial class AssetLayers
                     + (res.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : ""),
                     winner);
             }
-            var (b, desc, err) = ReadResolvedSource(pick.Source!);
+            var (b, desc, err) = ReadResolvedSource(view, pick.Source!);
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!;
             if (pick.Source!.OffOrder)
@@ -1196,14 +1200,14 @@ internal sealed partial class AssetLayers
 
     /// <summary>Read an ON-DISK source= the caller named exactly: an archive-plus-entry pair, a '.bsa' path (the entry
     /// is the destination rel-path), or a fully-qualified loose path. A Data-relative source never reaches here.</summary>
-    static (byte[]? bytes, string? desc, string? error) ReadExplicitSource(string source, string destRel)
+    static (byte[]? bytes, string? desc, string? error) ReadExplicitSource(AssetResolver.AssetView view, string source, string destRel)
     {
         // The whole-string trim happened in NormalizeSourceArg; the per-part trims stay, because each side of a pair can carry its own quotes.
         int bar = source.IndexOf('|');
         if (bar >= 0)
-            return ReadBsaEntry(source[..bar].Trim().Trim('"'), source[(bar + 1)..].Trim().Trim('"'));
+            return ReadBsaEntry(view, source[..bar].Trim().Trim('"'), source[(bar + 1)..].Trim().Trim('"'));
         if (source.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase))
-            return ReadBsaEntry(source, destRel);                        // .bsa with no explicit entry → entry := the destination path
+            return ReadBsaEntry(view, source, destRel);                        // .bsa with no explicit entry → entry := the destination path
         string path;
         try { path = Path.GetFullPath(source); }
         catch (Exception ex) { return (null, null, $"source '{source}' is not a usable path: {ex.Message}"); }
@@ -1213,7 +1217,7 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>Read the bytes of an AUTO-resolved provider: loose off disk, or a BSA's single entry natively.</summary>
-    static (byte[]? bytes, string? desc, string? error) ReadResolvedSource(PlacementSource s)
+    static (byte[]? bytes, string? desc, string? error) ReadResolvedSource(AssetResolver.AssetView view, PlacementSource s)
     {
         if (s.Kind == AssetKind.Loose)
         {
@@ -1222,11 +1226,11 @@ internal sealed partial class AssetLayers
             try { return (File.ReadAllBytes(p), $"loose file {p} (from {s.ProviderName})", null); }
             catch (Exception ex) { return (null, null, $"could not read resolved source '{p}': {ex.Message}"); }
         }
-        return ReadBsaEntry(s.ArchivePath!, s.EntryPath);
+        return ReadBsaEntry(view, s.ArchivePath!, s.EntryPath);
     }
 
-    /// <summary>Read one entry out of a BSA natively, with named errors for a missing archive, a missing entry, or an unreadable archive.</summary>
-    static (byte[]? bytes, string? desc, string? error) ReadBsaEntry(string archive, string entry)
+    /// <summary>Read one entry out of a BSA through the view's reader, with named errors for a missing archive, a missing entry, or an unreadable archive.</summary>
+    static (byte[]? bytes, string? desc, string? error) ReadBsaEntry(AssetResolver.AssetView view, string archive, string entry)
     {
         string ap;
         try { ap = Path.GetFullPath(archive.Trim('"')); }
@@ -1234,7 +1238,7 @@ internal sealed partial class AssetLayers
         if (!File.Exists(ap)) return (null, null, $"source archive not found: '{ap}'.");
         try
         {
-            var b = AssetResolver.TryReadArchiveEntry(ap, entry);
+            var b = view.ReadEntry(ap, entry);
             if (b is null) return (null, null, $"entry '{entry}' not found inside archive '{Path.GetFileName(ap)}'.");
             return (b, $"{Path.GetFileName(ap)}|{entry}", null);
         }
