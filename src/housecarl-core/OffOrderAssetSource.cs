@@ -38,9 +38,12 @@ public static class OffOrderAssetSource
     /// <summary>The named mod folder's copy of <paramref name="relPath"/>, or null when that name reaches no copy.
     /// <paramref name="relPath"/> arrives already validated; the PROVIDER name is validated here, because it comes
     /// raw off the wire and is about to be joined to <paramref name="modsDir"/>. <paramref name="opened"/> is the
-    /// path as Windows opens it, which MO2's rules are asked about. Never throws.</summary>
+    /// path as Windows opens it, which MO2's rules are asked about. <paramref name="listings"/> is the call's, given
+    /// for an ENABLED folder, whose loose copy and root archives are then read off them; an unticked folder (null)
+    /// is read directly, never memoised. Never throws.</summary>
     public static OffOrderLookup Resolve(string modsDir, Func<string, bool> isReservedProviderName,
-                                         string? providerName, string opened, string relPath, Mo2SkipRules skip)
+                                         string? providerName, string opened, string relPath, Mo2SkipRules skip,
+                                         LooseListings? listings = null)
     {
         var name = providerName?.Trim() ?? "";
         if (name.Length == 0 || modsDir.Length == 0 || relPath.Length == 0) return OffOrderLookup.NotConsulted;
@@ -52,18 +55,19 @@ public static class OffOrderAssetSource
         if (!IsPlainFolderName(name)) return new OffOrderLookup(null, OffOrderReason.NotAFolderName);
 
         string dir;
-        try { dir = Path.Combine(modsDir, name); }
+        try { dir = LooseListings.OnDisk(modsDir, name); }
         catch { return new OffOrderLookup(null, OffOrderReason.NotAFolderName); }
 
         // ---- loose FIRST, exactly as the VFS would layer it if this mod were ticked ----
         string loose;
-        try { loose = Path.Combine(dir, opened); }
+        try { loose = LooseListings.OnDisk(dir, opened); }
         catch (Exception ex) { return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, Because(ex)); }
 
         // The same rule the build applies, ticked or not: a hidden loose copy is never read, only named.
         HiddenCopies? hidden = null;
         var rule = skip.Hides(opened, linked: true);
-        switch (ProbeFile(loose, out var looseCause))
+        Probe Look(string path, out string? cause) => listings is null ? ProbeFile(path, out cause) : ProbeListed(listings, path, out cause);
+        switch (Look(loose, out var looseCause))
         {
             case Probe.Present when rule is null:
                 return new OffOrderLookup(new PlacementSource(name, AssetKind.Loose, LooseFilePath: loose, ArchivePath: null,
@@ -76,7 +80,7 @@ public static class OffOrderAssetSource
                 return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, looseCause);
             case Probe.Absent when rule is null:
                 // A folder holding only x's hidden twin has x, hidden.
-                if (skip.Twin(loose, p => ProbeFile(p, out _) == Probe.Present) is { } twin)
+                if (skip.Twin(loose, p => Look(p, out _) == Probe.Present) is { } twin)
                     hidden = new HiddenCopies(twin.Rule, opened + twin.Rule.Token, new[] { name }, Twin: true);
                 break;
         }
@@ -84,7 +88,7 @@ public static class OffOrderAssetSource
         // ---- the folder's ROOT archives, in a deterministic order ----
         // This enumeration is ALSO the folder's existence check: on a deny-ACL'd folder Directory.Exists,
         // GetLastWriteTimeUtc and GetAttributes all succeed, and only EnumerateFiles tells denied from absent.
-        var (archives, folderMissing, listCause) = RootArchives(dir);
+        var (archives, folderMissing, listCause) = RootArchives(dir, listings);
         if (listCause is not null) return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, listCause);
         if (folderMissing) return new OffOrderLookup(null, OffOrderReason.NoSuchFolder);
 
@@ -134,10 +138,20 @@ public static class OffOrderAssetSource
 
     /// <summary>The archives at the folder's ROOT, sorted, top level only. THREE answers, because this call is also
     /// the folder's existence check: the archives, no such folder, or a cause for anything else.</summary>
-    static (IReadOnlyList<string> Archives, bool FolderMissing, string? Cause) RootArchives(string dir)
+    static (IReadOnlyList<string> Archives, bool FolderMissing, string? Cause) RootArchives(string dir, LooseListings? listings)
     {
         List<string> bsas;
-        try { bsas = Directory.EnumerateFiles(dir, "*.bsa", SearchOption.TopDirectoryOnly).ToList(); }
+        try
+        {
+            if (listings is null) bsas = Directory.EnumerateFiles(dir, "*.bsa", SearchOption.TopDirectoryOnly).ToList();
+            else
+            {
+                var read = listings.Get(dir);
+                if (read.Failure is { } failed) throw failed;
+                bsas = read.Listing!.Files.Where(f => f.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase))
+                                          .Select(f => LooseListings.OnDisk(dir, f)).ToList();
+            }
+        }
         catch (DirectoryNotFoundException) { return (Array.Empty<string>(), true, null); }
         catch (Exception ex) { return (Array.Empty<string>(), false, Because(ex)); }
         bsas.Sort((a, b) => string.Compare(Path.GetFileName(a), Path.GetFileName(b), StringComparison.OrdinalIgnoreCase));
@@ -146,6 +160,16 @@ public static class OffOrderAssetSource
 
     /// <summary>What a filesystem check actually learned — a bool collapses "not there" and "cannot read it".</summary>
     enum Probe { Present, Absent, Unreadable }
+
+    /// <summary>Check ONE path in an enabled folder off the call's listing of its parent: there only if that listing
+    /// holds it as a file. A parent that will not list is checked directly, since its listing has nothing to say.</summary>
+    static Probe ProbeListed(LooseListings listings, string path, out string? cause)
+    {
+        cause = null;
+        var read = listings.Get(Path.GetDirectoryName(path)!);
+        if (read.Listing is { } listing) return listing.Files.Contains(Path.GetFileName(path)) ? Probe.Present : Probe.Absent;
+        return read.Failure is DirectoryNotFoundException ? Probe.Absent : ProbeFile(path, out cause);
+    }
 
     /// <summary>Check ONE path with an API whose failures SURFACE: <c>File.Exists</c> returns false for a permission
     /// error too, while <c>File.GetAttributes</c> throws differently for denied, absent file and absent folder.</summary>
