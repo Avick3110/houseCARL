@@ -1,6 +1,6 @@
 ---
 updated: 2026-11-05
-covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
+covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
 
@@ -110,14 +110,24 @@ resolver reads no profile.
   new build**, which `RefreshIfStale` makes when an archive or a warmed subtree changes and the service makes when
   the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder
   toggles something in MO2, or restarts the server, and the next call reads the folder again.
-- **A folder is warmed across roots top-down**, each root answered off listings of its mod folder and of each folder
-  below it that its parent lists as a directory. Each view (one `Capture()` or one single-shot read) carries its own
-  **read pass**, and a listing serves every pass begun before it was taken, so a call warming many folders lists each
-  directory on the way once, not once per folder per root, and a concurrent call neither invalidates nor re-lists for
-  it. A listing taken before a call began never answers it, so the next call lists again for any subtree it has not
-  yet warmed. A subtree an earlier call warmed answers from `LooseCache` until `RefreshIfStale` runs, which the service
-  runs during another call's write too: that write reads its own frozen copy of the build (`Frozen()`, below; #1128). A folder only passed through keeps its names, not its files. A listing
-  that will not read is tried once per pass, then falls back to the stat-and-prove path.
+- **One listing per loose folder per call** (`LooseListings`, #1310). Every loose read a view makes — a resolve's warm,
+  the `EnumerateUnder` walk, `LooseRootFiles`, the freshness check at the call's first file read, and an ENABLED
+  folder's off-order probe — reads a folder off the call's one listing of it, taken at first touch and dropped with the
+  call, so a file the call lists is never absent later in it, and one it resolves is never missing from its listing.
+  The call is a frozen copy's every view (`Frozen(listings)`, which the service holds per call); outside one, each
+  `Capture()` or single-shot read is its own. A listing taken before a call began never answers it, and a folder that
+  will not list keeps its failure for the call, then falls back to the stat-and-prove path.
+- **A folder is warmed across roots top-down**, each root answered off the call's listings of its mod folder and of
+  each folder below it that its parent lists as a directory, so a call warming many folders lists each directory on the
+  way once, not once per folder per root. A warmed subtree records the folders it was read off and what decided it (a
+  whole listing, a missing name, or a name a file holds). It answers a later call from `LooseCache` only while each of
+  those folders shows the same in that call's listings; otherwise the call warms it again off them. The freshness check
+  lists into the call, so after it the check costs nothing more; where it was skipped (another call holds the write
+  gate, #1128) the first touch lists, which is what keeps the two agreeing by construction rather than by a refresh
+  rule.
+- **The walk is top down over the call's listings**: a folder's files in listing order, its folders queued after it,
+  the order a recursive enumeration yields, so a capped walk keeps the same matches. A folder that will not list ends
+  that root's walk with "could not walk", as the enumeration did.
 - **A freshness baseline is read at the warm, never off an older memo.** Every directory a warmed subtree puts under
   watch is baselined by what that warm reads — a listing taken in the warm's own read pass, which is also what
   the answer came from; on the fallback path, the whole listing for a root's own copy, or for a root that has nothing
@@ -131,7 +141,13 @@ resolver reads no profile.
   segment of only dots or spaces, which Windows opens as no name, is refused. The loose lookup spells each segment as
   Windows opens it (the last loses trailing dots and spaces, any other one trailing dot), so it finds the file a file
   open would; the archive match and the reported path use the path as asked.
-  `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.
+  `ValidateRelPath` exposes that one validator to the place lane, whose destination is `LooseListings.OnDisk(modRoot, rel)`.
+- **One join of a Data path onto a disk folder.** `LooseListings.OnDisk` is the only place a Data-relative path (or a
+  folder name) meets a disk folder: the resolver's loose paths and walks, the off-order lane, the write lanes (`place`,
+  `nif_set`, the carries, `.seq`, `bsa_extract`), and the side lookups (output folders, `write_seq`'s `mod=`,
+  `update_status`'s `meta.ini`, the SKSE `meta.ini` and loader probes, the Papyrus source roots). It needs no file
+  view, so a side lookup builds none. On Windows it is the plain join, today's string; a case-folding match per
+  segment is where a case-sensitive file system would need one, not built here.
 
 ### One build per call
 
@@ -159,8 +175,8 @@ resolver reads no profile.
   The view is immutable and handle-free, which is what lets the service enumerate, read and parse outside `_gate`.
 - `Frozen()` is a member-wise copy holding the current build's snapshot: its views keep that build's roots and mod
   set whatever the resolver it was copied from refreshes to later. Loose contents are not frozen: it shares that
-  snapshot's `LooseCache`, so a subtree not yet warmed is listed from disk at its first resolve, not when the copy was
-  made, and `EnumerateUnder`'s loose lane lists the disk on every call, warmed subtree or not. A call's file view
+  snapshot's `LooseCache`, and reads every folder off the one set of call listings it holds, so a folder is listed at
+  the call's first touch of it, not when the copy was made. A call's file view
   holds one.
 
 ### Naming a source
@@ -175,7 +191,9 @@ refusal — the caller chooses), the VFS winner, or a named provider.
   contend silently or be reported as the winner. `PlacementSource.OffOrder`/`OwnerEnabled` carry that the copy is
   one the game is not loading, and which reason it is: an unticked folder, or an enabled one whose archive no plugin
   binds or whose folder did not list this build. `OwnerEnabled` is set for every find in an enabled mod, so an
-  enabled mod is never called unticked.
+  enabled mod is never called unticked. An ENABLED folder's loose copy and root archives are read off the call's
+  listings, so the probe finds only what the call's listing holds; where the copy's folder will not list, the file is
+  stat'd directly, the only evidence there is. An unticked folder is read directly and never memoised.
 - **Hiding applies to a named folder whatever its tick.** The lane asks `Mo2SkipRules.Hides` before its loose probe; a
   loose file it hides (or the folder's `x.mohidden` when `x` is asked) is never read, and the lookup ends
   `OffOrderReason.Hidden` with the rule, unless one of the folder's root archives has the path, which answers as
@@ -454,7 +472,23 @@ provided either; the generic lane does not, because it legitimately answers for 
   `PlaceCoreTests.TheArchiveIsNotHeldOpenAfterTheRead`.
 - *One build per call*: `AssetResolverTests.ResolveManyAndACapturedViewAnswerFromOneBuild` reads a batch and a captured
   view off one build; `ACapturedViewKeepsItsBuildAcrossARebuild` in the same class pins the `Capture()` sentence
-  against a rebuild (a file added and refreshed after the capture stays absent in the view).
+  against a rebuild (a file added and refreshed after the view listed its folder stays absent in the view), and
+  `ALooseFileAddedToAWarmedFolderIsSeenByTheNextRead` the same for the next read, which lists for itself.
+- *One listing per loose folder per call*: `LooseListingsTests` — a file added or removed after an earlier call warmed
+  its folder is listed and resolved alike (`AFileAddedAfterAnEarlierCallWarmedItsFolderIsListedAndResolvedPresent`,
+  `AFileRemovedAfterAnEarlierCallWarmedItsFolderIsNeitherListedNorResolved`), and one added after this call listed its
+  folder is neither (`AFileAddedAfterThisCallResolvedItsFolderIsNotListedEither`); root files
+  (`ARootFileListedForAModIsTheOneItsResolveSees`), SkyPatcher discovery
+  (`AListedSkyPatcherIniIsNeverCalledPresentOnlyInsideABsa`), the voice carry (`AListedVoiceFileIsCarriedNotSkipped`),
+  an enabled folder's off-order probe (`AnEnabledFoldersOffOrderProbeAnswersOffTheCallsListing`,
+  `AnEnabledFoldersRootArchiveAddedAfterTheCallListedItIsNotFound`), a call with no freshness check
+  (`ACallThatSkippedTheFreshnessCheckStillListsAndResolvesAlike`); four Data-root globs in one call take one walk
+  (`FourDataRootGlobsInOneCallTakeOneWalk`); the check lists into the call
+  (`TheFreshnessCheckListsIntoTheCallSoAWarmedFolderIsNotListedTwice`); a listing alone watches nothing
+  (`AListingAloneWatchesNothingAndTheNextCallSeesAChangeUnderIt`). `LooseListingsServiceTests` — the SKSE inventory
+  never calls a listed DLL provided by no mod (`AListedSkseDllNeverReadsAsProvidedByNoMod`), a call's freshness check
+  is its listing (`ACallsFreshnessCheckIsItsListing`), and `update_status` builds no file view
+  (`UpdateStatusBuildsNoFileView`).
 - *One build per call*: `AssetLooseFreshnessTests` — the watch is made of names
   (`AppearAndVanishAreSeenEvenInsideOneTimestampTick`), an unrelated file beside a root's answering ancestor does not
   discard the build (`AnUnrelatedFileAppearingInAModFolderDoesNotDiscardTheBuild`), and a loose file's bytes are never
@@ -528,7 +562,7 @@ provided either; the generic lane does not, because it legitimately answers for 
 
 ## Where
 
-`src/housecarl-core/AssetResolver.cs` and `ArchiveDiscovery.cs` hold the build, its precedence and the archive ranks;
+`src/housecarl-core/AssetResolver.cs` and `ArchiveDiscovery.cs` hold the build, its precedence and the archive ranks; `LooseListings.cs` is the per-call listings and the one join;
 `AssetSourceSelection.cs` and `OffOrderAssetSource.cs` decide which provider a read comes from; `AssetGlob.cs` and
 `AssetLinkHarvest.cs` are the two selectors; `Mo2SkipRules.cs` is the visibility rule (its ini read is in
 `Mo2Instance.cs`); `AssetDataPath.cs` is the link-to-Data-path door; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
