@@ -119,12 +119,14 @@ resolver reads no profile.
   will not list keeps its failure for the call, then falls back to the stat-and-prove path.
 - **A folder is warmed across roots top-down**, each root answered off the call's listings of its mod folder and of
   each folder below it that its parent lists as a directory, so a call warming many folders lists each directory on the
-  way once, not once per folder per root. A warmed subtree records the folders it was read off and what decided it (a
-  whole listing, a missing name, or a name a file holds). It answers a later call from `LooseCache` only while each of
-  those folders shows the same in that call's listings; otherwise the call warms it again off them. The freshness check
-  lists into the call, so after it the check costs nothing more; where it was skipped (another call holds the write
-  gate, #1128) the first touch lists, which is what keeps the two agreeing by construction rather than by a refresh
-  rule.
+  way once, not once per folder per root. Every folder a warm reads off is watched, so the freshness check,
+  which lists every watched folder into the call, decides which `LooseCache` subtrees a call may take as they are:
+  a check that finds the build fresh marks the call's listings checked for every subtree warmed before it began (a
+  warm counts once its watches are in place), as long as the whole listings the subtree resolves from are still the
+  watch's baselines. Any other subtree — warmed after the check by another call, or met by a call with no check (one
+  outside a call, or a read under another call's write, #1128) — is warmed again off the call's listings and replaces
+  the build's. That keeps a listing and a resolve agreeing by construction, not by a refresh rule, and costs a checked
+  call nothing more; a per-root record per subtree would cost about a gigabyte on a dev-size `meshes` census.
 - **The walk is top down over the call's listings**: a folder's files in listing order, its folders queued after it,
   the order a recursive enumeration yields, so a capped walk keeps the same matches. A folder that will not list ends
   that root's walk with "could not walk", as the enumeration did.
