@@ -48,7 +48,7 @@ internal interface ILoadOrderHost
     /// <summary>The in-place consent over the user config store, one per service.</summary>
     InPlaceConsent InPlaceConsent { get; }
 
-    /// <summary>The serving-copy check over the call's held roots and profile read, the profile parsed once when none is held
-    /// (outside a call, in the write gate before the write's view, or a call that kept no read): null when MO2 still serves each index copy, else the first move.</summary>
+    /// <summary>The serving-copy check over the call's held roots and profile read; with no build held (outside a call, in the write gate before the write's view)
+    /// over the live roots, and with no profile read held (those two, or a call that kept none) the profile parsed once: null when MO2 still serves each index copy, else the first move.</summary>
     ServingCopyMove? ServingCopyMoved(IEnumerable<(string Plugin, string? IndexedPath)> plugins);
 }
