@@ -70,7 +70,7 @@ public sealed class LoadOrderResolver : IDisposable
     readonly Dictionary<string, int> _nameToIdx;       // plugin filename → index (last copy of a duplicate name wins = priority)
     FileStamp[] _stamps;                               // last-write AND length at the last index build, per path (freshness baseline)
     readonly string? _dataDir;                         // real game-Data folder (Skyrim.esm's dir) — localized-strings fallback source (OpenOverlay)
-    readonly ReverseBox _reverse = new();              // lazy, held BESIDE the snapshot so a snapshot swap does not drop it; a frozen copy shares it
+    readonly System.Runtime.CompilerServices.StrongBox<ReverseReferenceIndex?> _reverse = new(null);   // lazy, held BESIDE the snapshot so a snapshot swap does not drop it; a frozen copy shares the slot
     readonly object _reverseGate = new();              // one build at a time; a second caller waits rather than walking the order twice
 
     /// <summary>The real game-Data folder this order resolved, for callers OUTSIDE the session that open a plugin through <see cref="OpenOverlay"/> and need the same strings resolution.</summary>
@@ -1217,23 +1217,20 @@ public sealed class LoadOrderResolver : IDisposable
     {
         lock (_reverseGate)
         {
-            _reverse.Index ??= new ReverseReferenceIndex();
-            return _reverse.Index.Refresh(_names, _paths, s.BuiltStamps, i => CheckUnchanged(i, s), i => { CheckUnchanged(i, s); return OpenOverlay(_paths[i], _dataDir); }, s.Excluded);
+            _reverse.Value ??= new ReverseReferenceIndex();
+            return _reverse.Value.Refresh(_names, _paths, s.BuiltStamps, i => CheckUnchanged(i, s), i => { CheckUnchanged(i, s); return OpenOverlay(_paths[i], _dataDir); }, s.Excluded);
         }
     }
 
-    internal ReverseReferenceIndex? ReverseIndex { get { lock (_reverseGate) return _reverse.Index; } }
+    internal ReverseReferenceIndex? ReverseIndex { get { lock (_reverseGate) return _reverse.Value; } }
 
     /// <summary>Take over the reverse index of the resolver this one replaces; partitions are keyed on (path, mtime), so the next refresh builds only the plugins this order added.</summary>
     public void AdoptReverseIndexFrom(LoadOrderResolver previous)
     {
         var carried = previous.ReverseIndex;
         if (carried is null) return;
-        lock (_reverseGate) _reverse.Index ??= carried;
+        lock (_reverseGate) _reverse.Value ??= carried;
     }
-
-    /// <summary>The reverse index's one slot, shared by a resolver and its frozen copies.</summary>
-    sealed class ReverseBox { public ReverseReferenceIndex? Index; }
 
     /// <summary>A copy fixed to the current build: every view it captures answers off that build, whatever this one refreshes to later.</summary>
     public LoadOrderResolver Frozen() => (LoadOrderResolver)MemberwiseClone();
