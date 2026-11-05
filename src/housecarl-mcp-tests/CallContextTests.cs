@@ -264,16 +264,57 @@ public sealed class CallContextTests : IDisposable
         finally { release.Set(); writer.Join(); }
     }
 
-    // Pins unchanged behaviour: a write refused before its commit builds no file view.
+    // Pins unchanged behaviour: a write refused after its in-gate pin, before its commit, builds no file view: the call
+    // holds none, and the service has none.
     [Fact]
     public void AWriteRefusedBeforeItsCommitBuildsNoFileView()
     {
         Call(() =>
         {
-            var refused = _svc.ApplyEdits(new[] { new BulkOp { Formid = "000FFF:" + _base.FileName, FieldPath = "EditorID", Value = "HcCcNope" } }, "HcCcRefused", null);
+            var refused = _svc.ApplyEdits(new[] { new BulkOp { Formid = _weapon, FieldPath = "EditorID", Value = "HcCcNope" } }, null, null,
+                                          target: "HcCcNope.esp", inPlace: true, acknowledge: true);
             Assert.False(refused.Success);
+            Assert.Null(CallContext.Open!.Files);
         });
         Assert.False(FilesBuilt());
+    }
+
+    /// <summary>A cold file read after a records call, while MO2 holds the edited modlist.txt: the asset build answers off
+    /// the order's kept profile read and says the answer is off the earlier build.</summary>
+    [Fact]
+    public void AColdFileReadWhileTheProfileIsHeldAnswersOffTheKeptReadAndSaysSo()
+    {
+        Call(() => Assert.Contains("HcCcWeap", RecordsTools.Records(_svc, formids: new[] { _weapon })));
+        AddLate();
+        using (HeldOpen.Hold(Path.Combine(_mo2.Instance, "profiles", "Default", "modlist.txt")))
+        {
+            var files = Host.CaptureAssets();
+            Assert.Contains(files.Warnings, x => x.Contains("held open by another process"));
+            Assert.DoesNotContain("CcLate", files.EnabledMods);
+        }
+    }
+
+    /// <summary>The absence explainer in a call answers off the call's kept profile read, not a profile edited since its pin.</summary>
+    [Fact]
+    public void TheAbsenceExplainerInACallReadsTheCallsProfileRead()
+    {
+        Call(() =>
+        {
+            _svc.CapturePin();
+            _mo2.Profile(_base.FileName + "\r\n", "*" + _base.FileName + "\r\nHcCcGhost.esp\r\n", "+CcBase\r\n");
+            Assert.DoesNotContain("UNTICKED", Ghost());
+        });
+        Call(() => Assert.Contains("UNTICKED", Ghost()));          // the next call reads the edit
+    }
+
+    /// <summary>An instance switch whose first order re-read reads back empty: a files-first read takes the new profile's
+    /// mod list, not the profile read kept from before the switch.</summary>
+    [Fact]
+    public void AFilesFirstReadAfterAnInstanceSwitchWhoseOrderReadsEmptyTakesTheNewModList()
+    {
+        _mo2.Profile("", "", "+CcLate\r\n+CcBase\r\n");
+        _svc.SetInstance(_mo2.Instance);
+        Assert.Contains("CcLate", Host.CaptureAssets().EnabledMods);
     }
 
     /// <summary>Move every root another call can follow: the mods and profiles under a new base folder, whose profile
