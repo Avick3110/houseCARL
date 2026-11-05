@@ -11,7 +11,7 @@ namespace HousecarlCore;
 /// read once and never stat'd again, and each entry's bytes are read off the file as it is at the read (Mutagen
 /// reopens the file per <c>GetBytes</c>, so no handle is held). An archive that will not open fails the same way on
 /// every read. Safe to share across threads.</summary>
-internal sealed class ArchiveReader
+internal sealed class ArchiveReader(Action? opened = null)
 {
     readonly ConcurrentDictionary<string, Lazy<Held>> _archives = new(StringComparer.OrdinalIgnoreCase);
     int _tablesRead, _folderListsRead;
@@ -62,6 +62,7 @@ internal sealed class ArchiveReader
         => _archives.GetOrAdd(Path.GetFullPath(archivePath), p => new Lazy<Held>(() =>
         {
             Interlocked.Increment(ref _tablesRead);
+            opened?.Invoke();
             var reader = Archive.CreateReader(GameRelease.SkyrimSE, p);
             reader.TryGetFolder("", out _);                      // loads the folder records, so a bad table fails here
             return new Held(reader);
