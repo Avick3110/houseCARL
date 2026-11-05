@@ -123,6 +123,46 @@ public sealed class ArchiveReadOnceTests : IDisposable
         Assert.Equal(1, view.ArchiveTablesRead);
     }
 
+    /// <summary>An archive holding two folder records equal ignoring case reads every entry of both, as main did: bytes
+    /// through the view, the off-order probe, the walk's script read and the scripts sweep, one table for the view.</summary>
+    [Fact]
+    public void AnArchiveWithTwoSpellingsOfOneFolderReadsBoth()
+    {
+        const string X = @"meshes\hcro\x\a.nif", Y = @"Meshes\HCRO\X\b.nif", Child = @"scripts\hcrochild.pex";
+        var scratch = Path.Combine(_p.Root, "pex");
+        Directory.CreateDirectory(scratch);
+        byte[] Pex(string name, string? parent)
+        {
+            var path = Path.Combine(scratch, name + ".pex");
+            PexWriter.WritePex(path, name, parent, PexWriter.AutoObj(name + "Thing", "Spell"));
+            return File.ReadAllBytes(path);
+        }
+        var bsa = Path.Combine(_p.Mod("Arch"), "Dummy.bsa");
+        File.WriteAllBytes(bsa, BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, new[]
+        {
+            (@"meshes\hcro\x", new[] { ("a.nif", BsaBuilder.Bytes(X, 32)) }),
+            (@"Meshes\HCRO\X", new[] { ("b.nif", BsaBuilder.Bytes(Y, 32)) }),
+            ("scripts", new[] { ("hcrochild.pex", Pex("HcroChild", "HcroBase")) }),
+            ("SCRIPTS", new[] { ("hcrobase.pex", Pex("HcroBase", null)) }),
+        }));
+        _p.ProfileWithDummy("Arch", "+Other", "+Arch");
+        var svc = _p.Open();
+        var view = ((ILoadOrderHost)svc).Assets.Capture();
+
+        Assert.Equal(BsaBuilder.Bytes(X, 32), view.ReadEntry(bsa, X));
+        Assert.Equal(BsaBuilder.Bytes(Y, 32), view.ReadEntry(bsa, Y));
+        var (bytes, error) = view.ReadSource(new PlacementSource("Dummy.bsa", AssetKind.Bsa, null, bsa, Y));
+        Assert.True(bytes is not null, error);
+        var probe = view.TryResolveOffOrderProvider("Arch", Y);
+        Assert.Equal(OffOrderReason.Found, probe.Reason);
+        Assert.Null(new ScriptPropertyCheck.PexReads(view).Load("HcroBase").Reason);
+        Assert.Equal(1, view.ArchiveTablesRead);
+
+        var walk = svc.AssetWalk(new[] { Child }, Array.Empty<FormKey>(), null, null);
+        Assert.All(walk.Nodes, n => Assert.Null(n.Error));
+        Assert.Contains(walk.Nodes, n => n.Edge == "parent" && n.Path.Equals(@"scripts\hcrobase.pex", StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>An archive that will not open is tried once for the view and answers every read with the same sentence.</summary>
     [Fact]
     public void AnUnreadableArchiveIsTriedOnceAndSaysTheSameEachRead()

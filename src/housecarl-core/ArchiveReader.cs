@@ -25,6 +25,7 @@ internal sealed class ArchiveReader(Action? opened = null)
         internal readonly IArchiveReader Reader = reader;
         internal readonly Dictionary<string, Dictionary<string, IArchiveFile>> Folders = new(StringComparer.OrdinalIgnoreCase);
         internal Dictionary<string, IArchiveFile>? WholeArchive;
+        internal bool NoFolderIndex;                             // Mutagen's folder index would not build for this archive
     }
 
     /// <summary>One entry's bytes; null when the archive does not hold it; THROWS when the archive cannot be read.</summary>
@@ -34,7 +35,7 @@ internal sealed class ArchiveReader(Action? opened = null)
     internal bool HasEntry(string archivePath, string entryPath) => Find(archivePath, entryPath) is not null;
 
     /// <summary>The entry's table record, through its folder's name table, or the whole archive's when the archive has
-    /// no such folder (no folder names, a root-level entry); the first spelling of a name wins.</summary>
+    /// no such folder (no folder names, a root-level entry) or no folder index; the first spelling of a name wins.</summary>
     IArchiveFile? Find(string archivePath, string entryPath)
     {
         var held = Open(archivePath);
@@ -45,13 +46,21 @@ internal sealed class ArchiveReader(Action? opened = null)
         {
             if (!held.Folders.TryGetValue(dir, out names!))
             {
-                names = held.Reader.TryGetFolder(dir, out var folder)
-                    ? NameTable(folder.Files)
-                    : held.WholeArchive ??= NameTable(held.Reader.Files);
+                names = FolderTable(held, dir) ?? (held.WholeArchive ??= NameTable(held.Reader.Files));
                 held.Folders[dir] = names;
             }
         }
         return names.TryGetValue(want, out var entry) ? entry : null;
+    }
+
+    /// <summary>The folder's name table through Mutagen's folder index; null when the archive has no such folder, or
+    /// when the index will not build: Mutagen keys it in one dictionary, so two folder records equal ignoring case or
+    /// slash throw there. The folder records are already read (<see cref="Open"/>), so that is all it can throw.</summary>
+    Dictionary<string, IArchiveFile>? FolderTable(Held held, string dir)
+    {
+        if (held.NoFolderIndex) return null;
+        try { return held.Reader.TryGetFolder(dir, out var folder) ? NameTable(folder.Files) : null; }
+        catch (ArgumentException) { held.NoFolderIndex = true; return null; }
     }
 
     /// <summary>The archive's held reader, opened and its table read on first use; a failure is kept and rethrown.</summary>
@@ -60,7 +69,9 @@ internal sealed class ArchiveReader(Action? opened = null)
         {
             opened?.Invoke();
             var reader = Archive.CreateReader(GameRelease.SkyrimSE, p);
-            reader.TryGetFolder("", out _);                      // loads the folder records, so a bad table fails here
+            // Loads every folder record and the first folder's file records, with or without folder names, so a bad
+            // table fails here; the other folders' file records and the names load at Find.
+            using (var files = reader.Files.GetEnumerator()) files.MoveNext();
             return new Held(reader);
         }, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
