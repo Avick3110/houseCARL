@@ -151,6 +151,7 @@ public sealed class CallContextTests : IDisposable
     {
         Call(() =>
         {
+            var first = Host.Resolver;                           // the call's first record read, as a lane head takes it
             var view = _svc.CaptureView();
             var mod = new SkyrimMod(_base, SkyrimRelease.SkyrimSE);
             mod.Weapons.AddNew().EditorID = "HcCcWeapA";
@@ -161,6 +162,61 @@ public sealed class CallContextTests : IDisposable
             Assert.NotEqual(view.Epoch, rebuilt);
             Assert.Equal(view.Epoch, _svc.CaptureView().Epoch);
             Assert.Equal(view.Epoch, Host.Resolver.Capture().Epoch);   // the held resolver is a frozen copy, not the rebuilt one (r1 #1)
+            Assert.Equal(view.Epoch, first.Capture().Epoch);
+        });
+    }
+
+    // An asset-only write's first file read inside the gate takes its view: a record read after it takes the build its
+    // files named, with no refresh and no refusal, and the change is the next call's.
+    [Fact]
+    public void ARecordReadAfterAWritesInGateFileReadTakesTheBuildItsFilesNamed()
+    {
+        Call(() => Host.CaptureAssets());                       // warm both sides on Default
+        Call(() =>
+        {
+            lock (Host.WriteGate)
+            {
+                Host.CaptureAssets();
+                AddLate();
+                Assert.DoesNotContain(_late.FileName.String, _svc.CapturePin().Resolver.PluginNames);
+            }
+        });
+        Call(() => Assert.Contains(_late.FileName.String, _svc.CapturePin().Resolver.PluginNames));
+    }
+
+    // Pins unchanged behaviour (r1 #5): an in-gate pin that moves the build lets go of the files the call held from
+    // before the gate, so its post-commit files follow the pin.
+    [Fact]
+    public void AnInGatePinThatMovesTheBuildLetsGoOfTheCallsFiles()
+    {
+        Call(() => Host.CaptureAssets());                       // warm both sides on Default
+        Call(() =>
+        {
+            _svc.CapturePin();
+            Assert.Equal("Default", Host.CaptureAssets().ProfileName);
+            SelectOther();
+            lock (Host.WriteGate)
+            {
+                _svc.CapturePin();
+                Assert.Equal("Other", Host.CaptureAssets().ProfileName);
+            }
+            Assert.Equal("Other", Host.CaptureAssets().ProfileName);
+        });
+    }
+
+    // An in-gate pin adopts a mod-list change that kept the plugin paths: the call's held profile read is the new one.
+    [Fact]
+    public void AnInGatePinAdoptsAProfileChangeThatKeptThePlugins()
+    {
+        Call(() =>
+        {
+            _svc.CapturePin();
+            _mo2.Profile(_base.FileName + "\r\n", "*" + _base.FileName + "\r\nHcCcGhost.esp\r\n", "+CcBase\r\n");
+            lock (Host.WriteGate)
+            {
+                _svc.CapturePin();
+                Assert.Contains("UNTICKED", Ghost());
+            }
         });
     }
 
@@ -388,10 +444,12 @@ public sealed class CallContextTests : IDisposable
                 var roots = Host.CaptureRoots();
                 HousecarlCore.MidCallChange.AfterCommit(Path.Combine(_mo2.ModsDir, "CcOut", "HcCcOut.esp"));
                 SelectOther();
-                var checks = _svc.Counters.ProfileFreshnessChecks;
+                var (checks, fileChecks) = (_svc.Counters.ProfileFreshnessChecks, _svc.Counters.FileFreshnessChecks);
                 var files = Host.CaptureAssets();
                 Assert.Equal("Default", files.ProfileName);
                 Assert.Equal(roots, files.Roots);
+                Host.CaptureAssets();                            // the write's held files: checked once, at its first file read
+                Assert.Equal(fileChecks + 1, _svc.Counters.FileFreshnessChecks);
                 Assert.Same(pin, _svc.CapturePin());
                 Assert.Equal(roots, Host.ConfiguredRoots().Roots);
                 Assert.Equal(checks, _svc.Counters.ProfileFreshnessChecks);
