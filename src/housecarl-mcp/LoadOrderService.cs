@@ -298,6 +298,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         // A call's first file read: refused if the profile moved since its record pin, else checked once and held.
         var call = CallContext.Open;
         if (call is { Files: null }) SameBuildOrRefuseLocked(call);
+        // The call's loose listings: the freshness check lists into them, so what it read is what the call reads.
+        var listings = call is null ? null : new LooseListings();
         if (_assetResolver is null)
         {
             _assetResolver = BuildAssetResolverLocked();
@@ -306,16 +308,16 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             // BSA-byte / warmed-loose-subtree content freshness, run during another call's write too: that write reads its own frozen copy.
             Interlocked.Increment(ref Counters.FileFreshnessChecks);
-            _assetResolver.RefreshIfStale();
+            _assetResolver.RefreshIfStale(listings);
         }
-        if (call is null) return _assetResolver;
-        call.HoldFiles(FileViewLocked(), BuildLocked(_resolver));
+        if (listings is null) return _assetResolver;
+        call!.HoldFiles(FileViewLocked(listings), BuildLocked(_resolver));
         if (Monitor.IsEntered(_writeGate)) call.TakeWriteView();
         return call.Files!.Resolver;
     }
 
     /// <summary>The asset build as it stands, frozen, with what was read beside it. Caller holds <see cref="_gate"/>.</summary>
-    CallContext.FileView FileViewLocked() => new(_assetResolver!.Frozen(), _assetResolver, _assetWarnings, _activeArchives, _enabledModsAtBuild, _profileName);
+    CallContext.FileView FileViewLocked(LooseListings listings) => new(_assetResolver!.Frozen(listings), _assetResolver, _assetWarnings, _activeArchives, _enabledModsAtBuild, _profileName);
 
     /// <summary>The call's held file view, or null outside a call, before its first file read, or inside the write gate
     /// before the write took its view there, where a read is checked as it is outside a call. Caller holds <see cref="_gate"/>.</summary>

@@ -93,18 +93,21 @@ public sealed class AssetResolverTests : IDisposable
         Assert.False(miss.Ambiguous);
     }
 
-    // Probe: "fresh path absent before it's written", "still absent from the warmed cache before a refresh",
-    // "RefreshIfStale sees the new loose dir" and "after the refresh the new loose file resolves".
+    // Probe: "fresh path absent before it's written", "still absent in the read that listed the folder", "seen by the
+    // next read, which lists for itself, refresh or not", "RefreshIfStale sees the new loose dir" and "after the
+    // refresh the new loose file resolves".
     [Fact]
-    public void ALooseFileAddedToAWarmedFolderIsSeenOnlyAfterARefresh()
+    public void ALooseFileAddedToAWarmedFolderIsSeenByTheNextRead()
     {
         const string fresh = @"meshes\foo\fresh.nif";
         using var r = Build();
-        Assert.False(r.Resolve(fresh).Exists);
+        var view = r.Capture();
+        Assert.False(view.Resolve(fresh).Exists);
 
         Loose(_high, fresh);
 
-        Assert.False(r.Resolve(fresh).Exists);
+        Assert.False(view.Resolve(fresh).Exists);
+        Assert.Equal("HighMod", r.Resolve(fresh).Winner?.Source);
         Assert.True(r.RefreshIfStale());
         Assert.Equal("HighMod", r.Resolve(fresh).Winner?.Source);
     }
@@ -133,15 +136,15 @@ public sealed class AssetResolverTests : IDisposable
     }
 
     // Strengthened from the probe's capture arm, which changed nothing on disk between capture and read: a view keeps
-    // answering from its own build after the resolver rebuilds under it.
+    // answering from its own build, and its own listings, after the resolver rebuilds under it.
     [Fact]
     public void ACapturedViewKeepsItsBuildAcrossARebuild()
     {
         const string fresh = @"meshes\later\added.nif";
         LooseStack(withOverwrite: false);
         using var r = Build();
-        Assert.False(r.Resolve(fresh).Exists);
         var view = r.Capture();
+        Assert.False(view.Resolve(fresh).Exists);
 
         Loose(_high, fresh);
         Assert.True(r.RefreshIfStale());
