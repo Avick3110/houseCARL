@@ -216,8 +216,19 @@ public sealed class CallContextTests : IDisposable
             {
                 _svc.CapturePin();
                 Assert.Contains("UNTICKED", Ghost());
+                _mo2.Profile(_base.FileName + "\r\n", "*" + _base.FileName + "\r\n", "+CcBase\r\n");
+                // Every later read in the gate serves the pin's profile read, the head's own reads included.
+                Assert.Contains("HcCcGhost.esp", _svc.StatusData().Composition.InactivePluginNames);
             }
         });
+    }
+
+    // The reverse index a call builds through its frozen pin is the live resolver's too, so the next call does not walk the order again.
+    [Fact]
+    public void AReverseIndexBuiltThroughTheCallsPinIsKeptForTheNextCall()
+    {
+        Call(() => _svc.CaptureView().EnsureReverseIndex());
+        OutsideTheCall(() => Assert.NotNull(Host.Resolver.ReverseIndex));
     }
 
     static bool Present(AssetCapture files) => files.View.Resolve("hc_cc.txt").Exists;
@@ -276,7 +287,7 @@ public sealed class CallContextTests : IDisposable
             Directory.CreateDirectory(Path.Combine(alt, "mods", "CcBase"));
             File.Copy(f, Path.Combine(alt, "mods", "CcBase", Path.GetFileName(f)));
         }
-        var profile = Path.Combine(alt, "profiles", "Default");
+        var profile = Path.Combine(alt, "profiles", "Moved");
         Directory.CreateDirectory(profile);
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + _base.FileName + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + _base.FileName + "\r\nHcCcGhost.esp\r\n");
@@ -284,7 +295,7 @@ public sealed class CallContextTests : IDisposable
         Directory.CreateDirectory(Path.Combine(game2, "Data", "Source", "Scripts"));
         File.WriteAllText(Path.Combine(game2, "Data", "Source", "Scripts", "HcCc.psc"), "ScriptName HcCc");
         File.WriteAllText(Path.Combine(_mo2.Instance, "ModOrganizer.ini"),
-            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Moved)\r\ngamePath=@ByteArray("
             + game2.Replace(@"\", @"\\") + ")\r\n[Settings]\r\nbase_directory=@ByteArray(" + alt.Replace(@"\", @"\\") + ")\r\n");
     }
 
