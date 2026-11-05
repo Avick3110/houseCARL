@@ -1,1 +1,1 @@
-- **Calls that read many files out of one BSA read its file table once, not once per file, so an asset walk with `source_provider=` runs several times faster.** Check: the same walk on a mod with a large BSA returns the same nodes in less time.
+- **A call reading many files from one BSA reads its file table once for those reads, not per file; a repeat `source_provider=` asset walk takes under half the time.** Check: repeat that walk on a large BSA: same nodes, faster.
