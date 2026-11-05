@@ -7,7 +7,9 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>Each lane that reads archive bytes or probes an archive reads that archive's table once per call, however
-/// many of its entries it reads (#1311). Every count here is two or more entries out of one archive in one call.</summary>
+/// many of its entries it reads (#1311). Every count here is two or more entries out of one archive in one call, and
+/// where a test drives two lanes, each lane reads an archive the other does not, so a lane reading around the view
+/// shows in the count.</summary>
 [Trait("tier", "integration")]
 public sealed class ArchiveReadOnceTests : IDisposable
 {
@@ -20,13 +22,22 @@ public sealed class ArchiveReadOnceTests : IDisposable
 
     public void Dispose() => _p.Dispose();
 
-    /// <summary>An active archive, Dummy.bsa in the mod Arch, holding <paramref name="paths"/>; the service over it.</summary>
-    LoadOrderService Instance(params string[] paths)
+    /// <summary>An archive <paramref name="file"/> in the mod Arch holding <paramref name="paths"/>, each entry's bytes
+    /// <c>BsaBuilder.Bytes(path, 32)</c>; its full path.</summary>
+    string Archive(string file, params string[] paths)
     {
         var folders = paths.GroupBy(p => Path.GetDirectoryName(p)!, StringComparer.OrdinalIgnoreCase)
             .Select(g => (g.Key, g.Select(p => (Path.GetFileName(p), BsaBuilder.Bytes(p, 32))).ToArray())).ToArray();
-        File.WriteAllBytes(Path.Combine(_p.Mod("Arch"), "Dummy.bsa"),
-            BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, folders));
+        var path = Path.Combine(_p.Mod("Arch"), file);
+        File.WriteAllBytes(path, BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, folders));
+        return path;
+    }
+
+    /// <summary>An active archive, Dummy.bsa in the mod Arch, holding <paramref name="paths"/>; the service over it.
+    /// An archive written beforehand as "Dummy - Textures.bsa" is active too.</summary>
+    LoadOrderService Instance(params string[] paths)
+    {
+        Archive("Dummy.bsa", paths);
         _p.ProfileWithDummy("Arch", "+Other", "+Arch");
         return _p.Open();
     }
@@ -41,20 +52,23 @@ public sealed class ArchiveReadOnceTests : IDisposable
     }
 
     [Fact]
-    public void AWalkReadsItsMeshesAndScriptsOutOfOneArchiveOnce()
+    public void AWalkReadsItsMeshesAndScriptsOutOfEachArchiveOnce()
     {
-        var svc = Instance(MeshA, MeshB, PexA, PexB);
-        Assert.Equal(1, TablesRead(svc, () => svc.AssetWalk(new[] { MeshA, MeshB, PexA, PexB }, Array.Empty<FormKey>(), null, null)));
+        Archive("Dummy - Textures.bsa", PexA, PexB);                        // the scripts' own archive
+        var svc = Instance(MeshA, MeshB);
+        Assert.Equal(2, TablesRead(svc, () => svc.AssetWalk(new[] { MeshA, MeshB, PexA, PexB }, Array.Empty<FormKey>(), null, null)));
     }
 
     [Fact]
     public void AWalkNamingTheArchivesModProbesAndReadsItOnce()
     {
-        // Two nodes only the mod Other provides send the named mod's root archive to the off-order probe twice.
+        // Two nodes only the mod Other provides send the named mod's root archives to the off-order probe twice;
+        // Probe.bsa, bound to no plugin, is read by the probe alone.
         string[] others = [@"meshes\hcro\c.nif", @"meshes\hcro\d.nif"];
         foreach (var o in others) PlaceInstance.Loose(_p.Mod("Other"), o, BsaBuilder.Bytes(o, 32));
+        Archive("Probe.bsa", @"meshes\hcro\p.nif");
         var svc = Instance(MeshA, MeshB);
-        Assert.Equal(1, TablesRead(svc, () => svc.AssetWalk([MeshA, MeshB, .. others], Array.Empty<FormKey>(), null, "Arch")));
+        Assert.Equal(2, TablesRead(svc, () => svc.AssetWalk([MeshA, MeshB, .. others], Array.Empty<FormKey>(), null, "Arch")));
     }
 
     [Fact]
@@ -72,10 +86,11 @@ public sealed class ArchiveReadOnceTests : IDisposable
     }
 
     [Fact]
-    public void NativePairingReadsPackedDllsAndScriptsOutOfOneArchiveOnce()
+    public void NativePairingReadsPackedDllsAndScriptsOutOfEachArchiveOnce()
     {
-        var svc = Instance(DllA, DllB, PexA, PexB);
-        Assert.Equal(1, TablesRead(svc, () => svc.NativePairingAudit()));
+        Archive("Dummy - Textures.bsa", PexA, PexB);                        // the scripts' own archive
+        var svc = Instance(DllA, DllB);
+        Assert.Equal(2, TablesRead(svc, () => svc.NativePairingAudit()));
     }
 
     [Fact]
