@@ -57,7 +57,7 @@ public sealed class AssetResolver : IDisposable
         public readonly ConcurrentDictionary<string, WatchedDir> DirWatch;   // watched dir → what must not change about it; the whole loose freshness check
         public int WarmListings;                                             // directory listings the warm took; a test seam, never the check's
         public int Warms;                                                    // subtree warms finished on this build, counted after their watches
-        public int ArchiveTablesRead;                                        // archive tables this build's views read for bytes; a test seam
+        public int ArchiveTablesRead;                                        // archive tables this build's views read for bytes and probes; a test seam
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
         {
             Tables = tables; Stamps = stamps; Failures = failures;
