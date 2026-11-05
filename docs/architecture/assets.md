@@ -114,7 +114,9 @@ resolver reads no profile.
   the `EnumerateUnder` walk, `LooseRootFiles`, the freshness check at the call's first file read, and an ENABLED
   folder's off-order probe — reads a folder off the call's one listing of it, taken at first touch and dropped with the
   call, so a file the call lists is never absent later in it, and one it resolves is never missing from its listing.
-  The call is a frozen copy's every view (`Frozen(listings)`, which the service holds per call); outside one, each
+  Each enters a folder the one way, `LooseListings.Descend`: from the root's own folder (as the build keys it, never
+  re-spelt) down through the call's listing of each folder on the way, so a folder the call listed as absent stays
+  absent below it, and one it listed stays listed after it goes. The call is a frozen copy's every view (`Frozen(listings)`, which the service holds per call); outside one, each
   `Capture()` or single-shot read is its own. A listing taken before a call began never answers it, and a folder that
   will not list keeps its failure for the call, then falls back to the stat-and-prove path.
 - **A folder is warmed across roots top-down**, each root answered off the call's listings of its mod folder and of

@@ -66,8 +66,9 @@ public static class OffOrderAssetSource
         // The same rule the build applies, ticked or not: a hidden loose copy is never read, only named.
         HiddenCopies? hidden = null;
         var rule = skip.Hides(opened, linked: true);
-        Probe Look(string path, out string? cause) => listings is null ? ProbeFile(path, out cause) : ProbeListed(listings, path, out cause);
-        switch (Look(loose, out var looseCause))
+        // dir is the enabled root's folder as resolve keys it (the same join of the mods folder and the name).
+        Probe Look(string rel, out string? cause) => listings is null ? ProbeFile(LooseListings.OnDisk(dir, rel), out cause) : ProbeListed(listings, dir, rel, out cause);
+        switch (Look(opened, out var looseCause))
         {
             case Probe.Present when rule is null:
                 return new OffOrderLookup(new PlacementSource(name, AssetKind.Loose, LooseFilePath: loose, ArchivePath: null,
@@ -80,7 +81,7 @@ public static class OffOrderAssetSource
                 return new OffOrderLookup(null, OffOrderReason.FolderUnreadable, name, looseCause);
             case Probe.Absent when rule is null:
                 // A folder holding only x's hidden twin has x, hidden.
-                if (skip.Twin(loose, p => Look(p, out _) == Probe.Present) is { } twin)
+                if (skip.Twin(opened, p => Look(p, out _) == Probe.Present) is { } twin)
                     hidden = new HiddenCopies(twin.Rule, opened + twin.Rule.Token, new[] { name }, Twin: true);
                 break;
         }
@@ -144,7 +145,7 @@ public static class OffOrderAssetSource
         Exception? failed = null;
         if (listings is not null)
         {
-            var read = listings.Get(dir);
+            var read = listings.Descend(dir, []);
             failed = read.Failure;
             bsas = read.Listing?.Files.Where(f => f.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase))
                                       .Select(f => LooseListings.OnDisk(dir, f)).ToList() ?? [];
@@ -163,14 +164,20 @@ public static class OffOrderAssetSource
     /// <summary>What a filesystem check actually learned — a bool collapses "not there" and "cannot read it".</summary>
     enum Probe { Present, Absent, Unreadable }
 
-    /// <summary>Check ONE path in an enabled folder off the call's listing of its parent: there only if that listing
-    /// holds it as a file. A parent that will not list is checked directly, since its listing has nothing to say.</summary>
-    static Probe ProbeListed(LooseListings listings, string path, out string? cause)
+    /// <summary>Check ONE path in an enabled folder off the call's listings, descended from the folder as resolve
+    /// descends: there only if its parent's listing holds it as a file, absent where a listing on the way lacks a
+    /// folder. Where the way in will not list, the parent is listed itself, and a parent that will not list is checked
+    /// directly, since its listing has nothing to say.</summary>
+    static Probe ProbeListed(LooseListings listings, string dir, string rel, out string? cause)
     {
         cause = null;
-        var read = listings.Get(Path.GetDirectoryName(path)!);
-        if (read.Listing is { } listing) return listing.IsFile(Path.GetFileName(path)) ? Probe.Present : Probe.Absent;
-        return read.Failure is DirectoryNotFoundException ? Probe.Absent : ProbeFile(path, out cause);
+        var at = rel.LastIndexOf('\\');
+        var parent = at < 0 ? "" : rel[..at];
+        var into = listings.Descend(dir, LooseListings.Segments(parent));
+        if (into.Missing is not null) return Probe.Absent;
+        var read = into.Listing is { } held ? new LooseListings.Read(held, null) : listings.Get(LooseListings.OnDisk(dir, parent));
+        if (read.Listing is { } listing) return listing.IsFile(rel[(at + 1)..]) ? Probe.Present : Probe.Absent;
+        return read.Failure is DirectoryNotFoundException ? Probe.Absent : ProbeFile(LooseListings.OnDisk(dir, rel), out cause);
     }
 
     /// <summary>Check ONE path with an API whose failures SURFACE: <c>File.Exists</c> returns false for a permission
