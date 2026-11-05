@@ -159,7 +159,11 @@ resolver reads no profile.
   discovery and `into=`, with their `Scripts`, `Source\Scripts`, `SEQ` and `meta.ini`; plugin locate, `mod=` included;
   archive discovery; the `Strings` tables; owner meta; `update_status`'s `meta.ini`; the SKSE `meta.ini`, loader and
   dependency probes; the Papyrus source roots and compile output. It needs no file view, so none of these builds one.
-  Joins outside these still use `Path.Combine`, among them the instance layout, game INIs and profiles, and the
+  Four joins inside those lanes still use `Path.Combine`: a DISABLED mod's folder among plugin locate's candidates
+  (`Mo2LoadOrder.CandidateFolders`), the `<stem>.esp` inside a houseCARL folder on `into=`'s fast path
+  (`ResolveOwnedPatchFolder`), the `Scripts` or `SEQ` subfolder of an `out_path=` folder
+  (`SubfolderOutputContract`), and the Data `Strings` folder a plugin falls back to (`GameLanguage.FoldersFor`).
+  Joins outside these lanes still use `Path.Combine` too, among them the instance layout, game INIs and profiles, and the
   folders and plugin paths the merge, compact, reshape and BSA writes make (`RecordWrites.cs`, `RecordReshape.cs`,
   `BsaTools.cs`). On Windows the join is the plain one,
   today's string; a case-folding match per segment is where a case-sensitive file system would need one, not built here.
