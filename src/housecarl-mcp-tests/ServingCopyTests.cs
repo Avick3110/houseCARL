@@ -95,7 +95,8 @@ public sealed class ServingCopyTests
         Assert.Same(read, ProfileRead(w.Svc));
     }
 
-    /// <summary>#54: an instance switch drops the re-read the old instance put off; after a records-first call, the next call re-reads nothing.</summary>
+    /// <summary>An instance switch drops the re-read the old instance put off: the new instance's cold build clears it, so
+    /// after a records-first call the next call re-reads nothing.</summary>
     [Fact]
     public void AnInstanceSwitchDropsTheReReadTheOldInstancePutOff()
     {
