@@ -296,6 +296,88 @@ public sealed class ArchiveReadOnceTests : IDisposable
         Assert.Contains("each archive's table is read at most once per asset view, besides the build's\n  own read, and no reader, table or handle is kept between calls", note.Replace("\r\n", "\n"));
     }
 
+    /// <summary>Dummy.bsa replaced, after the service's build, by <paramref name="replacement"/> of the same size and
+    /// last-write time, so the build still lists its old entries and the call's reader opens the new file.</summary>
+    void Replace(byte[] replacement)
+    {
+        var bsa = Path.Combine(_p.Mods, "Arch", "Dummy.bsa");
+        var stamp = File.GetLastWriteTimeUtc(bsa);
+        Assert.Equal(new FileInfo(bsa).Length, replacement.Length);
+        File.WriteAllBytes(bsa, replacement);
+        File.SetLastWriteTimeUtc(bsa, stamp);
+    }
+
+    /// <summary>Dummy.bsa as a same-size archive whose every entry is renamed, so each entry the build lists is gone.</summary>
+    byte[] Renamed(params string[] paths)
+        => BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, paths
+            .GroupBy(p => Path.GetDirectoryName(p)!, StringComparer.OrdinalIgnoreCase)
+            .Select(g => (g.Key, g.Select(p => ("q" + Path.GetFileName(p)[1..], BsaBuilder.Bytes(p, 32))).ToArray())).ToArray());
+
+    /// <summary>The service over Dummy.bsa holding <paramref name="paths"/>, its build taken.</summary>
+    LoadOrderService Built(params string[] paths)
+    {
+        var svc = Instance(paths);
+        Assert.True(((ILoadOrderHost)svc).Assets.Capture().ResolveForPlacement(paths[0]).Sources.Count > 0);
+        return svc;
+    }
+
+    /// <summary>Junk the size of Dummy.bsa: no archive.</summary>
+    byte[] Junk() => new byte[new FileInfo(Path.Combine(_p.Mods, "Arch", "Dummy.bsa")).Length];
+
+    [Fact]
+    public void NativePairingSaysAnArchiveThatWillNotReadAsBefore()
+    {
+        var svc = Built(PexA);
+        Replace(Junk());
+        var reason = Assert.Single(svc.NativePairingAudit().Unreadable).Reason;
+        Assert.StartsWith("archive 'Dummy.bsa' could not be read (", reason);
+        Assert.EndsWith(")", reason);
+    }
+
+    [Fact]
+    public void NativePairingSaysAVanishedScriptAsBefore()
+    {
+        var svc = Built(PexA);
+        Replace(Renamed(PexA));
+        Assert.Equal("vanished from 'Dummy.bsa' between listing and read", Assert.Single(svc.NativePairingAudit().Unreadable).Reason);
+    }
+
+    [Fact]
+    public void TheScriptsSweepSaysAVanishedScriptAsBefore()
+    {
+        var svc = Built(PexA);
+        Replace(Renamed(PexA));
+        var reads = new ScriptPropertyCheck.PexReads(((ILoadOrderHost)svc).Assets.Capture());
+        Assert.Equal(@"'Scripts\hcroa.pex' vanished from 'Dummy.bsa' between listing and read.", reads.Load("hcroa").Reason);
+    }
+
+    [Fact]
+    public void AWalkSaysAMeshWhoseArchiveWillNotReadAsBefore()
+    {
+        var svc = Built(MeshA, PexA);
+        Replace(Junk());
+        var notes = svc.AssetWalk(new[] { MeshA }, Array.Empty<FormKey>(), null, null).Notes;
+        Assert.Contains(notes, n => n.StartsWith(@"meshes\hcro\a.nif: its links were not read — could not read archive 'Dummy.bsa': ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AWalkSaysAScriptWhoseArchiveWillNotReadAsBefore()
+    {
+        var svc = Built(PexA);
+        Replace(Junk());
+        var node = Assert.Single(svc.AssetWalk(new[] { PexA }, Array.Empty<FormKey>(), null, null).Nodes, n => n.Error is not null);
+        Assert.StartsWith("its parent class was not read — could not read archive 'Dummy.bsa': ", node.Error);
+    }
+
+    [Fact]
+    public void AWalkSaysAScriptItCannotParseAsBefore()
+    {
+        var svc = Built(PexA);                                              // the entry's bytes are not a .pex
+        var node = Assert.Single(svc.AssetWalk(new[] { PexA }, Array.Empty<FormKey>(), null, null).Nodes, n => n.Error is not null);
+        Assert.StartsWith("its parent class was not read — ", node.Error);
+        Assert.DoesNotContain("could not read archive", node.Error);
+    }
+
     // A batch of one reads as the single read did: each sentence on its trigger, unchanged from main.
 
     [Fact]
