@@ -37,7 +37,7 @@ public sealed class ArchiveReadOnceTests : IDisposable
         var assets = ((ILoadOrderHost)svc).Assets;
         var before = assets.ArchiveTableReadCount;
         act();
-        return ((ILoadOrderHost)svc).Assets.ArchiveTableReadCount - before;
+        return assets.ArchiveTableReadCount - before;
     }
 
     [Fact]

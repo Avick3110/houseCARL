@@ -466,15 +466,13 @@ internal sealed partial class AssetLayers
             }
         }
 
-        // ---- the .pex sweep, two phases: loose winners parse in place, BSA winners defer to a per-archive batch
-        //      through the view's reader, so an unreadable archive is one sentence per entry it held. ----
+        // ---- the .pex sweep: each winner parsed off its loose file or through the view's archive reader. ----
         var pexPaths = view.EnumerateUnder("Scripts")
             .Where(p => Path.GetExtension(p).Equals(".pex", StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
 
         var natives = new System.Collections.Concurrent.ConcurrentBag<(string Rel, IReadOnlyList<HousecarlCore.NativeClassDecl> Decls)>();
         var unreadable = new System.Collections.Concurrent.ConcurrentBag<NativeUnreadablePex>();
-        var bsaWanted = new System.Collections.Concurrent.ConcurrentBag<(string Rel, string ArchivePath, string EntryPath, string Provider)>();
 
         void ParsePex(string rel, string? provider, Func<Mutagen.Bethesda.Pex.PexFile> load)
         {
@@ -495,37 +493,27 @@ internal sealed partial class AssetLayers
             var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
             if (winner is null) { unreadable.Add(new NativeUnreadablePex(rel, null, "enumerated but no active source provides it")); return; }
             if (winner.LooseFilePath is { } lp)
-                ParsePex(rel, winner.ProviderName, () => Mutagen.Bethesda.Pex.PexFile.CreateFromFile(lp, Mutagen.Bethesda.GameCategory.Skyrim));
-            else
-                bsaWanted.Add((rel, winner.ArchivePath!, winner.EntryPath, winner.ProviderName));
-        });
-
-        foreach (var g in bsaWanted.GroupBy(w => w.ArchivePath, StringComparer.OrdinalIgnoreCase))
-        {
-            var got = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-            try
             {
-                foreach (var entry in g.Select(w => w.EntryPath).Distinct(StringComparer.OrdinalIgnoreCase))
-                    if (view.ReadEntry(g.Key, entry) is { } b) got[entry] = b;
+                ParsePex(rel, winner.ProviderName, () => Mutagen.Bethesda.Pex.PexFile.CreateFromFile(lp, Mutagen.Bethesda.GameCategory.Skyrim));
+                return;
             }
+            var archive = Path.GetFileName(winner.ArchivePath!);
+            byte[]? bytes;
+            try { bytes = view.ReadEntry(winner.ArchivePath!, winner.EntryPath); }
             catch (Exception ex)
             {
-                foreach (var w in g)
-                    unreadable.Add(new NativeUnreadablePex(w.Rel, w.Provider, $"archive '{Path.GetFileName(g.Key)}' could not be read ({ex.GetType().Name}: {ex.Message})"));
-                continue;
+                unreadable.Add(new NativeUnreadablePex(rel, winner.ProviderName, $"archive '{archive}' could not be read ({ex.GetType().Name}: {ex.Message})"));
+                return;
             }
-            System.Threading.Tasks.Parallel.ForEach(g, w =>
-            {
-                if (!got.TryGetValue(w.EntryPath, out var bytes))
-                    unreadable.Add(new NativeUnreadablePex(w.Rel, w.Provider, $"vanished from '{Path.GetFileName(g.Key)}' between listing and read"));
-                else
-                    ParsePex(w.Rel, w.Provider, () =>
-                    {
-                        using var ms = new MemoryStream(bytes);
-                        return Mutagen.Bethesda.Pex.PexFile.CreateFromStream(ms, Mutagen.Bethesda.GameCategory.Skyrim);
-                    });
-            });
-        }
+            if (bytes is null)
+                unreadable.Add(new NativeUnreadablePex(rel, winner.ProviderName, $"vanished from '{archive}' between listing and read"));
+            else
+                ParsePex(rel, winner.ProviderName, () =>
+                {
+                    using var ms = new MemoryStream(bytes);
+                    return Mutagen.Bethesda.Pex.PexFile.CreateFromStream(ms, Mutagen.Bethesda.GameCategory.Skyrim);
+                });
+        });
 
         // ---- classify and pair. Provenance keys on the enum-typed PlacementSource, never the render label. ----
         var native = natives.OrderBy(s => s.Rel, StringComparer.OrdinalIgnoreCase)

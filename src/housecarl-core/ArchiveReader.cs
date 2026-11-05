@@ -14,10 +14,7 @@ namespace HousecarlCore;
 internal sealed class ArchiveReader(Action? opened = null)
 {
     readonly ConcurrentDictionary<string, Lazy<Held>> _archives = new(StringComparer.OrdinalIgnoreCase);
-    int _tablesRead, _folderListsRead;
-
-    /// <summary>How many archive tables this reader has read; a test seam.</summary>
-    internal int ArchiveTablesRead => Volatile.Read(ref _tablesRead);
+    int _folderListsRead;
 
     /// <summary>How many folder name tables this reader has walked; a test seam.</summary>
     internal int FolderListsRead => Volatile.Read(ref _folderListsRead);
@@ -61,7 +58,6 @@ internal sealed class ArchiveReader(Action? opened = null)
     Held Open(string archivePath)
         => _archives.GetOrAdd(Path.GetFullPath(archivePath), p => new Lazy<Held>(() =>
         {
-            Interlocked.Increment(ref _tablesRead);
             opened?.Invoke();
             var reader = Archive.CreateReader(GameRelease.SkyrimSE, p);
             reader.TryGetFolder("", out _);                      // loads the folder records, so a bad table fails here

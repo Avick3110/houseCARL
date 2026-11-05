@@ -222,25 +222,6 @@ public sealed class AssetResolver : IDisposable
         return set;
     }
 
-    /// <summary>Read the bytes of ONE resolved provider through <paramref name="archives"/> — the shared home for the
-    /// loose-vs-BSA winner read. Loose bytes are read off disk at the read.</summary>
-    static (byte[]? Bytes, string? Error) ReadSource(PlacementSource s, ArchiveReader archives)
-    {
-        if (s.Kind == AssetKind.Loose)
-        {
-            var p = s.LooseFilePath;
-            if (p is null || !File.Exists(p)) return (null, $"the resolved loose source '{p}' is no longer on disk");
-            try { return (File.ReadAllBytes(p), null); }
-            catch (Exception ex) { return (null, $"could not read resolved source '{p}': {ex.Message}"); }
-        }
-        try
-        {
-            var b = s.ArchivePath is null ? null : archives.ReadEntry(s.ArchivePath, s.EntryPath);
-            return b is null ? (null, $"entry '{s.EntryPath}' not found inside '{Path.GetFileName(s.ArchivePath ?? "?")}'") : (b, null);
-        }
-        catch (Exception ex) { return (null, $"could not read archive '{Path.GetFileName(s.ArchivePath ?? "?")}': {ex.Message}"); }
-    }
-
     /// <summary>Resolve one Data-relative asset path. Single-shot — a caller making many reads in one operation <see cref="Capture"/>s once instead.</summary>
     public AssetHit Resolve(string relPath) { var (snap, listings) = BeginPass(); return Resolve(relPath, snap, listings); }
 
@@ -364,7 +345,7 @@ public sealed class AssetResolver : IDisposable
     /// when the built universe has no answer for that name at that path. <see cref="OffOrderAssetSource"/> owns the
     /// lane; the <see cref="PlacementSource.OwnerEnabled"/> qualifier for a copy in an enabled mod is set here.</summary>
     public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
-        => TryResolveOffOrderProvider(providerName, relPath, BeginPass().Listings, new ArchiveReader());
+        => Capture().TryResolveOffOrderProvider(providerName, relPath);
 
     /// <summary>As above; an enabled folder is read off the call's <paramref name="listings"/>, an unticked one directly,
     /// and the folder's root archives through <paramref name="archives"/>.</summary>
@@ -526,14 +507,29 @@ public sealed class AssetResolver : IDisposable
         readonly ArchiveReader _a;                                              // this view's archive reads
         internal AssetView(AssetResolver r, Snapshot s, LooseListings l, ArchiveReader a) { _r = r; _s = s; _l = l; _a = a; }   // only Capture() constructs
 
-        /// <summary>How many archive tables this view has read; a test seam.</summary>
-        internal int ArchiveTablesRead => _a.ArchiveTablesRead;
+        /// <summary>How many archive tables the views of this build have read; a test seam.</summary>
+        internal int ArchiveTablesRead => Volatile.Read(ref _s.ArchiveTablesRead);
 
         /// <summary>How many archive folder name tables this view has walked; a test seam.</summary>
         internal int FolderListsRead => _a.FolderListsRead;
 
         /// <summary>The bytes of one resolved provider, loose or packed, or the sentence saying why they could not be read.</summary>
-        public (byte[]? Bytes, string? Error) ReadSource(PlacementSource s) => AssetResolver.ReadSource(s, _a);
+        public (byte[]? Bytes, string? Error) ReadSource(PlacementSource s)
+        {
+            if (s.Kind == AssetKind.Loose)
+            {
+                var p = s.LooseFilePath;
+                if (p is null || !File.Exists(p)) return (null, $"the resolved loose source '{p}' is no longer on disk");
+                try { return (File.ReadAllBytes(p), null); }
+                catch (Exception ex) { return (null, $"could not read resolved source '{p}': {ex.Message}"); }
+            }
+            try
+            {
+                var b = s.ArchivePath is null ? null : _a.ReadEntry(s.ArchivePath, s.EntryPath);
+                return b is null ? (null, $"entry '{s.EntryPath}' not found inside '{Path.GetFileName(s.ArchivePath ?? "?")}'") : (b, null);
+            }
+            catch (Exception ex) { return (null, $"could not read archive '{Path.GetFileName(s.ArchivePath ?? "?")}': {ex.Message}"); }
+        }
 
         /// <summary>One entry's bytes out of the archive at <paramref name="archivePath"/>, in the order or not; null when
         /// the archive does not hold it; THROWS when the archive cannot be read.</summary>
