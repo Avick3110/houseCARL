@@ -10,7 +10,7 @@ public static class HousecarlOwnerMeta
     public static bool MarksOwned(string? folder)
     {
         if (string.IsNullOrEmpty(folder)) return false;
-        var meta = Path.Combine(folder, "meta.ini");
+        var meta = LooseListings.OnDisk(folder, "meta.ini");
         if (!File.Exists(meta)) return false;
         bool inMarker = false;
         foreach (var raw in File.ReadLines(meta))

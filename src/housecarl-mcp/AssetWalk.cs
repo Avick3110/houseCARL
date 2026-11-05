@@ -63,7 +63,7 @@ internal sealed partial class AssetLayers
             return Done(new(), new(), false, "error: the walk has no seed — pass asset_paths=, under=, provider=, formids= or records=.");
         // A source no provider and no mod folder answers to would mark every node elsewhere or absent, so it is refused by name.
         if (sourceProvider is not null && !view.HasProvider(sourceProvider)
-            && !(captured.ModsRootOrNull is { } mr && Directory.Exists(Path.Combine(mr, sourceProvider))))
+            && !(captured.ModsRootOrNull is { } mr && Directory.Exists(LooseListings.OnDisk(mr, sourceProvider))))
             return Done(new(), new(), false,
                 $"error: source_provider '{sourceProvider}' is neither a provider in the active order nor a mod folder — name a " +
                 "mod folder (enabled or not), 'overwrite', 'Data' or an active archive's filename.");

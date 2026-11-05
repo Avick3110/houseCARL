@@ -55,7 +55,7 @@ internal sealed class OutputLocations
         {
             var newStem = UniqueStem(roots, active, PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
                                      !string.IsNullOrWhiteSpace(patchName), writes: null, naming?.RefuseTaken);
-            var newFolder = Path.Combine(roots.ModsDir, ModFolderName(newStem));
+            var newFolder = LooseListings.OnDisk(roots.ModsDir, ModFolderName(newStem));
             Directory.CreateDirectory(newFolder);
             WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
             return new RiderFolder(newFolder, newFolder, CreatedFresh: true, newStem);
@@ -451,7 +451,7 @@ internal sealed class OutputLocations
 
     /// <summary>Null when a stem is free to claim, else the sentence naming WHICH of the two tests is in the way, so a refusing lane can say it.</summary>
     static string? StemCollision(Mo2Roots roots, string stem, IReadOnlySet<string> activePlugins)
-        => Directory.Exists(Path.Combine(roots.ModsDir, ModFolderName(stem)))
+        => Directory.Exists(LooseListings.OnDisk(roots.ModsDir, ModFolderName(stem)))
             ? $"a mod folder '{ModFolderName(stem)}' already exists"
             : activePlugins.Contains(stem + ".esp")
                 ? $"a plugin named '{stem}.esp' is already active in your load order"
@@ -486,7 +486,7 @@ internal sealed class OutputLocations
         var espName = stem + ".esp";
 
         // Canonical fast path, with no scan; the record lane also requires the folder to hold <stem>.esp.
-        var canonical = Path.Combine(roots.ModsDir, ModFolderName(stem));
+        var canonical = LooseListings.OnDisk(roots.ModsDir, ModFolderName(stem));
         if (Directory.Exists(canonical) && IsHouseCarlOwned(canonical) && (!needEsp || File.Exists(Path.Combine(canonical, espName))))
             return canonical;
 
@@ -509,7 +509,7 @@ internal sealed class OutputLocations
         var bareName = Path.GetFileName(into.Trim());
         foreach (var cand in new[] { ModFolderName(stem), bareName })
         {
-            var candPath = string.IsNullOrEmpty(cand) ? null : Path.Combine(roots.ModsDir, cand);
+            var candPath = string.IsNullOrEmpty(cand) ? null : LooseListings.OnDisk(roots.ModsDir, cand);
             if (candPath is not null && Directory.Exists(candPath) && !IsHouseCarlOwned(candPath))
                 // No fresh stem is handed back — two same-named plugins cannot both be active (#359) — and the
                 // in-place lane is not offered here, staying on the tool that declares it (Aaron, 2026-09-05).
@@ -589,7 +589,7 @@ internal sealed class OutputLocations
         var hits = new List<string>();
         foreach (var dir in Directory.EnumerateDirectories(roots.ModsDir))
         {
-            var esp = Path.Combine(dir, espFileName);
+            var esp = LooseListings.OnDisk(dir, espFileName);
             if (File.Exists(esp) && IsHouseCarlOwned(dir)) hits.Add(esp);
         }
         return hits;
@@ -693,7 +693,7 @@ internal sealed class OutputLocations
         foreach (var cand in new[] { bare, ModFolderName(PatchStem(rawName)) })
         {
             if (string.IsNullOrEmpty(cand)) continue;
-            var folder = Path.Combine(roots.ModsDir, cand);
+            var folder = LooseListings.OnDisk(roots.ModsDir, cand);
             if (Directory.Exists(folder) && IsHouseCarlOwned(folder)) return folder;
         }
         return null;
@@ -720,7 +720,7 @@ internal sealed class OutputLocations
             "\r\n" +
             "[installedFiles]\r\n" +
             "size=0\r\n";
-        File.WriteAllText(Path.Combine(folder, "meta.ini"), content);
+        File.WriteAllText(LooseListings.OnDisk(folder, "meta.ini"), content);
     }
 
     /// <summary>Is a located file the copy the MO2 install serves for its filename, and if not, why not? One half of "does the game load this file", independent of <see cref="TickStanding"/>, since a copy can be both shadowed and unticked with a remedy each. NotAnInstallCopy is deliberately the zero value.</summary>

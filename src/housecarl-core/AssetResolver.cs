@@ -161,7 +161,7 @@ public sealed class AssetResolver : IDisposable
     {
         var roots = new List<(string, string)>(_enabledMods.Count + 2);
         if (_overwriteDir.Length > 0) roots.Add(("overwrite", _overwriteDir));
-        foreach (var mod in _enabledMods) roots.Add((mod, Path.Combine(_modsDir, mod)));
+        foreach (var mod in _enabledMods) roots.Add((mod, LooseListings.OnDisk(_modsDir, mod)));
         if (_dataDir.Length > 0) roots.Add(("Data", _dataDir));
         return roots;
     }

@@ -69,7 +69,7 @@ public static class ArchiveDiscovery
             map[fn] = (full, "overwrite");
 
         foreach (var mod in enabledModsByPriority)                    // highest priority first
-            foreach (var (fn, full) in EnumerateArchives(Path.Combine(modsDir, mod)))
+            foreach (var (fn, full) in EnumerateArchives(LooseListings.OnDisk(modsDir, mod)))
                 if (!map.ContainsKey(fn)) map[fn] = (full, mod);      // first (highest-priority) wins
 
         foreach (var (fn, full) in EnumerateArchives(dataDir))        // base game / vanilla — lowest priority

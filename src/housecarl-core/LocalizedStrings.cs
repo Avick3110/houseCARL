@@ -100,18 +100,18 @@ public static class LocalizedStrings
         // The read's answer: the order's language (any language counts for English, as before #1212) and its winners.
         var text = GameLanguage.Current;
         var only = text.Language == Language.English ? null : text.Language.ToString();
-        var ownFolder = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
+        var ownFolder = ReadStringsFolder(LooseListings.OnDisk(folder, "Strings"), stem);
         var own = InLanguage(ownFolder.Languages, only);
         var unmatched = ownFolder.Unmatched;
         // The game-Data side stays two-answer on purpose: nothing rendered off it asserts an absence.
         var gameData = dataDir is null
             ? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-            : InLanguage(ReadStringsFolder(Path.Combine(dataDir, "Strings"), stem).Languages, only);
+            : InLanguage(ReadStringsFolder(LooseListings.OnDisk(dataDir, "Strings"), stem).Languages, only);
 
         // The read takes the loose winner first, so the plugin's own folder counts only when it is the read's folder.
         var winners = text.WinnersFor(pluginPath);
         var lw = winners?.Loose;
-        bool ownWins = winners is null || lw is { } w && InstanceText.SameFolder(w.Dir, Path.Combine(folder, "Strings"));
+        bool ownWins = winners is null || lw is { } w && InstanceText.SameFolder(w.Dir, LooseListings.OnDisk(folder, "Strings"));
 
         // Another layer's loose Strings (a translation mod's, the overwrite folder's, the game Data's), when the read takes the tables from there.
         if (!ownWins && lw is { } elsewhere && InLanguage(ReadStringsFolder(elsewhere.Dir, stem).Languages, only) is { Count: > 0 } there)
@@ -227,7 +227,7 @@ public static class LocalizedStrings
             // A folder that is not there is not a clean, empty read, and the redirect is only ever taken on a clean one.
             if (folder is null || !Directory.Exists(folder)) return true;
             var stem = Path.GetFileNameWithoutExtension(pluginPath);
-            var loose = ReadStringsFolder(Path.Combine(folder, "Strings"), stem);
+            var loose = ReadStringsFolder(LooseListings.OnDisk(folder, "Strings"), stem);
             if (loose.Read == StringsFolderRead.Unlistable) return true;
             if (language is null ? loose.Languages.Count > 0 : loose.Languages.ContainsKey(language)) return true;
             // BsaEmbedding answers non-null both when the archive embeds this plugin's tables and when it could not be parsed.
@@ -250,7 +250,7 @@ public static class LocalizedStrings
     {
         var folder = Path.GetDirectoryName(pluginPath);
         if (folder is null) return Array.Empty<string>();
-        return TableFilesIn(Path.Combine(folder, "Strings"), Path.GetFileNameWithoutExtension(pluginPath));
+        return TableFilesIn(LooseListings.OnDisk(folder, "Strings"), Path.GetFileNameWithoutExtension(pluginPath));
     }
 
     /// <summary>The table files in <paramref name="stringsDir"/> that belong to the plugin named <paramref name="stem"/>, never a neighbour's.</summary>
