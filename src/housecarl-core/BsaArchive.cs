@@ -90,7 +90,7 @@ public static class BsaArchive
                 if (f.Size > MaxEntryBytes)   // corrupt/hostile header — refuse loud rather than OOM the server
                     return new BsaResult(false,
                         $"archive entry '{f.Path}' declares {f.Size:N0} bytes, over the {MaxEntryBytes:N0}-byte safety ceiling — refusing to read it in-process (the archive header may be corrupt).", null);
-                string outPath = Path.GetFullPath(Path.Combine(destFull, f.Path));
+                string outPath = Path.GetFullPath(LooseListings.OnDisk(destFull, f.Path));
                 if (!IsUnder(destFull, outPath))
                     return new BsaResult(false,
                         $"archive entry '{f.Path}' resolves outside the destination folder (path traversal) — refusing after {written} file(s).", null);

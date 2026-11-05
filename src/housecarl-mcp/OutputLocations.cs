@@ -66,7 +66,7 @@ internal sealed class OutputLocations
     public RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into)
     {
         var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch", Noun: ".pex"));
-        var scripts = Path.Combine(f.ModFolder, "Scripts");
+        var scripts = LooseListings.OnDisk(f.ModFolder, "Scripts");
         Directory.CreateDirectory(scripts);
         return f with { OutputDir = scripts };
     }
@@ -187,7 +187,7 @@ internal sealed class OutputLocations
     public RiderFolder ResolveDecompiledSourceFolder(string? patchName, string? into)
     {
         var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch", Noun: ".psc"));
-        var src = Path.Combine(f.ModFolder, "Source", "Scripts");
+        var src = LooseListings.OnDisk(f.ModFolder, "Source", "Scripts");
         Directory.CreateDirectory(src);
         return f with { OutputDir = src };
     }
@@ -232,7 +232,7 @@ internal sealed class OutputLocations
     RiderFolder ResolveSeqFolder(OutputRoots snapshot, string? patchName, string? into)
     {
         var f = ResolvePatchModFolder(snapshot, patchName, into, "houseCARL_SEQ", new RiderNaming("patch", Noun: ".seq"));
-        var seq = Path.Combine(f.ModFolder, "SEQ");
+        var seq = LooseListings.OnDisk(f.ModFolder, "SEQ");
         Directory.CreateDirectory(seq);
         return f with { OutputDir = seq };
     }
@@ -309,7 +309,7 @@ internal sealed class OutputLocations
             catch (InvalidOperationException ex) { return SeqOutcome.Fail(ex.Message); }
 
             var seqName = Path.GetFileNameWithoutExtension(pluginPath) + ".seq";
-            var dest = Path.Combine(rf.OutputDir, seqName);
+            var dest = LooseListings.OnDisk(rf.OutputDir, seqName);
 
             // Identical bytes are reported, not rewritten, but an identical file OLDER than the plugin is stamped
             // forward for the mtime-based staleness test, and a failed touch falls THROUGH to the real write.
@@ -857,7 +857,7 @@ internal sealed class OutputLocations
         if (!string.IsNullOrWhiteSpace(mod))
         {
             var fn = Path.GetFileName(plugin);
-            var cand = Path.Combine(modsDir, mod.Trim(), fn);
+            var cand = LooseListings.OnDisk(modsDir, mod.Trim(), fn);
             if (!File.Exists(cand))
                 return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null,
                            $"mod folder '{mod.Trim()}' under ModsDir does not provide '{fn}'.");

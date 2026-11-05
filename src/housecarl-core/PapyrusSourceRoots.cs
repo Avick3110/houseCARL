@@ -21,7 +21,7 @@ public static class PapyrusSourceRoots
             foreach (var layout in Layouts)
             {
                 string candidate;
-                try { candidate = Path.GetFullPath(Path.Combine(dir, layout)); }
+                try { candidate = Path.GetFullPath(LooseListings.OnDisk(dir, layout)); }
                 catch { continue; }                       // an un-rootable root (bad chars) costs one candidate, not the scan
                 if (!HasSources(candidate)) continue;
                 if (!seen.Add(candidate)) continue;       // same folder reached twice → the FIRST (higher-precedence) slot wins
@@ -39,7 +39,7 @@ public static class PapyrusSourceRoots
         var vanilla = new List<string>();
         foreach (var layout in Layouts)
         {
-            try { vanilla.Add(Path.GetFullPath(Path.Combine(dataDir, layout))); }
+            try { vanilla.Add(Path.GetFullPath(LooseListings.OnDisk(dataDir, layout))); }
             catch { /* an un-rootable data dir splits nothing — the same best-effort posture as the scan */ }
         }
         var set = new HashSet<string>(vanilla, StringComparer.OrdinalIgnoreCase);

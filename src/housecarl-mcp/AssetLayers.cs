@@ -259,7 +259,7 @@ internal sealed partial class AssetLayers
                         && Mo2ModMeta.ModRootForLooseFile(path, rel) is { } modRoot)
                     {
                         if (!modVersions.TryGetValue(modRoot, out modVersion))
-                            modVersions[modRoot] = modVersion = Mo2ModMeta.Read(Path.Combine(modRoot, "meta.ini"))?.Version;
+                            modVersions[modRoot] = modVersion = Mo2ModMeta.Read(LooseListings.OnDisk(modRoot, "meta.ini"))?.Version;
                     }
                 }
                 else if (winner is null) note = "no active mod provides this DLL";
@@ -560,11 +560,11 @@ internal sealed partial class AssetLayers
         try
         {
             static bool LoaderIn(string dir) => Directory.Exists(dir)
-                && (File.Exists(Path.Combine(dir, "skse64_loader.exe"))
+                && (File.Exists(LooseListings.OnDisk(dir, "skse64_loader.exe"))
                     || Directory.EnumerateFiles(dir, "skse64_*.dll").Any());
             var gameDir = captured.Roots.DataDir.Length > 0 ? Path.GetDirectoryName(captured.Roots.DataDir.TrimEnd('\\', '/')) : null;
             loaderSeen = (gameDir is { Length: > 0 } && LoaderIn(gameDir))
-                || (captured.Roots.ModsDir.Length > 0 && enabledMods.Any(m => LoaderIn(Path.Combine(captured.Roots.ModsDir, m, "Root"))));
+                || (captured.Roots.ModsDir.Length > 0 && enabledMods.Any(m => LoaderIn(LooseListings.OnDisk(captured.Roots.ModsDir, m, "Root"))));
         }
         catch { loaderSeen = null; }
 
@@ -950,7 +950,7 @@ internal sealed partial class AssetLayers
         try { rf = _output.ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new OutputLocations.RiderNaming("patch", Noun: "edited mesh")); }
         catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
 
-        var dest = Path.Combine(rf.OutputDir, rel);
+        var dest = LooseListings.OnDisk(rf.OutputDir, rel);
         try { Directory.CreateDirectory(Path.GetDirectoryName(dest)!); AtomicFile.WriteAllBytes(dest, editedBytes); }
         catch (Exception ex)
         {
@@ -1175,7 +1175,7 @@ internal sealed partial class AssetLayers
         }
 
         // ---- crash-atomic place under the owned folder (originals untouched; same-volume staging done in the core) ----
-        var dest = Path.Combine(outDir, rel);
+        var dest = LooseListings.OnDisk(outDir, rel);
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);

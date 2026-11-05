@@ -181,7 +181,7 @@ public static class AssetRenameService
             return new SeqRegenOutcome(built.Quests.Count, false, null,
                 new[] { $"'{Path.GetFileName(pPrimePath)}' has {built.Quests.Count} start-game-enabled quest(s) but no .seq — they likely weren't starting even before compaction; run {ToolNames.WriteSeq} on the compacted plugin to add one." });
 
-        var dest = Path.Combine(outDir, "SEQ", Path.GetFileNameWithoutExtension(pPrimePath) + ".seq");
+        var dest = LooseListings.OnDisk(outDir, "SEQ", Path.GetFileNameWithoutExtension(pPrimePath) + ".seq");
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);       // AtomicFile.WriteAllBytes does NOT create the dir
@@ -219,7 +219,7 @@ public static class AssetRenameService
             var (bytes, err) = ReadWinner(res.Sources[0]);                 // the copy that currently displays/plays in-game
             if (err is not null) { failures.Add($"{it.Label}: {err}"); continue; }
 
-            var final = Path.Combine(outDir, it.NewPath);
+            var final = LooseListings.OnDisk(outDir, it.NewPath);
             var staged = final + ".houseCARL-tmp";                         // sibling temp — distinct from every old read path
             try
             {
