@@ -826,8 +826,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         // No copy serves the name: a lone copy still has a header to read, and several leave none established.
         var from = copies.FirstOrDefault(c => c.Served == OutputLocations.ServedStanding.Serves) ?? (copies.Count == 1 ? copies[0] : null);
         string? indexed;
-        Mo2Roots roots;
-        lock (_gate) { indexed = (HeldPinLocked()?.Pin!.View ?? _resolver?.Capture())?.PluginPath(pluginName); roots = CallBuildLocked().Roots; }
+        lock (_gate) indexed = (HeldPinLocked()?.Pin!.View ?? _resolver?.Capture())?.PluginPath(pluginName);
+        var roots = new Mo2Roots(ProfileDir: d.ProfileDir, DataDir: d.DataDir, ModsDir: d.ModsDir, OverwriteDir: d.OverwriteDir);   // the roots the locate searched
         var moved = indexed is null || roots.ProfileDir.Length == 0 ? null : ServingCopyMoved(pluginName, indexed, comp, roots, hits);
         return new PluginFacts(copies, from, from is null ? null : PluginFile.ReadHeader(from.Path), moved);
 
