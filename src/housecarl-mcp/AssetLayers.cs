@@ -53,7 +53,25 @@ internal sealed partial class AssetLayers
         string? provider = null,
         bool links = false)
     {
-        var captured = _host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
+        // formids= reads each NPC's record, so it takes the index with the assets; a call with none reads no record.
+        var npcKeys = (seeds ?? Array.Empty<FaceGenSeed>()).Where(s => s.Error is null && s.Key is not null).Select(s => s.Key!.Value).ToList();
+        AssetCapture captured;
+        Dictionary<FormKey, NpcFaceAnswer>? faces = null;
+        string? noOrder = null;
+        if (npcKeys.Count == 0) captured = _host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
+        else
+            try
+            {
+                var (pin, assets) = _host.CapturePinAndAssets(null);
+                captured = assets;
+                faces = Faces(pin, npcKeys);
+            }
+            catch (Exception ex)
+            {
+                // Every formids= row says why it has no pair; the asset rows still answer off the VFS.
+                noOrder = $"the load order could not be read: {ex.Message}";
+                captured = _host.CaptureAssets();
+            }
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
         provider = provider?.Trim() is { Length: > 0 } named ? named : null;
         // A provider the build does not have would walk nothing and read every row as not provided, so it is refused by name.
@@ -70,7 +88,8 @@ internal sealed partial class AssetLayers
         foreach (var p in relPaths)
             try { seen.Add(AssetResolver.ValidateRelPath((p ?? "").Trim())); } catch (ArgumentException) { /* a bad explicit path answers per-path below */ }
 
-        // formids=: each NPC contributes BOTH halves of its pair, a pure transform of the FormKey, so no record is read.
+        // formids=: each NPC contributes BOTH halves of every pair the face door names (its own, or each template
+        // root's), or one row per reason it has none.
         foreach (var seed in seeds ?? Array.Empty<FaceGenSeed>())
         {
             if (seed.Error is not null || seed.Key is not { } fk)
@@ -78,12 +97,21 @@ internal sealed partial class AssetLayers
                 selected.Add(new Selection(seed.Token, seed.Token, null, null, seed.Error));
                 continue;
             }
-            var mesh = FaceGenPath.For(fk, FaceGenSlot.Mesh);
-            var tint = FaceGenPath.For(fk, FaceGenSlot.Tint);
-            selected.Add(new Selection(mesh, seed.Token, FaceGenSlot.Mesh, tint));
-            selected.Add(new Selection(tint, seed.Token, FaceGenSlot.Tint, mesh));
-            seen.Add(mesh);
-            seen.Add(tint);
+            if (faces?.GetValueOrDefault(fk) is not { } face)
+            {
+                selected.Add(new Selection(seed.Token, seed.Token, null, null, NoPair(noOrder!)));
+                continue;
+            }
+            foreach (var why in face.Reasons()) selected.Add(new Selection(seed.Token, seed.Token, null, null, NoPair(why)));
+            foreach (var root in face.Roots)
+            {
+                if (root.Reason is not null) continue;
+                var note = face.NoteFor(root);
+                selected.Add(new Selection(root.Mesh!, seed.Token, FaceGenSlot.Mesh, root.Tint, FaceNote: note));
+                selected.Add(new Selection(root.Tint!, seed.Token, FaceGenSlot.Tint, root.Mesh, FaceNote: note));
+                seen.Add(root.Mesh!);
+                seen.Add(root.Tint!);
+            }
         }
 
         // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
@@ -177,7 +205,7 @@ internal sealed partial class AssetLayers
                                          : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
                 var pair = sel.PairPath is null ? null : Resolve(sel.PairPath);
                 var row = new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair)
-                          { Standing = ProviderStandings.Of(hit, provider) };
+                          { Standing = ProviderStandings.Of(hit, provider), FaceNote = sel.FaceNote };
                 if (links && hit.Exists && p.EndsWith(".nif", StringComparison.OrdinalIgnoreCase))
                 {
                     var (read, readErr) = ResolveLinks(view, MeshLinks(view, view.ResolveForPlacement(p).Sources[0]));
@@ -203,8 +231,38 @@ internal sealed partial class AssetLayers
         => read.Links is not { } links ? (null, read.Error)
          : (links.Select(l => new ResolvedNifLink(l, l.DataPath is { } d ? view.Resolve(d) : null)).ToList(), null);
 
-    /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot and the other half's path. <c>Error</c> answers as its own row.</summary>
-    readonly record struct Selection(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null);
+    /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot, the other half's path and the face door's line for a template root. <c>Error</c> answers as its own row.</summary>
+    readonly record struct Selection(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null, string? FaceNote = null);
+
+    /// <summary>The face door's answer for each NPC key: the winners, their templates and races read through
+    /// <paramref name="pin"/> a round per hop, so a whole-order list costs a few batched reads.</summary>
+    internal static Dictionary<FormKey, NpcFaceAnswer> Faces(LoadOrderService.ViewPin pin, IEnumerable<FormKey> keys)
+    {
+        using var session = pin.Resolver.OpenSession();
+        var reads = new RoundReads(k => BodyGather.Winners(pin.View, session, k));
+        var want = keys.Distinct().ToList();
+        reads.Read(want);
+        reads.FaceInputs(want.Select(k => reads.Peek(k).Body).OfType<INpcGetter>());
+        var door = new NpcFace(reads.Get);
+        var faces = new Dictionary<FormKey, NpcFaceAnswer>();
+        foreach (var k in want)
+        {
+            try { faces[k] = door.Of(k, reads.Get(k)); }
+            catch (Exception ex) { faces[k] = new NpcFaceAnswer(k, Array.Empty<FaceRoot>(), Array.Empty<string>(), $"its record was not read: {ex.Message}"); }
+        }
+        return faces;
+    }
+
+    /// <summary>The face door's answer for each NPC key over the current view (npc=, place formid=), or why the load
+    /// order could not be read.</summary>
+    public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys)
+    {
+        try { return (Faces(_host.CapturePinAndRoots(null).Pin, keys), null); }
+        catch (Exception ex) { return (null, $"the load order could not be read: {ex.Message}"); }
+    }
+
+    /// <summary>The one sentence a formids=, npc= or place row says when an NPC has no FaceGen pair.</summary>
+    internal static string NoPair(string why) => "no FaceGen pair — " + why;
 
     // ---- SKSE-plugin-layer visibility: the DLLs, configs, winning provider and each DLL's declared manifest ----
 
@@ -733,15 +791,21 @@ internal sealed partial class AssetLayers
     /// <see cref="NifService.Inspect"/>. A per-path failure never aborts the batch; the build-level caveats ride it.</summary>
     /// <param name="links">Read the files the copy names too, through <see cref="NifLinks"/>, which only the paths section reads.</param>
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false)
+        => NifInspect(relPaths.Select(p => new NifTarget(p)).ToList(), sourceProvider, links);
+
+    /// <summary>The batch over <paramref name="targets"/>: a target with an error answers as that row, one with a face
+    /// line carries it on its row.</summary>
+    public NifInspectBatchData NifInspect(IReadOnlyList<NifTarget> targets, string? sourceProvider, bool links = false)
     {
         var captured = _host.CaptureAssets();   // build/refresh the asset resolver under the gate, once per batch
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
 
         var modsRoot = captured.ModsRootOrNull;   // the same build as the view, so a raw mods path is judged against the tree the view describes
-        var results = new List<NifInspectData>(relPaths.Count);
-        foreach (var raw in relPaths)
+        var results = new List<NifInspectData>(targets.Count);
+        foreach (var target in targets)
         {
-            var rel = (raw ?? "").Trim();
+            var rel = (target.Path ?? "").Trim();
+            if (target.Error is { } bad) { results.Add(NifInspectData.Fail(rel, bad)); continue; }
             // A raw path into the mods tree reads past the VFS, so it is this path's own refusal with the address form.
             if (ModsPathAddress.Split(rel, modsRoot) is { } hit)
             {
@@ -752,6 +816,7 @@ internal sealed partial class AssetLayers
             // Per-path isolation by construction: anything unexpected becomes that path's named error.
             try { results.Add(NifInspectOne(view, rel, sourceProvider, links)); }
             catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
+            if (target.FaceNote is { } note) results[^1] = results[^1] with { FaceNote = note };
         }
         return new NifInspectBatchData(results, view.BsaFailures, view.RootFailures, warnings, profileName);
     }

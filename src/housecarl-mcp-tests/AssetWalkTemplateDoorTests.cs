@@ -152,7 +152,7 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     [Fact]
     public void ATemplateChainIsReadNoFurtherThanTheCap()
     {
-        Assert.Equal(AssetWalkEdges.TemplateChainCap - 1 + AssetLayers.RecordDepth + (AssetLayers.RecordDepth + 1), NpcReads(new[] { _chains[0] }));
+        Assert.Equal(NpcFace.TemplateChainCap - 1 + AssetLayers.RecordDepth + (AssetLayers.RecordDepth + 1), NpcReads(new[] { _chains[0] }));
         Assert.Equal(NpcReads(new[] { _chains[1] }), NpcReads(new[] { _chains[0] }));
     }
 

@@ -15,10 +15,12 @@ internal static class FaceGenSweepRender
     internal static void AppendHead(StringBuilder sb, FaceGenCheckResult r)
     {
         sb.Append("scanned ").Append(r.NpcsScanned).Append(r.NpcsScanned == 1 ? " NPC · " : " NPCs · ")
-          .Append(r.NpcsTemplated + r.NpcsNoFaceGenRace + r.NpcsRaceUnresolved)
+          .Append(r.NpcsTemplated + r.NpcsNoFaceGenRace + r.NpcsRaceUnresolved + r.NpcsUseTemplateFlag + r.NpcsTraitsNoTemplate)
           .Append(" excluded (").Append(r.NpcsTemplated).Append(" Template+Traits, ")
           .Append(r.NpcsNoFaceGenRace).Append(" on a race with no FaceGenHead flag, ")
-          .Append(r.NpcsRaceUnresolved).Append(" whose race could not be read) · ")
+          .Append(r.NpcsRaceUnresolved).Append(" whose race could not be read, ")
+          .Append(r.NpcsUseTemplateFlag).Append(" with ACBS flag 0x100, ")
+          .Append(r.NpcsTraitsNoTemplate).Append(" with the Traits flag and no Template; Mutagen names no face for the last two) · ")
           .Append(r.FilesSeen).Append(" facegen file(s) on disk · ")
           .Append(r.TotalFound).Append(" finding(s)");
         if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch);
@@ -123,6 +125,8 @@ internal static class FaceGenSweepRender
         w.WriteNumber("npcs_excluded_templated", r.NpcsTemplated);
         w.WriteNumber("npcs_excluded_no_facegen_race", r.NpcsNoFaceGenRace);
         w.WriteNumber("npcs_excluded_race_unresolved", r.NpcsRaceUnresolved);
+        w.WriteNumber("npcs_excluded_use_template_flag", r.NpcsUseTemplateFlag);
+        w.WriteNumber("npcs_excluded_traits_no_template", r.NpcsTraitsNoTemplate);
         w.WriteNumber("never_baked_chargen_preset", r.NeverBakedCharGenPreset);
         w.WriteNumber("never_baked_player", r.NeverBakedPlayer);
         w.WriteNumber("facegen_files_on_disk", r.FilesSeen);

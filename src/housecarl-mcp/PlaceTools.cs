@@ -100,7 +100,16 @@ public static class PlaceTools
         var problems = new List<string>();
         // Destinations the set-level pole was withheld from, said on their row rather than dropped.
         var poleWithheld = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // The face door's line for a destination that is a template root's pair, said on its row.
+        var faceNotes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var door = svc.OpenWriteFormIdDoor();
+        var faces = new Dictionary<FormKey, (NpcFaceAnswer?, string?)>();
+        (NpcFaceAnswer?, string?) FaceOf(FormKey fk)
+        {
+            if (faces.TryGetValue(fk, out var had)) return had;
+            var (got, noOrder) = svc.NpcFaces(new[] { fk });
+            return faces[fk] = (got?.GetValueOrDefault(fk), noOrder);
+        }
         var modsRoot = svc.ModsRootOrNull;
         for (int i = 0; i < assets.Length; i++)
         {
@@ -112,12 +121,13 @@ public static class PlaceTools
                     ModsPathAddress.Address(dest.ModFolder, dest.RelPath, "path", "source_provider")));
                 continue;
             }
-            var reqs = MapTarget(door.Parse, a, source_provider, kind, $"assets[{i}]: ", out var err, out var withheld);
+            var reqs = MapTarget(door.Parse, FaceOf, a, source_provider, kind, $"assets[{i}]: ", out var err, out var withheld, out var faceNote);
             if (err is not null) problems.Add(err);
             else
             {
                 all.AddRange(reqs!);
                 if (withheld) foreach (var r in reqs!) poleWithheld.Add(PoleKey(r.AssetPath));
+                if (faceNote is not null) foreach (var r in reqs!) faceNotes[PoleKey(r.AssetPath)] = faceNote;
             }
         }
         if (problems.Count > 0)
@@ -125,20 +135,22 @@ public static class PlaceTools
 
         var outcome = svc.PlaceAssets(all, patch, into);
         int cap = Wire.Cap(max_chars);
-        return ToolAnswer.Outcome(outcome.Success, json ? JsonWire.RenderPlaceOutcome(outcome, cap, poleWithheld)
-                    : PlaceWire.Render(outcome, cap, poleWithheld));
+        return ToolAnswer.Outcome(outcome.Success, json ? JsonWire.RenderPlaceOutcome(outcome, cap, poleWithheld, faceNotes)
+                    : PlaceWire.Render(outcome, cap, poleWithheld, faceNotes));
     }
 
-    /// <summary>Map one destination to its placement request(s): path is one, formid+kind is one computed FaceGen
-    /// path, formid with NO kind is BOTH halves — which forbids a single loose or entry source, since one file
-    /// cannot serve two. Every bad input is a NAMED error; <paramref name="poleWithheld"/> is true when a
-    /// set-level pole existed but could not apply to this member.</summary>
-    static List<PlaceRequest>? MapTarget(Func<string?, FormKey> parseFormId, PlaceTarget t,
-                                         string? setProvider, string? setKind, string where, out string? error,
-                                         out bool poleWithheld)
+    /// <summary>Map one destination to its placement request(s): path is one, formid+kind is one half of the pair
+    /// the face door names, formid with NO kind is BOTH halves — which forbids a single loose or entry source, since
+    /// one file cannot serve two. Every bad input is a NAMED error; <paramref name="poleWithheld"/> is true when a
+    /// set-level pole existed but could not apply to this member; <paramref name="faceNote"/> names the template root
+    /// whose pair a formid places.</summary>
+    static List<PlaceRequest>? MapTarget(Func<string?, FormKey> parseFormId, Func<FormKey, (NpcFaceAnswer? Face, string? Error)> faceOf,
+                                         PlaceTarget t, string? setProvider, string? setKind, string where, out string? error,
+                                         out bool poleWithheld, out string? faceNote)
     {
         error = null;
         poleWithheld = false;
+        faceNote = null;
         bool hasFormid = !string.IsNullOrWhiteSpace(t.Formid);
         bool hasPath = !string.IsNullOrWhiteSpace(t.Path);
         if (hasFormid == hasPath) { error = $"{where}provide exactly one of formid or path."; return null; }
@@ -161,7 +173,10 @@ public static class PlaceTools
         if (slotErr is not null) { error = $"{where}{slotErr}"; return null; }
 
         if (slot is { } s)                                            // explicit mesh|tint → one file
-            return new List<PlaceRequest> { new(FaceGenPath.For(fk, s), src, prov) };
+        {
+            if (PairOf(fk, faceOf, where, out error, out faceNote) is not { } one) return null;
+            return new List<PlaceRequest> { new(s == FaceGenSlot.Mesh ? one.Mesh! : one.Tint!, src, prov) };
+        }
 
         // kind omitted at both levels means both slots. FULLY-QUALIFIED matches the service's routing: a relative
         // '.bsa' is a Data-relative asset path, and one such path cannot serve two slots.
@@ -175,10 +190,36 @@ public static class PlaceTools
             error = $"{where}with formid and no kind (placing BOTH mesh and tint), an explicit source= must be a FULL '.bsa' path — each slot's entry is then derived. Any single file path names ONE file and cannot serve both slots, so for a loose file, a BSA entry, or a Data-relative path set kind= mesh or tint. {WriteSentences.PlaceBothSlotsPoleConstraint}.";
             return null;
         }
-        var reqs = new List<PlaceRequest>(2);
+        if (PairOf(fk, faceOf, where, out error, out faceNote) is not { } pair) return null;
         // Flagged, because a refusal about this member's source= has to hand back a form this member will accept.
-        foreach (var (_, rel) in FaceGenPath.Both(fk)) reqs.Add(new PlaceRequest(rel, src, prov) { BothSlots = true });
-        return reqs;
+        return new List<PlaceRequest>
+        {
+            new(pair.Mesh!, src, prov) { BothSlots = true },
+            new(pair.Tint!, src, prov) { BothSlots = true },
+        };
+    }
+
+    /// <summary>The one pair the face door names for <paramref name="fk"/>: its own, or its one template root's. No
+    /// pair, or a leveled template's several roots, is a named error.</summary>
+    static FaceRoot? PairOf(FormKey fk, Func<FormKey, (NpcFaceAnswer? Face, string? Error)> faceOf, string where,
+                            out string? error, out string? note)
+    {
+        error = null; note = null;
+        var (face, noOrder) = faceOf(fk);
+        if (face is null) { error = where + AssetLayers.NoPair(noOrder!); return null; }
+        if (face.Roots.Count > 1)
+        {
+            error = $"{where}{FormIdToken.Of(fk)} draws its face from {face.Roots.Count} template roots ("
+                  + string.Join(", ", face.Roots.Select(r => FormIdToken.Of(r.Root))) + "); place one by its own FormID.";
+            return null;
+        }
+        if (face.Roots.FirstOrDefault(r => r.Reason is null) is not { } root)
+        {
+            error = where + AssetLayers.NoPair(string.Join("; ", face.Reasons()));
+            return null;
+        }
+        note = face.NoteFor(root);
+        return root;
     }
 
     /// <summary>Parse the FaceGen slot token; blank is unspecified (both files) and a bad token is a named error.</summary>
@@ -210,7 +251,8 @@ public static class PlaceTools
 /// Those last two are always written and charged INSIDE the cap, so a truncated list still says what it dropped.</summary>
 static class PlaceWire
 {
-    public static string Render(PlaceOutcome o, int cap, IReadOnlySet<string>? poleWithheld = null)
+    public static string Render(PlaceOutcome o, int cap, IReadOnlySet<string>? poleWithheld = null,
+                                IReadOnlyDictionary<string, string>? faceNotes = null)
     {
         if (o.Error is not null) return "error: " + o.Error;
 
@@ -240,7 +282,8 @@ static class PlaceWire
                     if (!lines.TryAppend(sb, "[!] discovery: " + o.Warnings[w] + "\n")) break;
                 if (w < o.Warnings.Count) sb.Append(WarningsOmitted(o.Warnings.Count - w, cap));
             },
-            (sb, r, _) => AppendResult(sb, r, modFolder, o.FreshFolder, poleWithheld?.Contains(r.AssetPath) == true),
+            (sb, r, _) => AppendResult(sb, r, modFolder, o.FreshFolder, poleWithheld?.Contains(r.AssetPath) == true,
+                                       faceNotes?.GetValueOrDefault(r.AssetPath)),
             out int rendered,
             reserve: TrailerReserve(o, modFolder, placed, failed));
 
@@ -332,13 +375,15 @@ static class PlaceWire
              + folder + "' in MO2" + sort;
     }
 
-    static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool freshFolder, bool poleWithheld)
+    static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool freshFolder, bool poleWithheld,
+                             string? faceNote = null)
     {
         // An input the call carried but this destination could not use is SAID, not dropped, or it reads as honoured.
         void Withheld()
         {
             if (poleWithheld)
                 sb.Append("        note: set-level source_provider not applied: source is one exact file\n");
+            if (faceNote is not null) sb.Append("        face: ").Append(faceNote).Append('\n');
         }
 
         if (!r.Placed) { sb.Append("  FAIL  ").Append(r.AssetPath).Append("  ").Append(r.Error).Append('\n'); Withheld(); return; }

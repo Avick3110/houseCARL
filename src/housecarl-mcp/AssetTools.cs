@@ -309,19 +309,21 @@ public static class AssetTools
             catch (Exception ex) { return Refuse($"formids '{raw}' is not a FormID: {Guard.Flatten(ex.Message)}"); }
         }
         var paths = new List<string>();
-        var keyed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        IReadOnlyList<string>? selectorNotes = null;
+        var keyed = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        List<string>? selectorNotes = null;
         if (asset_paths is { Length: > 0 } || under is { Length: > 0 } || seeds.Count > 0 || !string.IsNullOrWhiteSpace(provider))
         {
             var sel = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, 0, 0, seeds, wholeSelection: true, provider: provider);
             if (sel.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
-            selectorNotes = sel.SelectorNotes;
-            // A bad explicit path stays a seed, so the walk answers it as its own error node.
+            selectorNotes = sel.SelectorNotes?.ToList() ?? new List<string>();
             foreach (var r in sel.Results)
             {
+                // A formids= NPC with no FaceGen pair is a note with its reason, not a seed path.
+                if (r.FormId is not null && r.Error is not null) { selectorNotes.Add($"formids '{r.FormId}': {r.Error}"); continue; }
+                // A bad explicit path stays a seed, so the walk answers it as its own error node.
                 paths.Add(r.RelPath);
-                // A formids= row's path is named by the NPC's id, so a renumbering copy carries it.
-                if (r.Slot is not null) keyed.Add(r.RelPath);
+                // A formids= row's path is named by the root NPC's id, so a renumbering copy carries it.
+                if (r.Slot is not null) keyed[r.RelPath] = r.FaceNote;
             }
         }
         var w = svc.AssetWalk(paths, keys, from_source, source_provider, keyed);
@@ -419,8 +421,9 @@ static class AssetWire
             sb.Append(')');
         }
         sb.Append('\n');
+        if (r.FaceNote is { } face) sb.Append("  face: ").Append(face).Append('\n');
 
-        if (r.Error is not null)                                  // a rejected path: drive-rooted, or escaping with '..'
+        if (r.Error is not null)                                // a rejected path: drive-rooted, or escaping with '..'
         {
             sb.Append("  error: ").Append(r.Error).Append('\n');
             return;
