@@ -106,6 +106,7 @@ internal static class AssetArtifact
         w.WriteString("path", r.RelPath);
         Str(w, "formid", r.FormId);
         Str(w, "slot", r.Slot is { } s ? FaceGenPath.Token(s) : null);
+        Str(w, "face_note", r.FaceNote);
         if (r.Error is not null)
         {
             // A per-ROW error, never the file's discriminant: the call succeeded and wrote a row that failed.

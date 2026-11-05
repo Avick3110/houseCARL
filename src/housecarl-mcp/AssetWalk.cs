@@ -48,7 +48,7 @@ internal sealed partial class AssetLayers
     /// paths a formids= row derived from an NPC's id. Contract in docs/architecture/assets.md, Walking the links.</summary>
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
                                    IReadOnlyList<string>? fromSource, string? sourceProvider,
-                                   IReadOnlySet<string>? keyedSeeds = null)
+                                   IReadOnlyDictionary<string, string?>? keyedSeeds = null)
     {
         var (pin, captured) = _host.CapturePinAndAssets(null);
         var view = captured.View;
@@ -90,7 +90,7 @@ internal sealed partial class AssetLayers
             queue.Enqueue(nodes.Count - 1);
         }
 
-        foreach (var p in seedPaths) AddFile(p, "seed", "the selection", keyed: keyedSeeds?.Contains(p) == true);
+        foreach (var p in seedPaths) AddFile(p, "seed", "the selection", keyed: keyedSeeds?.ContainsKey(p) == true, note: keyedSeeds?.GetValueOrDefault(p));
 
         using var session = pin.Resolver.OpenSession();
         var overlays = new List<IDisposable>();
@@ -190,7 +190,6 @@ internal sealed partial class AssetLayers
         var inferCache = AssetWalkEdges.EmptyCache();
         IAssetLinkCache? voiceCache = null;
         IAssetLinkCache Voice() => voiceCache ??= VoiceCache(session, overlays);
-        var raceCaches = new Dictionary<FormKey, (IAssetLinkCache?, string?)>();
         int entered = 0;
         var npcs = new List<(FormKey Key, string Label)>();
 
@@ -198,6 +197,7 @@ internal sealed partial class AssetLayers
         // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
         var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
         IMajorRecordGetter? Fetch(FormKey fk) => members.Get(fk);
+        var faces = new NpcFace(Fetch);
 
         // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
         for (int depth = 0; frontier.Count > 0; depth++)
@@ -238,7 +238,7 @@ internal sealed partial class AssetLayers
 
                 if (body is INpcGetter npc)
                 {
-                    FaceGenOf(npc, label, Fetch, raceCaches, addFile, notes);
+                    FaceGenOf(npc, label, faces, addFile, notes);
                     npcs.Add((fk, label));
                 }
                 if (body is IDialogResponsesGetter info)
@@ -336,73 +336,25 @@ internal sealed partial class AssetLayers
             return body;
         }
 
-        /// <summary>The records AssetWalkEdges.FaceRoots asks for <paramref name="npcs"/>, with each NPC's race, read a
-        /// round per hop: FaceRoots runs over what is read so far, and every key it asks that is not read yet is the next
-        /// round, so a face root and its race are in hand before FaceGenOf asks.</summary>
+        /// <summary>The records the face door asks for <paramref name="npcs"/> (template members, races), read a round per
+        /// hop through <see cref="NpcFace.Prefetch"/>, so a face root and its race are in hand before FaceGenOf asks.</summary>
         public void Templates(IEnumerable<INpcGetter> npcs)
-        {
-            var pending = npcs.ToList();
-            while (pending.Count > 0)
-            {
-                var round = new List<FormKey>();
-                var unread = new List<INpcGetter>();
-                foreach (var npc in pending)
-                {
-                    bool asked = false;
-                    if (!npc.Race.IsNull) round.Add(npc.Race.FormKey);
-                    AssetWalkEdges.FaceRoots(npc, k =>
-                    {
-                        if (!_read.TryGetValue(k, out var r)) { round.Add(k); asked = true; return null; }
-                        if (r.Body is INpcGetter { Race.IsNull: false } n) round.Add(n.Race.FormKey);
-                        return r.Body;
-                    });
-                    if (asked) unread.Add(npc);
-                }
-                Read(round);
-                pending = unread;
-            }
-        }
+            => NpcFace.Prefetch(npcs, k => _read.TryGetValue(k, out var r) ? (true, r.Body) : (false, null), Read);
     }
 
-    /// <summary>The FaceGen pair an NPC's face is drawn from: its own, or its template root's, each member of a
-    /// leveled template marked one of N.</summary>
-    internal static void FaceGenOf(INpcGetter npc, string label, Func<FormKey, IMajorRecordGetter?> fetch,
-                                   Dictionary<FormKey, (IAssetLinkCache? Cache, string? Why)> raceCaches, FileSink addFile, List<string> notes)
+    /// <summary>An NPC's FaceGen nodes from the face door: its own pair, or its template root's, each member of a
+    /// leveled template marked one of N; a note with the reason for every root that has none.</summary>
+    internal static void FaceGenOf(INpcGetter npc, string label, NpcFace door, FileSink addFile, List<string> notes)
     {
-        var (roots, errs) = AssetWalkEdges.FaceRoots(npc, fetch);
-        foreach (var err in errs) notes.Add($"{label}: " + (roots.Count == 0 ? "no FaceGen node" : "a template member has no FaceGen node") + $" — {err}.");
-        foreach (var root in roots)
+        var face = door.Of(npc.FormKey, npc);
+        foreach (var err in face.Errors) notes.Add($"{label}: " + (face.Roots.Count == 0 ? "no FaceGen node" : "a template member has no FaceGen node") + $" — {err}.");
+        foreach (var root in face.Roots)
         {
-            if (root.Race.IsNull) { notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.FormKey)} — it names no race."); continue; }
-            // One cache per race per walk: a walk of many NPCs shares a few races.
-            if (!raceCaches.TryGetValue(root.Race.FormKey, out var race))
-                raceCaches[root.Race.FormKey] = race = RaceOf(root.Race.FormKey, fetch);
-            if (race.Cache is null)
-            {
-                notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.FormKey)} — {race.Why}");
-                continue;
-            }
-            var why = root.FormKey != npc.FormKey
-                ? $"the face of template root {FormIdToken.Of(root.FormKey)}" + (roots.Count > 1 ? $", one of {roots.Count}" : "")
-                : root.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits)
-                    ? "the Traits template flag is set with no Template, so this is read as the NPC's own face"
-                    : null;
-            foreach (var p in AssetWalkEdges.FaceGen(root, race.Cache)) addFile(p, "facegen", label, keyed: true, note: why);
+            if (root.Reason is { } why) { notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.Root)} — {why}."); continue; }
+            var note = face.NoteFor(root);
+            addFile(root.Tint!, "facegen", label, keyed: true, note: note);
+            addFile(root.Mesh!, "facegen", label, keyed: true, note: note);
         }
-    }
-
-    /// <summary>A race's FaceGen cache, or why there is none: not found, not read, or a link to a record of another type.</summary>
-    static (IAssetLinkCache? Cache, string? Why) RaceOf(FormKey fk, Func<FormKey, IMajorRecordGetter?> fetch)
-    {
-        IMajorRecordGetter? got;
-        try { got = fetch(fk); }
-        catch (Exception ex) { return (null, $"its race {FormIdToken.Of(fk)} was not read: {ex.Message}"); }
-        return got switch
-        {
-            IRaceGetter r => (AssetWalkEdges.RaceCache(r), null),
-            null => (null, $"its race {FormIdToken.Of(fk)} is in none of the record sources nor the load order."),
-            _ => (null, $"its race link {FormIdToken.Of(fk)} names a {RecordNaming.StripOverlay(got.GetType().Name)}, not a race."),
-        };
     }
 
     /// <summary>A dialogue line's voice files: the .fuz Mutagen resolves, or a same-stem .xwm / .wav with its .lip

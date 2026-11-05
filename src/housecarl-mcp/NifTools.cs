@@ -96,21 +96,31 @@ public static class NifTools
             return ToolAnswer.Refusal("error: nothing to inspect. Pass mesh_paths (Data-relative mesh paths, e.g. 'meshes\\armor\\iron\\cuirass_1.nif') and/or npc (NPC FormIDs, whose FaceGen head mesh is derived).");
         }
 
-        // npc= is a SELECT value, not a mode: each FormID becomes the FaceGen mesh path it derives to and joins the batch.
-        var selected = new List<string>((mesh_paths?.Length ?? 0) + (npc?.Length ?? 0));
-        if (mesh_paths is not null) selected.AddRange(mesh_paths);
+        // npc= is a SELECT value, not a mode: each FormID becomes the head mesh of every pair the face door names (its
+        // own, or each template root's) and joins the batch, or one row per reason it has none.
+        var selected = new List<NifTarget>((mesh_paths?.Length ?? 0) + (npc?.Length ?? 0));
+        if (mesh_paths is not null) selected.AddRange(mesh_paths.Select(p => new NifTarget(p)));
         if (anyNpc)
         {
             var door = svc.OpenFormIdDoor();
+            var keys = new List<(string Token, Mutagen.Bethesda.Plugins.FormKey Key)>();
             foreach (var raw in npc!)
             {
                 if (string.IsNullOrWhiteSpace(raw)) continue;
-                try { selected.Add(FaceGenPath.For(door.Parse(raw), FaceGenSlot.Mesh)); }
+                try { keys.Add((raw.Trim(), door.Parse(raw))); }
                 catch (Exception ex)
                 {
                     return ToolAnswer.Refusal(FormIdDoor.Sentence(ex, "error: ",
                         $"error: bad npc FormID '{raw.Trim()}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp' or a runtime FormID."));
                 }
+            }
+            var (faces, noOrder) = svc.NpcFaces(keys.Select(k => k.Key).ToList());
+            foreach (var (token, key) in keys)
+            {
+                if (faces?.GetValueOrDefault(key) is not { } face) { selected.Add(new NifTarget(token, AssetLayers.NoPair(noOrder!))); continue; }
+                foreach (var why in face.Reasons()) selected.Add(new NifTarget(token, AssetLayers.NoPair(why)));
+                foreach (var root in face.Roots.Where(r => r.Reason is null))
+                    selected.Add(new NifTarget(root.Mesh!, FaceNote: face.NoteFor(root)));
             }
         }
 
@@ -377,6 +387,7 @@ static class NifWire
                            bool rootIncomplete, bool discoveryIncomplete)
     {
         sb.Append('\n').Append(d.RelPath.Length > 0 ? d.RelPath : "(empty path)").Append('\n');
+        if (d.FaceNote is { } face) sb.Append("  face: ").Append(face).Append('\n');
 
         // Error path: absent, bad path, unreadable, or parse-refused. Still show the provider chain where there is one.
         if (d.Inspect is null)

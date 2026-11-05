@@ -360,7 +360,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider, links);
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
                                    IReadOnlyList<string>? fromSource, string? sourceProvider,
-                                   IReadOnlySet<string>? keyedSeeds = null)
+                                   IReadOnlyDictionary<string, string?>? keyedSeeds = null)
         => _assetLayers.AssetWalk(seedPaths, seedRecords, fromSource, sourceProvider, keyedSeeds);
     public SkseInventoryData SkseInventory(string? peekFilter = null) => _assetLayers.SkseInventory(peekFilter);
     public SkseConfigAuditData SkseConfigAudit() => _assetLayers.SkseConfigAudit();
@@ -368,6 +368,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public SkyPatcherLayerData SkyPatcherLayer() => _assetLayers.SkyPatcherLayer();
     public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, CancellationToken ct = default) => _assetLayers.SkyPatcherLayer(use, ct: ct);
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(relPaths, sourceProvider, links);
+    public NifInspectBatchData NifInspect(IReadOnlyList<NifTarget> targets, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(targets, sourceProvider, links);
+    public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys) => _assetLayers.NpcFaces(keys);
     public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into, bool inPlace, bool acknowledge)
         => _assetLayers.NifSet(relPath, ops, sourceProvider, patchName, into, inPlace, acknowledge);
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into) => _assetLayers.PlaceAssets(requests, patchName, into);

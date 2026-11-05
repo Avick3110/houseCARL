@@ -3045,6 +3045,7 @@ static class JsonWire
         // Only on a row the formids= SELECT derived, so a plain path row is byte-for-byte the document it always was.
         if (r.FormId is not null) w.WriteString("formid", r.FormId);
         if (r.Slot is { } slot) w.WriteString("slot", FaceGenPath.Token(slot));
+        if (r.FaceNote is { } face) w.WriteString("face_note", face);
         if (r.Error is not null)                                  // a rejected path: drive-rooted, or escaping with '..'
         {
             // A per-ROW error, never the document's discriminant: the call succeeded and rendered a row that failed.
@@ -3137,7 +3138,8 @@ static class JsonWire
     // ---- housecarl_place (S2 write) -----------------------------------------------------------------
     /// <summary>The machine-readable twin of <see cref="PlaceWire"/>'s render, on the write surface's contract, with
     /// the "this does not win until you enable the mod" instruction in-band as <c>next_step</c>.</summary>
-    public static string RenderPlaceOutcome(PlaceOutcome o, int maxChars, IReadOnlySet<string>? poleWithheld = null)
+    public static string RenderPlaceOutcome(PlaceOutcome o, int maxChars, IReadOnlySet<string>? poleWithheld = null,
+                                            IReadOnlyDictionary<string, string>? faceNotes = null)
     {
         int cap = Wire.Cap(maxChars);
         using var ms = new CharCountedStream();
@@ -3170,7 +3172,8 @@ static class JsonWire
             {
                 // rendered > 0: the FIRST row always renders — the only place current_winner is stated.
                 if (rendered > 0 && Over(w, ms, cap)) { truncated = true; break; }
-                WritePlaceRow(w, r, modFolder, o.FreshFolder, poleWithheld?.Contains(r.AssetPath) == true);
+                WritePlaceRow(w, r, modFolder, o.FreshFolder, poleWithheld?.Contains(r.AssetPath) == true,
+                              faceNotes?.GetValueOrDefault(r.AssetPath));
                 rendered++;
             }
             w.WriteEndArray();
@@ -3196,10 +3199,12 @@ static class JsonWire
         return Finish(ms);
     }
 
-    static void WritePlaceRow(Utf8JsonWriter w, PlaceResult r, string? modFolder, bool freshFolder, bool poleWithheld)
+    static void WritePlaceRow(Utf8JsonWriter w, PlaceResult r, string? modFolder, bool freshFolder, bool poleWithheld,
+                              string? faceNote = null)
     {
         w.WriteStartObject();
         w.WriteString("path", r.AssetPath);
+        if (faceNote is not null) w.WriteString("face_note", faceNote);
         w.WriteBoolean("placed", r.Placed);
         WriteNullable(w, "error", r.Error);
         if (r.Placed)

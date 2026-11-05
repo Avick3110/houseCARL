@@ -18,6 +18,9 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
     /// <summary>Who ships this copy: the mod folder behind a BSA, else the provider's own name — the same fallback <see cref="FaceGenCheck"/>'s pair classifier uses, empty string included.</summary>
     internal static string Owner(AssetProvider p) => p.OwningMod is { Length: > 0 } m ? m : p.Source;
 
+    /// <summary>On a formids= row whose pair is a template root's, the face door's line naming it; null otherwise.</summary>
+    public string? FaceNote { get; init; }
+
     /// <summary>The named provider's standing on this path; null when the call named no provider or the row did not resolve.</summary>
     public ProviderStanding? Standing { get; init; }
 
@@ -343,7 +346,13 @@ public sealed record NifInspectData(
 
     /// <summary>Why the paths section could not read this mesh's links; null when it did or was not asked.</summary>
     public string? LinksError { get; init; }
+
+    /// <summary>On an npc= mesh that is a template root's, the face door's line naming it; null otherwise.</summary>
+    public string? FaceNote { get; init; }
 }
+
+/// <summary>One nif_inspect target: a path, an npc= row's reason it has no mesh (answered as that row), or the face line its mesh carries.</summary>
+public sealed record NifTarget(string Path, string? Error = null, string? FaceNote = null);
 
 /// <summary>The batch behind housecarl_nif_inspect: per-path <see cref="Results"/> in INPUT ORDER, plus the build-level caveats one asset capture pins for the whole batch, which is what makes an ABSENT result provisional.</summary>
 public sealed record NifInspectBatchData(
