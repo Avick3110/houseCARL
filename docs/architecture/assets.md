@@ -117,8 +117,9 @@ resolver reads no profile.
   listing. Each enters a folder the one way, `LooseListings.Descend`: from the root's own folder (as the build keys
   it, never re-spelt) down through the listing of each folder on the way, so a folder the view listed as absent stays
   absent below it, and one it listed stays listed after it goes. A call holds one file view (`Frozen(listings)`), so
-  one set of listings; a write's first read inside the write gate takes a new file view and a new set with it
-  (load-order-service.md), so its reads before the gate and inside it are two listings. Outside a call, each
+  one set of listings. A write takes a second set inside the write gate only when its first read there moves past the
+  held view (load-order-service.md): an asset-only write's first in-gate file read, or a record write's in-gate pin
+  once the asset build has moved; otherwise its reads before the gate and inside it share one listing. Outside a call, each
   `Capture()` or single-shot read is its own. A listing taken before a view began never answers it, and a folder that
   will not list keeps its failure for the view, then falls back to the stat-and-prove path.
 - **A folder is warmed across roots top-down**, each root answered off the call's listings of its mod folder and of
