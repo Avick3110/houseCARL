@@ -205,6 +205,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     _resolvedPaths = paths;
                     _profileRead = (order.Composition, discovery);
                     _profileStamps = profileStamps;
+                    _reResolvePending = false;                    // a full profile read: no put-off re-read is left
                     if (assetBuildIsBehind) { InvalidateAssetResolver(); _profileHeld = null; }
                 }
                 else if (TryEnterRefreshLocked(call))
@@ -1240,7 +1241,6 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             _profileStamps = new FileStamp[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
             _profileRead = null;                                 // the next order build reads the new profile
-            _reResolvePending = false;                           // a re-read the old instance put off
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
             System.Threading.Interlocked.Increment(ref _gameRootsGen);   // a new instance may be a different game install — the runtime memo must re-probe rather than adjudicate against the old exe
         }
