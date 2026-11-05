@@ -1,0 +1,1 @@
+- **A merge, compact or other write finishes on the load order it started from: a mod switched off or a profile switch mid-write no longer drops carried faces, voice or `.seq`, or refuses after writing.** Check: untick a donor's faces mod during a merge; it reports every face file.
