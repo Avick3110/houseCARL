@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using HousecarlMcp;
@@ -69,6 +71,45 @@ public sealed class ServingCopyTests
         Assert.True(rerun!.Success, rerun.Error);
         Assert.NotEqual(high, Md5(w.HighPath));
         Assert.Equal(low, Md5(w.LowPath));
+    }
+
+    static void InCall(Action body) => Assert.Equal("ok", Guard.Tool("housecarl_probe", _ => { body(); return ToolAnswer.Served("ok"); }));
+
+    /// <summary>The composition of the service's kept profile read, by reference; a re-read replaces it.</summary>
+    static object? ProfileRead(LoadOrderService s) =>
+        (typeof(LoadOrderService).GetField("_profileRead", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(s) as ITuple)?[0];
+
+    /// <summary>The re-read a write put off runs at the next call only: the call after that re-reads nothing.</summary>
+    [Fact]
+    public void ThePutOffReReadRunsOnceAndTheCallAfterItReReadsNothing()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();
+        w.AddHighCopy();
+        var host = (ILoadOrderHost)w.Svc;
+        InCall(() => Assert.False(RemoveInPlace(w).Success));   // the write puts the re-read off
+        object? read = null;
+        InCall(() => { GC.KeepAlive(host.Resolver); read = ProfileRead(w.Svc); });   // the put-off re-read
+        InCall(() => GC.KeepAlive(host.Resolver));
+
+        Assert.Same(read, ProfileRead(w.Svc));
+    }
+
+    /// <summary>#54: an instance switch drops the re-read the old instance put off; after a records-first call, the next call re-reads nothing.</summary>
+    [Fact]
+    public void AnInstanceSwitchDropsTheReReadTheOldInstancePutOff()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();
+        w.AddHighCopy();
+        var host = (ILoadOrderHost)w.Svc;
+        InCall(() => Assert.False(RemoveInPlace(w).Success));   // the write puts the re-read off
+        w.Svc.SetInstance(Path.Combine(w.Root, "instance"));
+        object? read = null;
+        InCall(() => { GC.KeepAlive(host.Resolver); read = ProfileRead(w.Svc); });   // records first: the new instance's first build
+        InCall(() => GC.KeepAlive(host.Resolver));
+
+        Assert.Same(read, ProfileRead(w.Svc));
     }
 
     /// <summary>Q1: the target's mod switched off after the write's in-gate pin; the write finishes on the pin's copy with no refusal.</summary>
