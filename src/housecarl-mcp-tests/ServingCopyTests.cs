@@ -166,6 +166,33 @@ public sealed class ServingCopyTests
         Assert.Equal(1, w.Svc.ServingCopyReResolves);
     }
 
+    /// <summary>Pins unchanged behaviour, a Known limit as on main: a read naming HighMod, in a call after another call
+    /// followed a switch to a profile with HighMod off, is judged on the live roots, where the indexed low copy still
+    /// serves, so it refuses saying the served copy changed again and rebuilds nothing.</summary>
+    [Fact]
+    public void ANamedCopyReadAfterAnotherCallsSwitchIsJudgedOnTheLiveRoots()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();                                          // the index is built off the low copy
+        string read = "";
+
+        InCall(() =>
+        {
+            w.Svc.CapturePin();
+            w.AddHighCopy();
+            w.SelectOtherWithHighModOff();
+            var other = new Thread(() => GC.KeepAlive(((ILoadOrderHost)w.Svc).Resolver));   // another call follows the switch
+            other.UnsafeStart();
+            other.Join();
+            read = Read(w, Je($"{{\"file\": \"{ServingCopyWorld.Target}\", \"mod\": \"HighMod\"}}"));
+        });
+
+        Assert.Contains("the served copy changed again during this call", read);
+        Assert.Contains("nothing was read", read);
+        Assert.DoesNotContain(ServingCopyWorld.LowEdid, read);
+        Assert.Equal(0, w.Svc.ServingCopyReResolves);
+    }
+
     /// <summary>The door in a call, after another call followed a move of MO2's base folder, judges on the call's roots,
     /// where the indexed low copy still serves; on the moved roots the low copy is another path.</summary>
     [Fact]
@@ -431,6 +458,19 @@ public sealed class ServingCopyWorld : IDisposable
 
     /// <summary>Switch HighMod back on in the Default profile's mod list.</summary>
     public void SwitchHighModOn() => File.WriteAllText(Path.Combine(Root, "instance", "profiles", "Default", "modlist.txt"), "# header\r\n+HighMod\r\n+LowMod\r\n");
+
+    /// <summary>Select a profile "Other" with the same plugins and HighMod off, as a profile switch in MO2 does.</summary>
+    public void SelectOtherWithHighModOff()
+    {
+        var instance = Path.Combine(Root, "instance");
+        var other = Path.Combine(instance, "profiles", "Other");
+        Directory.CreateDirectory(other);
+        foreach (var f in new[] { "loadorder.txt", "plugins.txt" }) File.Copy(Path.Combine(instance, "profiles", "Default", f), Path.Combine(other, f));
+        File.WriteAllText(Path.Combine(other, "modlist.txt"), "# header\r\n-HighMod\r\n+LowMod\r\n");
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Other)\r\ngamePath=@ByteArray("
+            + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
+    }
 
     /// <summary>Point MO2's base_directory at a copy of the profile and LowMod's plugin, as moving the base folder does.</summary>
     public void MoveBaseFolder()
