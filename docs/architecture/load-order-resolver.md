@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-21
+updated: 2026-11-05
 covers: [src/housecarl-core/LoadOrderResolver.cs, src/housecarl-core/IndexTypes.cs, src/housecarl-core/MutagenGroups.cs, src/housecarl-core/MidCallChange.cs, src/housecarl-core/GameLanguage.cs, src/housecarl-core/GameIni.cs]
 ---
 # The load-order resolver
@@ -41,7 +41,7 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - `RefreshIfStale` handles content edits to existing plugins; a changed plugin SET is a new order and the caller rebuilds.
 - Every baseline is statted BEFORE the read it baselines, so a write landing during the read shows up on the next check rather than being absorbed into the baseline.
 - Freshness never fires between tool calls — no watcher, no loop — so an actively re-sorting user cannot make the server thrash.
-- The reverse-reference index is held on the RESOLVER, not the snapshot, and carried over when a rebuilt resolver replaces one (`AdoptReverseIndexFrom`); its partitions are keyed on (path, last-write, length), so only the plugins this order added or changed are walked; a rewrite that keeps the time but not the length rebuilds its partition.
+- The reverse-reference index is held on the RESOLVER, not the snapshot, and carried over when a rebuilt resolver replaces one (`AdoptReverseIndexFrom`); its partitions are keyed on (path, last-write, length), so only the plugins this order added or changed are walked; a rewrite that keeps the time but not the length rebuilds its partition. A frozen copy (`Frozen()`, the member-wise copy a call's pin holds, fixed to its build) shares the slot and the build gate with the resolver it was copied from, so an index a pinned call builds is kept for the next call; a rebuilt resolver that adopts the index guards it with its own gate (#1346).
 
 ### Fetching one record
 - Every in-order fetch is typed by the index, through one door: `SeekBody` for one record and `CollectRecords` for a gather, which groups the wanted keys by the seek type their copy in that plugin carries and walks each type's groups once. No caller passes a type. On Mutagen 0.54.4 every pass over a top-level group copies the whole group, so an untyped seek of a Skyrim.esm armor addon cost 1.5 s and 1.37 GB; typed it is about 1 ms (#1158).
@@ -56,7 +56,7 @@ with no record bodies and no plugin file handles at rest. The service that owns 
 - An answer read off the index alone opens no plugin (the dialogue check's target types, `WinnerClassOf`). So a captured view marks each plugin it answers a fact about (`ResolveWinner`, `TouchingPlugins`, `Touches`, `WinnerClassOf`, `IsLightFlagged`, `IsMasterBlock`), and before a call answers, the guard re-stats those plugins and every pinned file. Re-statting the whole order instead cost a single read 14 ms on ARR (17 to 31 ms).
 - A write re-runs that sweep, plus every plugin the call opened, just before `CommitStagedPatch` swaps the file in, so a file another program saved since the write read it refuses the write and keeps the other program's bytes. The call's own output is exempt after its commit. A call that committed answers what it wrote; a change found after a commit refuses the rest in one sentence naming the files already written ("after houseCARL had written A, B; the rest was not done. Check those files before rerunning.").
 - Not covered: `.seq`, asset and INI writes, which write no plugin; the commit sweep needs the guard's mark, so an engine call made without it gets the per-open checks only. A rewrite that keeps both the length and the last-write time is invisible here, as it is to `RefreshIfStale` and the epoch. The checks are a stat then an open, so a save landing between the two is read unseen; once the file is open, Windows blocks the save.
-- A profile switch mid-call changes no plugin file, so the mark does not see it: the call answers off the order it pinned and the next call follows the new profile, unless the switch, or an added or removed plugin, lands between the call's record view and its file view, which refuses the call (`load-order-service.md`, "The per-call context").
+- A profile switch mid-call changes no plugin file, so the mark does not see it: the call answers off the order it pinned and the next call follows the new profile, unless the switch, or an added or removed plugin, lands between the call's record view and its file view, which refuses the call (`load-order-service.md`, "The per-call context"). A write takes its view again inside the write gate, adopting a switch that landed before it, and finishes on that view: a switch after it is seen by the next call and never refuses the write after its commit.
 
 ### Sessions and writes
 - A per-call `OverlaySession` opens each plugin the call touches AT MOST ONCE and disposes every one when the call returns; the write path takes its master set and its link cache from that same session.

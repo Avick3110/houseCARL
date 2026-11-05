@@ -49,7 +49,7 @@ public static class Mo2LoadOrder
     {
         var warnings = new List<string>();
 
-        // The enabled/disabled COMPOSITION (text files only — cheap). The diagnostic re-reads this same parse fresh.
+        // The enabled/disabled COMPOSITION (text files only — cheap), returned with the order; the diagnostic shows this read.
         var comp = ParseComposition(profileDir, warnings);
 
         // filename → WINNING real path: overwrite first, then highest-priority enabled mod (first-seen wins), data folder as base.
@@ -79,7 +79,7 @@ public static class Mo2LoadOrder
         return new Mo2OrderResult(orderedPaths, warnings, active, comp);
     }
 
-    /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; the diagnostic re-reads this fresh each call, and <see cref="Build"/> adds the physical-path resolution on top.</summary>
+    /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; <see cref="Build"/> adds the physical-path resolution on top.</summary>
     public static Mo2Composition ReadComposition(string profileDir, List<string>? warnings = null)
     {
         CompositionRead?.Invoke(profileDir);

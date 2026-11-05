@@ -171,7 +171,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     internal FormIdDoor OpenWriteFormIdDoor() => FormIdDoor.ForWrite(this);
     FormIdDoor IWriteHost.OpenWriteFormIdDoor() => OpenWriteFormIdDoor();
 
-    /// <summary>The resolver, built on first access and kept fresh on every later one; throws if the roots yield no plugins.</summary>
+    /// <summary>The resolver, built on first access and refreshed once per call; in a call, the pin's frozen copy. Throws if the roots yield no plugins.</summary>
     LoadOrderResolver Resolver
     {
         get
@@ -267,7 +267,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     // ---- VFS asset resolution (housecarl_asset_status) --------------------------------------------------
 
-    /// <summary>The VFS-aware asset resolver, built on first asset query and kept fresh after — the asset twin of <see cref="Resolver"/>, which it never forces. Takes <see cref="_gate"/>.</summary>
+    /// <summary>The VFS-aware asset resolver, built on first asset query and refreshed once per call; in a call, the call's frozen copy — the asset twin of <see cref="Resolver"/>, which it never forces. Takes <see cref="_gate"/>.</summary>
     AssetResolver Assets
     {
         get
@@ -557,7 +557,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     internal RecordWrites WriteArea => _writes;   // the writes area instance, for tests that reach its seams
     internal bool GateHeldByThisThread => Monitor.IsEntered(_gate);   // for a test seam that must know whether it runs inside the hold
 
-    internal int AbsenceExplanations;   // how many times the explainer has parsed the profile, for the cost tests
+    internal int AbsenceExplanations;   // how many answers the explainer has worked out (each reads a profile, the call's kept one or fresh), for the cost tests
     internal int ServingCopyReResolves;   // how many times a moved serving copy re-resolved the order, for the tests
 
     /// <summary>MO2's mods root as this service currently has it, or null when it has none yet; taken under the gate.</summary>
@@ -787,7 +787,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         }
     }
 
-    /// <summary>Diagnostic snapshot for housecarl_load_order_status: the fresh profile composition plus the resolver's count, warnings and staleness flag. Forces the lazy build.</summary>
+    /// <summary>Diagnostic snapshot for housecarl_load_order_status: the profile read the call's order was built from (read fresh only when none was kept) plus the resolver's count, warnings and staleness flag. Forces the lazy build.</summary>
     public LoadOrderStatusData StatusData()
     {
         // The view and the per-build fields beside it are snapshotted under ONE gate hold, so no status line mixes two builds.

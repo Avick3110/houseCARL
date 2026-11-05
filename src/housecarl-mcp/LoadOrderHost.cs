@@ -15,10 +15,10 @@ internal readonly record struct Mo2Roots(string ProfileDir, string DataDir, stri
 /// <summary>The head members areas share; contract in docs/architecture/load-order-service.md.</summary>
 internal interface ILoadOrderHost
 {
-    /// <summary>The record resolver, built on first access and kept fresh on every later one.</summary>
+    /// <summary>The record resolver, built on first access and refreshed once per call; in a call, the pin's frozen copy.</summary>
     LoadOrderResolver Resolver { get; }
 
-    /// <summary>The live asset resolver, for a core check that captures it itself.</summary>
+    /// <summary>The asset resolver, for a core check that captures it itself: in a call, the call's frozen copy; outside one, the live build.</summary>
     AssetResolver Assets { get; }
 
     /// <summary>The four roots in one <c>_gate</c> hold, derived first; throws what derivation throws.</summary>

@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-31
+updated: 2026-11-05
 covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
@@ -116,7 +116,7 @@ resolver reads no profile.
   directory on the way once, not once per folder per root, and a concurrent call neither invalidates nor re-lists for
   it. A listing taken before a call began never answers it, so the next call lists again for any subtree it has not
   yet warmed. A subtree an earlier call warmed answers from `LooseCache` until `RefreshIfStale` runs, which the service
-  skips while a write is in flight (#1128). A folder only passed through keeps its names, not its files. A listing
+  runs during another call's write too: that write reads its own frozen copy of the build (`Frozen()`, below; #1128). A folder only passed through keeps its names, not its files. A listing
   that will not read is tried once per pass, then falls back to the stat-and-prove path.
 - **A freshness baseline is read at the warm, never off an older memo.** Every directory a warmed subtree puts under
   watch is baselined by what that warm reads — a listing taken in the warm's own read pass, which is also what
@@ -157,6 +157,8 @@ resolver reads no profile.
   it. A loose file's BYTES are never cached, so a rewrite needs no invalidation at all.
 - `Capture()` pins one build as an `AssetView`, so a batch's hits and its `BsaFailures` cannot describe two builds.
   The view is immutable and handle-free, which is what lets the service enumerate, read and parse outside `_gate`.
+- `Frozen()` is a member-wise copy fixed to the current build: every view it captures answers off that build,
+  whatever the resolver it was copied from refreshes to later. A call's file view holds one.
 
 ### Naming a source
 
