@@ -69,6 +69,31 @@ public sealed class LooseListings
     /// <summary>This call's listing of <paramref name="dir"/>, or null when it would not list.</summary>
     internal Listing? TryGet(string dir, Action? fresh = null) => Get(dir, fresh).Listing;
 
+    /// <summary>Where a descent ended: <see cref="Listing"/> at the folder itself; <see cref="Missing"/>, the first name
+    /// a listing on the way lacks or <see cref="FileHeld"/> as a file, in <see cref="Dir"/>; or neither, where
+    /// <see cref="Dir"/> would not list and <see cref="Failure"/> says why.</summary>
+    internal readonly record struct Descent(string Dir, Listing? Listing, string? Missing, bool FileHeld, Exception? Failure);
+
+    /// <summary>The one way into a loose folder in a call: from a root's folder down through <paramref name="segments"/>,
+    /// each folder off this call's listing of it, so a folder the call listed as absent stays absent below it.</summary>
+    internal Descent Descend(string rootDir, IReadOnlyList<string> segments, Action? fresh = null)
+    {
+        var dir = rootDir;
+        for (int i = 0; ; i++)
+        {
+            var read = Get(dir, fresh);
+            if (read.Listing is not { } listing) return new(dir, null, null, false, read.Failure);
+            if (i == segments.Count) return new(dir, listing, null, false, null);
+            var name = segments[i];
+            if (!listing.Names.Contains(name)) return new(dir, null, name, false, null);
+            if (listing.IsFile(name)) return new(dir, null, name, true, null);
+            dir = OnDisk(dir, name);
+        }
+    }
+
+    /// <summary>A Data-relative folder's segments, none for the root itself.</summary>
+    internal static string[] Segments(string rel) => rel.Length == 0 ? [] : rel.Split('\\');
+
     /// <summary>The one enumeration every listing rides; throws when the directory will not list.</summary>
     internal static Listing List(string dir)
     {

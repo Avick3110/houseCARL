@@ -160,6 +160,71 @@ public sealed class LooseListingsTests : IDisposable
         Assert.True(r.Capture().TryResolveOffOrderProvider("ModA", PlaceInstance.FacegenRel).Source is { OwnerEnabled: true, Kind: AssetKind.Bsa });
     }
 
+    // ---- every way into a folder goes down from the root through the call's listings ----
+
+    [Fact]
+    public void AWalkBelowAFolderTheCallFoundAbsentFindsNothingThere()
+    {
+        using var r = Build();
+        var view = r.Capture();
+        Assert.False(view.Resolve(@"meshes\y\b.nif").Exists);   // the call's listing of meshes has no y
+        Put(_modA, @"meshes\y\b.nif");
+
+        Assert.Empty(view.EnumerateUnder(@"meshes\y"));
+        Assert.False(view.Resolve(@"meshes\y\b.nif").Exists);
+    }
+
+    [Fact]
+    public void AWalkOfAFolderTheCallResolvedStillListsItAfterItGoes()
+    {
+        using var r = Build();
+        var view = r.Capture();
+        Assert.True(view.Resolve(@"meshes\x\a.nif").Exists);
+        Directory.Delete(Path.Combine(_modA, @"meshes\x"), true);
+
+        Assert.Equal(new[] { @"meshes\x\a.nif" }, view.EnumerateUnder(@"meshes\x"));
+        Assert.True(view.Resolve(@"meshes\x\a.nif").Exists);
+        Assert.Empty(view.RootFailures);
+    }
+
+    [Fact]
+    public void ARootMovedAwayAfterTheCallListedItKeepsItsRootFiles()
+    {
+        using var r = Build();
+        var view = r.Capture();
+        Assert.True(view.Resolve("ModA.esp").Exists);
+        Directory.Move(_modA, _modA + "_moved");
+
+        Assert.Equal(new[] { "ModA.esp" }, view.LooseRootFiles("ModA"));
+        Assert.True(view.Resolve("ModA.esp").Exists);
+    }
+
+    [Fact]
+    public void AnEnabledFoldersProbeOfASubfolderTheCallFoundAbsentFindsNoLooseCopy()
+    {
+        using var r = Build();
+        var view = r.Capture();
+        Assert.False(view.Resolve(@"meshes\new\b.nif").Exists);
+        Put(_modA, @"meshes\new\b.nif");
+
+        Assert.False(view.TryResolveOffOrderProvider("ModA", @"meshes\new\b.nif").Source is { OwnerEnabled: true, Kind: AssetKind.Loose });
+        Assert.False(view.Resolve(@"meshes\new\b.nif").Exists);
+    }
+
+    [Fact]
+    public void WithTheModsFolderSpeltWithSlashesTheProbeTakesNoListingOfItsOwn()
+    {
+        using var r = AssetResolver.Build(_ow, _mods.Replace('\\', '/'), _data, new[] { "ModA" }, Array.Empty<ActiveArchive>());
+        var view = r.Capture();
+        Assert.True(view.Resolve(@"meshes\x\a.nif").Exists);
+        var listed = view.ListingCount;
+        Put(_modA, @"meshes\x\late.nif");
+
+        Assert.Null(view.TryResolveOffOrderProvider("ModA", @"meshes\x\late.nif").Source);
+        Assert.True(view.TryResolveOffOrderProvider("ModA", @"meshes\x\a.nif").Source is { OwnerEnabled: true, Kind: AssetKind.Loose });
+        Assert.Equal(listed, view.ListingCount);
+    }
+
     /// <summary>The cross-call route: a copy frozen for a call that took no freshness check (another call held the
     /// write gate) still lists and resolves as one read.</summary>
     [Fact]

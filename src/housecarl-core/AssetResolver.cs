@@ -478,6 +478,8 @@ public sealed class AssetResolver : IDisposable
         void Take(string rel) { if (keep is null || keep(rel)) found.Add(rel); }
         // A named provider walks its own root only (none when it names only archives); the winner is still decided later, against every root.
         int only = provider is null ? -1 : RootIndex(provider);
+        var opened = AsWindowsOpens(pre);
+        var segments = LooseListings.Segments(opened);
 
         // loose: recurse each root's copy of the prefix dir (set-UNION across roots — the per-path winner is decided later).
         for (int i = 0; i < _looseRoots.Count; i++)
@@ -485,9 +487,15 @@ public sealed class AssetResolver : IDisposable
             if (provider is not null && i != only) continue;
             var (rootName, rootDir) = _looseRoots[i];
             bool linked = !IsDataRoot(i);
-            var baseDir = LooseListings.OnDisk(rootDir, pre);
-            // A "not there" is only an absence when it can be proved one; unreadable is named inside.
-            if (!Directory.Exists(baseDir)) { AbsenceIsReal(rootName, rootDir, pre, baseDir, snap); continue; }
+            // In by the call's listings from the root, as resolve goes; a listing that lacks the folder settles it.
+            var into = listings.Descend(rootDir, segments);
+            var baseDir = into.Listing is not null ? into.Dir : LooseListings.OnDisk(rootDir, opened);
+            if (into.Listing is null)
+            {
+                // A "not there" is only an absence when it can be proved one; unreadable is named inside.
+                if (!Directory.Exists(baseDir)) { AbsenceIsReal(rootName, rootDir, pre, baseDir, snap); continue; }
+                if (into.Missing is not null) continue;
+            }
             // Top down over the call's listings, a folder's files in listing order and its folders queued after it:
             // the order a recursive enumeration yields, so a capped walk keeps the same matches.
             var pending = new Queue<string>();
@@ -691,7 +699,7 @@ public sealed class AssetResolver : IDisposable
     LooseSubtree WarmSubtree(string subtreeDir, Snapshot snap, LooseListings listings)
     {
         var roots = _looseRoots;
-        var segments = subtreeDir.Length == 0 ? Array.Empty<string>() : subtreeDir.Split('\\');
+        var segments = LooseListings.Segments(subtreeDir);
         var present = new List<(int, HashSet<string>)>();
         var listed = new List<(string, HashSet<string>)>();
         for (int i = 0; i < roots.Count; i++)
@@ -719,32 +727,19 @@ public sealed class AssetResolver : IDisposable
                            List<(string, HashSet<string>)> listed, out HashSet<string>? files)
     {
         files = null;
-        var dir = rootDir;
-        for (int i = 0; ; i++)
+        var d = listings.Descend(rootDir, segments, () => Interlocked.Increment(ref snap.WarmListings));
+        if (d.Listing is { } listing)
         {
-            bool leaf = i == segments.Length;
-            if (listings.TryGet(dir, () => Interlocked.Increment(ref snap.WarmListings)) is not { } listing) return false;
-            if (leaf)
-            {
-                snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).Entries = listing.Names;
-                listed.Add((dir, listing.Names));
-                files = listing.Files;
-                return true;
-            }
-            var name = segments[i];
-            // The first name a listing lacks, or a file holds, proves the absence and is watched there.
-            if (!listing.Names.Contains(name))
-            {
-                snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).Forbidden[name] = 0;
-                return true;
-            }
-            if (listing.IsFile(name))
-            {
-                snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).FileHeld[name] = 0;
-                return true;
-            }
-            dir = LooseListings.OnDisk(dir, name);
+            snap.DirWatch.GetOrAdd(d.Dir, _ => new WatchedDir()).Entries = listing.Names;
+            listed.Add((d.Dir, listing.Names));
+            files = listing.Files;
+            return true;
         }
+        if (d.Missing is not { } name) return false;
+        // The first name a listing lacks, or a file holds, proves the absence and is watched there.
+        var w = snap.DirWatch.GetOrAdd(d.Dir, _ => new WatchedDir());
+        (d.FileHeld ? w.FileHeld : w.Forbidden)[name] = 0;
+        return true;
     }
 
     /// <summary>Watch this root's copy of a subtree, off reads taken at this warm: its own listing, else the missing name on
@@ -800,11 +795,11 @@ public sealed class AssetResolver : IDisposable
         if (at < 0) return Array.Empty<string>();                     // no loose root by that name, so nothing ships there
         var (name, dir) = _looseRoots[at];
         bool linked = !IsDataRoot(at);
+        var top = listings.Descend(dir, []);
+        if (top.Listing is { } listing) return listing.Files.Where(n => _skip.Hides(n, linked) is null).ToList();
         if (Directory.Exists(dir))
         {
-            var read = listings.Get(dir);
-            if (read.Listing is { } listing) return listing.Files.Where(n => _skip.Hides(n, linked) is null).ToList();
-            RecordRootFailure(name, "", "read", read.Failure!, snap);
+            RecordRootFailure(name, "", "read", top.Failure!, snap);
             return null;
         }
         if (WalkProvesAbsent(dir, dir, Directory.Exists, FreshNames)) return Array.Empty<string>();
