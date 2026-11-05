@@ -130,8 +130,10 @@ resolver reads no profile.
   the build's. That keeps a listing and a resolve agreeing by construction, not by a refresh rule, and costs a checked
   call nothing more; a per-root record per subtree would cost about a gigabyte on a dev-size `meshes` census.
 - **The walk is top down over the call's listings**: a folder's files in listing order, its folders queued after it,
-  the order a recursive enumeration yields, so a capped walk keeps the same matches. A folder that will not list ends
-  that root's walk with "could not walk", as the enumeration did.
+  the order a recursive enumeration yields, so a capped walk keeps the same matches. A subfolder that is not found
+  (gone since its parent listed it, or a junction to nowhere) is skipped, as the enumeration skipped it; the prefix
+  folder, or any subfolder that refuses, ends that root's walk with "could not walk", keeping what it took before,
+  as the enumeration did.
 - **A freshness baseline is read at the warm, never off an older memo.** Every directory a warmed subtree puts under
   watch is baselined by what that warm reads — a listing taken in the warm's own read pass, which is also what
   the answer came from; on the fallback path, the whole listing for a root's own copy, or for a root that has nothing

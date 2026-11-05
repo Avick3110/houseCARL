@@ -505,6 +505,9 @@ public sealed class AssetResolver : IDisposable
                 var read = listings.Get(dir);
                 if (read.Listing is not { } listing)
                 {
+                    // A subfolder gone since its parent listed it, or a junction to nowhere, is skipped, as the
+                    // recursive enumeration skipped it.
+                    if (read.Failure is DirectoryNotFoundException && !ReferenceEquals(dir, baseDir)) continue;
                     // A root that won't enumerate contributes nothing more, so it is NAMED on the build: it sets
                     // ReadIncomplete and the answer says which root was not walked, never a silent half-answer.
                     RecordRootFailure(rootName, pre, "walk", read.Failure!, snap);

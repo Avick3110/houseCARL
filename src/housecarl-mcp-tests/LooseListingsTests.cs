@@ -225,6 +225,41 @@ public sealed class LooseListingsTests : IDisposable
         Assert.Equal(listed, view.ListingCount);
     }
 
+    // ---- a subfolder that is not found is skipped, as main's recursive enumeration skipped it ----
+
+    [Fact]
+    public void ABrokenJunctionBesideAFolderIsSkipped()
+    {
+        var target = Path.Combine(_root, "nowhere");
+        Directory.CreateDirectory(target);
+        var link = Path.Combine(_modA, @"meshes\a_link");
+        using (var mk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+                   { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true }))
+            mk!.WaitForExit();
+        Directory.Delete(target);
+        Assert.True(Directory.Exists(Path.GetDirectoryName(link)) && new DirectoryInfo(link).LinkTarget is not null, "the junction was not made");
+        using var r = Build();
+        var view = r.Capture();
+
+        Assert.Equal(new[] { @"meshes\x\a.nif" }, view.EnumerateUnder("meshes"));
+        Assert.Empty(view.RootFailures);
+    }
+
+    [Fact]
+    public void ASubfolderGoneSinceItsParentWasListedIsSkippedAndTheRestWalked()
+    {
+        Put(_modA, @"meshes\a_gone\q.nif");
+        using var r = Build();
+        var view = r.Capture();
+        Assert.False(view.Resolve(@"meshes\w.nif").Exists);       // the call lists meshes, a_gone and x in it
+        Directory.Delete(Path.Combine(_modA, @"meshes\a_gone"), true);
+
+        Assert.Equal(new[] { @"meshes\x\a.nif" }, view.EnumerateUnder("meshes"));
+        Assert.Empty(view.RootFailures);
+        Assert.False(view.Resolve(@"meshes\a_gone\q.nif").Exists);
+        Assert.True(view.Resolve(@"meshes\x\a.nif").Exists);
+    }
+
     /// <summary>The cross-call route: a copy frozen for a call that took no freshness check (another call held the
     /// write gate) still lists and resolves as one read.</summary>
     [Fact]
