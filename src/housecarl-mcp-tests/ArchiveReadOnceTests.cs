@@ -221,12 +221,28 @@ public sealed class ArchiveReadOnceTests : IDisposable
         Assert.Contains(walk.Nodes, n => n.Edge == "parent" && n.Path.Equals(@"scripts\hcrobase.pex", StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>A compaction carrying FaceGen and voice packed in the plugin's one archive reads it once: both carries
-    /// read through the lane's one view.</summary>
+    /// <summary>An archive holding two folder records equal ignoring slash only reads both, one table for the view.</summary>
     [Fact]
-    public void ACompactionCarriesFaceGenAndVoiceOutOfOneArchiveOnce()
+    public void AnArchiveWithTwoSlashSpellingsOfOneFolderReadsBoth()
     {
-        using var inst = new CompactCarryInstance("HcroCmp", m =>
+        const string X = @"meshes\hcro\y\a.nif", Y = @"meshes\hcro\y\b.nif";
+        var bsa = _p.Scratch("Slash.bsa", BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, new[]
+        {
+            (@"meshes\hcro\y", new[] { ("a.nif", BsaBuilder.Bytes(X, 32)) }),
+            ("meshes/hcro/y", new[] { ("b.nif", BsaBuilder.Bytes(Y, 32)) }),
+        }));
+        using var assets = AssetResolver.Build("", "", _p.Data, Array.Empty<string>(), Array.Empty<ActiveArchive>());
+        var view = assets.Capture();
+
+        Assert.Equal(BsaBuilder.Bytes(X, 32), view.ReadEntry(bsa, X));
+        Assert.Equal(BsaBuilder.Bytes(Y, 32), view.ReadEntry(bsa, Y));
+        Assert.Equal(1, view.ArchiveTablesRead);
+    }
+
+    /// <summary>A plugin with FaceGen and voice packed in its one archive, and its instance.</summary>
+    static CompactCarryInstance PackedCarry(string stem)
+    {
+        var inst = new CompactCarryInstance(stem, m =>
         {
             m.Npcs.Add(new Npc(new FormKey(m.ModKey, 0xA10), SkyrimRelease.SkyrimSE) { EditorID = "HcroNpc" });
             var topic = new DialogTopic(new FormKey(m.ModKey, 0x810), SkyrimRelease.SkyrimSE) { EditorID = "HcroTopic" };
@@ -236,9 +252,35 @@ public sealed class ArchiveReadOnceTests : IDisposable
         var npc = new FormKey(inst.Key, 0xA10);
         string[] paths = [FaceGenPath.For(npc, FaceGenSlot.Mesh), FaceGenPath.For(npc, FaceGenSlot.Tint),
                           VoicePath.For(new FormKey(inst.Key, 0x811), "FemaleEventoned", "", "HcroTopic", 1, VoiceFile.Fuz)];
-        File.WriteAllBytes(Path.Combine(inst.ModDir, "HcroCmp.bsa"), BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
+        File.WriteAllBytes(Path.Combine(inst.ModDir, stem + ".bsa"), BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
             paths.Select(p => (Path.GetDirectoryName(p)!, new[] { (Path.GetFileName(p), BsaBuilder.Bytes(p, 24)) })).ToArray()));
         inst.Service.Stats();
+        return inst;
+    }
+
+    /// <summary>A merge carrying FaceGen and voice packed in its donor's one archive reads it once: both carries read
+    /// through the lane's one view.</summary>
+    [Fact]
+    public void AMergeCarriesFaceGenAndVoiceOutOfOneArchiveOnce()
+    {
+        using var inst = PackedCarry("HcroMgd");
+        var assets = ((ILoadOrderHost)inst.Service).Assets;
+        var before = assets.ArchiveTableReadCount;
+
+        var o = inst.Service.MergePlugins(new[] { inst.PluginName }, "HcroMgdOut.esp");
+
+        Assert.True(o.Success, o.Error);
+        Assert.Equal(2, o.AssetRename?.FacegenFilesCarried);
+        Assert.Equal(1, o.VoiceRename?.FilesCarried);
+        Assert.Equal(1, ((ILoadOrderHost)inst.Service).Assets.ArchiveTableReadCount - before);
+    }
+
+    /// <summary>A compaction carrying FaceGen and voice packed in the plugin's one archive reads it once: both carries
+    /// read through the lane's one view.</summary>
+    [Fact]
+    public void ACompactionCarriesFaceGenAndVoiceOutOfOneArchiveOnce()
+    {
+        using var inst = PackedCarry("HcroCmp");
         var assets = ((ILoadOrderHost)inst.Service).Assets;
         var before = assets.ArchiveTableReadCount;
 
@@ -325,14 +367,15 @@ public sealed class ArchiveReadOnceTests : IDisposable
     /// <summary>Junk the size of Dummy.bsa: no archive.</summary>
     byte[] Junk() => new byte[new FileInfo(Path.Combine(_p.Mods, "Arch", "Dummy.bsa")).Length];
 
+    /// <summary>What Mutagen throws opening <see cref="Junk"/>: its message, and its type and message.</summary>
+    const string JunkMessage = "Archive is not a BSA", JunkError = "ArchiveException: " + JunkMessage;
+
     [Fact]
     public void NativePairingSaysAnArchiveThatWillNotReadAsBefore()
     {
         var svc = Built(PexA);
         Replace(Junk());
-        var reason = Assert.Single(svc.NativePairingAudit().Unreadable).Reason;
-        Assert.StartsWith("archive 'Dummy.bsa' could not be read (", reason);
-        Assert.EndsWith(")", reason);
+        Assert.Equal($"archive 'Dummy.bsa' could not be read ({JunkError})", Assert.Single(svc.NativePairingAudit().Unreadable).Reason);
     }
 
     [Fact]
@@ -358,7 +401,7 @@ public sealed class ArchiveReadOnceTests : IDisposable
         var svc = Built(MeshA, PexA);
         Replace(Junk());
         var notes = svc.AssetWalk(new[] { MeshA }, Array.Empty<FormKey>(), null, null).Notes;
-        Assert.Contains(notes, n => n.StartsWith(@"meshes\hcro\a.nif: its links were not read — could not read archive 'Dummy.bsa': ", StringComparison.Ordinal));
+        Assert.Contains(@"meshes\hcro\a.nif: its links were not read — could not read archive 'Dummy.bsa': " + JunkMessage, notes);
     }
 
     [Fact]
@@ -367,7 +410,7 @@ public sealed class ArchiveReadOnceTests : IDisposable
         var svc = Built(PexA);
         Replace(Junk());
         var node = Assert.Single(svc.AssetWalk(new[] { PexA }, Array.Empty<FormKey>(), null, null).Nodes, n => n.Error is not null);
-        Assert.StartsWith("its parent class was not read — could not read archive 'Dummy.bsa': ", node.Error);
+        Assert.Equal("its parent class was not read — could not read archive 'Dummy.bsa': " + JunkMessage, node.Error);
     }
 
     [Fact]
@@ -375,8 +418,7 @@ public sealed class ArchiveReadOnceTests : IDisposable
     {
         var svc = Built(PexA);                                              // the entry's bytes are not a .pex
         var node = Assert.Single(svc.AssetWalk(new[] { PexA }, Array.Empty<FormKey>(), null, null).Nodes, n => n.Error is not null);
-        Assert.StartsWith("its parent class was not read — ", node.Error);
-        Assert.DoesNotContain("could not read archive", node.Error);
+        Assert.Equal("its parent class was not read — File does not have fast code! Magic does not match fa57c0de is 7445370d", node.Error);
     }
 
     // A batch of one reads as the single read did: each sentence on its trigger, unchanged from main.
