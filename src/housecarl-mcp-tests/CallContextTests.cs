@@ -289,7 +289,7 @@ public sealed class CallContextTests : IDisposable
         using (HeldOpen.Hold(Path.Combine(_mo2.Instance, "profiles", "Default", "modlist.txt")))
         {
             var files = Host.CaptureAssets();
-            Assert.Contains(files.Warnings, x => x.Contains("held open by another process"));
+            Assert.Contains(files.Warnings, x => x.Contains("off the build from BEFORE that change"));
             Assert.DoesNotContain("CcLate", files.EnabledMods);
         }
     }
