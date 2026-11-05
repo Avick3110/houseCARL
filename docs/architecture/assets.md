@@ -157,8 +157,10 @@ resolver reads no profile.
   it. A loose file's BYTES are never cached, so a rewrite needs no invalidation at all.
 - `Capture()` pins one build as an `AssetView`, so a batch's hits and its `BsaFailures` cannot describe two builds.
   The view is immutable and handle-free, which is what lets the service enumerate, read and parse outside `_gate`.
-- `Frozen()` is a member-wise copy fixed to the current build: every view it captures answers off that build,
-  whatever the resolver it was copied from refreshes to later. A call's file view holds one.
+- `Frozen()` is a member-wise copy holding the current build's snapshot: its views keep that build's roots and mod
+  set whatever the resolver it was copied from refreshes to later. It shares that snapshot's `LooseCache`, so a
+  subtree not yet warmed is listed from disk at its first resolve, not when the copy was made. A call's file view
+  holds one.
 
 ### Naming a source
 
