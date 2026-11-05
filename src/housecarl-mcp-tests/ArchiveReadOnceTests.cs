@@ -71,6 +71,23 @@ public sealed class ArchiveReadOnceTests : IDisposable
         Assert.Equal(2, TablesRead(svc, () => svc.AssetWalk([MeshA, MeshB, .. others], Array.Empty<FormKey>(), null, "Arch")));
     }
 
+    /// <summary>An off-order probe HIT in the named mod's root archive and the byte read off its answer read that
+    /// archive once, and the probe is the read that opened it.</summary>
+    [Fact]
+    public void AnOffOrderHitAndItsByteReadReadTheArchiveOnce()
+    {
+        var off = Path.Combine(_p.Mod("Off"), "Off.bsa");
+        File.Move(Archive("Off.bsa", MeshA, MeshB), off);
+        var svc = Instance(@"meshes\hcro\z.nif");
+        var view = ((ILoadOrderHost)svc).Assets.Capture();
+
+        var probe = view.TryResolveOffOrderProvider("Off", MeshA);
+        Assert.Equal(OffOrderReason.Found, probe.Reason);
+        Assert.Equal(1, view.ArchiveTablesRead);
+        Assert.Equal(BsaBuilder.Bytes(MeshA, 32), view.ReadSource(probe.Source!).Bytes);
+        Assert.Equal(1, view.ArchiveTablesRead);
+    }
+
     [Fact]
     public void LinksOnSeveralPackedMeshesReadTheArchiveOnce()
     {
