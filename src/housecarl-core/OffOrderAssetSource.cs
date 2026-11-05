@@ -141,19 +141,21 @@ public static class OffOrderAssetSource
     static (IReadOnlyList<string> Archives, bool FolderMissing, string? Cause) RootArchives(string dir, LooseListings? listings)
     {
         List<string> bsas;
-        try
+        Exception? failed = null;
+        if (listings is not null)
         {
-            if (listings is null) bsas = Directory.EnumerateFiles(dir, "*.bsa", SearchOption.TopDirectoryOnly).ToList();
-            else
-            {
-                var read = listings.Get(dir);
-                if (read.Failure is { } failed) throw failed;
-                bsas = read.Listing!.Files.Where(f => f.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase))
-                                          .Select(f => LooseListings.OnDisk(dir, f)).ToList();
-            }
+            var read = listings.Get(dir);
+            failed = read.Failure;
+            bsas = read.Listing?.Files.Where(f => f.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase))
+                                      .Select(f => LooseListings.OnDisk(dir, f)).ToList() ?? [];
         }
-        catch (DirectoryNotFoundException) { return (Array.Empty<string>(), true, null); }
-        catch (Exception ex) { return (Array.Empty<string>(), false, Because(ex)); }
+        else
+        {
+            try { bsas = Directory.EnumerateFiles(dir, "*.bsa", SearchOption.TopDirectoryOnly).ToList(); }
+            catch (Exception ex) { failed = ex; bsas = []; }
+        }
+        if (failed is DirectoryNotFoundException) return (Array.Empty<string>(), true, null);
+        if (failed is not null) return (Array.Empty<string>(), false, Because(failed));
         bsas.Sort((a, b) => string.Compare(Path.GetFileName(a), Path.GetFileName(b), StringComparison.OrdinalIgnoreCase));
         return (bsas, false, null);
     }

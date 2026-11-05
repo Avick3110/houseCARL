@@ -299,7 +299,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var call = CallContext.Open;
         if (call is { Files: null }) SameBuildOrRefuseLocked(call);
         // The call's loose listings: the freshness check lists into them, so what it read is what the call reads.
-        var listings = call is null ? null : new LooseListings();
+        var listings = new LooseListings();
         if (_assetResolver is null)
         {
             _assetResolver = BuildAssetResolverLocked();
@@ -310,8 +310,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             Interlocked.Increment(ref Counters.FileFreshnessChecks);
             _assetResolver.RefreshIfStale(listings);
         }
-        if (listings is null) return _assetResolver;
-        call!.HoldFiles(FileViewLocked(listings), BuildLocked(_resolver));
+        if (call is null) return _assetResolver;
+        call.HoldFiles(FileViewLocked(listings), BuildLocked(_resolver));
         if (Monitor.IsEntered(_writeGate)) call.TakeWriteView();
         return call.Files!.Resolver;
     }
