@@ -31,14 +31,13 @@ by script at runtime.
 
 #### Each .pex is read once per sweep
 
-One sweep reads each BSA's file table once, walks each folder it looks a script up in once into a name table, and
-reads each `.pex` once (`ScriptPropertyCheck.PexReads`), so a parent shared by many children, or many scripts packed in
-one archive, costs one read. A folder the archive does not hold falls back to one whole-archive name table, built once
-and shared by every such folder. A table is held only once its walk completes, so a walk that throws leaves nothing
-cached and throws again on the next read. A BSA whose last-write time or size changes mid-sweep is reopened before its
-next read, so a script it no longer holds is reported as vanished, as a fresh read would. Only the parsed properties
-and parent are kept, and only for that sweep; the next call reads the disk afresh. The memo is keyed by the class
-name's exact spelling, so every name and reason is worded as a fresh load would word it.
+One sweep reads each `.pex` once (`ScriptPropertyCheck.PexReads`), so a parent shared by many children, or many
+scripts packed in one archive, costs one read. `PexReads` keeps only that cache: a packed `.pex`'s bytes come through
+the sweep's asset view (`AssetView.ReadEntry`), whose archive reader reads each BSA's table once for the view, keeps an
+archive that will not open as one failure, and checks no stamp mid-sweep (contract in [`assets.md`](assets.md), "One
+build per call"). Only the parsed properties and parent are kept, and only for that sweep; the next call reads the
+disk afresh. The memo is keyed by the class name's exact spelling, so every name and reason is worded as a fresh load
+would word it.
 
 #### Unverifiable attachments ride through every filter
 
@@ -84,8 +83,8 @@ out of.
   each gate that must produce no sentence at all: a `contains` term, a second predicate, a `formids=` set,
   `conflicts_only`, a `references=` filter, an aggregate, and an explicit plugin scope.
 - *Each .pex is read once per sweep*: `ScriptsReadOnceTests` — one archive table read and three `.pex` loads for two
-  children sharing a parent, four loads, each finding keeping its own spelling, when the children spell the parent
-  differently, and a BSA replaced under a live sweep reported as vanished.
+  children sharing a parent, and four loads, each finding keeping its own spelling, when the children spell the parent
+  differently.
 
 ## Where
 - `src/housecarl-core/ScriptPropertyCheck.cs` — the scripts family: `ScriptPropertyCheck.Run`,
