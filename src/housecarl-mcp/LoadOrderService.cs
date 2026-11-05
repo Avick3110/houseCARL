@@ -171,7 +171,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     internal FormIdDoor OpenWriteFormIdDoor() => FormIdDoor.ForWrite(this);
     FormIdDoor IWriteHost.OpenWriteFormIdDoor() => OpenWriteFormIdDoor();
 
-    /// <summary>The resolver, built on first access and refreshed once per call; in a call, the pin's frozen copy. Throws if the roots yield no plugins.</summary>
+    /// <summary>The resolver, built on first access and refreshed at a call's first read and again at its first read inside the write gate; in a call, the pin's frozen copy. Throws if the roots yield no plugins.</summary>
     LoadOrderResolver Resolver
     {
         get
@@ -268,7 +268,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     // ---- VFS asset resolution (housecarl_asset_status) --------------------------------------------------
 
-    /// <summary>The VFS-aware asset resolver, built on first asset query and refreshed once per call; in a call, the call's frozen copy — the asset twin of <see cref="Resolver"/>, which it never forces. Takes <see cref="_gate"/>.</summary>
+    /// <summary>The VFS-aware asset resolver, built on first asset query and refreshed at a call's first read and again at its first read inside the write gate; in a call, the call's frozen copy — the asset twin of <see cref="Resolver"/>, which it never forces. Takes <see cref="_gate"/>.</summary>
     AssetResolver Assets
     {
         get

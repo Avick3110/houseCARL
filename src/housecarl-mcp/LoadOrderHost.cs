@@ -15,7 +15,7 @@ internal readonly record struct Mo2Roots(string ProfileDir, string DataDir, stri
 /// <summary>The head members areas share; contract in docs/architecture/load-order-service.md.</summary>
 internal interface ILoadOrderHost
 {
-    /// <summary>The record resolver, built on first access and refreshed once per call; in a call, the pin's frozen copy.</summary>
+    /// <summary>The record resolver, built on first access and refreshed at a call's first read and again at its first read inside the write gate; in a call, the pin's frozen copy.</summary>
     LoadOrderResolver Resolver { get; }
 
     /// <summary>The asset resolver, for a core check that captures it itself: in a call, the call's frozen copy; outside one, the live build.</summary>
