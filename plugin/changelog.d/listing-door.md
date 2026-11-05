@@ -1,0 +1,1 @@
+- **A file an asset call lists is never called absent, unprovided or "only inside a BSA" later in that same call, even when the disk changes mid-call.** Check: add a file under a folder you just queried; the next call lists and resolves it alike.
