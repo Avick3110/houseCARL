@@ -143,31 +143,27 @@ public sealed class ServingCopyTests
         static (bool, string?) Out(dynamic o) => (o.Success, o.Error);
     }
 
-    /// <summary>A named-copy read in a call, after another call followed a switch to a profile with HighMod off, is judged
-    /// against the call's own profile, where HighMod's new copy serves.</summary>
+    /// <summary>HighMod switched on after the call's pin, then a read naming it: the read is judged on the live profile,
+    /// so it refuses saying the index is now refreshed, after one rebuild.</summary>
     [Fact]
-    public void ANamedCopyReadAfterAnotherCallsSwitchIsJudgedOnTheCallsProfile()
+    public void ANamedCopyReadAfterItsModIsSwitchedOnPostPinSaysTheIndexIsRefreshed()
     {
-        using var w = new ServingCopyWorld(highFirst: false);
+        using var w = new ServingCopyWorld(highFirst: true);
+        w.SwitchHighModOff();
         w.Svc.Stats();                                          // the index is built off the low copy
         string read = "";
 
-        Assert.Equal("ok", Guard.Tool("housecarl_probe", _ =>
+        InCall(() =>
         {
             w.Svc.CapturePin();
-            w.AddHighCopy();
-            w.SelectOtherWithHighModOff();
-            var other = new Thread(() => GC.KeepAlive(((ILoadOrderHost)w.Svc).Resolver));   // another call follows the switch
-            other.UnsafeStart();
-            other.Join();
+            w.SwitchHighModOn();
             read = Read(w, Je($"{{\"file\": \"{ServingCopyWorld.Target}\", \"mod\": \"HighMod\"}}"));
-            return ToolAnswer.Served("ok");
-        }));
+        });
 
         Assert.Contains("HighMod", read);
-        Assert.Contains("nothing was read", read);              // a refusal, not a read of either copy
+        Assert.Contains("the index is now refreshed and nothing was read", read);
         Assert.DoesNotContain(ServingCopyWorld.LowEdid, read);
-        Assert.DoesNotContain("changed again during this call", read);
+        Assert.Equal(1, w.Svc.ServingCopyReResolves);
     }
 
     /// <summary>The door in a call, after another call followed a move of MO2's base folder, judges on the call's roots,
@@ -433,18 +429,8 @@ public sealed class ServingCopyWorld : IDisposable
     /// <summary>Switch HighMod off in the Default profile's mod list, as a toggle in MO2 does.</summary>
     public void SwitchHighModOff() => File.WriteAllText(Path.Combine(Root, "instance", "profiles", "Default", "modlist.txt"), "# header\r\n-HighMod\r\n+LowMod\r\n");
 
-    /// <summary>Select a profile "Other" with the same plugins and HighMod off, as a profile switch in MO2 does.</summary>
-    public void SelectOtherWithHighModOff()
-    {
-        var instance = Path.Combine(Root, "instance");
-        var other = Path.Combine(instance, "profiles", "Other");
-        Directory.CreateDirectory(other);
-        foreach (var f in new[] { "loadorder.txt", "plugins.txt" }) File.Copy(Path.Combine(instance, "profiles", "Default", f), Path.Combine(other, f));
-        File.WriteAllText(Path.Combine(other, "modlist.txt"), "# header\r\n-HighMod\r\n+LowMod\r\n");
-        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
-            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Other)\r\ngamePath=@ByteArray("
-            + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
-    }
+    /// <summary>Switch HighMod back on in the Default profile's mod list.</summary>
+    public void SwitchHighModOn() => File.WriteAllText(Path.Combine(Root, "instance", "profiles", "Default", "modlist.txt"), "# header\r\n+HighMod\r\n+LowMod\r\n");
 
     /// <summary>Point MO2's base_directory at a copy of the profile and LowMod's plugin, as moving the base folder does.</summary>
     public void MoveBaseFolder()

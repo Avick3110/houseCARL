@@ -835,10 +835,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         static long? SizeOf(string path) { try { return new FileInfo(path).Length; } catch { return null; } }
     }
 
-    ServingCopyMove? ILoadOrderHost.ServingCopyMoved(IEnumerable<(string Plugin, string? IndexedPath)> plugins)
+    ServingCopyMove? ILoadOrderHost.ServingCopyMoved(IEnumerable<(string Plugin, string? IndexedPath)> plugins, bool live)
     {
         CallContext.CallBuild build;
-        lock (_gate) build = CallBuildLocked();
+        lock (_gate) build = live ? new(RootsLocked(), _resolver, null, _profileName) : CallBuildLocked();   // live: the live roots, the profile read fresh
         var roots = build.Roots;
         if (roots.ProfileDir.Length == 0) return null;          // an order handed in, not read from a profile: no MO2 copy to compare
         var comp = build.Composition ?? Mo2LoadOrder.ReadComposition(roots.ProfileDir);   // the call's profile read, else parsed once for every plugin checked
