@@ -14,8 +14,8 @@ public static class StatusTools
          "the implicit force-loaded masters and CC, how many plugins resolved to real files, and any load-order " +
          "warnings; filter= swaps the name lists and warnings for a verdict on one mod or plugin (enabled? localized?). " +
          "The enabled/disabled picture and the resolved count are re-read at the start of a call when the profile " +
-         "changed, so a toggle in MO2 shows with no restart; while another call is writing, the re-read waits for it " +
-         "and a 'refresh still pending' note says the picture is the one from before the change. Without filter=, also reports the resolved Papyrus script-log and SKSE crash-log folders, " +
+         "changed, so a toggle in MO2 shows with no restart; while another call is writing, or when the re-read came back " +
+         "empty, status answers at once off the build from before the change and a 'refresh is still pending' note says so. Without filter=, also reports the resolved Papyrus script-log and SKSE crash-log folders, " +
          "where to read logs for triage (auto-detected, or set with " + ToolNames.SetToolPath + "). Every call " +
          "reports the running server's build version (the release version, then '+' and the full commit sha). " +
          "Changes nothing.")]
