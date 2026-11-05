@@ -488,7 +488,7 @@ public sealed class AssetResolver : IDisposable
             bool linked = !IsDataRoot(i);
             var baseDir = LooseListings.OnDisk(rootDir, pre);
             // A "not there" is only an absence when it can be proved one; unreadable is named inside.
-            if (!Directory.Exists(baseDir)) { AbsenceIsReal(rootName, rootDir, pre, baseDir, snap, listings); continue; }
+            if (!Directory.Exists(baseDir)) { AbsenceIsReal(rootName, rootDir, pre, baseDir, snap); continue; }
             // Top down over the call's listings, a folder's files in listing order and its folders queued after it:
             // the order a recursive enumeration yields, so a capped walk keeps the same matches.
             var pending = new Queue<string>();
@@ -783,7 +783,7 @@ public sealed class AssetResolver : IDisposable
                                                                                    string subtreeDir, Snapshot snap, LooseListings listings)
     {
         // The same rule the walk makes: a "not there" this account cannot prove is a read failure, not an absence.
-        if (!Directory.Exists(dir)) return (null, null, AbsenceIsReal(rootName, rootDir, subtreeDir, dir, snap, listings));
+        if (!Directory.Exists(dir)) return (null, null, AbsenceIsReal(rootName, rootDir, subtreeDir, dir, snap));
         var read = listings.Get(dir, () => Interlocked.Increment(ref snap.WarmListings));   // the watch baseline and the resolvable filenames off one enumeration
         if (read.Listing is { } listing) return (listing.Names, listing.Files, false);
         RecordRootFailure(rootName, subtreeDir, "read", read.Failure!, snap);
@@ -826,10 +826,10 @@ public sealed class AssetResolver : IDisposable
     /// common case, and it stays cheap: the ancestor stats and that ancestor's own child names are read once per
     /// build, so a sweep over many missing subtrees pays syscalls per DIRECTORY, not per root per subtree. The answer
     /// itself is not cached — with those two memoized the walk is a handful of dictionary lookups.</summary>
-    bool AbsenceIsReal(string rootName, string rootDir, string subtreeDir, string dir, Snapshot snap, LooseListings listings)
+    bool AbsenceIsReal(string rootName, string rootDir, string subtreeDir, string dir, Snapshot snap)
     {
         // A memo never makes a failure: a memoized walk that cannot prove the absence is walked again off the disk.
-        if (WalkProvesAbsent(rootDir, dir, d => DirExists(d, snap), d => ChildNames(d, snap, listings))
+        if (WalkProvesAbsent(rootDir, dir, d => DirExists(d, snap), d => ChildNames(d, snap))
             || WalkProvesAbsent(rootDir, dir, Directory.Exists, d => { Interlocked.Increment(ref snap.WarmListings); return FreshNames(d); }))
             return true;
         RecordRootFailure(rootName, subtreeDir, snap);
@@ -873,11 +873,9 @@ public sealed class AssetResolver : IDisposable
     /// for every root and every prefix.</summary>
     static bool DirExists(string dir, Snapshot snap) => snap.Dirs.GetOrAdd(dir, Directory.Exists);
 
-    /// <summary>One directory's child names for the absence verdict: the call's listing when it holds one, else
-    /// remembered for this build; null when it would not list.</summary>
-    static HashSet<string>? ChildNames(string dir, Snapshot snap, LooseListings listings) =>
-        listings.Peek(dir)?.Names
-        ?? snap.Children.GetOrAdd(dir, d =>
+    /// <summary>One directory's child names for the absence verdict only, remembered for this build; null when it would not list.</summary>
+    static HashSet<string>? ChildNames(string dir, Snapshot snap) =>
+        snap.Children.GetOrAdd(dir, d =>
         {
             Interlocked.Increment(ref snap.WarmListings);
             return FreshNames(d);
