@@ -40,8 +40,8 @@ public static class OffOrderAssetSource
     /// raw off the wire and is about to be joined to <paramref name="modsDir"/>. <paramref name="opened"/> is the
     /// path as Windows opens it, which MO2's rules are asked about. <paramref name="listings"/> is the call's, given
     /// for an ENABLED folder, whose loose copy and root archives are then read off them; an unticked folder (null)
-    /// is read directly, never memoised. The root archives are probed through <paramref name="reader"/>, the
-    /// caller's view's reader. Never throws.</summary>
+    /// is listed directly at each probe, never memoised. Either way the root archives are probed through
+    /// <paramref name="reader"/>, the caller's view's reader, which holds their tables for the view. Never throws.</summary>
     internal static OffOrderLookup Resolve(string modsDir, Func<string, bool> isReservedProviderName,
                                            string? providerName, string opened, string relPath, Mo2SkipRules skip,
                                            ArchiveReader reader, LooseListings? listings = null)

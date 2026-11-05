@@ -227,7 +227,9 @@ refusal — the caller chooses), the VFS winner, or a named provider.
   binds or whose folder did not list this build. `OwnerEnabled` is set for every find in an enabled mod, so an
   enabled mod is never called unticked. An ENABLED folder's loose copy and root archives are read off the call's
   listings, so the probe finds only what the call's listing holds; where the copy's folder will not list, the file is
-  stat'd directly, the only evidence there is. An unticked folder is read directly and never memoised.
+  stat'd directly, the only evidence there is. An unticked folder itself is listed directly at each probe, never
+  memoised. Either way the root archives are probed through the view's archive reader, which holds their tables
+  for the view.
 - **Hiding applies to a named folder whatever its tick.** The lane asks `Mo2SkipRules.Hides` before its loose probe; a
   loose file it hides (or the folder's `x.mohidden` when `x` is asked) is never read, and the lookup ends
   `OffOrderReason.Hidden` with the rule, unless one of the folder's root archives has the path, which answers as
