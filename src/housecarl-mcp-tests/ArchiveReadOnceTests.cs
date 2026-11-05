@@ -138,6 +138,15 @@ public sealed class ArchiveReadOnceTests : IDisposable
             Assert.Equal(BsaBuilder.Bytes(from[i], 32), File.ReadAllBytes(Path.Combine(outcome.ModFolder!, outcome.Results[i].AssetPath)));
     }
 
+    /// <summary>A packed mesh `nif_set` edits is read through the call's view: one table.</summary>
+    [Fact]
+    public void ANifSetOnAPackedMeshReadsTheArchiveOnce()
+    {
+        var svc = Instance(MeshA);
+        Assert.Equal(1, TablesRead(svc, () => svc.NifSet(MeshA, new[] { new NifSetOp(NifSetOpKind.RenameShape, "Old", NewName: "New") },
+                                                          null, "HcroSet", null, inPlace: false, acknowledge: false)));
+    }
+
     [Fact]
     public void AVoiceCarryReadsOneArchiveOnceForEveryLine()
     {
