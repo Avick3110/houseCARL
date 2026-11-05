@@ -47,7 +47,12 @@ public sealed class CallViewWriteTests : IDisposable
             VoicePath.For(new FormKey(new ModKey("CvCreate", ModType.Plugin), 0x800), "HcCvVoice", "HcCvQuestA", "HcCvTopic", 1, VoiceFile.Fuz));
         Directory.CreateDirectory(Path.GetDirectoryName(fuz)!);
         File.WriteAllBytes(fuz, new byte[] { 0, 1, 2 });
-        foreach (var p in new[] { "Default", "Other" }) _mo2.Profile(Order(), Plugins(), Modlist(aFace: true, bMod: true), p);
+        // The result script the created line binds, compiled into the same loose mod.
+        Directory.CreateDirectory(Path.Combine(_mo2.ModsDir, "VFace", "Scripts"));
+        File.WriteAllBytes(Path.Combine(_mo2.ModsDir, "VFace", "Scripts", "HcCvScript.pex"), new byte[] { 0, 1, 2 });
+        _mo2.Profile(Order(), Plugins(), Modlist(), "Default");
+        // Other switches off the loose face and voice mods, so a write that took Other's files would carry or find less.
+        _mo2.Profile(Order(), Plugins(), Modlist(aFace: false, vFace: false), "Other");
     }
 
     void Loose(string mod, FormKey npc)
@@ -183,7 +188,7 @@ public sealed class CallViewWriteTests : IDisposable
         Assert.Contains("the .seq for 'HcCvA.esp' no longer lists its start-game-enabled quest", outcome.Note);
     }
 
-    // A created line's voice check reads the files its pin's build serves: its .fuz ships in VFace.
+    // A created line's voice and script checks read the files its pin's build serves: its .fuz and .pex ship in VFace.
     [Theory]
     [InlineData("none", false)]
     [InlineData("none", true)]
@@ -204,14 +209,16 @@ public sealed class CallViewWriteTests : IDisposable
                 {
                     new BulkOp { FieldPath = "Speaker", Value = ScratchMo2.Fid(_npcA) },
                     new BulkOp { FieldPath = "Responses", Verb = "Add", Compose = new StructInput { Type = "DialogResponse", Fields = new() { ["ResponseNumber"] = "1" } } },
+                    new BulkOp { FieldPath = "VirtualMachineAdapter.Scripts", Verb = "Add", Compose = new StructInput { Type = "ScriptEntry", Fields = new() { ["Name"] = "HcCvScript" } } },
                 },
             },
         }, "CvCreate", null));
         svc.WriteArea.AfterCommitForGuard = null;
         Assert.True(outcome.Success, outcome.Error);
+        Assert.Null(outcome.ScriptBinding!.CheckError);
+        Assert.Equal(ScriptBindingStatus.BoundAndCompiled, Assert.Single(outcome.ScriptBinding.Findings).Status);
         var line = Assert.Single(outcome.Voice!.Lines);
         Assert.True(line.FuzPresent, line.FuzPath);
         Assert.Null(outcome.Voice.CheckError);
-        Assert.Null(outcome.ScriptBinding?.CheckError);
     }
 }

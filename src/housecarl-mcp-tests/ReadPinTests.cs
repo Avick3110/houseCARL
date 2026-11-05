@@ -348,11 +348,23 @@ public sealed class ReadPinTests : IDisposable
         Assert.Equal("10", OverlayDamage());
     }
 
+    /// <summary>MO2 holding modlist.txt between the pin and the asset build: the build takes the order's profile read, so the overlay still replays.</summary>
     [Fact]
-    public void AnAssetBuildThatThrowsInsideTheHoldIsNamedAsTheSkyPatcherLayer()
+    public void AModlistHeldBetweenThePinAndTheAssetBuildDoesNotBreakTheOverlay()
     {
         _svc.CaptureView();                                                     // warms the index; the asset build is not taken yet
-        // The asset build fails between the pin and the capture; it takes the order's profile read, so a held modlist.txt no longer breaks it.
+        var modlist = Path.Combine(_instance, "profiles", "Default", "modlist.txt");
+        HeldOpen? held = null;
+        _svc.ReadArea.AfterReadPinForGuard = () => { _svc.ReadArea.AfterReadPinForGuard = null; held = HeldOpen.Hold(modlist); };
+        try { Assert.Equal("20", OverlayDamage()); }
+        finally { _svc.ReadArea.AfterReadPinForGuard = null; held?.Dispose(); }
+    }
+
+    [Fact]
+    public void AFailureBetweenThePinAndTheAssetCaptureIsNamedAsTheSkyPatcherLayer()
+    {
+        _svc.CaptureView();                                                     // warms the index; the asset build is not taken yet
+        // The seam throws between the pin and the asset capture, standing in for a capture that fails.
         void FailAssetBuild() { _svc.ReadArea.AfterReadPinForGuard = null; throw new IOException("the asset build is down for this test"); }
         try
         {
@@ -372,9 +384,9 @@ public sealed class ReadPinTests : IDisposable
         finally { _svc.ReadArea.AfterReadPinForGuard = null; }
     }
 
-    /// <summary>With the layer failing, an unresolved id says unresolved wherever it sits, and the patched id names the layer.</summary>
+    /// <summary>With the capture failing between the pin and the layer, an unresolved id says unresolved wherever it sits, and the patched id names the layer.</summary>
     [Fact]
-    public void AnUnresolvedIdSaysSoWhereverItSitsWhenTheLayerFails()
+    public void AnUnresolvedIdSaysSoWhereverItSitsWhenTheLayerCaptureFails()
     {
         _svc.CaptureView();
         void FailAssetBuild() { _svc.ReadArea.AfterReadPinForGuard = null; throw new IOException("the asset build is down for this test"); }
