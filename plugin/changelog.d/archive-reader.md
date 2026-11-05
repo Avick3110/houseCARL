@@ -1,1 +1,1 @@
-- **A call reading many files from one BSA reads its file table once for those reads, not per file; a repeat `source_provider=` asset walk takes under half the time.** Check: repeat that walk on a large BSA: same nodes, faster.
+- **A call reading many files from one BSA reads its file table once for those reads, not per file; a repeat `source_provider=` asset walk takes under half the time.** Check: repeat it on a large BSA: same nodes, faster.
