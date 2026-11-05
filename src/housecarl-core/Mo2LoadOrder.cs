@@ -137,7 +137,7 @@ public static class Mo2LoadOrder
 
         foreach (var mod in enabledModsByPriority)                  // highest priority first
         {
-            var modRoot = Path.Combine(modsDir, mod);
+            var modRoot = LooseListings.OnDisk(modsDir, mod);
             foreach (var (fn, full) in EnumeratePlugins(modRoot))
                 if (!map.ContainsKey(fn)) map[fn] = full;           // first (highest-priority) wins
         }
@@ -251,7 +251,7 @@ public static class Mo2LoadOrder
         {
             if (string.IsNullOrWhiteSpace(dir)) continue;
             PluginFileHit? hit = null;
-            try { var p = Path.Combine(dir, fn); if (File.Exists(p)) hit = new PluginFileHit(p, where, enabled); }
+            try { var p = LooseListings.OnDisk(dir, fn); if (File.Exists(p)) hit = new PluginFileHit(p, where, enabled); }
             catch { /* an inaccessible candidate folder is simply not a hit — never a false 'found' */ }
             if (hit is not null) yield return hit;
         }
@@ -262,7 +262,7 @@ public static class Mo2LoadOrder
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, bool enabledOnly = false)
     {
         yield return (overwriteDir, "overwrite", true);
-        foreach (var mod in comp.EnabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (enabled)", true);
+        foreach (var mod in comp.EnabledMods) yield return (LooseListings.OnDisk(modsDir, mod), $"mod '{mod}' (enabled)", true);
         foreach (var mod in enabledOnly ? [] : comp.DisabledMods) yield return (Path.Combine(modsDir, mod), $"mod '{mod}' (DISABLED)", false);
         foreach (var dir in enabledOnly ? [] : UnlistedModFolders(comp, modsDir))
             yield return (dir, $"mod '{Path.GetFileName(dir)}' (UNLISTED)", false);

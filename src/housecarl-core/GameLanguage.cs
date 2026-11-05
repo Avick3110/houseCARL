@@ -92,7 +92,7 @@ public sealed class InstanceText
         if (WinnersFor(pluginPath) is { } w)
         {
             var archives = w.Archive is { } a ? Path.GetDirectoryName(a.Path)! : w.Loose is { } l ? Path.GetDirectoryName(l.Dir)! : data;
-            var strings = w.Loose?.Dir ?? (data is null ? null : Path.Combine(data, "Strings"));
+            var strings = w.Loose?.Dir ?? (data is null ? null : LooseListings.OnDisk(data, "Strings"));
             if (strings is not null && archives is not null) return (strings, archives);
         }
         if (data is null || LocalizedStrings.OwnFolderCarriesStringsFor(pluginPath, Language)) return null;
@@ -165,11 +165,11 @@ public static class GameLanguage
         var loose = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
         var roots = new List<(string Root, string Layer)>(enabledMods.Count + 2);
         if (overwriteDir.Length > 0) roots.Add((overwriteDir, AssetResolver.OverwriteLayerName));
-        roots.AddRange(enabledMods.Select(m => (Path.Combine(modsDir, m), m)));
+        roots.AddRange(enabledMods.Select(m => (LooseListings.OnDisk(modsDir, m), m)));
         if (dataDir.Length > 0) roots.Add((dataDir, AssetResolver.DataLayerName));
         foreach (var (root, layer) in roots)
         {
-            var dir = Path.Combine(root, "Strings");
+            var dir = LooseListings.OnDisk(root, "Strings");
             if (!Directory.Exists(dir)) continue;
             try
             {

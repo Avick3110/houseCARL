@@ -220,11 +220,11 @@ public static class SksePluginReader
         try
         {
             string sys = Environment.GetFolderPath(Environment.SpecialFolder.System);
-            if (sys.Length > 0 && File.Exists(Path.Combine(sys, d))) return true;
+            if (sys.Length > 0 && File.Exists(LooseListings.OnDisk(sys, d))) return true;
             foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
             {
                 if (dir.Length == 0) continue;
-                try { if (File.Exists(Path.Combine(dir.Trim(), d))) return true; }
+                try { if (File.Exists(LooseListings.OnDisk(dir.Trim(), d))) return true; }
                 catch { /* a malformed PATH entry is not an answer — keep looking */ }
             }
         }

@@ -68,7 +68,7 @@ public static class PapyrusCompile
         string compilerExe, string objectName, IReadOnlyList<string> importDirs, string outputDir,
         string flagsFile = "TESV_Papyrus_Flags.flg", int timeoutMs = 120_000)
     {
-        var pexPath = Path.Combine(outputDir, objectName + ".pex");
+        var pexPath = LooseListings.OnDisk(outputDir, objectName + ".pex");
         // The prior .pex's write-time (null means none): the baseline "this run wrote it" is decided against.
         DateTime? pexBeforeUtc = File.Exists(pexPath) ? File.GetLastWriteTimeUtc(pexPath) : null;
 
