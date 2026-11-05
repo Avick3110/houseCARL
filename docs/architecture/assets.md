@@ -1,6 +1,6 @@
 ---
 updated: 2026-11-05
-covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
+covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/ArchiveReader.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
 
@@ -606,7 +606,7 @@ provided either; the generic lane does not, because it legitimately answers for 
 
 ## Where
 
-`src/housecarl-core/AssetResolver.cs` and `ArchiveDiscovery.cs` hold the build, its precedence and the archive ranks; `LooseListings.cs` is the per-call listings and the one join;
+`src/housecarl-core/AssetResolver.cs` and `ArchiveDiscovery.cs` hold the build, its precedence and the archive ranks; `LooseListings.cs` is the per-call listings and the one join; `ArchiveReader.cs` is a view's archive reads;
 `AssetSourceSelection.cs` and `OffOrderAssetSource.cs` decide which provider a read comes from; `AssetGlob.cs` and
 `AssetLinkHarvest.cs` are the two selectors; `Mo2SkipRules.cs` is the visibility rule (its ini read is in
 `Mo2Instance.cs`); `AssetDataPath.cs` is the link-to-Data-path door; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
