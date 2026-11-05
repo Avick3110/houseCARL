@@ -132,6 +132,10 @@ public sealed class ArchiveReadOnceTests : IDisposable
             new PlaceRequest(@"meshes\hcro\rawb.nif", raw + "|" + MeshB),
         }, "HcroPlace", null)));
         Assert.All(outcome.Results, r => Assert.True(r.Placed, r.Error));
+        // Each placed file holds its own entry's bytes.
+        string[] from = [MeshA, MeshB, MeshA, MeshB];
+        for (int i = 0; i < from.Length; i++)
+            Assert.Equal(BsaBuilder.Bytes(from[i], 32), File.ReadAllBytes(Path.Combine(outcome.ModFolder!, outcome.Results[i].AssetPath)));
     }
 
     [Fact]
