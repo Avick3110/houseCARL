@@ -163,6 +163,7 @@ public sealed class ServingCopyTests
         }));
 
         Assert.Contains("HighMod", read);
+        Assert.Contains("nothing was read", read);              // a refusal, not a read of either copy
         Assert.DoesNotContain(ServingCopyWorld.LowEdid, read);
         Assert.DoesNotContain("changed again during this call", read);
     }
