@@ -921,7 +921,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         foreach (var dir in dirs)
         {
             var folder = Path.GetFileName(dir);
-            var metaPath = Path.Combine(dir, "meta.ini");
+            var metaPath = LooseListings.OnDisk(dir, "meta.ini");
             if (!File.Exists(metaPath)) { untracked++; continue; }     // separators / hand-installed mods carry no meta.ini
             var meta = Mo2ModMeta.Read(metaPath);
             if (meta is null || meta.ModId == 0) { untracked++; continue; }   // not a Nexus-linked mod → not update-checkable
