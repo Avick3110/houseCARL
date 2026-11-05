@@ -518,6 +518,9 @@ public sealed class AssetResolver : IDisposable
     /// <summary>Capture the CURRENT build as a pinned read view, so a bulk scan and its read-failure list answer from one build.</summary>
     public AssetView Capture() { var (snap, pass) = BeginPass(); return new(this, snap, pass); }
 
+    /// <summary>A copy fixed to the current build: every view it captures answers off that build, whatever this one refreshes to later.</summary>
+    public AssetResolver Frozen() => (AssetResolver)MemberwiseClone();
+
     /// <summary>The current build and a new read pass on it, so no listing taken before this call answers it.</summary>
     (Snapshot Snap, int Pass) BeginPass()
     {
