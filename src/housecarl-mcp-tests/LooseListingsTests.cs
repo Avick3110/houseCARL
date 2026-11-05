@@ -325,6 +325,33 @@ public sealed class LooseListingsTests : IDisposable
         File.Delete(Path.Combine(_modA, @"textures\t\new.dds"));
         Assert.Empty(r.Capture().EnumerateUnder("textures"));
     }
+
+    [Fact]
+    public void AWalkOfFoldersThatAreThereWatchesNothing()
+    {
+        using var r = Build();
+        var watched = r.WatchedDirectoryCount;
+
+        Assert.NotEmpty(r.Capture().EnumerateUnder("meshes"));
+        Assert.Equal(watched, r.WatchedDirectoryCount);
+    }
+
+    // Pins unchanged behaviour: main's recursive enumeration was breadth-first too, so a capped walk keeps its matches.
+    [Fact]
+    public void ACappedWalkKeepsTheBreadthFirstMatchesAndTheirHiddenTally()
+    {
+        Put(_modA, @"meshes\a\0.nif.mohidden");
+        Put(_modA, @"meshes\a\1.nif");
+        Put(_modA, @"meshes\b\2.nif");
+        using var r = Build();
+        var hidden = new HiddenTally();
+
+        var found = r.Capture().EnumerateUnder("meshes", null, 1, out var stopped, "ModA", hidden);
+
+        Assert.True(stopped);
+        Assert.Equal(new[] { @"meshes\a\1.nif" }, found);
+        Assert.Equal(1, hidden.Count);
+    }
 }
 
 /// <summary>The same promises through the service: one tool call's lanes list and resolve alike, and a side lookup
@@ -412,6 +439,16 @@ public sealed class LooseListingsServiceTests : IDisposable
     {
         var answer = UpdateStatusTools.UpdateStatus(_svc);
         Assert.Contains("LdBase", answer);
+        Assert.False(FilesBuilt());
+    }
+
+    // Pins the pick (R8): a mod= source pole locates its plugin with no file view; through the view it would build one.
+    [Fact]
+    public void AModNamedPoleLocatesItsPluginWithNoFileView()
+    {
+        var pole = _svc.ProbeSourceArm(_base.FileName.String, "LdBase", out var error);
+        Assert.Null(error);
+        Assert.NotNull(pole);
         Assert.False(FilesBuilt());
     }
 }
