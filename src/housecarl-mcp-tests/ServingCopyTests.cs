@@ -44,6 +44,33 @@ public sealed class ServingCopyTests
         Assert.Equal(low, Md5(w.LowPath));
     }
 
+    /// <summary>Inside a call the in-place remove still refuses with both files untouched, but the write takes no rebuild
+    /// after its in-gate pin: the order is re-read at the next call, whose rerun writes the higher copy.</summary>
+    [Fact]
+    public void AWriteInACallRefusesWithNoRebuildAndTheNextCallReReads()
+    {
+        using var w = new ServingCopyWorld(highFirst: false);
+        w.Svc.Stats();                                          // the index is built off the low copy
+        w.AddHighCopy();
+        string low = Md5(w.LowPath), high = Md5(w.HighPath);
+        WritePatchBuilder.RemovalOutcome? refused = null, rerun = null;
+
+        Assert.Equal("ok", Guard.Tool("housecarl_probe", _ => { refused = RemoveInPlace(w); return ToolAnswer.Served("ok"); }));
+
+        Assert.False(refused!.Success);
+        Assert.Contains("HighMod", refused.Error);
+        Assert.Contains("nothing was written and the index was not refreshed: it is re-read at the start of the next call", refused.Error);
+        Assert.Equal(0, w.Svc.ServingCopyReResolves);
+        Assert.Equal(low, Md5(w.LowPath));
+        Assert.Equal(high, Md5(w.HighPath));
+
+        Assert.Equal("ok", Guard.Tool("housecarl_probe", _ => { rerun = RemoveInPlace(w); return ToolAnswer.Served("ok"); }));
+
+        Assert.True(rerun!.Success, rerun.Error);
+        Assert.NotEqual(high, Md5(w.HighPath));
+        Assert.Equal(low, Md5(w.LowPath));
+    }
+
     /// <summary>source={file, mod: HighMod} never answers from the low copy, and the rerun reads the high copy's bytes.</summary>
     [Fact]
     public void ASourceNamingTheHigherModReadsThatModsCopy()

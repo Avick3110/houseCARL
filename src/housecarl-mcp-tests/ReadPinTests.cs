@@ -352,27 +352,24 @@ public sealed class ReadPinTests : IDisposable
     public void AnAssetBuildThatThrowsInsideTheHoldIsNamedAsTheSkyPatcherLayer()
     {
         _svc.CaptureView();                                                     // warms the index; the asset build is not taken yet
-        var modlist = Path.Combine(_instance, "profiles", "Default", "modlist.txt");
-        FileStream? held = null;
-        // MO2 holding modlist.txt between the pin and the asset build makes the build throw.
-        void HoldModlist() { _svc.ReadArea.AfterReadPinForGuard = null; held = new FileStream(modlist, FileMode.Open, FileAccess.Read, FileShare.None); }
+        // The asset build fails between the pin and the capture; it takes the order's profile read, so a held modlist.txt no longer breaks it.
+        void FailAssetBuild() { _svc.ReadArea.AfterReadPinForGuard = null; throw new IOException("the asset build is down for this test"); }
         try
         {
-            _svc.ReadArea.AfterReadPinForGuard = HoldModlist;
+            _svc.ReadArea.AfterReadPinForGuard = FailAssetBuild;
             _svc.OverlayPostBatch(new[] { _patched }, new[] { "BasicStats.Damage" }, 1, false, null, out var refusal, out var refusalEpoch, out _);
             Assert.StartsWith("the SkyPatcher layer could not be discovered for the overlay source: ", refusal);
             Assert.NotNull(refusalEpoch);
-            held!.Dispose();
 
             // On a pole the same sentence is the row's error, under the epoch the call reports.
-            _svc.ReadArea.AfterReadPinForGuard = HoldModlist;
+            _svc.ReadArea.AfterReadPinForGuard = FailAssetBuild;
             var rows = _svc.DeltaBatch(new[] { _patched }, OverlayPost, RecordReads.PoleSpec.Winner, new[] { "BasicStats.Damage" }, null,
                                        out _, out _, out _, out var deltaRefusal, out var epoch, ComparisonMeter.Unmetered());
             Assert.Null(deltaRefusal);
             Assert.NotNull(epoch);
             Assert.StartsWith("subject: the SkyPatcher layer could not be discovered for the overlay pole: ", Assert.Single(rows).Error);
         }
-        finally { held?.Dispose(); }
+        finally { _svc.ReadArea.AfterReadPinForGuard = null; }
     }
 
     /// <summary>With the layer failing, an unresolved id says unresolved wherever it sits, and the patched id names the layer.</summary>
@@ -380,13 +377,11 @@ public sealed class ReadPinTests : IDisposable
     public void AnUnresolvedIdSaysSoWhereverItSitsWhenTheLayerFails()
     {
         _svc.CaptureView();
-        var modlist = Path.Combine(_instance, "profiles", "Default", "modlist.txt");
-        FileStream? held = null;
-        void HoldModlist() { _svc.ReadArea.AfterReadPinForGuard = null; held = new FileStream(modlist, FileMode.Open, FileAccess.Read, FileShare.None); }
+        void FailAssetBuild() { _svc.ReadArea.AfterReadPinForGuard = null; throw new IOException("the asset build is down for this test"); }
         var bad = $"000FFE:{BaseName}";
         try
         {
-            _svc.ReadArea.AfterReadPinForGuard = HoldModlist;
+            _svc.ReadArea.AfterReadPinForGuard = FailAssetBuild;
             var rows = _svc.DeltaBatch(new[] { bad, _patched, bad }, OverlayPost, RecordReads.PoleSpec.Winner, new[] { "BasicStats.Damage" }, null,
                                        out _, out _, out _, out var refusal, out _, ComparisonMeter.Unmetered());
             Assert.Null(refusal);
@@ -395,7 +390,7 @@ public sealed class ReadPinTests : IDisposable
             Assert.DoesNotContain("SkyPatcher layer", rows[0].Error);
             Assert.StartsWith("subject: the SkyPatcher layer could not be discovered for the overlay pole: ", rows[1].Error);
         }
-        finally { held?.Dispose(); }
+        finally { _svc.ReadArea.AfterReadPinForGuard = null; }
     }
 
     /// <summary>A post-state pole opens the layer only when a row will read: never for an all-unresolved list, once for a mixed one.</summary>
