@@ -201,11 +201,12 @@ resolver reads no profile.
   keeps the Mutagen reader (which holds no handle) and looks entries up by folder, and never stats that archive again
   for the view's life; each read takes the entry's bytes off the file as it is then. An archive that will not open
   is tried once and answers every read with the same sentence. Loose bytes are read off disk at the read.
-- **The asset door's memory rule:** each archive's table is read at most once per call, and no reader, table or
-  handle is kept between calls. Every lane that reads bytes captures its view once per call, so one reader per view
-  is one per call; a lane that captured twice would read an archive twice, which costs time and changes no answer.
-  The build's own table read is separate, so a call that builds or rebuilds the view reads an archive it also takes
-  bytes from twice. `bsa_list`, `bsa_extract`, `bsa_repack` and the record side's string-table reads keep their own
+- **The asset door's memory rule:** each archive's table is read at most once per asset view, besides the build's
+  own read, and no reader, table or handle is kept between calls. Each `Capture()` makes one reader, and every lane
+  that reads bytes captures its view once per call, so a warm call reads each archive once; a lane that captured
+  twice would read an archive twice, which costs time and changes no answer. The build parses each archive's table
+  itself (`ReadArchiveTable`), so a call that builds or rebuilds the view reads an archive it also takes bytes from
+  twice. `bsa_list`, `bsa_extract`, `bsa_repack` and the record side's string-table reads keep their own
   readers.
 - `Frozen()` is a member-wise copy holding the current build's snapshot: its views keep that build's roots and mod
   set whatever the resolver it was copied from refreshes to later. Loose contents are not frozen: it shares that

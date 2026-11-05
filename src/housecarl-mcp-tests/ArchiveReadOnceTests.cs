@@ -206,7 +206,7 @@ public sealed class ArchiveReadOnceTests : IDisposable
     {
         var note = File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, "docs", "architecture", "assets.md"));
         Assert.Contains("Existence is the pinned build; bytes are read when used.", note);
-        Assert.Contains("each archive's table is read at most once per call, and no reader, table or\n  handle is kept between calls", note.Replace("\r\n", "\n"));
+        Assert.Contains("each archive's table is read at most once per asset view, besides the build's\n  own read, and no reader, table or handle is kept between calls", note.Replace("\r\n", "\n"));
     }
 
     // A batch of one reads as the single read did: each sentence on its trigger, unchanged from main.
