@@ -827,7 +827,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         var from = copies.FirstOrDefault(c => c.Served == OutputLocations.ServedStanding.Serves) ?? (copies.Count == 1 ? copies[0] : null);
         string? indexed;
         Mo2Roots roots;
-        lock (_gate) { indexed = _resolver?.Capture().PluginPath(pluginName); roots = RootsLocked(); }
+        lock (_gate) { indexed = (HeldPinLocked()?.Pin!.View ?? _resolver?.Capture())?.PluginPath(pluginName); roots = CallBuildLocked().Roots; }
         var moved = indexed is null || roots.ProfileDir.Length == 0 ? null : ServingCopyMoved(pluginName, indexed, comp, roots, hits);
         return new PluginFacts(copies, from, from is null ? null : PluginFile.ReadHeader(from.Path), moved);
 
@@ -836,10 +836,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     ServingCopyMove? ILoadOrderHost.ServingCopyMoved(IEnumerable<(string Plugin, string? IndexedPath)> plugins)
     {
-        Mo2Roots roots;
-        lock (_gate) roots = RootsLocked();
+        CallContext.CallBuild build;
+        lock (_gate) build = CallBuildLocked();
+        var roots = build.Roots;
         if (roots.ProfileDir.Length == 0) return null;          // an order handed in, not read from a profile: no MO2 copy to compare
-        var comp = Mo2LoadOrder.ReadComposition(roots.ProfileDir);   // parsed once for every plugin checked
+        var comp = build.Composition ?? Mo2LoadOrder.ReadComposition(roots.ProfileDir);   // the call's profile read, else parsed once for every plugin checked
         return plugins.Where(p => p.IndexedPath is not null)
                       .Select(p => ServingCopyMoved(p.Plugin, p.IndexedPath!, comp, roots, null)).FirstOrDefault(m => m is not null);
     }
