@@ -51,10 +51,12 @@ public sealed class CompactCarryInstance : IDisposable
     /// <summary>Runs the compact through the service, as the tool does.</summary>
     public WritePatchBuilder.CompactOutcome Compact(bool inPlace = false)
     {
-        _svc ??= LoadOrderService.WithInstance(Root, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
-        _svc.Stats();
-        return inPlace ? _svc.CompactPlugin(PluginName, inPlace: true, acknowledge: true) : _svc.CompactPlugin(PluginName);
+        Service.Stats();
+        return inPlace ? Service.CompactPlugin(PluginName, inPlace: true, acknowledge: true) : Service.CompactPlugin(PluginName);
     }
+
+    /// <summary>The service over the instance, opened at first use.</summary>
+    public LoadOrderService Service => _svc ??= LoadOrderService.WithInstance(Root, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
 
     /// <summary>True when the file at <paramref name="path"/> exists and holds exactly <paramref name="bytes"/>.</summary>
     public static bool Holds(string path, byte[] bytes) => File.Exists(path) && File.ReadAllBytes(path).SequenceEqual(bytes);

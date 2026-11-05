@@ -1,7 +1,9 @@
 using HousecarlCore;
 using HousecarlGenerator;
 using HousecarlMcp;
+using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Skyrim;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -217,6 +219,35 @@ public sealed class ArchiveReadOnceTests : IDisposable
         var walk = svc.AssetWalk(new[] { Child }, Array.Empty<FormKey>(), null, null);
         Assert.All(walk.Nodes, n => Assert.Null(n.Error));
         Assert.Contains(walk.Nodes, n => n.Edge == "parent" && n.Path.Equals(@"scripts\hcrobase.pex", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>A compaction carrying FaceGen and voice packed in the plugin's one archive reads it once: both carries
+    /// read through the lane's one view.</summary>
+    [Fact]
+    public void ACompactionCarriesFaceGenAndVoiceOutOfOneArchiveOnce()
+    {
+        using var inst = new CompactCarryInstance("HcroCmp", m =>
+        {
+            m.Npcs.Add(new Npc(new FormKey(m.ModKey, 0xA10), SkyrimRelease.SkyrimSE) { EditorID = "HcroNpc" });
+            var topic = new DialogTopic(new FormKey(m.ModKey, 0x810), SkyrimRelease.SkyrimSE) { EditorID = "HcroTopic" };
+            topic.Responses.Add(new DialogResponses(new FormKey(m.ModKey, 0x811), SkyrimRelease.SkyrimSE));
+            m.DialogTopics.Add(topic);
+        });
+        var npc = new FormKey(inst.Key, 0xA10);
+        string[] paths = [FaceGenPath.For(npc, FaceGenSlot.Mesh), FaceGenPath.For(npc, FaceGenSlot.Tint),
+                          VoicePath.For(new FormKey(inst.Key, 0x811), "FemaleEventoned", "", "HcroTopic", 1, VoiceFile.Fuz)];
+        File.WriteAllBytes(Path.Combine(inst.ModDir, "HcroCmp.bsa"), BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
+            paths.Select(p => (Path.GetDirectoryName(p)!, new[] { (Path.GetFileName(p), BsaBuilder.Bytes(p, 24)) })).ToArray()));
+        inst.Service.Stats();
+        var assets = ((ILoadOrderHost)inst.Service).Assets;
+        var before = assets.ArchiveTableReadCount;
+
+        var o = inst.Compact();
+
+        Assert.True(o.Success, o.Error);
+        Assert.Equal(2, o.AssetRename?.FacegenFilesCarried);
+        Assert.Equal(1, o.VoiceRename?.FilesCarried);
+        Assert.Equal(1, ((ILoadOrderHost)inst.Service).Assets.ArchiveTableReadCount - before);
     }
 
     /// <summary>An archive that will not open is tried once for the view and answers every read with the same sentence.</summary>
