@@ -192,7 +192,21 @@ resolver reads no profile.
   stat is a root failure named on the build, and giving the permission back moves no name, so only a rebuild clears
   it. A loose file's BYTES are never cached, so a rewrite needs no invalidation at all.
 - `Capture()` pins one build as an `AssetView`, so a batch's hits and its `BsaFailures` cannot describe two builds.
-  The view is immutable and handle-free, which is what lets the service enumerate, read and parse outside `_gate`.
+  The view holds no handle, which is what lets the service enumerate, read and parse outside `_gate`.
+- **Existence is the pinned build; bytes are read when used.** Which copy exists and wins, `BsaFailures` and
+  `ReadIncomplete` come from the build. Bytes come from the view's archive reader (`ArchiveReader`), which every lane
+  that reads archive bytes or probes an archive goes through: a provider's bytes (`ReadSource`), one entry of a
+  named archive (`ReadEntry`, the raw `place` path included), and the off-order lane's root-archive probe. The reader
+  is the view's own, empty at `Capture()`: it opens an archive at the view's first read of it, keyed by full path,
+  keeps the Mutagen reader (which holds no handle) and looks entries up by folder, and never stats that archive again
+  for the view's life; each read takes the entry's bytes off the file as it is then. An archive that will not open
+  is tried once and answers every read with the same sentence. Loose bytes are read off disk at the read.
+- **The asset door's memory rule:** each archive's table is read at most once per call, and no reader, table or
+  handle is kept between calls. Every lane that reads bytes captures its view once per call, so one reader per view
+  is one per call; a lane that captured twice would read an archive twice, which costs time and changes no answer.
+  The build's own table read is separate, so a call that builds or rebuilds the view reads an archive it also takes
+  bytes from twice. `bsa_list`, `bsa_extract`, `bsa_repack` and the record side's string-table reads keep their own
+  readers.
 - `Frozen()` is a member-wise copy holding the current build's snapshot: its views keep that build's roots and mod
   set whatever the resolver it was copied from refreshes to later. Loose contents are not frozen: it shares that
   snapshot's `LooseCache`, and reads every folder off the one set of call listings it holds, so a folder is listed at
@@ -490,6 +504,13 @@ provided either; the generic lane does not, because it legitimately answers for 
 - *One build per call*: **Zero archive handles at rest:** pinned by `AssetResolverTests.TheResolverHoldsNoArchiveHandleAtRest`
   (rename *and* delete while the resolver lives) and, for single-entry extraction,
   `PlaceCoreTests.TheArchiveIsNotHeldOpenAfterTheRead`.
+- *One build per call*: the memory rule, by `ArchiveReadOnceTests`: a walk (meshes and scripts, and with
+  `source_provider=` its off-order probes), `links=`, a `nif_inspect` batch, native pairing (packed DLLs and scripts),
+  the config audit, a `place` batch (resolved, named and raw-path entries) and a voice carry each read one archive's
+  table once for two or more of its entries; an archive that will not open is tried once; a view does not stat its
+  archive again, and the next view after a refresh reads the new file (R18). The batch-of-one sentences are pinned
+  there too; the off-order lane's unreadable root archive by `PlaceOffOrderLaneTests`. `ScriptsReadOnceTests` keeps
+  the scripts sweep at one table per archive, read off the view. `ArchiveReadOnceTests` also holds these two lines in this note.
 - *One build per call*: `AssetResolverTests.ResolveManyAndACapturedViewAnswerFromOneBuild` reads a batch and a captured
   view off one build; `ACapturedViewKeepsItsBuildAcrossARebuild` in the same class pins the `Capture()` sentence
   against a rebuild (a file added and refreshed after the view listed its folder stays absent in the view), and

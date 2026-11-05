@@ -57,6 +57,7 @@ public sealed class AssetResolver : IDisposable
         public readonly ConcurrentDictionary<string, WatchedDir> DirWatch;   // watched dir → what must not change about it; the whole loose freshness check
         public int WarmListings;                                             // directory listings the warm took; a test seam, never the check's
         public int Warms;                                                    // subtree warms finished on this build, counted after their watches
+        public int ArchiveTablesRead;                                        // archive tables this build's views read for bytes; a test seam
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
         {
             Tables = tables; Stamps = stamps; Failures = failures;
@@ -127,6 +128,9 @@ public sealed class AssetResolver : IDisposable
 
     /// <summary>How many directory listings this build's warms have taken, so a test can assert a call, or a capture outside one, lists each directory once.</summary>
     internal int WarmListingCount => Volatile.Read(ref _snap.WarmListings);
+
+    /// <summary>How many archive tables this build's views have read for bytes and probes, so a test can assert a call reads each archive once.</summary>
+    internal int ArchiveTableReadCount => Volatile.Read(ref _snap.ArchiveTablesRead);
 
     /// <summary>The unread loose roots as ONE short clause, for a per-item reason with no caveat block above it to
     /// point at: the first root in full and the rest counted, because that sentence repeats per item. Empty string
@@ -491,7 +495,11 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Capture the CURRENT build as a pinned read view, so a bulk scan and its read-failure list answer from one build.</summary>
-    public AssetView Capture() { var (snap, listings) = BeginPass(); return new(this, snap, listings, new ArchiveReader()); }
+    public AssetView Capture()
+    {
+        var (snap, listings) = BeginPass();
+        return new(this, snap, listings, new ArchiveReader(() => Interlocked.Increment(ref snap.ArchiveTablesRead)));
+    }
 
     /// <summary>A copy for one call: it holds the current build's snapshot, shares its loose cache, and reads the loose
     /// folders off <paramref name="listings"/> (a new set when none is given) for every view it captures; contract in
