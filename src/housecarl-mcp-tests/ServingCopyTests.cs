@@ -170,8 +170,8 @@ public sealed class ServingCopyTests
         Assert.DoesNotContain("changed again during this call", read);
     }
 
-    /// <summary>The door in a call, after another call followed a move of MO2's base folder to one where HighMod holds a
-    /// copy, judges on the call's roots, where the indexed low copy still serves.</summary>
+    /// <summary>The door in a call, after another call followed a move of MO2's base folder, judges on the call's roots,
+    /// where the indexed low copy still serves; on the moved roots the low copy is another path.</summary>
     [Fact]
     public void TheDoorInACallAfterAnotherCallMovedTheRootsJudgesOnTheCallsRoots()
     {
@@ -182,7 +182,7 @@ public sealed class ServingCopyTests
         InCall(() =>
         {
             w.Svc.CapturePin();
-            w.MoveBaseToOneWithAHighCopy();
+            w.MoveBaseFolder();
             var other = new Thread(() => GC.KeepAlive(((ILoadOrderHost)w.Svc).Resolver));   // another call follows the move
             other.UnsafeStart();
             other.Join();
@@ -446,19 +446,16 @@ public sealed class ServingCopyWorld : IDisposable
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
     }
 
-    /// <summary>Point MO2's base_directory at a copy of the profile and mods with HighMod holding a copy, as moving the base folder does.</summary>
-    public void MoveBaseToOneWithAHighCopy()
+    /// <summary>Point MO2's base_directory at a copy of the profile and LowMod's plugin, as moving the base folder does.</summary>
+    public void MoveBaseFolder()
     {
         var instance = Path.Combine(Root, "instance");
         var moved = Path.Combine(Root, "moved");
         var profile = Path.Combine(moved, "profiles", "Default");
         Directory.CreateDirectory(profile);
         foreach (var f in new[] { "loadorder.txt", "plugins.txt", "modlist.txt" }) File.Copy(Path.Combine(instance, "profiles", "Default", f), Path.Combine(profile, f));
-        foreach (var mod in new[] { "LowMod", "HighMod" })
-        {
-            Directory.CreateDirectory(Path.Combine(moved, "mods", mod));
-            File.Copy(LowPath, Path.Combine(moved, "mods", mod, Target));
-        }
+        Directory.CreateDirectory(Path.Combine(moved, "mods", "LowMod"));
+        File.Copy(LowPath, Path.Combine(moved, "mods", "LowMod", Target));
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n[Settings]\r\nbase_directory=" + moved.Replace(@"\", @"\\") + "\r\n");
