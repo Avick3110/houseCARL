@@ -158,8 +158,9 @@ resolver reads no profile.
 - `Capture()` pins one build as an `AssetView`, so a batch's hits and its `BsaFailures` cannot describe two builds.
   The view is immutable and handle-free, which is what lets the service enumerate, read and parse outside `_gate`.
 - `Frozen()` is a member-wise copy holding the current build's snapshot: its views keep that build's roots and mod
-  set whatever the resolver it was copied from refreshes to later. It shares that snapshot's `LooseCache`, so a
-  subtree not yet warmed is listed from disk at its first resolve, not when the copy was made. A call's file view
+  set whatever the resolver it was copied from refreshes to later. Loose contents are not frozen: it shares that
+  snapshot's `LooseCache`, so a subtree not yet warmed is listed from disk at its first resolve, not when the copy was
+  made, and `EnumerateUnder`'s loose lane lists the disk on every call, warmed subtree or not. A call's file view
   holds one.
 
 ### Naming a source
