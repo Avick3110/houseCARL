@@ -54,8 +54,9 @@ internal sealed class ArchiveReader(Action? opened = null)
     }
 
     /// <summary>The folder's name table through Mutagen's folder index; null when the archive has no such folder, or
-    /// when the index will not build: Mutagen keys it in one dictionary, so two folder records equal ignoring case or
-    /// slash throw there. The folder records are already read (<see cref="Open"/>), so that is all it can throw.</summary>
+    /// on any ArgumentException inside the try, which then marks the whole archive as having no folder index: the
+    /// index build throws one on two folder records equal ignoring case or slash, and this folder's file records and
+    /// names throw one on a name with a directory part or a short file-record block.</summary>
     Dictionary<string, IArchiveFile>? FolderTable(Held held, string dir)
     {
         if (held.NoFolderIndex) return null;
@@ -69,8 +70,8 @@ internal sealed class ArchiveReader(Action? opened = null)
         {
             opened?.Invoke();
             var reader = Archive.CreateReader(GameRelease.SkyrimSE, p);
-            // Loads every folder record and the first folder's file records, with or without folder names, so a bad
-            // table fails here; the other folders' file records and the names load at Find.
+            // Loads every folder record and the first non-empty folder's file records, with or without folder names;
+            // the other folders' file records and every name load at Find.
             using (var files = reader.Files.GetEnumerator()) files.MoveNext();
             return new Held(reader);
         }, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
