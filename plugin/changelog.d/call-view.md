@@ -1,1 +1,1 @@
-- **A write finishes on the load order it read when it began writing: a mod or profile switched mid-write no longer drops carried faces, voice or `.seq`, or refuses after writing, and a moved in-place copy is re-read on the next call.**
+- **A write finishes on the load order it read as it began, so a mod switched mid-write no longer drops its faces, voice or `.seq`.** Check: copy a plugin into a higher mod and edit it in place; nothing is written, and the rerun writes that copy.
