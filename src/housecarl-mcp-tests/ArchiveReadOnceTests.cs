@@ -27,7 +27,7 @@ public sealed class ArchiveReadOnceTests : IDisposable
             .Select(g => (g.Key, g.Select(p => (Path.GetFileName(p), BsaBuilder.Bytes(p, 32))).ToArray())).ToArray();
         File.WriteAllBytes(Path.Combine(_p.Mod("Arch"), "Dummy.bsa"),
             BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames, folders));
-        _p.ProfileWithDummy("Arch", "+Arch");
+        _p.ProfileWithDummy("Arch", "+Other", "+Arch");
         return _p.Open();
     }
 
@@ -50,8 +50,11 @@ public sealed class ArchiveReadOnceTests : IDisposable
     [Fact]
     public void AWalkNamingTheArchivesModProbesAndReadsItOnce()
     {
+        // Two nodes only the mod Other provides send the named mod's root archive to the off-order probe twice.
+        string[] others = [@"meshes\hcro\c.nif", @"meshes\hcro\d.nif"];
+        foreach (var o in others) PlaceInstance.Loose(_p.Mod("Other"), o, BsaBuilder.Bytes(o, 32));
         var svc = Instance(MeshA, MeshB);
-        Assert.Equal(1, TablesRead(svc, () => svc.AssetWalk(new[] { MeshA, MeshB }, Array.Empty<FormKey>(), null, "Arch")));
+        Assert.Equal(1, TablesRead(svc, () => svc.AssetWalk([MeshA, MeshB, .. others], Array.Empty<FormKey>(), null, "Arch")));
     }
 
     [Fact]
