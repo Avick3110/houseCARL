@@ -491,10 +491,10 @@ the `into=` patch's plugins after the winners, so a clone a copy wrote there pla
 read by filename, first hit. Where the winners come first (`place`, `nif_inspect`, and a walk whose `from_source=`
 starts with `winner`), the off-order plugins are opened only for the keys the winners miss: an in-order NPC opens
 none, and a plugin there that will not open fails only those keys, "its record sources were not opened", naming it.
-`asset_status formids=`
-and the check read the winners alone. A key none of them defines gets the lane's own sentence (`FaceSources.Unset`):
-"no plugin in this order defines it", or that order and the sources it also read. Any other not-yet-enabled NPC's
-file is placed by `path=`.
+`asset_status formids=` and the check read the winners alone. A key none of them defines gets the lane's own
+sentence (`FaceSources.Unset`): "no plugin in this order defines it", or that order and the sources it also read; a
+walk whose `from_source=` is all `winner` says the order's alone for both seed kinds (`AssetLayers.UnsetFor`). Any
+other not-yet-enabled NPC's file is placed by `path=`.
 
 ### Suggesting a root prefix
 
@@ -654,7 +654,8 @@ provided either; the generic lane does not, because it legitimately answers for 
   patch places by formid (`CopySourceFolderReadbackTests`); two plugins of one folder defining an NPC are read by
   filename, first hit (`AFoldersPluginsAreReadInFilenameOrderFirstHit`); a plugin there that will not open fails
   only the keys the order misses, on `npc=` and `place into=`
-  (`AnUnopenablePluginInTheFolderFailsOnlyTheKeysTheOrderMisses`); the pair is Mutagen's link
+  (`AnUnopenablePluginInTheFolderFailsOnlyTheKeysTheOrderMisses`); a walk's `formids=` and `records=` seeds share
+  one not-found sentence (`AWalksFormidsAndRecordsSeedsShareOneNotFoundSentence`); the pair is Mutagen's link
   (`ThePairIsSpelledAsMutagensLink`); each no-pair input is one reason on every lane, and Mutagen names no link for
   its fixture; no reason calls Mutagen's gate a bug; the check counts each exclusion by reason.
   `NpcFaceUnreadOrderTests` — a plugin the index could not read, and an order that cannot be read, are each row's
