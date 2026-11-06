@@ -574,7 +574,7 @@ public sealed class FieldPredicateSet
     static string FoldToken(Fold f) => PathFoldGrammar.Token(f);
 
     /// <summary>How the list door's refusals name an <c>in @&lt;file&gt;</c> operand.</summary>
-    static string OperandLabel(string raw) => $"predicate '{raw}': the 'in'";
+    static string OperandLabel(string raw) => $"predicate '{raw}': the 'in' operand";
 
     /// <summary>Parse a generalized (non-formid) membership list; an all-FormKey list rides along pre-parsed, and a bare runtime FormID entry is resolved here.</summary>
     static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, HashSet<FormKey>? Runtime, string? Error) ParseValueList(string raw, string operand, Func<string?, FormKey>? parseFormId, bool resolveRuntime)
