@@ -28,7 +28,7 @@ internal static class ListParams
             int count = 0;
             foreach (var item in el.EnumerateArray())
             {
-                if (item.ValueKind is JsonValueKind.String && item.GetString()?.TrimStart().StartsWith('@') == true)
+                if (item.ValueKind is JsonValueKind.String && ListFile.NamesFile(item.GetString()))
                     atIndexes.Add(count);
                 count++;
             }

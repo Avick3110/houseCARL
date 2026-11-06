@@ -146,7 +146,7 @@ public static partial class RecordsTools
             ListArg? where = null,
         [Description("Which body where= matches on: 'scoped' (default, the body the scan streams) or 'winner' (the live load-order winner whatever the scan scope; the post-patch audit). Matching only; fields_source= sets display.")]
             string? where_source = null,
-        [Description("SELECT: records that reference these FormIDs (one step back; OR over the list, each match names the target(s) it hit). Needs no bounding scope: unbounded, it reads the reverse-reference index, built on first use by one whole-order link walk, and the response reports that cost and the index's freshness; with types= or plugins= it is cheaper. A '!' before an entry negates it: references=[\"!XXXXXX:A.esm\"] keeps records that do not reference that target, plain and negated entries combine by AND, and references=[\"!@C:/work/targets.jsonl\"] negates every target the file names. A negated entry alone with no types=/plugins= is the orphan sweep: every record nothing in the order references, minus any that link the named target; bound the call for the narrower question. Accepts [\"@<path>\"] like formids=." + ListText.FormIds)]
+        [Description("SELECT: records that reference these FormIDs (one step back; OR over the list, each match names the target(s) it hit). Needs no bounding scope: unbounded, it reads the reverse-reference index, built on first use by one whole-order link walk, and the response reports that cost and the index's freshness; with types= or plugins= it is cheaper. A '!' before an entry negates it: references=[\"!XXXXXX:A.esm\"] keeps records that do not reference that target, plain and negated entries combine by AND, and references=[\"!@C:/work/targets.jsonl\"] negates every target the file names. A negated entry alone with no types=/plugins= is the orphan sweep: every record nothing in the order references, minus any that link the named target; bound the call for the narrower question." + ListText.FormIds)]
             ListArg? references = null,
         [Description("SOURCE: whose version is read; the subject of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads that plugin's version whether it is active or on disk unticked, and the response states which; use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. SkyPatcher INIs can change records at runtime, which no other pole shows: {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads before or after that INI layer replays; add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would go in, or omit it when the draft's parent directory already is that folder) to read the post state with a draft not yet placed. Content from outside the load order (an off-order file, the SkyPatcher layer) is outside the epoch fingerprint, and the response says so. On project.form='info_order' the one value taken is an off-order plugin (any file not in the active order, including a plugin unticked inside an enabled mod), folded into the merge where MO2 would load it: the end of the order for a regular plugin, after the last master for an ESM-flagged one or a .esm/.esl, or the plugin's own slot when the order already carries that filename (a shadowed copy named by {\"file\", \"mod\"}). The response names the placement, the neighbour it landed beside and the flag behind it.")]
             JsonElement? source = null,
@@ -677,8 +677,7 @@ public static partial class RecordsTools
         // ================================================================================================
         ToolAnswer ListLane()
         {
-            var (toks, demand, echoSrc, xerr) = Fids();
-            if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
+            var (toks, demand, echoSrc, _) = Fids();
             var ids = toks!;
 
             List<KeyValuePair<string, string>> Echo()
@@ -1381,8 +1380,7 @@ public static partial class RecordsTools
             IReadOnlyList<FormKey>? formidSet = null;
             if (hasFormids)
             {
-                var (ftoks, fdemand, fecho, fxerr) = Fids();
-                if (fxerr is not null) return ToolAnswer.Refusal(json, fxerr);
+                var (ftoks, fdemand, fecho, _) = Fids();
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
                 foreach (var t in ftoks!)
@@ -1451,8 +1449,7 @@ public static partial class RecordsTools
             var refs = references;
             if (refs is { Length: > 0 })
             {
-                var (toks, demand, echoSrc, xerr) = referencesIn;
-                if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
+                var (toks, demand, echoSrc, _) = referencesIn;
                 refs = toks!; refDemand = demand; refEcho = echoSrc;
             }
             IReadOnlyList<FormKey>? refFks = null, refNoneFks = null;
@@ -1826,8 +1823,7 @@ public static partial class RecordsTools
             var refs = references;
             if (refs is { Length: > 0 })
             {
-                var (toks, demand, echoSrc2, xerr) = referencesIn;
-                if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
+                var (toks, demand, echoSrc2, _) = referencesIn;
                 refs = toks!; refDemand = demand; refEcho = echoSrc2;
             }
             IReadOnlyList<FormKey>? refFks = null, refNoneFks = null;
@@ -1842,8 +1838,7 @@ public static partial class RecordsTools
             IReadOnlyList<FormKey>? formidSet = null;
             if (formids is { Length: > 0 })
             {
-                var (ftoks, fdemand, fecho, fxerr) = Fids();
-                if (fxerr is not null) return ToolAnswer.Refusal(json, fxerr);
+                var (ftoks, fdemand, fecho, _) = Fids();
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
                 foreach (var t in ftoks!)

@@ -40,12 +40,8 @@ public sealed class ListArg : ICollection<string>
     /// <summary>A C# caller passes the list as an array.</summary>
     public static implicit operator ListArg?(string[]? entries) => entries is null ? null : new ListArg(entries);
 
-    /// <summary>Read the list: inline entries with '@@' unescaped, or the whole list from the one '@' file entry.</summary>
-    /// <param name="param">The parameter's name, as refusals spell it.</param>
-    /// <param name="spelling">How a caller writes the parameter, <c>{0}</c> standing for the list, when not <c>name=[…]</c>.</param>
-    /// <param name="negation">A sigil an entry may lead with, carried onto every token a negated file expands to.</param>
-    internal ListRead ReadSent(string param, ListKind kind, string? spelling = null, char? negation = null)
-        => ListDoor.ReadItems(_entries, param, kind, spelling, negation);
+    /// <summary>The entries as sent, for the door alone.</summary>
+    internal IReadOnlyList<string> Entries => _entries;
 
     int ICollection<string>.Count => _entries.Count;
     bool ICollection<string>.IsReadOnly => false;
@@ -67,31 +63,28 @@ public readonly record struct ListRead(string[]? Tokens, ArtifactDemand? Demand,
 public static class ListDoor
 {
     /// <summary>Read an unset-or-sent list; an unset one reads as null tokens.</summary>
+    /// <param name="param">The parameter's name, as refusals spell it.</param>
+    /// <param name="spelling">How a caller writes the parameter, <c>{0}</c> standing for the list, when not <c>name=[…]</c>.</param>
+    /// <param name="negation">A sigil an entry may lead with, carried onto every token a negated file expands to.</param>
     public static ListRead Read(this ListArg? arg, string param, ListKind kind, string? spelling = null, char? negation = null)
-        => arg is null ? default : arg.ReadSent(param, kind, spelling, negation);
+        => ReadItems(arg?.Entries, param, kind, spelling, negation);
 
-    /// <summary>Read a list held as an array, the spec objects' members.</summary>
-    public static ListRead ReadItems(IReadOnlyList<string>? items, string param, ListKind kind, string? spelling = null)
-        => ReadItems(items, param, kind, spelling, negation: null);
-
-    /// <summary>Read a list whose entries may lead with <paramref name="negation"/>: a negated '@file' entry is read
-    /// as the file, and every token it expands to carries the sigil.</summary>
-    public static ListRead ReadItems(IReadOnlyList<string>? items, string param, ListKind kind, string? spelling, char? negation)
+    /// <summary>Read a list held as an array, the spec objects' members: inline entries with '@@' unescaped, or the
+    /// whole list from the one '@' file entry; a <paramref name="negation"/>-led '@file' entry negates every token.</summary>
+    public static ListRead ReadItems(IReadOnlyList<string>? items, string param, ListKind kind, string? spelling = null, char? negation = null)
     {
         if (items is null) return default;
-        if (negation is { } sigil && items.Count == 1 && items[0]?.TrimStart() is { Length: > 1 } neg && neg[0] == sigil
-            && ListFile.NamesFile(neg[1..]))
-        {
-            var inner = ReadItems(new[] { neg[1..].TrimStart() }, param, kind, spelling, null);
-            return inner.Error is not null ? inner
-                : new(inner.Tokens!.Select(t => sigil + t.Trim()).ToArray(), inner.Demand, sigil + inner.EchoSource, null);
-        }
-        if (negation is { } s2 && items.Any(i => i?.TrimStart() is { Length: > 1 } n && n[0] == s2 && ListFile.NamesFile(n[1..])))
-            return Refused(ListFile.Mixed(param + "=", spelling is null ? $"{param}=[\"@<path>\"]" : string.Format(spelling, "\"@<path>\"")));
         var label = param + "=";
-        int files = items.Count(ListFile.NamesFile);
-        if (files == 0) return new(items.Select(i => ListFile.Unescape(i)!).ToArray(), null, null, null);
         var alone = spelling is null ? $"{param}=[\"@<path>\"]" : string.Format(spelling, "\"@<path>\"");
+        bool NegatedFile(string? i) => negation is { } s && i?.TrimStart() is { Length: > 1 } n && n[0] == s && ListFile.NamesFile(n[1..]);
+        if (items.Any(NegatedFile))
+        {
+            if (items.Count > 1) return Refused(ListFile.Mixed(label, alone));
+            var inner = ReadItems(new[] { items[0].TrimStart()[1..].TrimStart() }, param, kind, spelling);
+            return inner.Error is not null ? inner
+                : new(inner.Tokens!.Select(t => negation + t.Trim()).ToArray(), inner.Demand, negation + inner.EchoSource, null);
+        }
+        if (!items.Any(ListFile.NamesFile)) return new(items.Select(i => ListFile.Unescape(i)!).ToArray(), null, null, null);
         if (items.Count > 1) return Refused(ListFile.Mixed(label, alone));
         var (path, content, rerr) = ListFile.Read(items[0], label, alone, kind.Example);
         if (rerr is not null) return Refused(rerr);
