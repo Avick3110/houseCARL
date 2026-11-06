@@ -9,6 +9,9 @@ public static class SourcePoles
 {
     public const string Winner = "winner";
 
+    /// <summary>Whether a source element is the winner pole, as the chain reads it (trimmed, any case).</summary>
+    public static bool IsWinner(string? spelling) => string.Equals(spelling?.Trim(), Winner, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Subject-relative, and therefore refused as a walk's source element; named here so a refusal can quote the token the caller typed.</summary>
     public const string PreviousProvider = "previous_provider";
 }

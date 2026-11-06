@@ -249,21 +249,42 @@ internal sealed partial class AssetLayers
             var want = keys.Distinct().ToList();
             var faces = new Dictionary<FormKey, NpcFaceAnswer>();
             var round = winners;
-            if (sources is { Poles.Count: > 0 })
+            SourceChain? chain = null;
+            string? chainErr = null;
+            var unopened = new HashSet<FormKey>();
+            SourceChain? Chain() => chain ?? (chainErr is not null ? null
+                : chain = _host.BuildWalkSources(pin.View, session, roots, sources!.Poles, overlays, out chainErr, sources.Param));
+            if (sources is { Poles.Count: > 0 } && !SourcePoles.IsWinner(sources.Poles[0]))
             {
-                if (_host.BuildWalkSources(pin.View, session, roots, sources.Poles, overlays, out var chainErr, sources.Param) is not { } chain)
+                if (Chain() is not { } first)
                 {
                     foreach (var k in want) faces[k] = NpcFaceAnswer.Fail(k, $"its record sources were not opened: {chainErr}");
                     return faces;
                 }
-                round = MemberReads.Through(chain, winners);
+                round = MemberReads.Through(first, winners);
             }
+            else if (sources is { Poles.Count: > 0 })
+                // Winner first: the sources are opened only for keys the winners miss, so an in-order NPC never opens them.
+                round = ks =>
+                {
+                    var won = winners(ks);
+                    var missed = ks.Where(k => { try { return won(k) is null; } catch (Exception) { return false; } }).ToHashSet();
+                    if (missed.Count == 0) return won;
+                    if (Chain() is not { } c)
+                    {
+                        unopened.UnionWith(missed);
+                        return k => missed.Contains(k) ? throw new InvalidOperationException($"its record sources were not opened: {chainErr}") : won(k);
+                    }
+                    var off = MemberReads.Through(c, winners)(missed);
+                    return k => missed.Contains(k) ? off(k) : won(k);
+                };
             var reads = new RoundReads(round);
             reads.Read(want);
             reads.FaceInputs(want.Select(k => reads.Peek(k).Body).OfType<INpcGetter>());
             var door = new NpcFace(reads.Get, sources?.Unset ?? NpcFace.Unset);
             foreach (var k in want)
             {
+                if (unopened.Contains(k)) { faces[k] = NpcFaceAnswer.Fail(k, $"its record sources were not opened: {chainErr}"); continue; }
                 // A key whose plugin the index could not read is not one nothing defines: said with the plugin's reason.
                 if (reads.Peek(k).Body is null && pin.View.ExcludedPlugins.TryGetValue(k.ModKey.FileName, out var unread))
                 { faces[k] = NpcFaceAnswer.Fail(k, $"its plugin {k.ModKey.FileName} was not read: {unread}"); continue; }

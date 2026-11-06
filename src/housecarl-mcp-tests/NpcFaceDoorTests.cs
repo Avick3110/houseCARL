@@ -64,8 +64,14 @@ public sealed class NpcFaceDoorWorld : IDisposable
         Donor.Race.SetTo(W.Race);
         W.Write(donor, DonorMod, false, W.RaceMod);
         W.Bake(DonorMod, Donor.FormKey);
+        Directory.CreateDirectory(W.ModDir(BrokenMod));
+        File.WriteAllText(Path.Combine(W.ModDir(BrokenMod), BrokenPlugin), "x");
+        W.Bake(BrokenMod, Plain.FormKey);
         Svc = W.Open();
     }
+
+    /// <summary>A mod folder that holds a plugin which will not open, beside the plain NPC's pair.</summary>
+    public const string BrokenMod = "DoorBroken", BrokenPlugin = "HcBroken.esp";
 
     /// <summary>An NPC only an inactive plugin defines, its pair baked beside it, for the lanes that read off the order.</summary>
     public Npc Donor;
@@ -314,6 +320,36 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
 
         Assert.Contains("no FaceGen pair — " + NpcFace.Unset, Npc(npc));
         Assert.Contains(NpcFace.Unset, Assert.Single(FormidsRows(npc)).GetProperty("error").GetString());
+    }
+
+    /// <summary>A folder holding a plugin that will not open is opened only for a key the winners miss: an in-order NPC
+    /// keeps its pair on npc= source_provider= and place into=, and a donor-only one gets the chain error naming it.</summary>
+    [Fact]
+    public void AnUnopenablePluginInTheFolderFailsOnlyTheKeysTheOrderMisses()
+    {
+        var plain = _w.Plain.FormKey;
+        var donor = _w.Donor.FormKey;
+        var broken = NpcFaceDoorWorld.BrokenPlugin;
+
+        var nif = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(plain) }, source_provider: NpcFaceDoorWorld.BrokenMod);
+        Assert.DoesNotContain("no FaceGen pair", nif);
+        Assert.Contains(Mesh(plain), nif, StringComparison.OrdinalIgnoreCase);
+        var nifDonor = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(donor) }, source_provider: NpcFaceDoorWorld.BrokenMod);
+        Assert.Contains("its record sources were not opened", nifDonor);
+        Assert.Contains(broken, nifDonor);
+
+        Assert.Contains("placed 2 of 2", Place(_w.Root.FormKey, "HcDoorBrokenInto"));
+        var folder = Directory.EnumerateDirectories(Path.Combine(_w.W.Instance, "mods"), "houseCARL - HcDoorBrokenInto*").Single();
+        File.WriteAllText(Path.Combine(folder, broken), "x");
+        string Into(FormKey npc) => PlaceTools.Place(_w.Svc, new[] { new PlaceTarget { Formid = Id(npc), SourceProvider = NpcFaceDoorWorld.Mod } },
+                                                     into: Path.GetFileName(folder));
+        var placed = Into(plain);
+        Assert.Contains("placed 2 of 2", placed);
+        Assert.Contains(Mesh(plain), placed, StringComparison.OrdinalIgnoreCase);
+        var refused = Into(donor);
+        Assert.StartsWith("error:", refused);
+        Assert.Contains("its record sources were not opened", refused);
+        Assert.Contains(broken, refused);
     }
 
     /// <summary>Each reason's fixture is one Mutagen names no FaceGen link for, and the plain one is one it does: a
