@@ -120,6 +120,17 @@ static class NifInspectFixtures
         return bytes;
     }
 
+    /// <summary>A bare Oblivion-version (20.0.0.5) mesh: it loads, but its header has no string table, so reading its
+    /// structure throws, as the dev instance's BodySlide skeleton_ob.nif does.</summary>
+    public static byte[] BuildMeshWhoseStructureReadThrows()
+    {
+        var f = new NifFile();
+        f.Create(new NiVersion { FileVersion = NiVersion.ToFile("20.0.0.5"), UserVersion = 11, StreamVersion = 11 }, withRootNode: true);
+        using var ms = new MemoryStream();
+        if (f.Save(ms) != 0) throw new InvalidOperationException("authoring the Oblivion-version mesh failed to save");
+        return ms.ToArray();
+    }
+
     /// <summary>A minimal SK-layout mesh whose one shape carries a BSEffectShaderProperty, a block NiflySharp answers
     /// every lighting value on from the interface stub.</summary>
     public static byte[] BuildSyntheticEffectShader()

@@ -39,18 +39,20 @@ public static class NifService
         var (nif, loadErr) = Load(bytes);
         if (nif is null) return new NifInspectOutcome(null, loadErr);
 
-        try
-        {
-            var outcome = new NifInspectOutcome(Build(nif), null);
-            if (!links) return outcome;
-            var (read, linksErr) = NifLinks.Read(nif);
-            return outcome with { Links = read, LinksError = linksErr };
-        }
-        catch (Exception ex)
-        {
-            // The file loaded but reading its structure threw — a real defect, so fail loud with the type and message.
-            return new NifInspectOutcome(null, $"the mesh parsed but reading its structure failed — {ex.GetType().Name}: {ex.Message}");
-        }
+        var (model, readErr) = ReadStructure(nif);
+        if (model is null) return new NifInspectOutcome(null, readErr);
+        var outcome = new NifInspectOutcome(model, null);
+        if (!links) return outcome;
+        var (read, linksErr) = NifLinks.Read(nif);
+        return outcome with { Links = read, LinksError = linksErr };
+    }
+
+    /// <summary>The model of a parsed mesh, or why its structure would not read; the one structure read Inspect and Set share.</summary>
+    static (NifInspect? Model, string? Error) ReadStructure(NifFile nif)
+    {
+        try { return (Build(nif), null); }
+        // The file loaded but reading its structure threw — a real defect, so fail loud with the type and message.
+        catch (Exception ex) { return (null, $"the mesh parsed but reading its structure failed — {ex.GetType().Name}: {ex.Message}"); }
     }
 
     /// <summary>Parse a mesh's bytes, or name why not; the one load every read shares.</summary>
@@ -400,24 +402,14 @@ public static class NifService
     /// docs/architecture/nif.md; the writer never hands back an unverified mesh.</summary>
     public static NifSetOutcome Set(byte[] bytes, IReadOnlyList<NifSetOp> ops)
     {
-        if (bytes is null || bytes.Length == 0)
-            return NifSetOutcome.Fail("the mesh is empty (0 bytes) — nothing to edit.");
+        // ---- open through the same load and structure read as Inspect, so a mesh that will not open gets its sentence ----
+        static NifSetOutcome NotOpened(string error) => NifSetOutcome.Fail(error.TrimEnd('.', ' ') + ". Nothing was written.");
+        var (nif, loadErr) = Load(bytes);
+        if (nif is null) return NotOpened(loadErr!);
         if (ops is null || ops.Count == 0)
             return NifSetOutcome.Fail("no write op was given.");
-
-        // ---- parse (same fail-loud posture as Inspect) ----
-        var nif = new NifFile();
-        try
-        {
-            using var ms = new MemoryStream(bytes, writable: false);
-            if (nif.Load(ms) != 0)
-                return NifSetOutcome.Fail("NiflySharp could not parse this mesh — it may be truncated, not a NIF, or a format the library rejects. Nothing was written.");
-        }
-        catch (Exception ex) { return NifSetOutcome.Fail(DescribeLoadException(ex).TrimEnd('.', ' ') + ". Nothing was written."); }
-
-        NifInspect pre;
-        try { pre = Build(nif); }
-        catch (Exception ex) { return NifSetOutcome.Fail($"the mesh parsed but reading its structure failed — {ex.GetType().Name}: {ex.Message}. Nothing was written."); }
+        var (pre, readErr) = ReadStructure(nif);
+        if (pre is null) return NotOpened(readErr!);
 
         // ---- SE-stream gate: nif_set refuses a non-SE mesh by name ----
         if (!pre.IsSkyrimSE)
