@@ -151,6 +151,7 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
         var stale = NifTools.NifInspect(_w.Svc, npc: new[] { Artifact("formid", "e2-deadbeef", ids) });
         Assert.StartsWith("error:", stale);
         Assert.Contains("e2-deadbeef", stale);
+        Assert.Contains(Epoch, stale);
     }
 
     // ---- check ------------------------------------------------------------------------------------------
@@ -162,13 +163,60 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
         var ids = Ids("HcWalkHero");
         Same(CheckTools.CheckTool(_w.Svc, formids: ids),
                      CheckTools.CheckTool(_w.Svc, formids: new[] { Artifact("formid", Epoch, ids) }));
-        Assert.Contains("e2-deadbeef", CheckTools.CheckTool(_w.Svc, formids: new[] { Artifact("formid", "e2-deadbeef", ids) }));
+        var staleIds = CheckTools.CheckTool(_w.Svc, formids: new[] { Artifact("formid", "e2-deadbeef", ids) });
+        Assert.Contains("e2-deadbeef", staleIds);
+        Assert.Contains(Epoch, staleIds);
 
         var quest = Ids("HcWalkSge");
         var dialogue = new[] { "dialogue" };
         Same(CheckTools.CheckTool(_w.Svc, findings: dialogue, seeds: quest),
                      CheckTools.CheckTool(_w.Svc, findings: dialogue, seeds: new[] { Lines(quest) }));
-        Assert.Contains("e2-deadbeef", CheckTools.CheckTool(_w.Svc, findings: dialogue, seeds: new[] { Artifact("formid", "e2-deadbeef", quest) }));
+        var staleSeeds = CheckTools.CheckTool(_w.Svc, findings: dialogue, seeds: new[] { Artifact("formid", "e2-deadbeef", quest) });
+        Assert.Contains("e2-deadbeef", staleSeeds);
+        Assert.Contains(Epoch, staleSeeds);
+    }
+
+    /// <summary>A where= file keeps each predicate whole: a comma inside an 'in' list does not split the line.</summary>
+    [Fact]
+    public void AWhereFileKeepsACommaInsideAPredicate()
+    {
+        var term = $"formid in [{_w.Id("HcWalkHero")}, {_w.Id("HcWalkSge")}]";
+        var inline = RecordsTools.Records(_w.Svc, types: new[] { "NPC_" }, where: new[] { term });
+        Assert.DoesNotContain("error:", inline);
+        Same(inline, RecordsTools.Records(_w.Svc, types: new[] { "NPC_" }, where: new[] { Lines(term) }));
+    }
+
+    /// <summary>A bundle= file of field paths answers as the same paths inline, a path ending in ']' included.</summary>
+    [Fact]
+    public void ABundleFileAnswersAsTheSamePathsInline()
+    {
+        var paths = new[] { "Name", "Keywords[0]" };
+        var assignments = System.Text.Json.JsonSerializer.SerializeToElement(new[] { new { target = _w.Id("HcWalkMid"), from = _w.Id("HcWalkHero") } });
+        var inline = ApplyTools.Apply(_w.Svc, bundle: paths, assignments: assignments, dry_run: true);
+        Assert.Contains("Keywords[0]", inline);
+        Same(inline, ApplyTools.Apply(_w.Svc, bundle: new[] { Lines(paths) }, assignments: assignments, dry_run: true));
+    }
+
+    /// <summary>A to_file= artifact's manifest echoes an under= file as '@path', not the selectors it held.</summary>
+    [Fact]
+    public void AnUnderFileIsEchoedAsItsPathInTheArtifactManifest()
+    {
+        var under = Lines("meshes/hcwalk");
+        var target = Temp("under.jsonl");
+        var r = AssetTools.AssetStatus(_w.Svc, under: new[] { under }, to_file: target);
+        Assert.DoesNotContain("error:", r);
+        var manifest = System.Text.Json.JsonDocument.Parse(File.ReadLines(target).First()).RootElement.ToString();
+        Assert.Contains(System.Text.Json.JsonSerializer.Serialize(under).Trim('"'), manifest);
+    }
+
+    /// <summary>copy seed_paths= reads a file: the refusal names the field the file holds, as inline.</summary>
+    [Fact]
+    public void CopySeedPathsReadsAFile()
+    {
+        var inline = CopyTools.Copy(_w.Svc, _w.Id("HcWalkHero"), seed_paths: new[] { "Factions" }, new_editorid: "HcDoorSeedClone");
+        Assert.StartsWith("error:", inline);
+        Assert.Contains("Factions", inline);
+        Same(inline, CopyTools.Copy(_w.Svc, _w.Id("HcWalkHero"), seed_paths: new[] { Lines("Factions") }, new_editorid: "HcDoorSeedClone"));
     }
 
     // ---- lists of names ---------------------------------------------------------------------------------
@@ -210,6 +258,7 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
         var path = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "@@textures/hcwalk/at.dds" });
         Assert.DoesNotContain("not an absolute path", path);
         Assert.Contains("@textures", path);
+        Assert.DoesNotContain("@@", path);
 
         var type = RecordsTools.Records(_w.Svc, types: new[] { "@@NPC_" });
         Assert.Contains("'@NPC_'", type);
@@ -217,6 +266,7 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
         var id = RecordsTools.Records(_w.Svc, formids: new[] { "@@000001:Skyrim.esm" });
         Assert.DoesNotContain("not an absolute path", id);
         Assert.Contains("@000001:Skyrim.esm", id);
+        Assert.DoesNotContain("@@", id);
     }
 
     // ---- one sentence per mistake ----------------------------------------------------------------------
