@@ -9,6 +9,9 @@ internal readonly record struct RowWindow(int Offset, int Limit, bool Spent = fa
 {
     internal static readonly RowWindow All = new(0, 0);
 
+    /// <summary>Whether the caller asked for a window at all.</summary>
+    internal bool IsPaged => Offset > 0 || Limit > 0;
+
     internal IReadOnlyList<T> Apply<T>(IReadOnlyList<T> rows)
     {
         if (Spent) return Array.Empty<T>();
@@ -117,6 +120,18 @@ internal static class TransportAccounting
     /// <summary>The one past-the-end sentence, both transports.</summary>
     internal static string PastEndSentence(TransportCounts c, string rowNoun) =>
         $"offset={c.Offset} is past the end of the selection ({c.Total} {rowNoun}) — the last page starts before it.";
+
+    /// <summary>The json paging advice beside the accounting object: the next page while rows remain, and the
+    /// past-the-end sentence. <paramref name="everySentence"/> writes both, the widest case a reserve measures.</summary>
+    internal static void WritePageAdviceJson(Utf8JsonWriter w, TransportCounts c, string rowNoun, bool everySentence = false)
+    {
+        if (everySentence || c.Remaining > 0)
+        {
+            w.WriteNumber("next_limit", c.NextLimit);
+            w.WriteNumber("next_offset", c.Offset + c.Rendered);
+        }
+        if (everySentence || PastEnd(c)) w.WriteString("offset_note", PastEndSentence(c, rowNoun));
+    }
 
     /// <summary>The JSON twin of <see cref="Compose"/>, field names matching the text spelling exactly.</summary>
     internal static void WriteJson(Utf8JsonWriter w, TransportCounts c)

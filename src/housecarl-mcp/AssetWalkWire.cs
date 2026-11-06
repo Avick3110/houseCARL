@@ -16,7 +16,13 @@ static class AssetWalkWire
     /// list only, never the place set, counts, notes or spill; <paramref name="truncated"/> is what the caller spills on.</summary>
     public static string Render(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int cap, bool json, SpillState? spill,
                                 RowWindow window, out bool truncated)
-        => json ? Json(d, selectorNotes, cap, spill, window, out truncated) : Text(d, selectorNotes, cap, spill, window, out truncated);
+    {
+        // The nodes this answer lists: the window's, or none on a to_file= answer, whose nodes are the file.
+        var listed = spill?.ManifestOnly == true ? Array.Empty<AssetWalkNode>() : window.Apply(d.Nodes);
+        int notes = (selectorNotes?.Count ?? 0) + d.Notes.Count;
+        return json ? Json(d, selectorNotes, cap, spill, window, listed, notes, out truncated)
+                    : Text(d, selectorNotes, cap, spill, window, listed, notes, out truncated);
+    }
 
     /// <summary>The nodes a place call takes: the ones the named source ships, error nodes and duplicates out.</summary>
     internal static IReadOnlyList<string> PlaceSet(AssetWalkData d)
@@ -81,12 +87,6 @@ static class AssetWalkWire
             : s is { OwnerEnabled: true, Kind: AssetKind.Loose } ? " (enabled, but its folder did not read this build)"
             : " (not loaded by the game)");
 
-    /// <summary>Whether the caller asked for a window: only then does the answer carry the accounting line.</summary>
-    static bool Paged(RowWindow w) => w.Offset > 0 || w.Limit > 0;
-
-    /// <summary>What the accounting's notes= counts: the selector notes and the walk's own.</summary>
-    static int NoteCount(AssetWalkData d, IReadOnlyList<string>? selectorNotes) => (selectorNotes?.Count ?? 0) + d.Notes.Count;
-
     /// <summary>The header, alarms, notes and standing counts every walk answer opens with, over the whole walk.</summary>
     static StringBuilder Lead(AssetWalkData d, IReadOnlyList<string>? selectorNotes, RenderCap room)
     {
@@ -114,12 +114,13 @@ static class AssetWalkWire
         return sb;
     }
 
-    static string Text(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int cap, SpillState? spill, RowWindow window, out bool truncated)
+    /// <summary>The text walk; only a paged one (Aaron, DECISIONS 2026-11-06 (25)) ends with the accounting line.</summary>
+    static string Text(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int cap, SpillState? spill, RowWindow window,
+                       IReadOnlyList<AssetWalkNode> listed, int notes, out bool truncated)
     {
         var sb = Lead(d, selectorNotes, RenderCap.For(cap, 0));
-        var win = window.Apply(d.Nodes);
-        bool paged = Paged(window), manifestOnly = spill?.ManifestOnly == true;
-        int acctReserve = paged ? TransportAccounting.Reserve(d.Nodes.Count, win.Count, window, NoteCount(d, selectorNotes), NodeNoun) : 0;
+        bool paged = window.IsPaged;
+        int acctReserve = paged ? TransportAccounting.Reserve(d.Nodes.Count, listed.Count, window, notes, NodeNoun) : 0;
 
         var place = PlaceSet(d);
         var keyedNote = d.Nodes.Any(n => n.Standing == WalkStanding.FromSource && n.Keyed)
@@ -128,31 +129,32 @@ static class AssetWalkWire
         var tail = place.Count == 0 ? ""
             : $"\nplace set ({place.Count}): {ToolNames.Place} source_provider=\"{d.SourceProvider}\" assets={PlaceArray(place)}\n" + keyedNote;
         var spillText = Wire.SpillText(spill);
+        // What the answer writes after the nodes, plus slack for the cut sentence.
+        int Owed() => tail.Length + spillText.Length + acctReserve + 120;
         // A spilled walk whose array would not fit points at the file's from_source rows instead; a failed spill has no file.
-        if (spill is not null && place.Count > 0 && cap > 0 && sb.Length + tail.Length + spillText.Length + acctReserve + 120 > cap)
+        if (spill is not null && place.Count > 0 && cap > 0 && sb.Length + Owed() > cap)
             tail = spill.Spill is not null
                 ? $"\nplace set ({place.Count}): the spilled file's rows with standing from_source, for {ToolNames.Place} source_provider=\"{d.SourceProvider}\".\n" + keyedNote
                 : $"\nplace set ({place.Count}): not shown — its array does not fit max_chars and no results file was written; raise max_chars.\n";
-        int shown = 0;
-        // A to_file= answer is its manifest: the nodes are the file.
-        foreach (var n in manifestOnly ? Array.Empty<AssetWalkNode>() : win)
+        int shown = 0, owed = Owed();
+        foreach (var n in listed)
         {
             var block = new StringBuilder("\n").Append(n.Path).Append('\n')
                 .Append("  ").Append(n.Edge).Append(" of ").Append(n.PulledBy).Append(n.Keyed ? "   [keyed]" : "").Append('\n')
                 .Append("  ").Append(Standing(n, d.SourceProvider)).Append('\n');
             if (n.Note is { } note) block.Append("  note: ").Append(note).Append('\n');
-            if (cap > 0 && sb.Length + block.Length + tail.Length + spillText.Length + acctReserve + 120 > cap) break;
+            if (cap > 0 && sb.Length + block.Length + owed > cap) break;
             sb.Append(block);
             shown++;
         }
         // Counted against the window, so a window that fits is not a cut and spills nothing.
-        truncated = !manifestOnly && shown < win.Count;
+        truncated = shown < listed.Count;
         if (truncated)
-            sb.Append($"\n[!] {win.Count - shown} of {win.Count} node(s) not shown: max_chars was reached.")
+            sb.Append($"\n[!] {listed.Count - shown} of {listed.Count} node(s) not shown: max_chars was reached.")
               .Append(spill?.Spill is null ? " Raise max_chars, or narrow the seeds.\n" : " Every node is in the file below.\n");
         sb.Append(tail);
         if (paged)
-            sb.Append(TransportAccounting.Compose(TransportAccounting.Tally(d.Nodes.Count, win.Count, shown, window, NoteCount(d, selectorNotes)),
+            sb.Append(TransportAccounting.Compose(TransportAccounting.Tally(d.Nodes.Count, listed.Count, shown, window, notes),
                                                   NodeNoun, everySentence: false)).Append('\n');
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
@@ -192,17 +194,15 @@ static class AssetWalkWire
         ["truncated"] = d.Truncated,
     };
 
-    static string Json(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int cap, SpillState? spill, RowWindow window, out bool truncated)
+    static string Json(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int cap, SpillState? spill, RowWindow window,
+                       IReadOnlyList<AssetWalkNode> listed, int notes, out bool truncated)
     {
-        bool manifestOnly = spill?.ManifestOnly == true;
-        var win = window.Apply(d.Nodes);
-        var nodes = (manifestOnly ? Array.Empty<AssetWalkNode>() : win).Select(n => JsonSerializer.Serialize(NodeDoc(n))).ToList();
+        var nodes = listed.Select(n => JsonSerializer.Serialize(NodeDoc(n))).ToList();
         var doc = Head(d, selectorNotes);
         doc["nodes"] = null;
         doc["place_set"] = PlaceSet(d).Select(p => new Dictionary<string, string> { ["path"] = p }).ToList();
         // A paged walk carries the row lane's accounting; at defaults the document is the one it always was.
-        TransportCounts? widest = Paged(window)
-            ? TransportAccounting.Widest(d.Nodes.Count, win.Count, window, NoteCount(d, selectorNotes)) : null;
+        TransportCounts? widest = window.IsPaged ? TransportAccounting.Widest(d.Nodes.Count, listed.Count, window, notes) : null;
         if (widest is not null) doc[AccountingMembers] = null;
         if (spill is not null)
         {
@@ -215,8 +215,8 @@ static class AssetWalkWire
                 if (spill.Spill is not null) doc["place_set_in_file"] = true;
             }
         }
-        // The document with no nodes, then each node while the whole still fits.
-        int size = Emit(doc, nodes, 0, spill, widest).Length + 16, shown = 0;
+        // The document with no nodes, then each node while the whole still fits; with no nodes to list, nothing to measure.
+        int size = nodes.Count == 0 ? 0 : Emit(doc, nodes, 0, spill, widest).Length + 16, shown = 0;
         foreach (var n in nodes)
         {
             if (cap > 0 && size + n.Length + 1 > cap) break;
@@ -226,7 +226,7 @@ static class AssetWalkWire
         truncated = shown < nodes.Count;
         if (spill is not null) doc["nodes_shown"] = shown;
         TransportCounts? acct = widest is null ? null
-            : TransportAccounting.Tally(d.Nodes.Count, win.Count, shown, window, NoteCount(d, selectorNotes));
+            : TransportAccounting.Tally(d.Nodes.Count, listed.Count, shown, window, notes);
         return Emit(doc, nodes, shown, spill, acct);
     }
 
@@ -246,7 +246,12 @@ static class AssetWalkWire
             foreach (var (k, v) in doc)
             {
                 if (k == SpillMembers) { Artifacts.WriteSpillStateJson(w, spill!); continue; }
-                if (k == AccountingMembers) { WriteAccounting(w, acct!.Value); continue; }
+                if (k == AccountingMembers)
+                {
+                    TransportAccounting.WriteJson(w, acct!.Value);
+                    TransportAccounting.WritePageAdviceJson(w, acct.Value, NodeNoun);
+                    continue;
+                }
                 w.WritePropertyName(k);
                 if (k != "nodes") { JsonSerializer.Serialize(w, v); continue; }
                 w.WriteStartArray();
@@ -256,18 +261,6 @@ static class AssetWalkWire
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(ms.ToArray());
-    }
-
-    /// <summary>The row lane's accounting object, then the next page or the past-the-end sentence, in its member names.</summary>
-    static void WriteAccounting(Utf8JsonWriter w, TransportCounts c)
-    {
-        TransportAccounting.WriteJson(w, c);
-        if (c.Remaining > 0)
-        {
-            w.WriteNumber("next_limit", c.NextLimit);
-            w.WriteNumber("next_offset", c.Offset + c.Rendered);
-        }
-        if (TransportAccounting.PastEnd(c)) w.WriteString("offset_note", TransportAccounting.PastEndSentence(c, NodeNoun));
     }
 
     // ---- counts_only= -----------------------------------------------------------------------------

@@ -2840,9 +2840,7 @@ static class JsonWire
             int caveatsOmitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, budget)
                                + RootFailuresJson(w, ms, d, budget)
                                + WriteCappedStringArray(w, ms, "warnings", d.Warnings, budget);
-            if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
-            else caveatsOmitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
-            if (d.Notes is { Count: > 0 }) caveatsOmitted += WriteCappedStringArray(w, ms, "notes", d.Notes, budget);
+            caveatsOmitted += AssetNotesJson(w, ms, d, budget);
 
             w.WriteStartArray("results");
             int rendered = 0;
@@ -2888,9 +2886,7 @@ static class JsonWire
             int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, caveatBudget)
                         + RootFailuresJson(w, ms, d, caveatBudget)
                         + WriteCappedStringArray(w, ms, "warnings", d.Warnings, caveatBudget);
-            if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
-            else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, caveatBudget);
-            if (d.Notes is { Count: > 0 }) omitted += WriteCappedStringArray(w, ms, "notes", d.Notes, caveatBudget);
+            omitted += AssetNotesJson(w, ms, d, caveatBudget);
 
             WriteCensusCounters(w, c);
             // The layer tables through the shared axes: each frame is reserved before its rows are offered to it.
@@ -2937,8 +2933,7 @@ static class JsonWire
             w.WriteNumber("bsa_failures_omitted", d.BsaFailures.Count);
             if (d.RootFailures.Count > 0) w.WriteNumber("root_failures_omitted", d.RootFailures.Count);
             w.WriteNumber("warnings_omitted", d.Warnings.Count);
-            w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
-            if (d.Notes is { Count: > 0 }) w.WriteNumber("notes_omitted", d.Notes.Count);
+            AssetNotesOmittedJson(w, d);
             WriteCensusCounters(w, c);
             // Read at the same depth the render writes the axis at, so the two measure one object.
             var depths = new JsonUnitDepths(w.CurrentDepth);
@@ -2981,9 +2976,7 @@ static class JsonWire
             int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, cap)
                         + RootFailuresJson(w, ms, d, cap)
                         + WriteCappedStringArray(w, ms, "warnings", d.Warnings, cap);
-            if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
-            else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, cap);
-            if (d.Notes is { Count: > 0 }) omitted += WriteCappedStringArray(w, ms, "notes", d.Notes, cap);
+            omitted += AssetNotesJson(w, ms, d, cap);
             w.WriteBoolean("truncated", omitted > 0);
             Artifacts.WriteSpillJson(w, spill);
             WriteCapOverrun(w, ms, cap);
@@ -2998,13 +2991,7 @@ static class JsonWire
     static void WriteAssetAdvice(Utf8JsonWriter w, TransportCounts c, int cap, bool caveatsCut,
                                  bool everySentence = false)
     {
-        if (everySentence || c.Remaining > 0)
-        {
-            w.WriteNumber("next_limit", c.NextLimit);
-            w.WriteNumber("next_offset", c.Offset + c.Rendered);
-        }
-        if (everySentence || TransportAccounting.PastEnd(c))
-            w.WriteString("offset_note", TransportAccounting.PastEndSentence(c, "path(s)"));
+        TransportAccounting.WritePageAdviceJson(w, c, "path(s)", everySentence);
         if (everySentence || c.Truncated > 0 || caveatsCut)
             w.WriteString("truncated_note",
                 $"max_chars={cap} cut content from this document — accounting.truncated names the resolved path(s) " +
@@ -3025,8 +3012,7 @@ static class JsonWire
             w.WriteNumber("bsa_failures_omitted", d.BsaFailures.Count);
             if (d.RootFailures.Count > 0) w.WriteNumber("root_failures_omitted", d.RootFailures.Count);
             w.WriteNumber("warnings_omitted", d.Warnings.Count);
-            w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
-            if (d.Notes is { Count: > 0 }) w.WriteNumber("notes_omitted", d.Notes.Count);
+            AssetNotesOmittedJson(w, d);
             TransportAccounting.WriteJson(w, widest);
             w.WriteBoolean("truncated", true);
             WriteAssetAdvice(w, widest, cap, caveatsCut: true, everySentence: true);
@@ -3035,6 +3021,23 @@ static class JsonWire
             w.WriteEndObject();
         }
         return Chars(ms);
+    }
+
+    /// <summary>The selector notes, then the call's own notes only when there are some; the entries the budget omitted.</summary>
+    static int AssetNotesJson(Utf8JsonWriter w, CharCountedStream ms, AssetStatusData d, int budget)
+    {
+        int omitted = 0;
+        if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
+        else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
+        if (d.Notes is { Count: > 0 }) omitted += WriteCappedStringArray(w, ms, "notes", d.Notes, budget);
+        return omitted;
+    }
+
+    /// <summary>The widest omitted counters <see cref="AssetNotesJson"/> can write, for a reserve.</summary>
+    static void AssetNotesOmittedJson(Utf8JsonWriter w, AssetStatusData d)
+    {
+        w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
+        if (d.Notes is { Count: > 0 }) w.WriteNumber("notes_omitted", d.Notes.Count);
     }
 
     /// <summary>The loose roots that could not be walked, written ONLY when there are some: a build where every
