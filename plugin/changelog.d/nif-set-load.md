@@ -1,0 +1,1 @@
+- **`nif_set` now refuses a mesh that will not open with the same sentence `nif_inspect` gives for it, then "Nothing was written."** Check: `nif_set` on a non-NIF file names "(Load returned 1)" and NifSkope, as `nif_inspect` does.

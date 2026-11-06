@@ -12,10 +12,34 @@ public sealed class NifSetRefusalTests
 
     string? Refusal(params NifSetOp[] ops) => NifService.Set(_guard, ops).Error;
 
+    // #1359: a mesh that will not open is refused with nif_inspect's own sentence, one full stop, then the tail.
+    static void RefusesWithInspectsSentence(byte[] bytes, string tail)
+    {
+        var inspect = NifService.Inspect(bytes).Error!;
+        var set = NifService.Set(bytes, new[] { new NifSetOp(NifSetOpKind.SetFlags, "X", Flags: 1) }).Error!;
+        Assert.Equal(inspect.TrimEnd('.') + ". Nothing was written.", set);
+        Assert.EndsWith(tail, set);
+        Assert.DoesNotContain("..", set);
+    }
+
     // probe: "empty bytes → named refusal"
     [Fact]
-    public void EmptyBytesRefuse() =>
-        Assert.Contains("empty", NifService.Set(Array.Empty<byte>(), new[] { new NifSetOp(NifSetOpKind.SetFlags, "X", Flags: 1) }).Error);
+    public void EmptyBytesRefuseWithInspectsEmptySentence() =>
+        RefusesWithInspectsSentence(Array.Empty<byte>(), "(0 bytes) — nothing to read. Nothing was written.");
+
+    // #1359: the return-code sentence keeps "(Load returned 1)" and the NifSkope sentence.
+    [Fact]
+    public void NonNifGarbageRefusesWithInspectsReturnCodeSentence()
+    {
+        var bytes = System.Text.Encoding.ASCII.GetBytes("this is plainly not a NIF file, just ASCII text padding padding padding.");
+        RefusesWithInspectsSentence(bytes, "houseCARL will not guess at. Nothing was written.");
+        Assert.Contains("(Load returned 1)", NifService.Set(bytes, new[] { new NifSetOp(NifSetOpKind.SetFlags, "X", Flags: 1) }).Error);
+    }
+
+    // #1359: the structure-read failure ends with one full stop, never "..".
+    [Fact]
+    public void AMeshWhoseStructureReadThrowsRefusesWithOneFullStop() =>
+        RefusesWithInspectsSentence(NifInspectFixtures.BuildMeshWhoseStructureReadThrows(), "an instance of an object. Nothing was written.");
 
     // probe: "no ops → named refusal"
     [Fact]
