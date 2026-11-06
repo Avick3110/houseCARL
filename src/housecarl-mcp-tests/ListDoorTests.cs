@@ -244,9 +244,16 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
             Assert.Contains(string.Format(sentence, "ops="), ApplyTools.Apply(_w.Svc, ops: System.Text.Json.JsonSerializer.SerializeToElement(entry)));
         }
 
+        // A file of separators alone holds no entry either, and says so in the same sentence.
+        var separators = Temp("commas.txt");
+        File.WriteAllText(separators, ", ,\n,");
+        Assert.Contains("list file '" + separators + "' is empty", RecordsTools.Records(_w.Svc, formids: new[] { "@" + separators }));
+
         var list = Lines(Ids("HcWalkHero"));
         Assert.Contains("formids= mixes an '@file' entry with inline entries", RecordsTools.Records(_w.Svc, formids: new[] { list, "x" }));
         Assert.Contains("types= mixes an '@file' entry with inline entries", RecordsTools.Records(_w.Svc, types: new[] { list, "x" }));
+        Assert.Contains("references= mixes an '@file' entry with inline entries",
+                        RecordsTools.Records(_w.Svc, types: new[] { "NPC_" }, references: new[] { "!" + list, _w.Id("HcWalkSge") }));
         Assert.Contains("ops= mixes an '@file' entry with inline entries",
                         ApplyTools.Apply(_w.Svc, ops: System.Text.Json.JsonSerializer.SerializeToElement(new[] { list, "x" })));
     }
