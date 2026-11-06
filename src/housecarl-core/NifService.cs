@@ -404,10 +404,11 @@ public static class NifService
     {
         // ---- open through the same load and structure read as Inspect, so a mesh that will not open gets its sentence ----
         static NifSetOutcome NotOpened(string error) => NifSetOutcome.Fail(error.TrimEnd('.', ' ') + ". Nothing was written.");
+        // Empty bytes answer first, then no ops, then the parse: the order Set has always answered in.
+        if ((ops is null || ops.Count == 0) && bytes is { Length: > 0 })
+            return NifSetOutcome.Fail("no write op was given.");
         var (nif, loadErr) = Load(bytes);
         if (nif is null) return NotOpened(loadErr!);
-        if (ops is null || ops.Count == 0)
-            return NifSetOutcome.Fail("no write op was given.");
         var (pre, readErr) = ReadStructure(nif);
         if (pre is null) return NotOpened(readErr!);
 
