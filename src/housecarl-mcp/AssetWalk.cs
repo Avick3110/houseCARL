@@ -359,10 +359,12 @@ internal sealed partial class AssetLayers
     internal static void FaceGenOf(INpcGetter npc, string label, NpcFace door, FileSink addFile, List<string> notes)
     {
         var face = door.Of(npc.FormKey, npc);
-        foreach (var err in face.Errors) notes.Add($"{label}: " + (face.Roots.Count == 0 ? "no FaceGen node" : "a template member has no FaceGen node") + $" — {err}.");
+        // A reason ending in an exception's message may carry its own period.
+        static string Ended(string why) => why.EndsWith('.') ? why : why + ".";
+        foreach (var err in face.Errors) notes.Add($"{label}: " + (face.Roots.Count == 0 ? "no FaceGen node" : "a template member has no FaceGen node") + $" — {Ended(err)}");
         foreach (var root in face.Roots)
         {
-            if (root.Reason is { } why) { notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.Root)} — {why}."); continue; }
+            if (root.Reason is { } why) { notes.Add($"{label}: no FaceGen node for {FormIdToken.Of(root.Root)} — {Ended(why)}"); continue; }
             var note = face.NoteFor(root);
             addFile(root.Tint!, "facegen", label, keyed: true, note: note);
             addFile(root.Mesh!, "facegen", label, keyed: true, note: note);
