@@ -61,6 +61,27 @@ public sealed class ListDoorSurfaceTests
         }
     }
 
+    /// <summary>A spec object's own list member (<c>plugins.names</c>, <c>walk.seed_paths</c>, …) publishes one
+    /// <see cref="ListText"/> sentence verbatim, as a <see cref="ListArg"/> parameter does.</summary>
+    [Fact]
+    public void ASpecObjectListMemberCarriesItsListTextSentence()
+    {
+        var sentences = new[] { ListText.FormIds, ListText.Paths, ListText.Plugins, ListText.Names };
+        var members = ToolMethods().SelectMany(m => m.GetParameters()
+                .Where(p => p.ParameterType.IsClass && p.ParameterType != typeof(string) && p.ParameterType != typeof(ListArg))
+                .SelectMany(p => p.ParameterType.GetProperties()
+                    .Where(q => q.PropertyType == typeof(string[]))
+                    .Select(q => (Tool: m.GetCustomAttribute<McpServerToolAttribute>()!.Name!, Param: p.Name!, Member: q.Name))))
+            .ToList();
+        Assert.Contains(members, x => x is { Param: "plugins", Member: "names" });
+        foreach (var (tool, param, member) in members)
+        {
+            var text = _s.PublishedTools[tool].GetProperty("inputSchema").GetProperty("properties").GetProperty(param)
+                         .GetProperty("properties").GetProperty(member).GetProperty("description").GetString();
+            Assert.True(sentences.Any(s => text!.Contains(s)), $"{tool}.{param}.{member}: {text}");
+        }
+    }
+
     /// <summary>No tool takes a list of strings except as a <see cref="ListArg"/>, so none skips the door.</summary>
     [Fact]
     public void NoToolParameterIsAStringListOutsideTheDoor()
