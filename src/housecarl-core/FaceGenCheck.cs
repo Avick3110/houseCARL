@@ -127,6 +127,8 @@ public static class FaceGenCheck
             if (body is not INpcGetter npc) return;
             // A face drawn from a template root is that root's bake, not this NPC's: excluded, as is an NPC Mutagen
             // names no pair for, counted by the reason.
+            // The flag alone says the face is a template root's, so the chain is not walked for an answer thrown away.
+            if (NpcFace.DrawsFromTemplate(npc)) { templated++; return; }
             var face = faces.Of(fk, npc);
             if (face.Roots is not [{ } own] || own.Root != fk) { templated++; return; }
             switch (own.Gap)

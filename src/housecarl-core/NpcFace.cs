@@ -17,8 +17,11 @@ public enum FaceGap { None, NoRace, RaceUnread, NoFaceGenHead, TraitsNoTemplate,
 /// reason; the template chain's errors; and a <see cref="Reason"/> when the key names no NPC at all.</summary>
 public sealed record NpcFaceAnswer(FormKey Npc, IReadOnlyList<FaceRoot> Roots, IReadOnlyList<string> Errors, string? Reason)
 {
-    /// <summary>Whether the face is drawn from a template root rather than the NPC itself.</summary>
-    public bool Templated => Roots.Any(r => r.Root != Npc);
+    /// <summary>An answer with no roots: the key names no NPC, or its record was not read.</summary>
+    public static NpcFaceAnswer Fail(FormKey npc, string reason) => new(npc, Array.Empty<FaceRoot>(), Array.Empty<string>(), reason);
+
+    /// <summary>The one sentence a formids=, npc= or place row says when an NPC has no FaceGen pair.</summary>
+    public static string NoPair(string why) => "no FaceGen pair — " + why;
 
     /// <summary>The line a root's pair carries: the template root it is, one of N for a leveled template; null for the NPC's own.</summary>
     public string? NoteFor(FaceRoot r)
@@ -42,7 +45,7 @@ public sealed record NpcFaceAnswer(FormKey Npc, IReadOnlyList<FaceRoot> Roots, I
 public sealed class NpcFace(Func<FormKey, IMajorRecordGetter?> fetch)
 {
     public const string Unset = "no plugin in this order defines it";
-    public const string NoRace = "it names no race";
+    const string NoRace = "it names no race";
     public const string TraitsNoTemplate = "Traits flag with no Template: Mutagen names no face";
     public const string UseTemplateFlag = "ACBS flag 0x100 ('Use Template?'): Mutagen names no face for it";
 
@@ -52,9 +55,9 @@ public sealed class NpcFace(Func<FormKey, IMajorRecordGetter?> fetch)
     /// null when nothing defines it).</summary>
     public NpcFaceAnswer Of(FormKey key, IMajorRecordGetter? body)
     {
-        if (body is null) return new(key, Array.Empty<FaceRoot>(), Array.Empty<string>(), Unset);
+        if (body is null) return NpcFaceAnswer.Fail(key, Unset);
         if (body is not INpcGetter npc)
-            return new(key, Array.Empty<FaceRoot>(), Array.Empty<string>(), $"it is a {RecordNaming.StripOverlay(body.GetType().Name)}, not an NPC");
+            return NpcFaceAnswer.Fail(key, $"it is a {RecordNaming.StripOverlay(body.GetType().Name)}, not an NPC");
         var (roots, errors) = FaceRoots(npc, fetch);
         return new(key, roots.Select(Pair).ToList(), errors, null);
     }
@@ -65,6 +68,8 @@ public sealed class NpcFace(Func<FormKey, IMajorRecordGetter?> fetch)
         if (root.Race.IsNull) return new(root.FormKey, null, null, NoRace, FaceGap.NoRace);
         if (!_races.TryGetValue(root.Race.FormKey, out var race)) _races[root.Race.FormKey] = race = RaceOf(root.Race.FormKey);
         if (race.Cache is null) return new(root.FormKey, null, null, race.Why, FaceGap.RaceUnread);
+        // A race without FaceGenHead can only yield nothing, so the links are not enumerated for it.
+        if (!race.Race!.Flags.HasFlag(Race.Flag.FaceGenHead)) { var (no, noGap) = Unmet(root, race.Race); return new(root.FormKey, null, null, no, noGap); }
         List<string> files;
         try
         {
@@ -141,13 +146,17 @@ public sealed class NpcFace(Func<FormKey, IMajorRecordGetter?> fetch)
         return (roots, errors);
     }
 
+    /// <summary>Whether the NPC's face is a template root's: the Traits flag with a Template set.</summary>
+    public static bool DrawsFromTemplate(INpcGetter n)
+        => n.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits) && !n.Template.IsNull;
+
     /// <summary>The next hop of a Traits template chain from <paramref name="body"/>: an NPC's Template when its Traits
     /// flag is set, every member of a leveled list; none for anything else.</summary>
-    public static IEnumerable<FormKey> TemplateHops(IMajorRecordGetter? body)
+    static IEnumerable<FormKey> TemplateHops(IMajorRecordGetter? body)
     {
         if (body is INpcGetter n)
         {
-            if (n.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.Traits) && !n.Template.IsNull) yield return n.Template.FormKey;
+            if (DrawsFromTemplate(n)) yield return n.Template.FormKey;
         }
         else if (body is ILeveledNpcGetter lv)
             foreach (var e in lv.Entries ?? Array.Empty<ILeveledNpcEntryGetter>())

@@ -119,8 +119,8 @@ public static class NifTools
             var (faces, noOrder) = svc.NpcFaces(keys.Select(k => k.Key).ToList());
             foreach (var (token, key) in keys)
             {
-                if (faces?.GetValueOrDefault(key) is not { } face) { selected.Add(new NifTarget(token, AssetLayers.NoPair(noOrder!))); continue; }
-                foreach (var why in face.Reasons()) selected.Add(new NifTarget(token, AssetLayers.NoPair(why)));
+                if (faces?.GetValueOrDefault(key) is not { } face) { selected.Add(new NifTarget(token, NpcFaceAnswer.NoPair(noOrder!))); continue; }
+                foreach (var why in face.Reasons()) selected.Add(new NifTarget(token, NpcFaceAnswer.NoPair(why)));
                 foreach (var root in face.Roots.Where(r => r.Reason is null))
                     selected.Add(new NifTarget(root.Mesh!, FaceNote: face.NoteFor(root)));
             }
