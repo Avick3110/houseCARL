@@ -99,7 +99,8 @@ public static class AssetTools
                      ".xwm/.wav and .lip it ships as; the lines an NPC speaks, as their Speaker or by a GetIsID on the Subject (not a line tied to it through a quest alias), in the active order or a from_source= plugin outside it, by their voice), then the links each file names (a mesh's textures, SMP XML and " +
                      "BODYTRI, a script's parent .pex), recursively. Each node is marked from-source (source_provider= " +
                      "ships it), elsewhere (another provider wins it, named), present, or absent; keyed nodes sit at a " +
-                     "FormID-named path, so a renumbering copy carries them rather than placing them. With " +
+                     "FormID-named path, so a renumbering copy carries them rather than placing them. A formids= " +
+                     "seed, or a root, with no FaceGen pair is a note with the reason, not a node. With " +
                      "source_provider= shipping any node, the response ends with those nodes as a housecarl_place assets= " +
                      "array (none ships: no such line, and the count reads from_source=0). " +
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
