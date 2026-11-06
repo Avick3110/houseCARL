@@ -65,6 +65,15 @@ public sealed class NifInspectMalformedTests : IClassFixture<MalformedMeshWorld>
         Assert.Contains("the mesh is malformed and was not read (Block 0 (NiNode): A list count of 117", text);
         Assert.Contains("see where it breaks. Nothing was written.", text);
     }
+
+    // #1359: nif_set answers a non-NIF file with Load's whole return-code sentence on its own line, then " Nothing was written."
+    [Fact]
+    public void NifSetRefusesANonNifFileWithLoadsWholeReturnCodeSentence()
+    {
+        var lines = _w.Set(MalformedMeshWorld.NotANif).Split('\n');
+
+        Assert.Contains(NifSetRefusalTests.ReturnCodeOneSentence + " Nothing was written.", lines);
+    }
 }
 
 /// <summary>Its own instance: one mod holds the malformed meshes, built from NifInspectFixtures.BuildSyntheticSe plus
@@ -75,6 +84,7 @@ public sealed class MalformedMeshWorld : IDisposable
     public const string BlockEnd = @"meshes\hc926\blockend.nif";
     public const string UnknownBlock = @"meshes\hc926\unknownblock.nif";
     public const string HeaderCount = @"meshes\hc926\headercount.nif";
+    public const string NotANif = @"meshes\hc926\notanif.nif";
 
     /// <summary>The alpha property's real stored size in the authored mesh.</summary>
     public int AlphaSize { get; }
@@ -146,6 +156,7 @@ public sealed class MalformedMeshWorld : IDisposable
         // After the version line: file version (4), endian (1), user version (4), then the block count.
         BitConverter.GetBytes(int.MaxValue).CopyTo(header, Array.IndexOf(header, (byte)'\n') + 1 + 4 + 1 + 4);
         WriteMesh(meshMod, HeaderCount, header);
+        WriteMesh(meshMod, NotANif, System.Text.Encoding.ASCII.GetBytes("this is plainly not a NIF file, just ASCII text padding padding padding."));
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
