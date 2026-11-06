@@ -63,7 +63,8 @@ public static class AssetTools
                      "the one every FaceGen tool names: the NPC record is read, a Traits-templated NPC gives its " +
                      "template root's pair (a leveled template each member's, marked one of N), and an NPC with no " +
                      "pair (a race without FaceGenHead, ACBS flag 0x100, the Traits flag with no Template, a FormID " +
-                     "no plugin defines) is one error row with the reason. The folder is the defining master, never " +
+                     "no plugin defines) is an error row with the reason, one per reason: a leveled template's " +
+                     "pairless member or broken chain entry is its own row, beside the other members' pairs. The folder is the defining master, never " +
                      "the conflict winner. One half winning nowhere is also a dark face: the row shows it ABSENT, but " +
                      "the json's pair.differs and the to_file= pair_differs flag only two present halves with " +
                      "different owners, so a filter on that field misses it. A malformed FormID is one error row, " +
