@@ -247,6 +247,9 @@ internal sealed partial class AssetLayers
         var faces = new Dictionary<FormKey, NpcFaceAnswer>();
         foreach (var k in want)
         {
+            // A key whose plugin the index could not read is not one nothing defines: said with the plugin's reason.
+            if (reads.Peek(k).Body is null && pin.View.ExcludedPlugins.TryGetValue(k.ModKey.FileName, out var unread))
+            { faces[k] = new NpcFaceAnswer(k, Array.Empty<FaceRoot>(), Array.Empty<string>(), $"its plugin {k.ModKey.FileName} was not read: {unread}"); continue; }
             try { faces[k] = door.Of(k, reads.Get(k)); }
             catch (Exception ex) { faces[k] = new NpcFaceAnswer(k, Array.Empty<FaceRoot>(), Array.Empty<string>(), $"its record was not read: {ex.Message}"); }
         }
