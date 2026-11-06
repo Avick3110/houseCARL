@@ -66,8 +66,7 @@ public sealed class ListDoorSurfaceTests
     public void NoToolParameterIsAStringListOutsideTheDoor()
     {
         var stray = ToolMethods().SelectMany(m => m.GetParameters()
-                .Where(p => p.ParameterType != typeof(ListArg) && p.ParameterType != typeof(string)
-                            && typeof(IEnumerable<string>).IsAssignableFrom(p.ParameterType))
+                .Where(p => p.ParameterType != typeof(ListArg) && typeof(IEnumerable<string>).IsAssignableFrom(p.ParameterType))
                 .Select(p => $"{m.Name}.{p.Name}"))
             .ToList();
         Assert.Empty(stray);
