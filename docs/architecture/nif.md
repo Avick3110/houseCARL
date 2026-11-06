@@ -103,9 +103,12 @@ strings, and `nif_set` writes the string it is given (Pinned by: `NifOneReaderTe
 
 `NifService.Load` is the parse every mesh opens through: `Inspect`, `NifLinks.Read` and `nif_set`'s `Set`. `Inspect`
 and `Set` also share one structure read (`ReadStructure`), so a mesh that will not open gets the same sentence from
-both tools; `Set` adds " Nothing was written." after one full stop (Pinned by: `NifSetRefusalTests`). The write's two
-gates still load their own `NifFile` (the byte normalizer, its block slicer, the read-back): each parses bytes this
-call already opened or nifly itself saved, and keeps its own refusal sentences.
+both tools; `Set` adds " Nothing was written." after one full stop (Pinned by: `NifSetRefusalTests`). That is how
+`Set` opens the mesh, not every parse in it: after the edit, the two gates parse again with their own `new NifFile()`,
+each over bytes this call already opened or nifly itself saved. `VerifyBlockContent` loads the original to normalize
+it and has its own refusal sentences; its block slicer, `SliceBlocks`, loads both buffers again and returns no
+sentence, only no layout, which `VerifyBlockContent` refuses by name; `VerifyReadBack` reloads the written mesh and
+reads its structure with its own `Build`, not `ReadStructure`, under its own sentences.
 
 An `INiShader` widening is narrowed back on read: emissive is a Color3 on disk and the interface widens it to Color4,
 so the fourth component is a synthetic 0 that would render as a fully transparent emissive. RGB only, on read, on
