@@ -573,10 +573,10 @@ public sealed class FieldPredicateSet
     /// <summary>The token a fold is spelled with, for a message.</summary>
     static string FoldToken(Fold f) => PathFoldGrammar.Token(f);
 
-    /// <summary>Parse a generalized (non-formid) membership list; an all-FormKey list rides along pre-parsed, and a bare runtime FormID entry is resolved here.</summary>
     /// <summary>How the list door's refusals name an <c>in @&lt;file&gt;</c> operand.</summary>
     static string OperandLabel(string raw) => $"predicate '{raw}': the 'in'";
 
+    /// <summary>Parse a generalized (non-formid) membership list; an all-FormKey list rides along pre-parsed, and a bare runtime FormID entry is resolved here.</summary>
     static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, HashSet<FormKey>? Runtime, string? Error) ParseValueList(string raw, string operand, Func<string?, FormKey>? parseFormId, bool resolveRuntime)
     {
         string content;
@@ -588,7 +588,7 @@ public sealed class FieldPredicateSet
             content = text!;
             if (ResultArtifact.LooksLikeArtifact(content))
             {
-                var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content, "formid", OperandLabel(raw));
+                var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content, "formid", "the 'in' operand");
                 if (aerr is not null) return (null, null, null, null, $"predicate '{raw}': {aerr}");
                 artifact = demand;
                 content = string.Join("\n", tokens!);
@@ -644,7 +644,7 @@ public sealed class FieldPredicateSet
 
             if (ResultArtifact.LooksLikeArtifact(content))
             {
-                var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content, "formid", OperandLabel(raw));
+                var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content, "formid", "the 'in' operand");
                 if (aerr is not null) return (null, null, null, $"predicate '{raw}': {aerr}");
                 var aset = new HashSet<FormKey>();
                 var aorder = new List<(FormKey Key, string Raw)>();

@@ -300,9 +300,11 @@ public static class AssetTools
         if (wantFile || countsOnly)
             return Refuse("walk=true renders its nodes inline and spills them whole to a results file past max_chars; drop to_file= and counts_only=.");
         // Each FormID artifact, formids= and records= alike, is epoch-checked the same way the row lane checks one.
-        foreach (var d in new[] { idsIn.Demand, recordsIn.Demand })
-            if (d is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
-                return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
+        var demands = new[] { idsIn.Demand, recordsIn.Demand }.OfType<HousecarlCore.ArtifactDemand>().ToList();
+        if (demands.Count > 0 && svc.CaptureView().Stamp.Epoch is var epoch)
+            foreach (var demand in demands)
+                if (demand.Epoch != epoch)
+                    return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
         var asset_paths = pathsIn.Tokens;
         var formids = idsIn.Tokens;
         var door = FormIdDoor.For(svc);
