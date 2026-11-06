@@ -204,7 +204,7 @@ public static class AssetTools
         if (walk && links) return ToolAnswer.Refusal(json, ReadSentences.WalkWithLinks);
         // to_file= covers the whole walk, so limit= is ignored under it, as on the row lane.
         if (walk) return Walk(svc, pathsIn, underTokens, idsIn, provider, recordsIn, sourcesIn.Tokens, source_provider,
-                              wantFile ? RowWindow.All : window, wantFile ? toFile : null, counts_only, limit, json, cap);
+                              wantFile ? RowWindow.All : window, wantFile ? toFile : null, counts_only, json, cap);
 
         // The walk's own inputs, given without it, change nothing here: said, not dropped.
         var callNotes = new List<string>();
@@ -233,14 +233,7 @@ public static class AssetTools
         // the VFS, so an order whose plugins do not resolve must not stop the call.
         OrderStamp? order = null;
         string? noEpochBecause = null;
-        if (wantFile || idDemand is not null)
-        {
-            // What READING the order can throw, and nothing else: a held profile file, a denied read, an order with no
-            // active plugins. Anything else is a bug, and the sentence below would be false of one.
-            try { order = svc.CaptureView().Stamp; }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-            { noEpochBecause = Guard.Flatten(ex.Message); }
-        }
+        if (wantFile || idDemand is not null) (order, noEpochBecause) = TryStamp(svc);
         if (idDemand is { } demand)
         {
             if (noEpochBecause is not null)
@@ -292,10 +285,7 @@ public static class AssetTools
             if (!truncated) return ToolAnswer.Served(rendered);
             // SPEC §2.1.1: an over-ceiling read result is written whole to the results directory and the response names the
             // file. The stamp is taken only here, so an ordinary sweep still builds no record index.
-            if (order is null && noEpochBecause is null)
-                try { order = svc.CaptureView().Stamp; }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-                { noEpochBecause = Guard.Flatten(ex.Message); }
+            if (order is null && noEpochBecause is null) (order, noEpochBecause) = TryStamp(svc);
             using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
             var (auto, autoErr) = AssetArtifact.Write(data, reservation, "ceiling", order, Echo(), noEpochBecause);
             return ToolAnswer.Served(Inline(autoErr is null ? SpillState.Spilled(auto!, manifestOnly: false) : SpillState.WriteFailed(autoErr), out _));
@@ -308,11 +298,20 @@ public static class AssetTools
         return ToolAnswer.Served(json ? manifestOnly : RenderCap.Settle(manifestOnly, cap));
     });
 
+    /// <summary>The order's stamp for an artifact, or why it could not be read. What READING the order can throw, and
+    /// nothing else: a held profile file, a denied read, an order with no active plugins; anything else is a bug.</summary>
+    static (OrderStamp? Order, string? NoEpochBecause) TryStamp(LoadOrderService svc)
+    {
+        try { return (svc.CaptureView().Stamp, null); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        { return (null, Guard.Flatten(ex.Message)); }
+    }
+
     /// <summary>The walk=true lane: the selection's paths and the records= keys seed <see cref="LoadOrderService.AssetWalk"/>.
     /// The tool's transport checks have run: <paramref name="window"/> is legal, <paramref name="toFile"/> validated.</summary>
     static ToolAnswer Walk(LoadOrderService svc, ListRead pathsIn, string[]? under, ListRead idsIn, string? provider,
                        ListRead recordsIn, string[]? from_source, string? source_provider,
-                       RowWindow window, string? toFile, bool countsOnly, int limit, bool json, int cap)
+                       RowWindow window, string? toFile, bool countsOnly, bool json, int cap)
     {
         ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
         // Each FormID artifact, formids= and records= alike, is epoch-checked the same way the row lane checks one.
@@ -361,17 +360,12 @@ public static class AssetTools
         // from_source= is read only by a record seed; with none it is said, not dropped.
         if (from_source is { Length: > 0 } && recordsIn.Tokens is not { Length: > 0 } && formids is not { Length: > 0 })
             w = w with { Notes = w.Notes.Prepend(ReadSentences.FromSourceWithoutRecordSeed).ToList() };
-        if (countsOnly) return ToolAnswer.Served(AssetWalkWire.RenderCounts(w, selectorNotes, cap, json, limit));
+        // counts_only= refuses offset= and to_file= at the front door, so the window is limit= alone, capping the tables.
+        if (countsOnly) return ToolAnswer.Served(AssetWalkWire.RenderCounts(w, selectorNotes, cap, json, window.Limit));
 
-        (OrderStamp? Order, string? NoEpochBecause) Stamp()
-        {
-            try { return (svc.CaptureView().Stamp, null); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-            { return (null, Guard.Flatten(ex.Message)); }
-        }
         if (toFile is not null)
         {
-            var (fOrder, fNoEpoch) = Stamp();
+            var (fOrder, fNoEpoch) = TryStamp(svc);
             var (file, fileErr) = AssetWalkWire.Write(w, ArtifactTarget.Named(toFile), "to_file", fOrder, fNoEpoch);
             if (fileErr is not null) return ToolAnswer.Refusal(json, "error: " + fileErr);
             return ToolAnswer.Served(AssetWalkWire.Render(w, selectorNotes, cap, json, SpillState.Spilled(file!, manifestOnly: true), window, out _));
@@ -379,7 +373,7 @@ public static class AssetTools
         var rendered = AssetWalkWire.Render(w, selectorNotes, cap, json, null, window, out var cut);
         if (!cut) return ToolAnswer.Served(rendered);
         // SPEC §2.1.1, as the row lane does: the whole walk to the results directory, the response naming it.
-        var (order, noEpochBecause) = Stamp();
+        var (order, noEpochBecause) = TryStamp(svc);
         using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
         var (spill, spillErr) = AssetWalkWire.Write(w, reservation, "ceiling", order, noEpochBecause);
         return ToolAnswer.Served(AssetWalkWire.Render(w, selectorNotes, cap, json,
