@@ -67,8 +67,21 @@ public sealed class NpcFaceDoorWorld : IDisposable
         Directory.CreateDirectory(W.ModDir(BrokenMod));
         File.WriteAllText(Path.Combine(W.ModDir(BrokenMod), BrokenPlugin), "x");
         W.Bake(BrokenMod, Plain.FormKey);
+        var twinA = new SkyrimMod(ModKey.FromFileName("HcTwinA.esp"), SkyrimRelease.SkyrimSE);
+        Twin = twinA.Npcs.AddNew("HcTwin");
+        Twin.Race.SetTo(W.Race);
+        W.Write(twinA, TwinMod, false, W.RaceMod);
+        var twinB = new SkyrimMod(ModKey.FromFileName("HcTwinB.esp"), SkyrimRelease.SkyrimSE);
+        twinB.Npcs.GetOrAddAsOverride(Twin).Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        W.Write(twinB, TwinMod, false, W.RaceMod, twinA);
+        W.Bake(TwinMod, Twin.FormKey);
         Svc = W.Open();
     }
+
+    /// <summary>A donor-only NPC two plugins of one folder define: HcTwinA.esp with a pair, HcTwinB.esp's override
+    /// with the Traits flag and no Template, which has none.</summary>
+    public Npc Twin;
+    public const string TwinMod = "DoorTwins";
 
     /// <summary>A mod folder that holds a plugin which will not open, beside the plain NPC's pair.</summary>
     public const string BrokenMod = "DoorBroken", BrokenPlugin = "HcBroken.esp";
@@ -350,6 +363,17 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
         Assert.StartsWith("error:", refused);
         Assert.Contains("its record sources were not opened", refused);
         Assert.Contains(broken, refused);
+    }
+
+    /// <summary>Two plugins of one source_provider= folder defining a donor-only NPC differently: the first by
+    /// filename answers.</summary>
+    [Fact]
+    public void AFoldersPluginsAreReadInFilenameOrderFirstHit()
+    {
+        var npc = _w.Twin.FormKey;
+        var nif = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(npc) }, source_provider: NpcFaceDoorWorld.TwinMod);
+        Assert.DoesNotContain("no FaceGen pair", nif);
+        Assert.Contains(Mesh(npc), nif, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Each reason's fixture is one Mutagen names no FaceGen link for, and the plain one is one it does: a
