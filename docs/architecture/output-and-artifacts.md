@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-30
-covers: [src/housecarl-mcp/OutputLocations.cs, src/housecarl-mcp/PatchStemShadow.cs, src/housecarl-mcp/SeqTools.cs, src/housecarl-mcp/Artifacts.cs, src/housecarl-mcp/ResultsStore.cs, src/housecarl-core/ResultArtifact.cs, src/housecarl-core/AtomicFile.cs, src/housecarl-core/FileStamp.cs, src/housecarl-core/OrderStamp.cs, src/housecarl-core/PathArguments.cs]
+updated: 2026-11-06
+covers: [src/housecarl-mcp/OutputLocations.cs, src/housecarl-mcp/PatchStemShadow.cs, src/housecarl-mcp/SeqTools.cs, src/housecarl-mcp/Artifacts.cs, src/housecarl-mcp/ListInput.cs, src/housecarl-mcp/ListParams.cs, src/housecarl-mcp/ResultsStore.cs, src/housecarl-core/ResultArtifact.cs, src/housecarl-core/AtomicFile.cs, src/housecarl-core/FileStamp.cs, src/housecarl-core/OrderStamp.cs, src/housecarl-core/PathArguments.cs, src/housecarl-core/ListFile.cs]
 ---
 # Output locations and result artifacts: where a write lands, and the contracts that hold it
 
@@ -64,6 +64,26 @@ epochs, with deliberately NO stale-override parameter. The check happens after t
 inside the service, so the check and the answer read the same build. An artifact whose identity column is not the
 one the parameter takes is refused by name, and an identity that is not a FormID is not epoch-checked at all,
 because it names no record that could go stale.
+
+**Every list parameter goes through one list door.** A tool's list parameter is typed `ListArg`, not `string[]`,
+and its entries are read only through `ListDoor.Read`, so a new list takes `@file` without having to opt in. The
+spec objects' own lists (`plugins.names`, `project.fields`, `walk.seed_paths`, `walk.through`) go through the same
+door at the head of `housecarl_records`; the JSON-element lists (`ops`, `assignments`, create's `records`, place's
+`assets`) keep their JSON shape but read their file through the same reader. The door owns the whole convention:
+
+- an entry with a leading `@` stands in place of the whole list, so one beside inline entries is refused;
+- `@@x` is the literal `@x` on every list; lines inside a file are read as written;
+- the path must follow the `@`, be absolute, be readable and hold something; each failure is one sentence
+  (`HousecarlCore.ListFile`), the same on every list and on `where=`'s `in @<file>` operand;
+- the parameter's `ListKind` says what the file may hold: `formid` (lines or commas, or a `formid` artifact),
+  `path` (lines, a JSON array, or a `path` artifact), `plugin` and `name` (lines or a JSON array);
+- `references=`'s `!` before an `@file` entry negates every token the file holds.
+
+The door returns the `ArtifactDemand` and never checks it: each consumer checks it against its own capture. The
+asset walk checks `formids=` and `records=` each, `nif_inspect npc=` and `check formids=`/`seeds=` check theirs, and
+`forward`/`remove` still refuse a `formid` artifact outright. Two string-typed lists, `compile_script import_dirs=`
+and `nexus_check_updates mods=`, have their own separators and take no `@file`. Neither does an op's `values=`
+inside `ops=`, which is data written to a record.
 
 **Error rows are not identity-bearing.** A row carrying an `error` member documents a failure and does not name a
 record, so extraction SKIPS them: re-entering an artifact means "the records this file resolved". An all-error
@@ -150,6 +170,12 @@ prefix so a throwing lane and a returning lane can both use it.
   — the epoch mismatch refuses naming both epochs, with no override. `RecordsArtifactTests.AnArtifactDeclaringNoIdentityColumnRefusesReEntryByName`
   — an artifact with no identity column refuses re-entry by name. `RecordsScopeAtFileTests.AFormIdArtifactIsRefusedByItsIdentityInOneShortSentence`
   — an artifact whose identity column is not the one the parameter takes is refused by that identity in one sentence.
+- *Re-entering an artifact*, the list door: `ListDoorTests` — a file answers as the same list inline on every
+  list kind (`AWalkRecordsArtifactWalksTheSameNodesAsTheListInline` is #1284), a FormID artifact is epoch-checked on
+  the walk, `nif_inspect npc=` and `check`, `@@` is literal everywhere, and each file mistake is one sentence on
+  every list; `ListDoorSurfaceTests` that every `ListArg` parameter is published as an array of strings carrying
+  the `["@<absolute path>"]` sentence. *No test pins `copy` or `merge_plugins` reading a file into a write that
+  lands; both are pinned on a refusal reached through the file.*
 - *Re-entering an artifact*, error rows: pinned across `RecordsArtifactTests`' re-entry facts —
   `AMixedArtifactReEntersOnItsResolvedRowsWithNoWasItEditedMisdiagnosis` (error rows are skipped) and
   `AnAllErrorArtifactIsRefusedByItsRealCauseNeverByAccusingTheFile` (an all-error artifact refuses by its real cause).

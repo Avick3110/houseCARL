@@ -1,0 +1,1 @@
+- **Every list parameter takes `["@<absolute path>"]` in place of the list, including `asset_status walk=true records=`, `under=`, `nif_inspect mesh_paths=` and `check formids=`.** Check: pass a `records to_file=` artifact to `asset_status walk=true records=`.
