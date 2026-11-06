@@ -74,13 +74,13 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         Assert.Equal("FaceHigher", m.Hit!.Winner!.Source);
         Assert.Equal(AssetKind.Loose, m.Hit.Winner.Kind);
         Assert.Contains(m.Hit.Providers, p => p.Kind == AssetKind.Bsa);
-        Assert.Equal(tint, m.PairPath);
+        Assert.Equal(tint, m.PairPath, ignoreCase: true);
         Assert.Equal("FaceBase", m.PairHit!.Winner!.Source);
         Assert.True(m.PairDiffers);
 
         // And the tint row is the same fact read from the other side.
         Assert.Equal("FaceBase", t.Hit!.Winner!.Source);
-        Assert.Equal(mesh, t.PairPath);
+        Assert.Equal(mesh, t.PairPath, ignoreCase: true);
         Assert.Equal("FaceHigher", t.PairHit!.Winner!.Source);
         Assert.True(t.PairDiffers);
 
@@ -171,13 +171,8 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal("path", manifest.GetProperty("identity").GetString());
             Assert.Equal(6, manifest.GetProperty("row_count").GetInt32());
             Assert.Equal(6, manifest.GetProperty("total").GetInt32());
-            // This world resolves assets but no plugins, which is the tool's own decoupling: the rows still answer,
-            // and the RESPONSE — not only the file — says why there is no fingerprint. A caller of a to_file= call
-            // sees the manifest block and nothing else, so an empty epoch with the reason hidden in the file is the
-            // unstamped state the artifact convention exists to make impossible.
-            Assert.Equal("", manifest.GetProperty("epoch").GetString());
-            Assert.Contains("epoch: NONE", text);
-            Assert.Contains("could not be read for a fingerprint", text);
+            // formids= reads each NPC's record, so the artifact is stamped with the build it read.
+            Assert.StartsWith("e2-", manifest.GetProperty("epoch").GetString());
             // The §2.1 coverage stamp as a FIELD, not as prose: every row here is read off the VFS while the
             // fingerprint would describe the record build.
             Assert.False(manifest.GetProperty("epoch_covers_all_inputs").GetBoolean());

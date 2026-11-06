@@ -59,11 +59,14 @@ public sealed class PlaceInstance : IDisposable
         File.WriteAllText(Path.Combine(Prof, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=" + archiveList + "\r\n");
     }
 
-    /// <summary>One active placeholder plugin, Dummy.esp, shipped by <paramref name="host"/>, and the given mod list.</summary>
+    /// <summary>One active placeholder plugin, Dummy.esp, shipped by <paramref name="host"/> and defining an NPC at
+    /// 000800, after Dawnguard.esm in the game's Data folder defining <see cref="FacegenFormId"/>'s NPC, and the given
+    /// mod list.</summary>
     public void ProfileWithDummy(string host, params string[] modlist)
     {
-        File.WriteAllText(Path.Combine(Mod(host), "Dummy.esp"), "x");
-        Profile(new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, modlist);
+        FaceNpcPlugin.Write(Data, "Dawnguard.esm", 0x01A51A);
+        FaceNpcPlugin.Write(Mod(host), "Dummy.esp", 0x800);
+        Profile(new[] { "Dawnguard.esm", "Dummy.esp" }, new[] { "*Dawnguard.esm", "*Dummy.esp" }, modlist);
     }
 
     /// <summary>A mod folder under mods\, created if absent.</summary>
