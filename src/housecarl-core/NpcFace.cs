@@ -107,7 +107,7 @@ public sealed class NpcFace(Func<FormKey, IMajorRecordGetter?> fetch, string uns
         return got switch
         {
             IRaceGetter r => (RaceCache(r), r, null),
-            null => (null, null, $"its race {FormIdToken.Of(fk)} was not read: no plugin in this order or the record sources defines it"),
+            null => (null, null, $"its race {FormIdToken.Of(fk)} was not read: {unset}"),
             _ => (null, null, $"its race link {FormIdToken.Of(fk)} names a {RecordNaming.StripOverlay(got.GetType().Name)}, not a race"),
         };
     }
