@@ -43,7 +43,7 @@ public static class CheckTools
              ".nif/.dds still resolve only through mod folders MO2 has enabled, so a script shipped only inside the " +
              "not-yet-enabled mod reads unverifiable, not clean, and that mod's own facegen files are not seen, so " +
              "its NPCs read as absent bakes. Facegen resolves an NPC's race against the active order only, so NPCs " +
-             "of a race the file itself adds are counted as race-unresolved, not classified. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
+             "of a race the file itself adds are counted as race-unresolved, not classified." + ListText.Plugins)]
             ListArg? plugins = null,
         [Description("Optional. Record types to sweep — signatures ('WEAP') or catalog names ('Weapon'); several types sweep their union. The cheapest scope: records of other types are skipped before any link walk or .pex read." + ListText.Names)]
             ListArg? types = null,
@@ -59,7 +59,7 @@ public static class CheckTools
              "filename with its extension ('CoolMod.esp') or a group: base_masters (the five the game ships with) or " +
              "implicit (every plugin the order force-loads without a plugins.txt line: Creation Club plugins, " +
              "_ResourcePack.esl, and the base masters). A group member not in this order is dropped. It does not " +
-             "change the vanilla baseline the errors family splits out (see limit=), which is always the base-master set. Takes [\"@<absolute path>\"] in place of the list, a file with one entry per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.")]
+             "change the vanilla baseline the errors family splits out (see limit=), which is always the base-master set." + ListText.Plugins)]
             ListArg? exclude = null,
         [Description("Optional. Which finding families and classes to run. Families: " +
              "'errors', 'scripts', 'dialogue', 'facegen'. Classes: 'dangling', 'missing_masters' (errors); " +
