@@ -26,7 +26,8 @@ byte is masked to `00` because the file already lives in the defining plugin's o
 
 Which pair an NPC's face is drawn from is one answer, and every tool gives the same one: `housecarl_asset_status`
 `formids=` and `walk=true`, `housecarl_nif_inspect npc=`, `housecarl_place formid=` and this check. The pair is
-Mutagen's resolved FaceGen link (the transform above), asked on the NPC its face is drawn from. houseCARL adds two
+Mutagen's resolved FaceGen link (the path above, spelled `Meshes\`/`Textures\`), asked on the NPC its face is drawn
+from. houseCARL adds two
 things Mutagen does not do:
 
 - **The Traits template walk.** An NPC whose `Template` is set with the `Traits` flag draws its face from the first
