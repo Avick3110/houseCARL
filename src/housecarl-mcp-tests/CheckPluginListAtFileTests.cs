@@ -100,7 +100,8 @@ public sealed class CheckPluginListAtFileTests : IClassFixture<CheckWorldFixture
         var text = CheckTools.CheckTool(W.Svc, plugins: new[] { "@" + Path.Combine(W.Root, "missing-" + Guid.NewGuid().ToString("N") + ".txt") });
 
         Assert.StartsWith("error:", text);
-        Assert.Contains("could not read plugins= list file", text);
+        Assert.Contains("plugins= list file", text);
+        Assert.Contains("could not be read", text);
     }
 
     [Fact]

@@ -283,7 +283,7 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
         {
             ("@", "'@' names a list file but no path follows it"),
             ("@C:relative.txt", "list file 'C:relative.txt' is not an absolute path"),
-            ("@" + missing, "could not read {0} list file"),
+            ("@" + missing, "{0} list file '" + missing + "' could not be read"),
             ("@" + empty, "list file '" + empty + "' is empty"),
         };
         foreach (var (entry, sentence) in cases)

@@ -48,7 +48,7 @@ public static class ListFile
             return (null, null, notAbsolute);
         string content;
         try { content = File.ReadAllText(path); }
-        catch (Exception ex) { return (null, null, $"could not read {label} list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { return (null, null, $"{label} list file '{path}' could not be read — {ex.GetType().Name}: {ex.Message}"); }
         if (string.IsNullOrWhiteSpace(content.Trim('﻿')))
             return (null, null, Empty(label, path));
         return (path, content, null);
