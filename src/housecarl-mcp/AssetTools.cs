@@ -191,7 +191,7 @@ public static class AssetTools
             Artifacts.ExpandListInput(formids ?? Array.Empty<string>(), "formids");
         if (ferr2 is not null) return ToolAnswer.Refusal(json, ferr2);
 
-        // The FormID door parses the plugin-qualified form without touching the index, so an ordinary sweep reads no record.
+        // The FormID door parses the plugin-qualified form without touching the index; AssetStatus then reads each NPC, its templates and races.
         var door = FormIdDoor.For(svc);
         var seeds = new List<FaceGenSeed>(idTokens?.Length ?? 0);
         foreach (var raw in idTokens ?? Array.Empty<string>())
