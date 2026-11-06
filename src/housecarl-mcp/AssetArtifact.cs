@@ -89,11 +89,8 @@ internal static class AssetArtifact
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
         BatchRender.AppendRootFailures(sb, d.RootFailures, "an asset", room);
         BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
-        if (d.SelectorNotes is { Count: > 0 } notes)
-        {
-            sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
-            BatchRender.AppendLines(sb, notes, "selector(s)", room);
-        }
+        AssetWire.AppendSelectorNotes(sb, d.SelectorNotes, room);
+        AssetWire.AppendNotes(sb, d.Notes, room);
         Artifacts.AppendSpillText(sb, spill);
         return sb.ToString();
     }

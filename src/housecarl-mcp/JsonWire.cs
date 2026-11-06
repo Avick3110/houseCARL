@@ -2842,6 +2842,7 @@ static class JsonWire
                                + WriteCappedStringArray(w, ms, "warnings", d.Warnings, budget);
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
             else caveatsOmitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
+            if (d.Notes is { Count: > 0 }) caveatsOmitted += WriteCappedStringArray(w, ms, "notes", d.Notes, budget);
 
             w.WriteStartArray("results");
             int rendered = 0;
@@ -2889,6 +2890,7 @@ static class JsonWire
                         + WriteCappedStringArray(w, ms, "warnings", d.Warnings, caveatBudget);
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
             else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, caveatBudget);
+            if (d.Notes is { Count: > 0 }) omitted += WriteCappedStringArray(w, ms, "notes", d.Notes, caveatBudget);
 
             WriteCensusCounters(w, c);
             // The layer tables through the shared axes: each frame is reserved before its rows are offered to it.
@@ -2936,6 +2938,7 @@ static class JsonWire
             if (d.RootFailures.Count > 0) w.WriteNumber("root_failures_omitted", d.RootFailures.Count);
             w.WriteNumber("warnings_omitted", d.Warnings.Count);
             w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
+            if (d.Notes is { Count: > 0 }) w.WriteNumber("notes_omitted", d.Notes.Count);
             WriteCensusCounters(w, c);
             // Read at the same depth the render writes the axis at, so the two measure one object.
             var depths = new JsonUnitDepths(w.CurrentDepth);
@@ -2980,6 +2983,7 @@ static class JsonWire
                         + WriteCappedStringArray(w, ms, "warnings", d.Warnings, cap);
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
             else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, cap);
+            if (d.Notes is { Count: > 0 }) omitted += WriteCappedStringArray(w, ms, "notes", d.Notes, cap);
             w.WriteBoolean("truncated", omitted > 0);
             Artifacts.WriteSpillJson(w, spill);
             WriteCapOverrun(w, ms, cap);
@@ -2999,8 +3003,8 @@ static class JsonWire
             w.WriteNumber("next_limit", c.NextLimit);
             w.WriteNumber("next_offset", c.Offset + c.Rendered);
         }
-        if (everySentence || (c.Remaining == 0 && c.Total > 0 && c.Offset >= c.Total))
-            w.WriteString("offset_note", $"offset={c.Offset} is past the end of the selection ({c.Total} path(s)) — the last page starts before it.");
+        if (everySentence || TransportAccounting.PastEnd(c))
+            w.WriteString("offset_note", TransportAccounting.PastEndSentence(c, "path(s)"));
         if (everySentence || c.Truncated > 0 || caveatsCut)
             w.WriteString("truncated_note",
                 $"max_chars={cap} cut content from this document — accounting.truncated names the resolved path(s) " +
@@ -3022,6 +3026,7 @@ static class JsonWire
             if (d.RootFailures.Count > 0) w.WriteNumber("root_failures_omitted", d.RootFailures.Count);
             w.WriteNumber("warnings_omitted", d.Warnings.Count);
             w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
+            if (d.Notes is { Count: > 0 }) w.WriteNumber("notes_omitted", d.Notes.Count);
             TransportAccounting.WriteJson(w, widest);
             w.WriteBoolean("truncated", true);
             WriteAssetAdvice(w, widest, cap, caveatsCut: true, everySentence: true);
@@ -3384,6 +3389,8 @@ static class JsonWire
         SweepSubject.FaceGenModRows => "facegen_by_owning_mod",
         SweepSubject.AssetWinnerRows => "winners_by_layer",
         SweepSubject.AssetShadowedRows => "shadowed_by_layer",
+        SweepSubject.AssetWalkEdgeRows => "nodes_by_edge",
+        SweepSubject.AssetWalkStandingRows => "nodes_by_standing",
         _ => s.ToString(),
     };
 }

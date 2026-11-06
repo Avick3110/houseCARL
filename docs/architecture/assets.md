@@ -448,14 +448,34 @@ quest), or one with no winner, is never read.
 
 Each file node then resolves: from-source when `source_provider=` ships it (`AssetSourceSelection`, so a disabled mod
 answers off its own disk), elsewhere when another provider wins it (named), present with no source named, or absent;
-a string that names no Data path is an error node. A present `.nif` walks on through its links, read off the copy
-that answers it, and a `.pex` through its parent class. FaceGen, `.seq` and voice nodes are **keyed**: they sit at a
+a string that names no Data path is an error node. Every node, an error node too, enters through one door (`AddFile`):
+one row per path, counted against the file bound. A present `.nif` walks on through its links, read off the copy
+that answers it, and a `.pex` through its parent class; a mesh whose links or a script whose parent cannot be read is
+a walk note on that file, not a second row at its path. FaceGen, `.seq` and voice nodes are **keyed**: they sit at a
 path named by the defining plugin and id, so a copy that keeps the FormKey places them as walked, and a renumbering
 one carries them through the carry above. With a source, the response ends with the from-source set as the
 `assets=` array `place` takes in one call. The walk is bounded by the `asset_status` path bound and 2,000 records,
 each said when reached. A walk past `max_chars`, text or json, is written whole to a results-directory file (one row
 per node, SPEC §2.1.1) that the response names; when the `assets=` array itself would not fit, the response points at
 the file's `from_source` rows instead. Out, and said: reverse file edges, SKSE configs and behaviour files.
+
+The walk goes through the tool's one front door: the row lane's transport checks (a negative `limit=`/`offset=`, a
+bad `to_file=` path, `to_file=` with `offset=` or `counts_only=`, `counts_only=` with `links=` or `offset=`) run before
+either lane, in the same words, and `links=` with `walk=true` is refused by name (the walk already follows a mesh's
+links as nodes). Then:
+
+- **`limit=`/`offset=`** window the node list only (`RowWindow.Apply` over the nodes, in `AssetWalkWire`). The walk
+  runs whole; the header, notes, standing counts, place set and any spill read every node. The `max_chars` cut is
+  counted against the window, so a window that fits spills nothing. A paged answer ends with the row lane's
+  `[accounting]` line (json `accounting`, `next_limit`/`next_offset`, `offset_note` past the end); an unpaged one has
+  none, so a default walk is the answer it always was (DECISIONS 2026-11-06 (25)).
+- **`to_file=`** writes every node to the named file, the spill's own rows (manifest reason `to_file`), and renders
+  the manifest only. `limit=` is ignored under it.
+- **`counts_only=`** runs the walk whole and returns the header, alarms, notes, the standing line and two group-by
+  tables, nodes by edge and nodes by standing (`limit=` caps their rows); the place set as its count; no nodes, no spill.
+- **Notes, not silence.** `from_source=` or `source_provider=` without `walk=true`, and `from_source=` on a walk
+  with no `records=` and no `formids=` seed, are each one note: on the row lane under `[!] notes`, counted in
+  `notes=`; on the walk first among its walk notes.
 
 ### One FaceGen answer per NPC
 

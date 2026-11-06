@@ -82,17 +82,23 @@ internal sealed partial class AssetLayers
         int cap = MaxAssetPaths;
         bool truncated = false, filesCut = false;
 
+        // Every node enters here, an error node too: one row per path, counted against the file cap.
+        bool Admit(string path)
+        {
+            if (!seen.Add(path)) return false;
+            if (nodes.Count >= cap) { truncated = filesCut = true; return false; }
+            return true;
+        }
+        void AddError(string raw, string edge, string pulledBy, string error, bool keyed = false, string? note = null)
+        {
+            if (Admit(raw)) nodes.Add(ErrorNode(raw, edge, pulledBy, error) with { Keyed = keyed, Note = note });
+        }
         void AddFile(string raw, string edge, string pulledBy, bool keyed = false, string? note = null)
         {
             string rel;
             try { rel = AssetResolver.ValidateRelPath(raw); }
-            catch (ArgumentException ex)
-            {
-                nodes.Add(ErrorNode(raw, edge, pulledBy, ex.Message) with { Keyed = keyed, Note = note });
-                return;
-            }
-            if (!seen.Add(rel)) return;
-            if (nodes.Count >= cap) { truncated = filesCut = true; return; }
+            catch (ArgumentException ex) { AddError(raw, edge, pulledBy, ex.Message, keyed, note); return; }
+            if (!Admit(rel)) return;
             nodes.Add(Stand(view, rel, edge, pulledBy, keyed, note, sourceProvider));
             queue.Enqueue(nodes.Count - 1);
         }
@@ -122,15 +128,16 @@ internal sealed partial class AssetLayers
                     foreach (var l in links)
                     {
                         if (l.DataPath is { } d) AddFile(d, l.Kind.Token(), n.Path);
-                        else nodes.Add(ErrorNode(l.Raw, l.Kind.Token(), n.Path, l.Error!));
+                        else AddError(l.Raw, l.Kind.Token(), n.Path, l.Error!);
                     }
                 }
                 else if (n.Path.EndsWith(".pex", StringComparison.OrdinalIgnoreCase))
                 {
+                    // A parent that cannot be read is a note on the script, as a mesh's unread links are, not a second row at its path.
                     var (bytes, readErr) = view.ReadSource(n.Copy);
-                    if (bytes is null) { nodes.Add(ErrorNode(n.Path, "parent", n.Path, $"its parent class was not read — {readErr ?? "could not read the script bytes."}")); continue; }
+                    if (bytes is null) { notes.Add($"{n.Path}: its parent class was not read — {readErr ?? "could not read the script bytes."}"); continue; }
                     try { if (AssetWalkEdges.ParentPex(bytes) is { } parent) AddFile(parent, "parent", n.Path); }
-                    catch (Exception ex) { nodes.Add(ErrorNode(n.Path, "parent", n.Path, $"its parent class was not read — {ex.Message}")); }
+                    catch (Exception ex) { notes.Add($"{n.Path}: its parent class was not read — {ex.Message}"); }
                 }
             }
         }

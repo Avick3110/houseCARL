@@ -51,8 +51,12 @@ public sealed record AssetStatusData(
     int Offset = 0,
     int Limit = 0,
     string? Refusal = null,
-    string? Provider = null)
+    string? Provider = null,
+    IReadOnlyList<string>? Notes = null)
 {
+    /// <summary>The call's own notes (an input given that this lane does not use), counted in the accounting's notes=.</summary>
+    public int NoteCount => (SelectorNotes?.Count ?? 0) + (Notes?.Count ?? 0);
+
     /// <summary>How many paths the selection named — <see cref="Results"/>'s own count when nothing paged.</summary>
     public int Selected => Total < 0 ? Results.Count : Total;
 
