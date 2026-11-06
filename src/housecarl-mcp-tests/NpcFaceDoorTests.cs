@@ -395,6 +395,27 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
         if (sentence == NpcFace.Unset) Assert.DoesNotContain(AssetLayers.RecordSourcesUnset, text);
     }
 
+    /// <summary>A walk whose from_source= is one plugin, no 'winner': a formids= seed nothing defines gets the record
+    /// sources' sentence, beside a donor seed that gives the walk a seed.</summary>
+    [Fact]
+    public void APluginOnlyFromSourceGivesTheRecordSourcesSentence()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Unset), Id(_w.Donor.FormKey) }, walk: true, from_source: new[] { "HcFaceDonor.esp" });
+        Assert.Contains($"formids '{Id(_w.Unset)}': no FaceGen pair — {AssetLayers.RecordSourcesUnset}", text);
+    }
+
+    /// <summary>A walk's formids= seed in the order, with a from_source= that starts with 'winner' and then names a
+    /// plugin nothing ships: the seed keeps its pair, since the winners answer it and the sources are never opened.</summary>
+    [Fact]
+    public void AWinnerFirstFromSourceOpensNothingForAnInOrderSeed()
+    {
+        var npc = _w.Plain.FormKey;
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(npc) }, walk: true, from_source: new[] { "winner", "HcNoSuchPlugin.esp" });
+        Assert.DoesNotContain("no FaceGen pair", text);
+        Assert.DoesNotContain("its record sources were not opened", text);
+        Assert.Contains(Mesh(npc), text, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Each reason's fixture is one Mutagen names no FaceGen link for, and the plain one is one it does: a
     /// Mutagen bump that moves its gate fails here instead of leaving a reason that is no longer true.</summary>
     [Fact]
