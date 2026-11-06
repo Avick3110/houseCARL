@@ -78,7 +78,7 @@ public sealed class DryRunGuardManifestTests : IDisposable
     public void AnUnreadableManifestRefusesNamingThePath()
     {
         var r = AssertRefusedNamedAndNothingWritten(
-            () => ApplyTools.Apply(_w.Svc, ops: At(Path.Combine(_w.ManifestDir, "no-such-manifest.json"))), "could not read");
+            () => ApplyTools.Apply(_w.Svc, ops: At(Path.Combine(_w.ManifestDir, "no-such-manifest.json"))), "could not be read");
         Assert.Contains("no-such-manifest.json", r);
     }
 
