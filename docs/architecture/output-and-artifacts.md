@@ -74,12 +74,17 @@ door at the head of `housecarl_records`; the JSON-element lists (`ops`, `assignm
 - an entry with a leading `@` stands in place of the whole list, so one beside inline entries is refused;
 - `@@x` is the literal `@x` as an inline entry, except after `references=`' `!` (`!@@x` stays as written); the
   JSON-element lists' bare-string spelling (`ops="@@x"`) is a file path, never an entry;
-- the path must follow the `@`, be absolute, be readable and hold something; each failure is one sentence
-  (`HousecarlCore.ListFile`), the same on every list and on `where=`'s `in @<file>` operand;
+- the path must follow the `@` and be absolute, and the file must be readable and not blank; each of those failures
+  is one sentence (`HousecarlCore.ListFile`), the same on every list and on `where=`'s `in @<file>` operand. A file
+  that is not blank but parses to no entry (separators only, or `[]`) gets its reader's own sentence: the door's
+  `ListFile.Empty` on most lists, `ListParams`' empty-array sentence on the JSON-element lists, and the operand's
+  own on `in @<file>`;
 - the parameter's `ListKind` says what the file may hold: `formid` (lines or commas, or a `formid` artifact),
-  `path` (lines, a JSON array, or a `path` artifact), `plugin` and `name` (lines or a JSON array); a file opening
-  with `[` that parses is read as a JSON array, its blank elements dropped, and any other file as lines, each
-  trimmed of double quotes, spaces and tabs, blank lines dropped;
+  `path` (lines, a JSON array, or a `path` artifact), `plugin` and `name` (lines or a JSON array). A `formid` file
+  is split on commas and line breaks, each entry trimmed of brackets, quotes, spaces and tabs, empties dropped, and
+  never parsed as JSON. A `path`, `plugin` or `name` file opening with `[` that parses is read as a JSON array, each
+  element trimmed of whitespace and blank ones dropped, and any other such file as lines, each trimmed of double
+  quotes, spaces and tabs, blank lines dropped;
 - `references=`'s `!` before an `@file` entry negates every token the file holds.
 
 The door returns the `ArtifactDemand` and never checks it: each consumer checks it against its own capture. The
