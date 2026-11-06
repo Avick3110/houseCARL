@@ -486,7 +486,8 @@ The door reads each NPC, template and race through the lane's own record sources
 per lane): the active order's winners, and where the lane reads plugins off the order, those too. The walk reads
 `from_source=` in its order for `records=` and `formids=` seeds alike (`MemberReads.Through`); `place formid=` reads
 the `into=` patch's plugins after the winners, so a clone a copy wrote there places by formid before it is enabled;
-`nif_inspect npc=` reads the plugins a `source_provider=` mod folder ships, after the winners. `asset_status formids=`
+`nif_inspect npc=` reads the plugins a `source_provider=` mod folder ships, after the winners. A folder's plugins are
+read by filename, first hit. `asset_status formids=`
 and the check read the winners alone. A key none of them defines gets the lane's own sentence (`FaceSources.Unset`):
 "no plugin in this order defines it", or that order and the sources it also read. Any other not-yet-enabled NPC's
 file is placed by `path=`.
@@ -646,7 +647,8 @@ provided either; the generic lane does not, because it legitimately answers for 
   it as templated; a leveled-template NPC names each member, one of N, on `formids=`, the walk and `npc=`, and
   `place` refuses it; a donor-only NPC gives its pair through the walk's `from_source=` and `npc=`'s
   `source_provider=` (`ADonorOnlyNpcGivesItsPairThroughTheLanesOwnSources`), and a clone in an unenabled `into=`
-  patch places by formid (`CopySourceFolderReadbackTests`); the pair is Mutagen's link
+  patch places by formid (`CopySourceFolderReadbackTests`); two plugins of one folder defining an NPC are read by
+  filename, first hit (`AFoldersPluginsAreReadInFilenameOrderFirstHit`); the pair is Mutagen's link
   (`ThePairIsSpelledAsMutagensLink`); each no-pair input is one reason on every lane, and Mutagen names no link for
   its fixture; no reason calls Mutagen's gate a bug; the check counts each exclusion by reason.
   `NpcFaceUnreadOrderTests` — a plugin the index could not read, and an order that cannot be read, are each row's
