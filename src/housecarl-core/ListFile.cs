@@ -33,7 +33,7 @@ public static class ListFile
 
     /// <summary>The refusal for a list file that holds no entry.</summary>
     public static string Empty(string label, string path)
-        => $"{label} list file '{path}' is empty — put one entry per line in it, or pass the list inline.";
+        => $"{label} list file '{path}' is empty — write the list into it, or pass the list inline.";
 
     /// <summary>Read the file an '@' entry names: the path must follow the '@', be absolute, be readable and hold
     /// something; each failure is one sentence naming <paramref name="label"/>.</summary>
