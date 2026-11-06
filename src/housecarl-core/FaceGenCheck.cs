@@ -129,8 +129,8 @@ public static class FaceGenCheck
             // names no pair for, counted by the reason.
             // The flag alone says the face is a template root's, so the chain is not walked for an answer thrown away.
             if (NpcFace.DrawsFromTemplate(npc)) { templated++; return; }
-            var face = faces.Of(fk, npc);
-            if (face.Roots is not [{ } own] || own.Root != fk) { templated++; return; }
+            // With no Traits template the NPC is its own one root.
+            var own = faces.Of(fk, npc).Roots.Single();
             switch (own.Gap)
             {
                 case FaceGap.None: Classify(fk, body, winnerPlugin, offOrderFile, order, own.Mesh!, own.Tint!); return;
