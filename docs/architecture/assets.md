@@ -474,9 +474,10 @@ reason, plus the chain's errors:
   the walk (`MemberReads.Templates`), `NpcFace.Prefetch` reads each hop's templates and the roots' races in rounds,
   and the memo (`RoundReads`, `MemberReads`) keeps each key's record or its exception, so the door reads nothing
   after the prefetch. The check does not prefetch: it reads each race the first time the door asks, a round of one
-  through `RoundReads.Get`. On `formids=`, `npc=` and `place` only, an NPC key whose plugin is in the view's
-  excluded set says that plugin was not read rather than "no plugin defines it"; a template or race there, and
-  every key on the check and the walk, gets the door's not-found sentence.
+  through `RoundReads.Get`. On `formids=` (the walk's seeds too, read through `Faces`), `npc=` and `place` only, an
+  NPC key whose plugin is in the view's excluded set says that plugin was not read rather than "no plugin defines
+  it"; a template or race there, one a walk's `records=` seed reaches, and every key on the check gets the door's
+  not-found sentence.
 
 Each lane shows the answer in its own shape: a row per root path with `face_note` ("the face of template root X",
 ", one of N"), an error row per reason (`no FaceGen pair — …`), a walk note, a `place` refusal (several roots, or no
