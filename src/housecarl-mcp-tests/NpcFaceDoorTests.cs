@@ -57,6 +57,8 @@ public sealed class NpcFaceDoorWorld : IDisposable
         BothGaps.Configuration.Flags |= NpcConfiguration.Flag.UseTemplate;
         NotNpc = mod.Keywords.AddNew("HcNotNpc").FormKey;
         Unset = new FormKey(mod.ModKey, 0xABCDE);
+        RaceUnset = mod.Npcs.AddNew("HcRaceUnset");
+        RaceUnset.Race.SetTo(new FormKey(mod.ModKey, 0xABCDF));
         W.Write(mod, Mod, true, W.RaceMod);
         foreach (var n in Npcs) W.Bake(Mod, n.FormKey);
         var donor = new SkyrimMod(ModKey.FromFileName("HcFaceDonor.esp"), SkyrimRelease.SkyrimSE);
@@ -82,6 +84,9 @@ public sealed class NpcFaceDoorWorld : IDisposable
     /// with the Traits flag and no Template, which has none.</summary>
     public Npc Twin;
     public const string TwinMod = "DoorTwins";
+
+    /// <summary>An NPC whose race nothing defines, outside <see cref="Npcs"/>.</summary>
+    public Npc RaceUnset;
 
     /// <summary>A mod folder that holds a plugin which will not open, beside the plain NPC's pair.</summary>
     public const string BrokenMod = "DoorBroken", BrokenPlugin = "HcBroken.esp";
@@ -374,6 +379,20 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
         var nif = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(npc) }, source_provider: NpcFaceDoorWorld.TwinMod);
         Assert.DoesNotContain("no FaceGen pair", nif);
         Assert.Contains(Mesh(npc), nif, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>One walk's formids= and records= seeds get one not-found sentence: the order's alone when every
+    /// from_source= element is the winner, the record sources' otherwise.</summary>
+    [Theory]
+    [InlineData(new[] { "winner" }, NpcFace.Unset)]
+    [InlineData(new[] { "HcFaceDonor.esp", "winner" }, AssetLayers.RecordSourcesUnset)]
+    public void AWalksFormidsAndRecordsSeedsShareOneNotFoundSentence(string[] fromSource, string sentence)
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Unset) }, walk: true,
+                                          records: new[] { Id(_w.RaceUnset.FormKey) }, from_source: fromSource);
+        Assert.Contains($"formids '{Id(_w.Unset)}': no FaceGen pair — {sentence}", text);
+        Assert.Contains($"its race {Id(new FormKey(_w.Unset.ModKey, 0xABCDF))} was not read: {sentence}", text);
+        if (sentence == NpcFace.Unset) Assert.DoesNotContain(AssetLayers.RecordSourcesUnset, text);
     }
 
     /// <summary>Each reason's fixture is one Mutagen names no FaceGen link for, and the plain one is one it does: a
