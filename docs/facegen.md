@@ -81,8 +81,9 @@ findings=["facegen"]`'s job, using the table below.
 
 The check leaves out, and counts by reason in its header, every NPC whose one answer is not its own pair: a
 Traits-templated NPC, whose face is its template root's bake (`housecarl_asset_status formids=` names that pair),
-and each NPC with a reason above — a race without `FaceGenHead`, a race not read, the `Traits` flag with no
-`Template`, and `ACBS` flag `0x100`. None is ever a finding.
+and each NPC with a reason above — a race without `FaceGenHead`, the `Traits` flag with no `Template`, and `ACBS`
+flag `0x100`, each its own count, and one count (`npcs_excluded_race_unresolved`) for the rest: no race, a race not
+read, or no pair for another reason. None is ever a finding.
 
 The Creation Kit does not bake four kinds of NPC (measured on the vanilla masters, 2026-09-26): a Traits-templated
 NPC (2 of 2,464 baked), one on a race without `FaceGenHead` (1 of 1,940), a CharGen face preset (the

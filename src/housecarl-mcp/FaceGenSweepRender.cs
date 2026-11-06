@@ -18,7 +18,7 @@ internal static class FaceGenSweepRender
           .Append(r.NpcsTemplated + r.NpcsNoFaceGenRace + r.NpcsRaceUnresolved + r.NpcsUseTemplateFlag + r.NpcsTraitsNoTemplate)
           .Append(" excluded (").Append(r.NpcsTemplated).Append(" Template+Traits, ")
           .Append(r.NpcsNoFaceGenRace).Append(" on a race with no FaceGenHead flag, ")
-          .Append(r.NpcsRaceUnresolved).Append(" whose race could not be read, ")
+          .Append(r.NpcsRaceUnresolved).Append(" with no race, a race not read or no pair for another reason, ")
           .Append(r.NpcsUseTemplateFlag).Append(" with ACBS flag 0x100, ")
           .Append(r.NpcsTraitsNoTemplate).Append(" with the Traits flag and no Template; Mutagen names no face for the last two) · ")
           .Append(r.FilesSeen).Append(" facegen file(s) on disk · ")
