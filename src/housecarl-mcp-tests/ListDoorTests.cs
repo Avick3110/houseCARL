@@ -197,6 +197,18 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
         Same(inline, ApplyTools.Apply(_w.Svc, bundle: new[] { Lines(paths) }, assignments: assignments, dry_run: true));
     }
 
+    /// <summary>A bundle= file drives a dry run that would write: every path it holds is copied, the first included.</summary>
+    [Fact]
+    public void ABundleFileCopiesEveryPathItHolds()
+    {
+        var assignments = System.Text.Json.JsonSerializer.SerializeToElement(new[] { new { target = _w.Id("HcWalkMid"), from = _w.Id("HcWalkHero") } });
+        var file = ApplyTools.Apply(_w.Svc, bundle: new[] { Lines("Height", "Weight") }, assignments: assignments, dry_run: true);
+        Assert.Contains("2 edits would apply", file);
+        Assert.Contains("CopyFrom Height", file);
+        Assert.Contains("CopyFrom Weight", file);
+        Same(ApplyTools.Apply(_w.Svc, bundle: new[] { "Height", "Weight" }, assignments: assignments, dry_run: true), file);
+    }
+
     /// <summary>A to_file= artifact's manifest echoes an under= file as '@path', not the selectors it held.</summary>
     [Fact]
     public void AnUnderFileIsEchoedAsItsPathInTheArtifactManifest()
