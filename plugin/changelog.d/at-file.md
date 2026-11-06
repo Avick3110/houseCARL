@@ -1,1 +1,2 @@
 - **Every list parameter takes `["@<absolute path>"]` in place of the list, including `asset_status walk=true records=`, `under=`, `nif_inspect mesh_paths=` and `check formids=`.** Check: pass a `records to_file=` artifact to `asset_status walk=true records=`.
+- **A `bundle=` file may now hold one field path per line as well as a JSON array; an inline `@@x` is the literal `@x` on every list; and `ops=`, `assignments=` and `bundle=` refuse a mixed, path-less or empty `@file` in one wording.** Check: pass `apply bundle=["@<file>"]` with one path per line.
