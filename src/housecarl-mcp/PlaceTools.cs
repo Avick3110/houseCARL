@@ -103,13 +103,13 @@ public static class PlaceTools
         // The face door's line for a destination that is a template root's pair, said on its row.
         var faceNotes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var door = svc.OpenWriteFormIdDoor();
-        var faces = new Dictionary<FormKey, (NpcFaceAnswer?, string?)>();
-        (NpcFaceAnswer?, string?) FaceOf(FormKey fk)
-        {
-            if (faces.TryGetValue(fk, out var had)) return had;
-            var (got, noOrder) = svc.NpcFaces(new[] { fk });
-            return faces[fk] = (got?.GetValueOrDefault(fk), noOrder);
-        }
+        // Every formid member's face in one batched read; a bad formid is refused by MapTarget below.
+        var faceKeys = new List<FormKey>();
+        foreach (var a in assets)
+            if (!string.IsNullOrWhiteSpace(a.Formid))
+                try { faceKeys.Add(door.Parse(a.Formid)); } catch (Exception) { /* refused per member below */ }
+        var (faces, noOrder) = faceKeys.Count == 0 ? (null, null) : svc.NpcFaces(faceKeys);
+        (NpcFaceAnswer?, string?) FaceOf(FormKey fk) => (faces?.GetValueOrDefault(fk), noOrder);
         var modsRoot = svc.ModsRootOrNull;
         for (int i = 0; i < assets.Length; i++)
         {
@@ -206,7 +206,7 @@ public static class PlaceTools
     {
         error = null; note = null;
         var (face, noOrder) = faceOf(fk);
-        if (face is null) { error = where + AssetLayers.NoPair(noOrder!); return null; }
+        if (face is null) { error = where + NpcFaceAnswer.NoPair(noOrder!); return null; }
         if (face.Roots.Count > 1)
         {
             error = $"{where}{FormIdToken.Of(fk)} draws its face from {face.Roots.Count} template roots ("
@@ -215,7 +215,7 @@ public static class PlaceTools
         }
         if (face.Roots.FirstOrDefault(r => r.Reason is null) is not { } root)
         {
-            error = where + AssetLayers.NoPair(string.Join("; ", face.Reasons()))
+            error = where + NpcFaceAnswer.NoPair(string.Join("; ", face.Reasons()))
                   + (face.Reason == NpcFace.Unset ? "; enable the plugin that defines it, or place the file by path=." : ".");
             return null;
         }

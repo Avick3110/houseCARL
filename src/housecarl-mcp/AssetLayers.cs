@@ -99,10 +99,10 @@ internal sealed partial class AssetLayers
             }
             if (faces?.GetValueOrDefault(fk) is not { } face)
             {
-                selected.Add(new Selection(seed.Token, seed.Token, null, null, NoPair(noOrder!)));
+                selected.Add(new Selection(seed.Token, seed.Token, null, null, NpcFaceAnswer.NoPair(noOrder!)));
                 continue;
             }
-            foreach (var why in face.Reasons()) selected.Add(new Selection(seed.Token, seed.Token, null, null, NoPair(why)));
+            foreach (var why in face.Reasons()) selected.Add(new Selection(seed.Token, seed.Token, null, null, NpcFaceAnswer.NoPair(why)));
             foreach (var root in face.Roots)
             {
                 if (root.Reason is not null) continue;
@@ -249,9 +249,9 @@ internal sealed partial class AssetLayers
         {
             // A key whose plugin the index could not read is not one nothing defines: said with the plugin's reason.
             if (reads.Peek(k).Body is null && pin.View.ExcludedPlugins.TryGetValue(k.ModKey.FileName, out var unread))
-            { faces[k] = new NpcFaceAnswer(k, Array.Empty<FaceRoot>(), Array.Empty<string>(), $"its plugin {k.ModKey.FileName} was not read: {unread}"); continue; }
+            { faces[k] = NpcFaceAnswer.Fail(k, $"its plugin {k.ModKey.FileName} was not read: {unread}"); continue; }
             try { faces[k] = door.Of(k, reads.Get(k)); }
-            catch (Exception ex) { faces[k] = new NpcFaceAnswer(k, Array.Empty<FaceRoot>(), Array.Empty<string>(), $"its record was not read: {ex.Message}"); }
+            catch (Exception ex) { faces[k] = NpcFaceAnswer.Fail(k, $"its record was not read: {ex.Message}"); }
         }
         return faces;
     }
@@ -263,9 +263,6 @@ internal sealed partial class AssetLayers
         try { return (Faces(_host.CapturePinAndRoots(null).Pin, keys), null); }
         catch (Exception ex) { return (null, $"the load order could not be read: {ex.Message}"); }
     }
-
-    /// <summary>The one sentence a formids=, npc= or place row says when an NPC has no FaceGen pair.</summary>
-    internal static string NoPair(string why) => "no FaceGen pair — " + why;
 
     // ---- SKSE-plugin-layer visibility: the DLLs, configs, winning provider and each DLL's declared manifest ----
 
