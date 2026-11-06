@@ -47,7 +47,7 @@ public static class NifTools
                      "never normalized. Optional if npc= is passed.")]
             string[]? mesh_paths = null,
         [Description("Optional. NPC FormID(s) whose FaceGen head mesh to read: " +
-                     "'meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' is " +
+                     "'Meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' (Mutagen's spelling) is " +
                      "derived and read like any other path. 'XXXXXX:Plugin.esp', or the runtime form the game or " +
                      "console prints ('FE012800', '0501A51A'). The mesh is the one every FaceGen tool names: a " +
                      "Traits-templated NPC reads its template root's head, and an NPC with no FaceGen pair is an " +

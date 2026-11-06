@@ -54,8 +54,8 @@ public static class AssetTools
             string[]? under = null,
         [Description("Optional. NPC FormIDs ('XXXXXX:Plugin.esp', the defining master's filename). Each contributes " +
                      "both halves of its FaceGen pair, " +
-                     "'meshes\\actors\\character\\facegendata\\facegeom\\<master>\\00<6hex>.nif' and " +
-                     "'textures\\...\\facetint\\<master>\\00<6hex>.dds', as two rows, each naming the other half's " +
+                     "'Meshes\\actors\\character\\facegendata\\facegeom\\<master>\\00<6hex>.nif' and " +
+                     "'Textures\\...\\facetint\\<master>\\00<6hex>.dds' (Mutagen's spelling), as two rows, each naming the other half's " +
                      "winner beside its own and flagging when both win from different mods, the usual dark-face cause " +
                      "(housecarl_check findings=[\"facegen\"] separates a real split from one product spread over " +
                      "two folders). That is judged on the winning MO2 layer, so two archives of one mod are not " +
