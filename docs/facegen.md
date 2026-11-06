@@ -192,8 +192,11 @@ nothing the user can observe.
 
 ## Fixing it
 
-**Make the right files win.** `housecarl_place` with a `formid` member and no `kind` places both halves at once,
-into a new MO2 mod folder the user then enables. Place both halves from the same source — one alone re-creates the
+**Make the right files win.** `housecarl_place` with a `formid` member and no `kind` places both halves of the
+pair the NPC's face is drawn from at once, into a new MO2 mod folder the user then enables. For a Traits-templated
+NPC that is its template root's pair, the face of every NPC on that root, and the row says "face: the face of
+template root X". The NPC is read from the active order or the `into=` patch; a leveled template's several roots,
+or an NPC with no pair, refuses the call; place one root by its own FormID, or the file by `path=`. Place both halves from the same source — one alone re-creates the
 mismatch. A same-FormID, same-defining-master placement needs no mesh edit: the `.nif` already embeds the path
 that resolves to the destination's `.dds`. Only a renumber or a re-home breaks that, and then slot 6 needs
 rewriting.
