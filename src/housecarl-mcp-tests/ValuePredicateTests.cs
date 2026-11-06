@@ -366,7 +366,8 @@ public sealed class ValuePredicateTests
     public void In_AnAtFileThatDoesNotExistIsRefusedNamed_NotThrown()
     {
         var absent = Path.Combine(Path.GetTempPath(), "hc-value-predicate-" + Guid.NewGuid().ToString("N"), "formids.txt");
-        Assert.Contains("could not read", ParseError($"formid in @{absent}"));
+        Assert.Contains($"predicate 'formid in @{absent}': the 'in' operand list file '{absent}' could not be read",
+                        ParseError($"formid in @{absent}"));
     }
 
     // probe: "parse: RELATIVE @file path refused (server CWD is not the caller's)"
