@@ -49,7 +49,8 @@ half's winner beside its own. The whole-order sweep is two calls — `housecarl_
 to_file=<file>` for the identity set, then `housecarl_asset_status formids=["@<file>"] to_file=<file2>` — and the
 artifact's `winner_mod`, `pair_winner_mod`, `winner_kind`, `pair_differs` and `face_note` columns are the pairing
 map. A templated NPC's rows are its root's pair, so a root shared by many NPCs appears once per NPC; an NPC with no
-pair is one row with its reason in `error`. Use it when you want the file-layer provenance over the order;
+pair is a row per reason in `error` (a leveled template's pairless member or broken chain entry is one, beside the
+other members' pair rows). Use it when you want the file-layer provenance over the order;
 `housecarl_check findings=["facegen"]` is what adds the record winner and the classes below. `formids=` does not
 know the two kinds `check` puts in `never_baked` rather than `bake_absent` (the Player and CharGen presets; below),
 and it lists a templated NPC the check leaves out. A row count off the artifact is therefore not a finding count,

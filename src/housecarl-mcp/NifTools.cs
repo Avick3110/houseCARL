@@ -50,8 +50,9 @@ public static class NifTools
                      "'meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' is " +
                      "derived and read like any other path. 'XXXXXX:Plugin.esp', or the runtime form the game or " +
                      "console prints ('FE012800', '0501A51A'). The mesh is the one every FaceGen tool names: a " +
-                     "Traits-templated NPC reads its template root's head, and an NPC with no FaceGen pair is one " +
-                     "error row with the reason. The folder is the plugin that defines that NPC, never " +
+                     "Traits-templated NPC reads its template root's head, and an NPC with no FaceGen pair is an " +
+                     "error row per reason (a leveled template's pairless member or broken chain entry beside the " +
+                     "other members' heads). The folder is the plugin that defines that NPC, never " +
                      "the conflict winner. Derived paths are read after any mesh_paths, in the order given.")]
             string[]? npc = null,
         [Description("Optional. Detail sections beyond the summary: any of 'shapes', 'partitions', 'alpha', " +
