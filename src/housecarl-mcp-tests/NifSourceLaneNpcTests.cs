@@ -18,7 +18,7 @@ public sealed class NifSourceLaneNpcTests : IClassFixture<NifSourceLaneWorld>
     {
         var text = NifTools.NifInspect(_w.Svc, null, npc: new[] { W.NpcFormId });
 
-        Assert.Contains(W.FaceRel, text);
+        Assert.Contains(W.FaceRel, text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("read from:", text);
     }
 

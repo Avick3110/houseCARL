@@ -25,8 +25,8 @@ namespace HousecarlMcpTests;
 ///   <see cref="TintAbsentFormId"/> (a winning head whose tint has no provider at all).</item>
 /// </list>
 ///
-/// <para>No .esp is written to disk: asset resolution is decoupled from the record index, so the profile naming a
-/// plugin is all the archive binding needs.</para></summary>
+/// <para>The plugins are in the game Data folder: <see cref="Master"/> defines one NPC at 000ABC and
+/// <see cref="PairMaster"/> the four pair NPCs, which formids= reads, and HcArch.esp binds the archives.</para></summary>
 public sealed class AssetSelectWorld : IDisposable
 {
     public string Root { get; }
@@ -146,8 +146,11 @@ public sealed class AssetSelectWorld : IDisposable
             BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
                 new[] { (pairTintDir, new[] { (Path.GetFileName(Face(ArchivePairFormId, FaceGenSlot.Tint)), BsaBuilder.Bytes("DDS-ARCH", 48)) }) }));
 
-        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\nHcArch.esp\r\n");
-        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*HcArch.esp\r\n");
+        FaceNpcPlugin.Write(data, PairMaster, 0x0B0B0B, 0x0C0C0C, 0x0D0D0D, 0x0E0E0E);
+        FaceNpcPlugin.Write(data, Master, 0x000ABC);
+        FaceNpcPlugin.Write(data, "HcArch.esp");
+        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + Master + "\r\n" + PairMaster + "\r\nHcArch.esp\r\n");
+        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + Master + "\r\n*" + PairMaster + "\r\n*HcArch.esp\r\n");
         // Listed first = higher priority, the MO2 modlist.txt order.
         File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+ArchiveMod\r\n+FaceHigher\r\n+FaceBase\r\n+" + ParenMod + "\r\n");
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");

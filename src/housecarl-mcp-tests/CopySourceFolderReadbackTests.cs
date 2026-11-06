@@ -212,9 +212,10 @@ public sealed class CopySourceFolderReadbackTests : IDisposable
             .SelectMany(d => Directory.EnumerateFiles(d, "*.esp")).Single();
         var cloneKey = CloneKeyIn(patchPath);
 
+        // By path: the patch is not enabled, so no plugin in the order defines the clone for a formid= placement.
         var placed = PlaceTools.Place(_w.Svc, new[]
         {
-            new PlaceTarget { Formid = $"{cloneKey.ID:X6}:{cloneKey.ModKey.FileName}", Kind = "mesh",
+            new PlaceTarget { Path = FaceGenPath.For(cloneKey, FaceGenSlot.Mesh),
                               Source = _w.FaceRel, SourceProvider = folder },
         }, into: Path.GetFileName(patchPath));
         Assert.False(placed.StartsWith("error:", StringComparison.Ordinal), "refused: " + placed.Split('\n')[0]);
@@ -226,7 +227,7 @@ public sealed class CopySourceFolderReadbackTests : IDisposable
         // …and the folder a caller would otherwise reach for — the one the RECORD came from — does not have it.
         var wrong = PlaceTools.Place(_w.Svc, new[]
         {
-            new PlaceTarget { Formid = $"{cloneKey.ID:X6}:{cloneKey.ModKey.FileName}", Kind = "mesh",
+            new PlaceTarget { Path = FaceGenPath.For(cloneKey, FaceGenSlot.Mesh),
                               Source = _w.FaceRel, SourceProvider = TwoDisabledDonorsWorld.OverrideFolder },
         }, patch: "HcTwoWrong");
         Assert.Contains(TwoDisabledDonorsWorld.OverrideFolder, wrong);
@@ -373,7 +374,7 @@ public sealed class CopyReservedFolderNameTests : IDisposable
 
         var placed = PlaceTools.Place(_w.Svc, new[]
         {
-            new PlaceTarget { Formid = _w.Fid(_w.DonorNpc), Kind = "mesh",
+            new PlaceTarget { Path = _w.FaceRel,
                               Source = _w.FaceRel, SourceProvider = TwoDisabledDonorsWorld.ReservedNameFolder },
         }, patch: "HcReservedPlace");
 

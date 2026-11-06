@@ -215,7 +215,8 @@ public static class PlaceTools
         }
         if (face.Roots.FirstOrDefault(r => r.Reason is null) is not { } root)
         {
-            error = where + AssetLayers.NoPair(string.Join("; ", face.Reasons()));
+            error = where + AssetLayers.NoPair(string.Join("; ", face.Reasons()))
+                  + (face.Reason == NpcFace.Unset ? "; enable the plugin that defines it, or place the file by path=." : ".");
             return null;
         }
         note = face.NoteFor(root);

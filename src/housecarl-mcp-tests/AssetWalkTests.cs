@@ -334,17 +334,14 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(wrong.Notes, n => n.Contains("names a VoiceType, not a race"));
     }
 
-    /// <summary>An NPC with the Traits flag and no Template draws its own face: both FaceGen nodes, with a note saying why.</summary>
+    /// <summary>An NPC with the Traits flag and no Template: Mutagen names no face for it, so the walk has no FaceGen
+    /// node for it and a note with that reason, though its own pair ships.</summary>
     [Fact]
-    public void TraitsWithNoTemplateGivesItsOwnFace()
+    public void TraitsWithNoTemplateIsANoteNotItsOwnFace()
     {
         var d = Walk(records: new[] { "HcWalkTraitsAlone" });
-        foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
-        {
-            var n = Node(d, FaceGenPath.For(_w.Keys["HcWalkTraitsAlone"], slot));
-            Assert.Equal(WalkStanding.Present, n.Standing);
-            Assert.Contains("no Template", n.Note);
-        }
+        Assert.DoesNotContain(d.Nodes, n => n.Edge == "facegen");
+        Assert.Contains(d.Notes, n => n.Contains("HcWalkTraitsAlone") && n.Contains(NpcFace.TraitsNoTemplate));
     }
 
     /// <summary>A formids= walk seed with a source: both FaceGen nodes keyed, and the place set carries the keyed warning.</summary>

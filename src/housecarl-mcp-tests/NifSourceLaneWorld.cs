@@ -24,8 +24,8 @@ public sealed class NifSourceLaneWorld : IDisposable
     public const string PrefixMod = "Donor";
 
     /// <summary>The facegeom path for <see cref="NpcFormId"/>, so the same file is reachable as a path AND as npc=.</summary>
-    public const string FaceRel = @"meshes\actors\character\facegendata\facegeom\Test.esp\00000001.nif";
-    public const string NpcFormId = "000001:Test.esp";
+    public const string FaceRel = @"meshes\actors\character\facegendata\facegeom\Test.esp\00000801.nif";
+    public const string NpcFormId = "000801:Test.esp";
     public const string OffRel = @"meshes\actors\character\facegendata\facegeom\Test.esp\00000002.nif";
 
     public string Root { get; }
@@ -40,7 +40,7 @@ public sealed class NifSourceLaneWorld : IDisposable
 
         var bsaMod = Path.Combine(mods, BsaOnlyMod);
         Directory.CreateDirectory(bsaMod);
-        File.WriteAllText(Path.Combine(bsaMod, "Test.esp"), "x");
+        FaceNpcPlugin.Write(bsaMod, "Test.esp", 0x000801);   // defines NpcFormId, which npc= reads
         File.WriteAllBytes(Path.Combine(bsaMod, "Test.bsa"), NifSourceLaneInstance.Archive(FaceRel, mesh));
 
         NifSourceLaneInstance.Loose(Path.Combine(mods, LooseMod), FaceRel, mesh);
