@@ -428,9 +428,14 @@ internal static class Artifacts
             foreach (var t in parsed) if (t.Length > 0) yield return t;
             yield break;
         }
-        foreach (var t in content.Split(commaSeparates ? ListSeparators : LineSeparators, StringSplitOptions.RemoveEmptyEntries))
+        if (commaSeparates)
         {
-            var tok = commaSeparates ? t.Trim('[', ']', '"', '\'', ' ', '\t') : t.Trim('"', ' ', '\t');
+            foreach (var t in ListFile.SplitCommaList(content)) yield return t;
+            yield break;
+        }
+        foreach (var t in content.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tok = t.Trim('"', ' ', '\t');
             if (tok.Length > 0) yield return tok;
         }
     }
@@ -448,7 +453,6 @@ internal static class Artifacts
         catch (JsonException) { return null; }
     }
 
-    static readonly char[] ListSeparators = { ',', '\r', '\n' };
     static readonly char[] LineSeparators = { '\r', '\n' };
 
     // ---- to_file validation -------------------------------------------------------------------------

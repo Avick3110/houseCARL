@@ -598,7 +598,7 @@ public sealed class FieldPredicateSet
 
         var members = new List<string>();
         HashSet<FormKey>? runtime = null;
-        foreach (var tok in ListMembers(content))
+        foreach (var tok in ListFile.SplitCommaList(content))
         {
             // Same door as the scalar operand.
             if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, null, hybrid);
@@ -665,7 +665,7 @@ public sealed class FieldPredicateSet
 
         var set = new HashSet<FormKey>();
         var order = new List<(FormKey Key, string Raw)>();   // the caller's order and spelling, for naming the unmatched members
-        foreach (var tok in ListMembers(content))
+        foreach (var tok in ListFile.SplitCommaList(content))
         {
             // Named before the door runs, so the sentence is the same with or without a load order in hand.
             if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, hybrid);
@@ -684,19 +684,6 @@ public sealed class FieldPredicateSet
         if (set.Count == 0)
             return (null, null, null, $"predicate '{raw}': the formid list{(fromFile ? " file" : "")} is empty — give at least one 'XXXXXX:Plugin.esp'.");
         return (set, order, null, null);
-    }
-
-    /// <summary>Commas and newlines ONLY — a bare space is legal inside a plugin filename.</summary>
-    static readonly char[] ListSeparators = { ',', '\r', '\n' };
-
-    /// <summary>A list operand's entries: split on <see cref="ListSeparators"/>, one trim of brackets, quotes and whitespace, empties dropped.</summary>
-    static IEnumerable<string> ListMembers(string content)
-    {
-        foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
-            if (tok.Length > 0) yield return tok;
-        }
     }
 
     static bool IsOpChar(char c) => c is '=' or '!' or '<' or '>';
@@ -1287,7 +1274,7 @@ public sealed class FieldPredicateSet
     static readonly ConcurrentDictionary<(Type Enum, Type? Fallback, string Operand), (ulong Bits, string? Bad, string? Refusal)> FlagOperands = new();
 
     /// <summary>A has-family operand's members: the <c>in</c> list split, with the flags decode's <c>|</c> read as a separator too.</summary>
-    static IEnumerable<string> HasOperandMembers(string operand) => ListMembers(operand.Replace('|', ','));
+    static IEnumerable<string> HasOperandMembers(string operand) => ListFile.SplitCommaList(operand.Replace('|', ','));
 
     /// <summary>The flags decode's unnamed-bit token (<c>slotNN</c> on a biped field, <c>bitN</c> elsewhere) as its bit, or the refusal naming the range.</summary>
     static bool TryDecodeToken(string name, Type enumType, out ulong bits, out string? refusal)
