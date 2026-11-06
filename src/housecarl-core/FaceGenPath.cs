@@ -4,6 +4,7 @@ namespace HousecarlCore;
 
 // FaceGenPath — the FaceGen asset path as a PURE TRANSFORM of an NPC's FormKey: no load order, no runtime FormID,
 // no file read. The transform itself, and why the folder is the defining master, are in docs/facegen.md.
+// Which NPC's pair a tool shows is NpcFace's answer, not this; this spells a path for a FormKey already chosen.
 
 /// <summary>Which FaceGen file: the head mesh (.nif under facegeom) or the face tint (.dds under facetint).</summary>
 public enum FaceGenSlot { Mesh, Tint }

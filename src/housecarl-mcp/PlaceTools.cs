@@ -422,7 +422,7 @@ static class PlaceWire
 /// <summary>One destination off the wire: a FormID (+ optional slot) or a Data-relative path, plus the optional per-member source and pole; either pole may be given once for the whole set.</summary>
 public sealed record PlaceTarget
 {
-    [JsonPropertyName("formid"), Description("The NPC's FormID 'XXXXXX:Plugin.esp'; houseCARL computes the FaceGen path. Provide this or path.")]
+    [JsonPropertyName("formid"), Description("The NPC's FormID 'XXXXXX:Plugin.esp'; houseCARL places the FaceGen pair its face is drawn from (a Traits-templated NPC's root's), so the NPC must be in the active order; place a not-yet-enabled copy's file by path. Provide this or path.")]
     public string? Formid { get; init; }
 
     [JsonPropertyName("kind"), Description("With formid: 'mesh' (head .nif) or 'tint' (face .dds). Omit to take the call's kind=, or both if that is omitted too. Ignored with path.")]
