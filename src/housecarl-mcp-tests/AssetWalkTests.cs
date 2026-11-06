@@ -324,10 +324,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         var fetch = new AssetLayers.MemberReads(SourceChain.Single(arm), _ => fk => fk == race.FormKey ? race : null).Get;
         var added = new List<string>();
         var notes = new List<string>();
-        AssetLayers.FaceGenOf(npc, "Npc HcWalkFaultNpc", new NpcFace(fetch), (raw, _, _, _, _) => added.Add(raw), notes);
+        AssetLayers.FaceGenOf(npc, "Npc HcWalkFaultNpc", new NpcFace(fetch, AssetLayers.RecordSourcesUnset), (raw, _, _, _, _) => added.Add(raw), notes);
         Assert.Empty(added);
         Assert.Contains(notes, n => n.Contains("'HcWalkFault.esp' has it but could not read it — the file is locked"));
-        Assert.DoesNotContain(notes, n => n.Contains("in none of the record sources"));
+        Assert.DoesNotContain(notes, n => n.Contains(AssetLayers.RecordSourcesUnset));
 
         var wrong = Walk(records: new[] { "HcWalkWrongRace" });
         Assert.DoesNotContain(wrong.Nodes, n => n.Edge == "facegen");
