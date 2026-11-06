@@ -24,8 +24,10 @@ byte is masked to `00` because the file already lives in the defining plugin's o
 
 ## One answer per NPC
 
-Which pair an NPC's face is drawn from is one answer, and every tool gives the same one: `housecarl_asset_status`
-`formids=` and `walk=true`, `housecarl_nif_inspect npc=`, `housecarl_place formid=` and this check. The pair is
+Which pair an NPC's face is drawn from is one answer, and every tool reads the same one: `housecarl_asset_status`
+`formids=` and `walk=true` and `housecarl_nif_inspect npc=` name it, `housecarl_place formid=` places it (and
+refuses an NPC with several template roots), and this check judges an NPC's own pair and leaves the rest out,
+naming no pair. The pair is
 Mutagen's resolved FaceGen link (the path above, spelled `Meshes\`/`Textures\`), asked on the NPC its face is drawn
 from. houseCARL adds two
 things Mutagen does not do:
