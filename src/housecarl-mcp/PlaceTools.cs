@@ -38,7 +38,8 @@ public static class PlaceTools
                      "'mesh'|'tint', path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | " +
                      "'<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" +
                      AssetSourceChoice.WinnerToken + "' }, or \"@<absolute path>\" to read that same array from a " +
-                     "JSON file. One destination is a set of one. A malformed member refuses the whole call and " +
+                     "JSON file. One destination is a set of one. A malformed member, or a formid member the NPC's " +
+                     "face names no one pair for (no pair, or several template roots), refuses the whole call and " +
                      "places nothing; a source that is ambiguous, absent or unreadable fails that member only, and " +
                      "the rest still place.")]
             JsonElement? assets = null,
@@ -95,7 +96,7 @@ public static class PlaceTools
         if (ParseSlot(NullIfBlank(kind), out var setKindErr) is null && setKindErr is not null)
             return Refuse(json, setKindErr);
 
-        // Malformed members refuse the WHOLE call, like create; placement-time issues stay per-member.
+        // Malformed members, and formid members with no one pair, refuse the WHOLE call, like create; placement-time issues stay per-member.
         var all = new List<PlaceRequest>();
         var problems = new List<string>();
         // Destinations the set-level pole was withheld from, said on their row rather than dropped.
@@ -132,7 +133,7 @@ public static class PlaceTools
             }
         }
         if (problems.Count > 0)
-            return Refuse(json, $"refused — {problems.Count} malformed destination(s); nothing placed:\n  - " + string.Join("\n  - ", problems));
+            return Refuse(json, $"refused — {problems.Count} destination(s) malformed or with no one FaceGen pair; nothing placed:\n  - " + string.Join("\n  - ", problems));
 
         var outcome = svc.PlaceAssets(all, patch, into);
         int cap = Wire.Cap(max_chars);
