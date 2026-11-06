@@ -72,17 +72,21 @@ door at the head of `housecarl_records`; the JSON-element lists (`ops`, `assignm
 `assets`) keep their JSON shape but read their file through the same reader. The door owns the whole convention:
 
 - an entry with a leading `@` stands in place of the whole list, so one beside inline entries is refused;
-- `@@x` is the literal `@x` on every list; lines inside a file are read as written;
+- `@@x` is the literal `@x` as an inline entry, except after `references=`' `!` (`!@@x` stays as written); the
+  JSON-element lists' bare-string spelling (`ops="@@x"`) is a file path, never an entry;
 - the path must follow the `@`, be absolute, be readable and hold something; each failure is one sentence
   (`HousecarlCore.ListFile`), the same on every list and on `where=`'s `in @<file>` operand;
 - the parameter's `ListKind` says what the file may hold: `formid` (lines or commas, or a `formid` artifact),
-  `path` (lines, a JSON array, or a `path` artifact), `plugin` and `name` (lines or a JSON array);
+  `path` (lines, a JSON array, or a `path` artifact), `plugin` and `name` (lines or a JSON array); a file opening
+  with `[` that parses is read as a JSON array, its blank elements dropped, and any other file as lines, each
+  trimmed of double quotes, spaces and tabs, blank lines dropped;
 - `references=`'s `!` before an `@file` entry negates every token the file holds.
 
 The door returns the `ArtifactDemand` and never checks it: each consumer checks it against its own capture. The
 asset walk checks `formids=` and `records=` each, `nif_inspect npc=` and `check formids=`/`seeds=` check theirs, and
-`forward`/`remove` still refuse a `formid` artifact outright. Two string-typed lists, `compile_script import_dirs=`
-and `nexus_check_updates mods=`, have their own separators and take no `@file`. Neither does an op's `values=`
+`forward`/`remove` still refuse a `formid` artifact outright. Four string-typed lists, `compile_script import_dirs=`,
+`nexus_check_updates mods=`, `nexus_identify md5=` and `nif_inspect sections=`, have their own separators and take
+no `@file`. Neither does an op's `values=`
 inside `ops=`, which is data written to a record.
 
 **Error rows are not identity-bearing.** A row carrying an `error` member documents a failure and does not name a
