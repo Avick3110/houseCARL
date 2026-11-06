@@ -17,11 +17,7 @@ public sealed class ListDoorSurfaceTests
     public ListDoorSurfaceTests(ServerFixture s) => _s = s;
 
     public static IEnumerable<object[]> ListParameters() =>
-        ToolSurface.Assembly.GetTypes()
-            .Where(t => t.GetCustomAttribute<McpServerToolTypeAttribute>() is not null)
-            .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Static))
-            .Where(m => m.GetCustomAttribute<McpServerToolAttribute>() is not null)
-            .SelectMany(m => m.GetParameters().Where(p => p.ParameterType == typeof(ListArg))
+        ToolMethods().SelectMany(m => m.GetParameters().Where(p => p.ParameterType == typeof(ListArg))
                               .Select(p => new object[] { m.GetCustomAttribute<McpServerToolAttribute>()!.Name!, p.Name! }));
 
     [Fact]
@@ -46,4 +42,40 @@ public sealed class ListDoorSurfaceTests
         Assert.True(Is(prop.GetProperty("items").GetProperty("type"), "string"), prop.ToString());
         Assert.Contains("[\"@<absolute path>\"]", prop.GetProperty("description").GetString());
     }
+
+    /// <summary>An optional list stays optional on the wire: its published type admits null, as a string[]? did.</summary>
+    [Fact]
+    public void AnOptionalListParameterIsPublishedNullable()
+    {
+        var nullability = new NullabilityInfoContext();
+        var optional = ToolMethods().SelectMany(m => m.GetParameters()
+                .Where(p => p.ParameterType == typeof(ListArg) && nullability.Create(p).WriteState == NullabilityState.Nullable)
+                .Select(p => (Tool: m.GetCustomAttribute<McpServerToolAttribute>()!.Name!, Param: p.Name!)))
+            .ToList();
+        Assert.NotEmpty(optional);
+        foreach (var (tool, param) in optional)
+        {
+            var type = _s.PublishedTools[tool].GetProperty("inputSchema").GetProperty("properties").GetProperty(param).GetProperty("type");
+            Assert.True(type.ValueKind == JsonValueKind.Array && type.EnumerateArray().Any(t => t.GetString() == "null"),
+                        $"{tool}.{param}: {type}");
+        }
+    }
+
+    /// <summary>No tool takes a list of strings except as a <see cref="ListArg"/>, so none skips the door.</summary>
+    [Fact]
+    public void NoToolParameterIsAStringListOutsideTheDoor()
+    {
+        var stray = ToolMethods().SelectMany(m => m.GetParameters()
+                .Where(p => p.ParameterType != typeof(ListArg) && p.ParameterType != typeof(string)
+                            && typeof(IEnumerable<string>).IsAssignableFrom(p.ParameterType))
+                .Select(p => $"{m.Name}.{p.Name}"))
+            .ToList();
+        Assert.Empty(stray);
+    }
+
+    static IEnumerable<MethodInfo> ToolMethods() =>
+        ToolSurface.Assembly.GetTypes()
+            .Where(t => t.GetCustomAttribute<McpServerToolTypeAttribute>() is not null)
+            .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Static))
+            .Where(m => m.GetCustomAttribute<McpServerToolAttribute>() is not null);
 }
