@@ -59,9 +59,12 @@ public static class AssetTools
                      "winner beside its own and flagging when both win from different mods, the usual dark-face cause " +
                      "(housecarl_check findings=[\"facegen\"] separates a real split from one product spread over " +
                      "two folders). That is judged on the winning MO2 layer, so two archives of one mod are not " +
-                     "flagged, nor are two files both in the game's Data folder or both in overwrite. The path is " +
-                     "computed from the FormID, so the folder is the defining master, never the conflict winner, and " +
-                     "no record is read. One half winning nowhere is also a dark face: the row shows it ABSENT, but " +
+                     "flagged, nor are two files both in the game's Data folder or both in overwrite. The pair is " +
+                     "the one every FaceGen tool names: the NPC record is read, a Traits-templated NPC gives its " +
+                     "template root's pair (a leveled template each member's, marked one of N), and an NPC with no " +
+                     "pair (a race without FaceGenHead, ACBS flag 0x100, the Traits flag with no Template, a FormID " +
+                     "no plugin defines) is one error row with the reason. The folder is the defining master, never " +
+                     "the conflict winner. One half winning nowhere is also a dark face: the row shows it ABSENT, but " +
                      "the json's pair.differs and the to_file= pair_differs flag only two present halves with " +
                      "different owners, so a filter on that field misses it. A malformed FormID is one error row, " +
                      "not a failed call. Takes [\"@<absolute path>\"]: a " +

@@ -1,0 +1,1 @@
+- **Every FaceGen tool names one pair per NPC: a templated NPC's root's, or one reason instead of a path (0x100, no FaceGenHead, Traits without Template).** Check: `asset_status formids=` and `check` agree on a templated follower.

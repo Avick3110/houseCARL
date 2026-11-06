@@ -418,12 +418,11 @@ nothing is cut silently. Each record contributes:
   do), a start-game-enabled quest's `Seq\<plugin>.seq`, and any other inferred file;
 - each fragment `FileName` in its script adapter, found by reflection over the adapter, with a note that Mutagen
   infers none;
-- on an NPC, the FaceGen pair its face is drawn from: its own when the Traits template flag is off (or on with no
-  Template, said in a note, since Mutagen's link is gated on the flag), else the first NPC
-  down the Template chain with it off, every member of a leveled-list template (nested lists included) marked one
-  of N; a loop or an unresolved link is a note naming the chain, and the other members keep their pairs. The pair is Mutagen's resolved link over a cache holding only the
-  root's race, so a race without `FaceGenHead` gives none, which `FaceGenPath.For` alone cannot tell. The race and the
-  template members are read through the record sources, then the active order; a race neither holds is a note;
+- on an NPC, the FaceGen pair the face door (`NpcFace`, below) names: its own when the Traits template flag is
+  off, else the first NPC down the Template chain with it off, every member of a leveled-list template (nested
+  lists included) marked one of N; a loop or an unresolved link is a note naming the chain, and the other members
+  keep their pairs. A root Mutagen names no pair for is a note with the door's reason. The race and the template
+  members are read through the record sources, then the active order;
 - on a dialogue line, the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
   the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does (shipped by the order or by
   `source_provider=`, so a disabled donor's format counts); both listed, with no claim on which
@@ -457,6 +456,29 @@ one carries them through the carry above. With a source, the response ends with 
 each said when reached. A walk past `max_chars`, text or json, is written whole to a results-directory file (one row
 per node, SPEC §2.1.1) that the response names; when the `assets=` array itself would not fit, the response points at
 the file's `from_source` rows instead. Out, and said: reverse file edges, SKSE configs and behaviour files.
+
+### One FaceGen answer per NPC
+
+`NpcFace` (core) is the one door every lane asks for an NPC's FaceGen: `asset_status formids=`, the walk,
+`nif_inspect npc=`, `place formid=` and `check findings=["facegen"]`. Its answer is a list of roots, each a pair or a
+reason, plus the chain's errors:
+
+- **Mutagen derives the pair.** Each root's mesh and tint are the `\facegendata\` links of Mutagen's
+  `EnumerateAssetLinks(Resolved)` over a race cache the door holds, so no lane spells a FaceGen path of its own.
+  `FaceGenPath.For` stays only to spell a path for a key already chosen (the carry, the file scan).
+- **houseCARL adds the Traits walk** (`FaceRoots`, capped at `TemplateChainCap` hops), which Mutagen lacks, and,
+  where Mutagen yields no link, **one reason**: the first unmet input of Mutagen's gate, in the order no race / race
+  not read / not a race, no `FaceGenHead`, `Traits` with no `Template`, `ACBS` 0x100. Mutagen's gate is named as it
+  is, not coded around: a 0x100 NPC the CK baked still gets the reason, not a pair.
+- **Reads are batched.** `NpcFace.Prefetch` reads each hop's templates and the roots' races in rounds;
+  `RoundReads` memoizes each key's record or its exception, so a lane that asks after the prefetch reads nothing.
+  The service lanes read through `BodyGather.Winners` on one pin; a key whose plugin is in the view's excluded set
+  says that plugin was not read rather than "no plugin defines it".
+
+Each lane shows the answer in its own shape: a row per root path with `face_note` ("the face of template root X",
+", one of N"), an error row per reason (`no FaceGen pair — …`), a walk note, a `place` refusal (several roots, or no
+pair), and the check's exclusion counts by `FaceGap`. `place formid=` therefore needs the NPC in the active order;
+a file for a not-yet-enabled copy is placed by `path=`.
 
 ### Suggesting a root prefix
 
@@ -608,6 +630,12 @@ provided either; the generic lane does not, because it legitimately answers for 
   the depth bound and the record cap stop where they did; `AssetWalkDoorFaultTests`
   — a broken NPC group is the arm's fault note. Fragments and a `.pex`'s parent are not pinned by a test; they were
   checked on the dev instance only.
+- *One FaceGen answer per NPC*: `NpcFaceDoorTests` — a plain, a templated and a leveled-template NPC get the same
+  answer on `formids=`, the walk, `npc=`, `place` and the check; the pair is Mutagen's link
+  (`ThePairIsSpelledAsMutagensLink`); each no-pair input is one reason on every lane, and Mutagen names no link for
+  its fixture; no reason calls Mutagen's gate a bug; the check counts each exclusion by reason.
+  `NpcFaceUnreadOrderTests` — a plugin the index could not read, and an order that cannot be read, are each row's
+  reason.
 - *Suggesting a root prefix*: Pinned by `AssetPrefixHintTests` — the prefixed candidate is offered only when a real
   provider supplies it. Its non-asset-root cases (`sound\`) assert the same thing as its plain-miss cases, so it
   cannot see whether the generic lane prints the convention note: that half is not pinned.
