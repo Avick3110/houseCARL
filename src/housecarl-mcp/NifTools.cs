@@ -81,7 +81,8 @@ public static class NifTools
                      ProviderNameSentence + ", so a donor mod can be read without enabling it; the response then " +
                      "says the game is not loading that copy. A name that provides no copy of a mesh is that path's " +
                      "own miss, listing the providers that do; the rest of the batch still reads. Applies to every " +
-                     "mesh. Empty = the winner.")]
+                     "mesh. With npc=, a mod folder's own plugins are read after the active order, so a donor's NPC " +
+                     "names its head. Empty = the winner.")]
             string source_provider = "",
         [Description("Optional. Character ceiling on the whole batch's response, not per mesh: the mesh whose block would cross it is not written, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, call =>
@@ -116,7 +117,8 @@ public static class NifTools
                         $"error: bad npc FormID '{raw.Trim()}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp' or a runtime FormID."));
                 }
             }
-            var (faces, noOrder) = svc.NpcFaces(keys.Select(k => k.Key).ToList());
+            // A source_provider= mod folder's plugins are read after the winners, so a donor's own NPC has its face.
+            var (faces, noOrder) = svc.NpcFaces(keys.Select(k => k.Key).ToList(), svc.ProviderFaceSources(source_provider));
             foreach (var (token, key) in keys)
             {
                 if (faces?.GetValueOrDefault(key) is not { } face) { selected.Add(new NifTarget(token, NpcFaceAnswer.NoPair(noOrder!))); continue; }

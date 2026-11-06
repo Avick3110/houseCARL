@@ -49,8 +49,17 @@ public sealed class NpcFaceDoorWorld : IDisposable
         Unset = new FormKey(mod.ModKey, 0xABCDE);
         W.Write(mod, Mod, true, W.RaceMod);
         foreach (var n in Npcs) W.Bake(Mod, n.FormKey);
+        var donor = new SkyrimMod(ModKey.FromFileName("HcFaceDonor.esp"), SkyrimRelease.SkyrimSE);
+        Donor = donor.Npcs.AddNew("HcDonorOnly");
+        Donor.Race.SetTo(W.Race);
+        W.Write(donor, DonorMod, false, W.RaceMod);
+        W.Bake(DonorMod, Donor.FormKey);
         Svc = W.Open();
     }
+
+    /// <summary>An NPC only an inactive plugin defines, its pair baked beside it, for the lanes that read off the order.</summary>
+    public Npc Donor;
+    public const string DonorMod = "DoorDonor";
 
     public IEnumerable<Npc> Npcs => new[] { Plain, Root, Root2, Templated, Leveled, UseTemplate, TraitsAlone, NoHead };
 
@@ -213,6 +222,25 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
             Assert.Contains("no FaceGen pair — " + reason, Place(key, "HcDoorPlaceNone"));
         }
         Assert.Contains("place the file by path=", Place(_w.Unset, "HcDoorPlaceNone"));
+    }
+
+    /// <summary>An NPC only an inactive plugin defines gives its pair where the lane reads that plugin: the walk's
+    /// formids= with from_source= (as its records= seed in the same call) and npc= with source_provider= its folder;
+    /// with neither, the active order alone says nothing defines it.</summary>
+    [Fact]
+    public void ADonorOnlyNpcGivesItsPairThroughTheLanesOwnSources()
+    {
+        var npc = _w.Donor.FormKey;
+        var walk = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(npc) }, walk: true, from_source: new[] { "HcFaceDonor.esp" });
+        Assert.DoesNotContain("no FaceGen pair", walk);
+        Assert.Contains(Mesh(npc), walk, StringComparison.OrdinalIgnoreCase);
+
+        var nif = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(npc) }, source_provider: NpcFaceDoorWorld.DonorMod);
+        Assert.DoesNotContain("no FaceGen pair", nif);
+        Assert.Contains(Mesh(npc), nif, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("no FaceGen pair — " + NpcFace.Unset, Npc(npc));
+        Assert.Contains(NpcFace.Unset, Assert.Single(FormidsRows(npc)).GetProperty("error").GetString());
     }
 
     /// <summary>Each reason's fixture is one Mutagen names no FaceGen link for, and the plain one is one it does: a

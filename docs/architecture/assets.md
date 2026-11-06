@@ -477,8 +477,16 @@ reason, plus the chain's errors:
 
 Each lane shows the answer in its own shape: a row per root path with `face_note` ("the face of template root X",
 ", one of N"), an error row per reason (`no FaceGen pair — …`), a walk note, a `place` refusal (several roots, or no
-pair), and the check's exclusion counts by `FaceGap`. `place formid=` therefore needs the NPC in the active order;
-a file for a not-yet-enabled copy is placed by `path=`.
+pair), and the check's exclusion counts by `FaceGap`.
+
+The door reads each NPC, template and race through the lane's own record sources (`AssetLayers.Faces`, one fetch
+per lane): the active order's winners, and where the lane reads plugins off the order, those too. The walk reads
+`from_source=` in its order for `records=` and `formids=` seeds alike (`MemberReads.Through`); `place formid=` reads
+the `into=` patch's plugins after the winners, so a clone a copy wrote there places by formid before it is enabled;
+`nif_inspect npc=` reads the plugins a `source_provider=` mod folder ships, after the winners. `asset_status formids=`
+and the check read the winners alone. A key none of them defines gets the lane's own sentence (`FaceSources.Unset`):
+"no plugin in this order defines it", or that order and the sources it also read. Any other not-yet-enabled NPC's
+file is placed by `path=`.
 
 ### Suggesting a root prefix
 

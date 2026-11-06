@@ -18,6 +18,10 @@ internal enum FreshPatchRemedy
     NamedByPatchParam,
 }
 
+/// <summary>A lane's own record sources for the face door: the source list it reads in order (as from_source= spells
+/// it), the parameter that named them, and the sentence for a key none of them nor the order defines.</summary>
+public sealed record FaceSources(IReadOnlyList<string> Poles, string Param, string Unset);
+
 /// <summary>The outcome of a read_record resolve+read. <see cref="Error"/> non-null ⇒ the read failed; otherwise <see cref="Record"/> carries the fields read off <see cref="SourcePlugin"/>.</summary>
 public sealed record ReadOutcome(
     FormKey FormKey,

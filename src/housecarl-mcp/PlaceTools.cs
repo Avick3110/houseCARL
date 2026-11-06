@@ -103,12 +103,13 @@ public static class PlaceTools
         // The face door's line for a destination that is a template root's pair, said on its row.
         var faceNotes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var door = svc.OpenWriteFormIdDoor();
-        // Every formid member's face in one batched read; a bad formid is refused by MapTarget below.
+        // Every formid member's face in one batched read, the into= patch's plugins after the winners so a clone not
+        // enabled yet is read; a bad formid is refused by MapTarget below.
         var faceKeys = new List<FormKey>();
         foreach (var a in assets)
             if (!string.IsNullOrWhiteSpace(a.Formid))
                 try { faceKeys.Add(door.Parse(a.Formid)); } catch (Exception) { /* refused per member below */ }
-        var (faces, noOrder) = faceKeys.Count == 0 ? (null, null) : svc.NpcFaces(faceKeys);
+        var (faces, noOrder) = faceKeys.Count == 0 ? (null, null) : svc.NpcFaces(faceKeys, svc.IntoFaceSources(into));
         (NpcFaceAnswer?, string?) FaceOf(FormKey fk) => (faces?.GetValueOrDefault(fk), noOrder);
         var modsRoot = svc.ModsRootOrNull;
         for (int i = 0; i < assets.Length; i++)
@@ -216,7 +217,7 @@ public static class PlaceTools
         if (face.Roots.FirstOrDefault(r => r.Reason is null) is not { } root)
         {
             error = where + NpcFaceAnswer.NoPair(string.Join("; ", face.Reasons()))
-                  + (face.Reason == NpcFace.Unset ? "; enable the plugin that defines it, or place the file by path=." : ".");
+                  + (face.Undefined ? "; enable the plugin that defines it, or place the file by path=." : ".");
             return null;
         }
         note = face.NoteFor(root);
@@ -422,7 +423,7 @@ static class PlaceWire
 /// <summary>One destination off the wire: a FormID (+ optional slot) or a Data-relative path, plus the optional per-member source and pole; either pole may be given once for the whole set.</summary>
 public sealed record PlaceTarget
 {
-    [JsonPropertyName("formid"), Description("The NPC's FormID 'XXXXXX:Plugin.esp'; houseCARL places the FaceGen pair its face is drawn from (a Traits-templated NPC's root's), so the NPC must be in the active order; place a not-yet-enabled copy's file by path. Provide this or path.")]
+    [JsonPropertyName("formid"), Description("The NPC's FormID 'XXXXXX:Plugin.esp'; houseCARL places the FaceGen pair its face is drawn from (a Traits-templated NPC's root's), so the NPC is read from the active order or the into= patch (a clone copy wrote there places before it is enabled); place any other not-yet-enabled NPC's file by path. Provide this or path.")]
     public string? Formid { get; init; }
 
     [JsonPropertyName("kind"), Description("With formid: 'mesh' (head .nif) or 'tint' (face .dds). Omit to take the call's kind=, or both if that is omitted too. Ignored with path.")]
