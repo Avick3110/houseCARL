@@ -128,7 +128,8 @@ public static class AssetTools
         [Description("Optional. Write the complete result to this absolute .jsonl path (line 1 = manifest) and " +
                      "render only the manifest inline, as housecarl_records and housecarl_check do. One row per " +
                      "resolved path: the winner, loose or BSA (and which archive), the whole provider chain, and on " +
-                     "a formids= row the paired path, its winner, and whether the two differ. The file covers the " +
+                     "a formids= row the formid, the slot, the paired path, its winner, whether the two differ, and " +
+                     "face_note (the template root whose pair the row is, null for the NPC's own). The file covers the " +
                      "whole selection: limit= does not narrow it and row_count equals total. Re-enter it via " +
                      "asset_paths=[\"@<path>\"]; its identity column is 'path', so it is not a formids= list.")]
             string? to_file = null,
