@@ -23,8 +23,8 @@ public static class ListText
     const string In = " Takes [\"@<absolute path>\"] in place of the list: ";
     public const string FormIds = In + "a file of FormIDs, one per line or comma-separated, or a to_file= artifact whose identity column is 'formid', epoch-checked against the current build.";
     public const string Paths = In + "a file of paths, one per line or a JSON array, or a " + ToolNames.AssetStatus + " to_file= artifact (identity column 'path'), not epoch-checked.";
-    public const string Plugins = In + "a file with one plugin filename per line, each line read as written; a filename that itself starts with '@' is written '@@' inline.";
-    public const string Names = In + "a file with one entry per line, each line read as written; an entry that itself starts with '@' is written '@@' inline.";
+    public const string Plugins = In + "a file with one plugin filename per line, each trimmed of double quotes and blanks, or a JSON array of filenames; a filename that itself starts with '@' is written '@@' inline.";
+    public const string Names = In + "a file with one entry per line, each trimmed of double quotes and blanks, or a JSON array of strings; an entry that itself starts with '@' is written '@@' inline.";
 }
 
 /// <summary>A list-valued tool parameter as the caller sent it. Its entries are read only through
