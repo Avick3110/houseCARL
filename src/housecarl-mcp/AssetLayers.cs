@@ -281,7 +281,7 @@ internal sealed partial class AssetLayers
             var reads = new RoundReads(round);
             reads.Read(want);
             reads.FaceInputs(want.Select(k => reads.Peek(k).Body).OfType<INpcGetter>());
-            var door = new NpcFace(reads.Get, sources?.Unset ?? NpcFace.Unset);
+            var door = new NpcFace(reads.Get, sources is null ? NpcFace.Unset : UnsetFor(sources.Poles, sources.Unset));
             foreach (var k in want)
             {
                 if (unopened.Contains(k)) { faces[k] = NpcFaceAnswer.Fail(k, $"its record sources were not opened: {chainErr}"); continue; }

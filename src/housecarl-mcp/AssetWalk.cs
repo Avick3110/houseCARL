@@ -42,6 +42,10 @@ internal sealed partial class AssetLayers
     /// <summary>The face door's sentence for a key a walk with from_source= finds nothing at.</summary>
     internal const string RecordSourcesUnset = "no plugin in this order or the record sources defines it";
 
+    /// <summary>The face door's not-found sentence for a lane reading <paramref name="poles"/>: the order's alone when
+    /// every pole is the winner, else <paramref name="named"/>.</summary>
+    internal static string UnsetFor(IEnumerable<string> poles, string named) => poles.All(SourcePoles.IsWinner) ? NpcFace.Unset : named;
+
     /// <summary>The asset walk (SPEC §3 with a file edge): from seed paths and seed records to every file they reach,
     /// through the paths a record lists, its implicit files (FaceGen, scripts, fragments, .seq, voice) and the links a
     /// file names (a mesh's textures, SMP XML and BODYTRI, a script's parent), each node resolved against
@@ -200,7 +204,7 @@ internal sealed partial class AssetLayers
         // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
         var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
         IMajorRecordGetter? Fetch(FormKey fk) => members.Get(fk);
-        var faces = new NpcFace(Fetch, chain.Arms.All(a => a.Spelling == SourcePoles.Winner) ? NpcFace.Unset : RecordSourcesUnset);
+        var faces = new NpcFace(Fetch, UnsetFor(chain.Arms.Select(a => a.Spelling), RecordSourcesUnset));
 
         // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
         for (int depth = 0; frontier.Count > 0; depth++)
