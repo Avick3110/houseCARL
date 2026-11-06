@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HousecarlCore;
 
 namespace HousecarlMcp;
 
@@ -34,8 +35,7 @@ internal static class ListParams
             if (atIndexes.Count > 0)
             {
                 if (count != 1)
-                    return (null, $"{param}: \"@<path>\" reads the WHOLE list from a file, so it cannot be mixed with inline elements " +
-                                  $"(found {atIndexes.Count} @-element(s) among {count}). Pass either the inline array or a single \"@<absolute path>\".");
+                    return (null, ListFile.Mixed(param + "=", $"{param}=\"@<absolute path>\""));
                 var (text, err) = ReadAtFile(el[0].GetString(), param);
                 if (err is not null) return (null, err);
                 json = text!; origin = $"the file named by {param}";
@@ -63,21 +63,13 @@ internal static class ListParams
         return (items, null);
     }
 
-    /// <summary>Read a list-input's <c>@&lt;path&gt;</c> target off disk; absolute paths only.</summary>
-    internal static (string? Text, string? Error) ReadAtFile(string? spelling, string param)
+    /// <summary>Read a list-input's <c>@&lt;path&gt;</c> target off disk through the list door's one reader.</summary>
+    static (string? Text, string? Error) ReadAtFile(string? spelling, string param)
     {
-        var raw = spelling?.Trim().Trim('"', '\'') ?? "";
-        var path = raw.StartsWith('@') ? raw[1..].Trim() : raw;
-        if (path.Length == 0)
-            return (null, $"{param}: \"@\" names no file — give the manifest's absolute path, e.g. \"@C:\\\\jobs\\\\ops.json\".");
-        if (PathArguments.NotAbsolute(path, $"{param}:", "the file to read", "C:\\jobs\\ops.json") is { } notAbsolute)
-            return (null, notAbsolute);
-        string text;
-        try { text = File.ReadAllText(path); }
-        catch (Exception ex) { return (null, $"{param}: could not read '{path}' — {ex.GetType().Name}: {ex.Message}"); }
-        if (string.IsNullOrWhiteSpace(text))
-            return (null, $"{param}: '{path}' is empty. Expected a JSON array.");
-        return (text, null);
+        var entry = spelling?.Trim().Trim('"', '\'') ?? "";
+        if (!entry.StartsWith('@')) entry = "@" + entry;
+        var (_, text, err) = ListFile.Read(entry, param + "=", $"{param}=\"@<absolute path>\"", "C:\\jobs\\ops.json");
+        return (text, err);
     }
 
     /// <summary>Shear STJ's own 0-based position block off a JsonException message, which the refusal restates 1-based.</summary>

@@ -109,7 +109,7 @@ public sealed class ApplyGuardZipTests : IDisposable
         var r = ApplyTools.Apply(W.Svc, bundle: new[] { "@" + Path.Combine(W.Root, "paths.json"), "Keywords" },
             assignments: Je(Pair()));
         Assert.StartsWith("error:", r);
-        Assert.Contains("cannot be mixed with inline elements", r);
+        Assert.Contains("mixes an '@file' entry with inline entries", r);
     }
 
     // probe: "CopyFrom + value= is refused without from_source (the value is never silently discarded)"

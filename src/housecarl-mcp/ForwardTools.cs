@@ -32,7 +32,7 @@ public static class ForwardTools
     public static string Forward(
         LoadOrderService svc,
         [Description("The records to forward, each 'XXXXXX:Plugin.esp', all copied from source=; to forward from another source into the same patch, call again with into=. Name each record once; a repeat is refused. A record's origin plugin, the filename after the colon, must be active or be the file this call writes. Also takes [\"@<absolute path>\"], a plain list file with one FormID per line, not a result artifact.")]
-            string[]? formids = null,
+            ListArg? formids = null,
         [Description("The one plugin whose version of every record is copied, e.g. 'Authoria - ATweaks.esp', or a master such as 'Skyrim.esm' to revert to vanilla. It must define or override each record. It can be active or only on disk (a disabled mod's plugin, an unticked one, a folder MO2 never registered), or a full path to any copy: pass the path when several folders hold that filename, or to read a plugin the index excluded as unparseable (refused when named by filename). A source read off disk is named in the reply. Source is not made a master for its own sake: the patch masters the record's origin plugin and whatever the copied record references. When the winner is a plugin a tool regenerates, forward the authored plugin's version and then extend the same patch with " + ToolNames.Apply + " into=.")]
             string? source = null,
         [Description(LaneSentences.PatchDefault + LaneSentences.PatchSuffix)]
@@ -76,10 +76,10 @@ public static class ForwardTools
         // ---- SELECT + SOURCE ---------------------------------------------------------------------------
         if (string.IsNullOrWhiteSpace(source))
             return Refuse("source= is required — name the plugin WHOSE version of the record(s) to forward (an earlier override to re-assert, or a master like 'Skyrim.esm' to revert to vanilla).");
-        if (formids is null || formids.Length == 0)
-            return Refuse("formids= is empty — pass the FormID(s) to forward from source, e.g. formids=[\"0012AB:CoolMod.esp\"] (one is a set of one), or [\"@<absolute path>\"] to read the list from a file.");
-        var (tokens, demand, _, xerr) = Artifacts.ExpandListInput(formids, "formids");
+        var (tokens, demand, _, xerr) = formids.Read("formids", ListKind.FormId);
         if (xerr is not null) return Refuse(xerr.StartsWith("error: ", StringComparison.Ordinal) ? xerr[7..] : xerr);
+        if (tokens is not { Length: > 0 })
+            return Refuse("formids= is empty — pass the FormID(s) to forward from source, e.g. formids=[\"0012AB:CoolMod.esp\"] (one is a set of one), or [\"@<absolute path>\"] to read the list from a file.");
         if (demand is not null)
             // An artifact's identity column is only valid at the epoch it was captured at, and the write lanes
             // capture inside the engine, so nothing here can re-check it: refuse rather than honour it unverified.

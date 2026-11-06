@@ -96,11 +96,11 @@ public sealed class AbsolutePathArgumentTests
         Assert.Contains("absolute", r);
     }
 
-    /// <summary>The list-parameter reader behind the JSON '@file' inputs, which has its own copy of the check.</summary>
+    /// <summary>The one list-file reader behind every '@file' list input.</summary>
     [Fact]
     public void TheListParameterFileReaderRefusesADriveRootedPath()
     {
-        var (text, error) = ListParams.ReadAtFile("@C:" + Relative() + ".json", "ops");
+        var (_, text, error) = HousecarlCore.ListFile.Read("@C:" + Relative() + ".json", "ops=", "ops=\"@<path>\"", "C:\\jobs\\ops.json");
 
         Assert.Null(text);
         Assert.Contains("absolute", error);
