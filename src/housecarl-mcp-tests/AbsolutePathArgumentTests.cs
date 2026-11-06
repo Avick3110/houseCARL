@@ -119,7 +119,7 @@ public sealed class AbsolutePathArgumentTests
         Assert.Contains("is not an absolute path", values.Error);
         Assert.Contains("is not an absolute path", formids.Error);
         // Vacuity: the same paths made fully qualified get past the shape gate and fail on the read instead.
-        Assert.Contains("could not read",
+        Assert.Contains("could not be read",
                         FieldPredicateSet.Parse(new[] { $"editorid in @{Path.Combine(Path.GetTempPath(), relative)}" }).Error);
     }
 
