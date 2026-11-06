@@ -115,8 +115,9 @@ public static class CheckTools
              "dropped, not a face bug), 'never_baked' (neither file, for the Player or a CharGen preset, which the " +
              "Creation Kit never bakes; counted in the header and listed only under its own token). It covers " +
              "every NPC_ in scope that needs a bake plus every facegen file on disk whose key resolves to nothing. " +
-             "An NPC with no FaceGen pair of its own is excluded and counted by reason, never flagged: its " +
-             "template carries the Traits flag, its race has no FaceGenHead flag, it has the Traits flag with no " +
+             "An NPC whose face is not its own pair, or that Mutagen names no pair for (though the Creation Kit " +
+             "bakes some 0x100 NPCs all the same), is excluded and counted by reason, never flagged: it has the " +
+             "Traits flag with a Template set, its race has no FaceGenHead flag, it has the Traits flag with no " +
              "Template, or ACBS flag 0x100; one count holds the rest (no race, a race not read, or no pair for " +
              "another reason). The file classes (inert, foreign_index) are reported only on an unscoped sweep; under " +
              "plugins=, exclude= or a record scope they are out of scope, not orphaned. It reports which files and " +
