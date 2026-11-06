@@ -641,8 +641,12 @@ provided either; the generic lane does not, because it legitimately answers for 
   the depth bound and the record cap stop where they did; `AssetWalkDoorFaultTests`
   — a broken NPC group is the arm's fault note. Fragments and a `.pex`'s parent are not pinned by a test; they were
   checked on the dev instance only.
-- *One FaceGen answer per NPC*: `NpcFaceDoorTests` — a plain, a templated and a leveled-template NPC get the same
-  answer on `formids=`, the walk, `npc=`, `place` and the check; the pair is Mutagen's link
+- *One FaceGen answer per NPC*: `NpcFaceDoorTests` — a plain NPC is its own pair on every lane and the check
+  judges it; a templated NPC is its root's pair on `formids=`, the walk, `npc=` and `place`, and the check excludes
+  it as templated; a leveled-template NPC names each member, one of N, on `formids=`, the walk and `npc=`, and
+  `place` refuses it; a donor-only NPC gives its pair through the walk's `from_source=` and `npc=`'s
+  `source_provider=` (`ADonorOnlyNpcGivesItsPairThroughTheLanesOwnSources`), and a clone in an unenabled `into=`
+  patch places by formid (`CopySourceFolderReadbackTests`); the pair is Mutagen's link
   (`ThePairIsSpelledAsMutagensLink`); each no-pair input is one reason on every lane, and Mutagen names no link for
   its fixture; no reason calls Mutagen's gate a bug; the check counts each exclusion by reason.
   `NpcFaceUnreadOrderTests` — a plugin the index could not read, and an order that cannot be read, are each row's
