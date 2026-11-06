@@ -45,6 +45,16 @@ public sealed class NpcFaceDoorWorld : IDisposable
         TraitsAlone = N("HcTraitsAlone", W.Race);
         TraitsAlone.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
         NoHead = N("HcNoHead", NoHeadRace);
+        var mixed = mod.LeveledNpcs.AddNew("HcMixedList");
+        mixed.Entries = new();
+        foreach (var m in new[] { Root, UseTemplate })
+            mixed.Entries.Add(new LeveledNpcEntry { Data = new LeveledNpcEntryData { Level = 1, Count = 1, Reference = m.ToLink<INpcSpawnGetter>() } });
+        LeveledMixed = N("HcLeveledMixed", W.Race);
+        LeveledMixed.Template.SetTo(mixed);
+        LeveledMixed.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        BothGaps = N("HcBothGaps", W.Race);
+        BothGaps.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        BothGaps.Configuration.Flags |= NpcConfiguration.Flag.UseTemplate;
         NotNpc = mod.Keywords.AddNew("HcNotNpc").FormKey;
         Unset = new FormKey(mod.ModKey, 0xABCDE);
         W.Write(mod, Mod, true, W.RaceMod);
@@ -59,6 +69,10 @@ public sealed class NpcFaceDoorWorld : IDisposable
 
     /// <summary>An NPC only an inactive plugin defines, its pair baked beside it, for the lanes that read off the order.</summary>
     public Npc Donor;
+
+    /// <summary>A leveled template of a root with a pair and one with ACBS 0x100; an NPC with both the Traits flag
+    /// and no Template and ACBS 0x100. Neither is in <see cref="Npcs"/>, so the check's counts there stay one each.</summary>
+    public Npc LeveledMixed, BothGaps;
     public const string DonorMod = "DoorDonor";
 
     public IEnumerable<Npc> Npcs => new[] { Plain, Root, Root2, Templated, Leveled, UseTemplate, TraitsAlone, NoHead };
@@ -146,6 +160,65 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
         Assert.Contains(Mesh(root), placed, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("face: " + line, placed);
         Assert.DoesNotContain(Mesh(npc), placed, StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string Tint(FormKey fk) => FaceGenPath.For(fk, FaceGenSlot.Tint);
+
+    /// <summary>A templated NPC's formids= rows are both halves of its root's pair, and the walk's and place's paths
+    /// are spelled as Mutagen's link, compared ordinally.</summary>
+    [Fact]
+    public void ATemplatedNpcsPathsAreItsRootsPairAsMutagenSpellsIt()
+    {
+        var npc = _w.Templated.FormKey;
+        var root = _w.Root.FormKey;
+        var paths = FormidsRows(npc).Select(r => r.GetProperty("path").GetString()!).ToList();
+        Assert.Equal(new[] { Mesh(root), Tint(root) }.Order(StringComparer.OrdinalIgnoreCase),
+                     paths.Order(StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+
+        var spelled = $@"Meshes\actors\character\facegendata\facegeom\HcFaceDoor.esp\00{root.ID:X6}.nif";
+        Assert.Contains(Walk(npc).Nodes, n => n.Edge == "facegen" && n.Path == spelled);
+        Assert.Contains(spelled, Place(npc, "HcDoorPlaceSpelled"), StringComparison.Ordinal);
+    }
+
+    /// <summary>place formid= with kind= puts that one half of the root's pair for a templated NPC, never its own path.</summary>
+    [Fact]
+    public void PlaceWithKindPutsTheRootsHalf()
+    {
+        var npc = _w.Templated.FormKey;
+        var placed = PlaceTools.Place(_w.Svc, new[] { new PlaceTarget { Formid = Id(npc), Kind = "mesh", SourceProvider = NpcFaceDoorWorld.Mod } }, patch: "HcDoorPlaceKind");
+        Assert.Contains("placed 1 of 1", placed);
+        Assert.Contains(Mesh(_w.Root.FormKey), placed, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Mesh(npc), placed, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>walk=true formids= through the tool: a templated seed's nodes carry its root's line, and a seed with no
+    /// pair is a note with the reason.</summary>
+    [Fact]
+    public void AFormidsWalkSeedCarriesTheFaceLineOrANote()
+    {
+        var line = $"the face of template root {Id(_w.Root.FormKey)}";
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Templated.FormKey), Id(_w.UseTemplate.FormKey) }, walk: true);
+        Assert.Contains(line, text);
+        Assert.Contains($"formids '{Id(_w.UseTemplate.FormKey)}': no FaceGen pair — {NpcFace.UseTemplateFlag}", text);
+    }
+
+    /// <summary>A leveled template with one pairless member: its "template root X: reason" row beside the other
+    /// member's pair, which is one of 2, the pairless member counted.</summary>
+    [Fact]
+    public void ALeveledTemplateWithAPairlessMemberGivesItsReasonBesideThePair()
+    {
+        var rows = FormidsRows(_w.LeveledMixed.FormKey);
+        Assert.Equal(3, rows.Count);
+        Assert.Contains(rows, r => r.TryGetProperty("error", out var e) && e.GetString() == NpcFaceAnswer.NoPair($"template root {Id(_w.UseTemplate.FormKey)}: {NpcFace.UseTemplateFlag}"));
+        Assert.Equal(2, rows.Count(r => r.TryGetProperty("face_note", out var n) && n.GetString() == $"the face of template root {Id(_w.Root.FormKey)}, one of 2"));
+    }
+
+    /// <summary>An NPC with the Traits flag and no Template and ACBS 0x100 gets the Traits reason, first in houseCARL's order.</summary>
+    [Fact]
+    public void TwoGapsGiveTheTraitsReasonFirst()
+    {
+        Assert.Contains(NpcFace.TraitsNoTemplate, Assert.Single(FormidsRows(_w.BothGaps.FormKey)).GetProperty("error").GetString());
+        Assert.Contains("1 with the Traits flag and no Template", Check(_w.BothGaps.FormKey));
     }
 
     /// <summary>A leveled template names each member's pair, one of N, on formids= (text, json and the artifact), npc=
