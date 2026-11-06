@@ -91,8 +91,7 @@ The door returns the `ArtifactDemand` and never checks it: each consumer checks 
 asset walk checks `formids=` and `records=` each, `nif_inspect npc=` and `check formids=`/`seeds=` check theirs, and
 `forward`/`remove` still refuse a `formid` artifact outright. Four string-typed lists, `compile_script import_dirs=`,
 `nexus_check_updates mods=`, `nexus_identify md5=` and `nif_inspect sections=`, have their own separators and take
-no `@file`. Neither does an op's `values=`
-inside `ops=`, which is data written to a record.
+no `@file`. Neither does an op's `values=` inside `ops=`, which is data written to a record.
 
 **Error rows are not identity-bearing.** A row carrying an `error` member documents a failure and does not name a
 record, so extraction SKIPS them: re-entering an artifact means "the records this file resolved". An all-error
