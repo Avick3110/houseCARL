@@ -13,6 +13,19 @@ public static class ListFile
     public static string? Unescape(string? entry)
         => entry is not null && entry.TrimStart() is { Length: > 1 } t && t[0] == '@' && t[1] == '@' ? t[1..] : entry;
 
+    /// <summary>A comma list's entries: split on commas and line breaks only (a bare space is legal inside a plugin
+    /// filename), each trimmed of brackets, quotes and whitespace, empties dropped.</summary>
+    public static IEnumerable<string> SplitCommaList(string content)
+    {
+        foreach (var t in content.Split(CommaSeparators, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
+            if (tok.Length > 0) yield return tok;
+        }
+    }
+
+    static readonly char[] CommaSeparators = { ',', '\r', '\n' };
+
     /// <summary>The refusal for an '@file' entry beside inline entries.</summary>
     public static string Mixed(string label, string alone)
         => $"{label} mixes an '@file' entry with inline entries — '@<path>' stands IN PLACE OF the whole list. " +
