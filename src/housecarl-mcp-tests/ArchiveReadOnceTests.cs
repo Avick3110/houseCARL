@@ -409,16 +409,19 @@ public sealed class ArchiveReadOnceTests : IDisposable
     {
         var svc = Built(PexA);
         Replace(Junk());
-        var node = Assert.Single(svc.AssetWalk(new[] { PexA }, Array.Empty<FormKey>(), null, null).Nodes, n => n.Error is not null);
-        Assert.Equal("its parent class was not read — could not read archive 'Dummy.bsa': " + JunkMessage, node.Error);
+        // The sentence is a note on the script (#1314, bug 7), not a second row at its path.
+        var walk = svc.AssetWalk(new[] { PexA }, Array.Empty<FormKey>(), null, null);
+        Assert.Single(walk.Nodes);
+        Assert.Contains(PexA + ": its parent class was not read — could not read archive 'Dummy.bsa': " + JunkMessage, walk.Notes);
     }
 
     [Fact]
     public void AWalkSaysAScriptItCannotParseAsBefore()
     {
         var svc = Built(PexA);                                              // the entry's bytes are not a .pex
-        var node = Assert.Single(svc.AssetWalk(new[] { PexA }, Array.Empty<FormKey>(), null, null).Nodes, n => n.Error is not null);
-        Assert.Equal("its parent class was not read — File does not have fast code! Magic does not match fa57c0de is 7445370d", node.Error);
+        var walk = svc.AssetWalk(new[] { PexA }, Array.Empty<FormKey>(), null, null);
+        Assert.Single(walk.Nodes);
+        Assert.Contains(PexA + ": its parent class was not read — File does not have fast code! Magic does not match fa57c0de is 7445370d", walk.Notes);
     }
 
     // A batch of one reads as the single read did: each sentence on its trigger, unchanged from main.

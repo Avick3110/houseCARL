@@ -90,7 +90,8 @@ public static class AssetTools
                      "(meshes-relative) string extra data. With provider=, the links are still the winning copy's, " +
                      "and the heading names it. A string that names no Data path says why. " + ToolNames.NifInspect +
                      " sections=paths lists every site. A " +
-                     "to_file= or spilled file carries the same links on each row; refused with counts_only=.")]
+                     "to_file= or spilled file carries the same links on each row; refused with counts_only=, and " +
+                     "with walk=true, which already follows these files as nodes.")]
             bool links = false,
         [Description("Optional. Walk from the selected paths and records= to every file they reach, returning one node " +
                      "per file: the paths a record lists, its implicit files (an NPC's FaceGen head and tint, or its " +
@@ -106,25 +107,30 @@ public static class AssetTools
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
                      "through 'winner', its own plugin; links into other plugins are counted as boundaries. A walk that " +
                      "enters any NPC builds the active order's reverse-reference index, once its records are walked, to find its lines, which takes " +
-                     "time on a large order. Not with to_file= or counts_only=.")]
+                     "time on a large order. The walk always runs whole: limit= and offset= window only the nodes " +
+                     "listed (the header, notes, standing counts and place set still cover every node, and a paged " +
+                     "answer ends with the [accounting] line); to_file= writes every node to the file and renders " +
+                     "the manifest only; counts_only= returns counts per edge and per standing, no nodes. Not with links=.")]
             bool walk = false,
         [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
             ListArg? records = null,
         [Description("Optional, with walk=true. The ordered source list each record is read from, first hit wins: " +
                      "'winner' (default) or a plugin filename, active or a file in a disabled mod folder. A records= " +
-                     "seed and a formids= seed's NPC, its template and race are read through it." + ListText.Plugins)]
+                     "seed and a formids= seed's NPC, its template and race are read through it; a walk with " +
+                     "neither seed, or a call with no walk, reads nothing through it and says so in a note." + ListText.Plugins)]
             ListArg? from_source = null,
         [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
                      "not (the donor), 'overwrite', 'Data' or an active archive's filename. Each node it ships is from-source, " +
                      "except a loose file MO2 hides, which is absent and says so; " +
                      "one it does not is elsewhere or absent. Omitted, or '" + AssetSourceChoice.WinnerToken + "', names no " +
-                     "source: each node is present or absent.")]
+                     "source: each node is present or absent. Without walk=true it is not used, and a note says so.")]
             string? source_provider = null,
         [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
                      "whole selection. Under counts_only=true it caps each census table's rows instead; the census " +
-                     "still covers the whole selection.")]
+                     "still covers the whole selection. Under walk=true, max nodes to render; the walk still runs whole.")]
             int limit = 0,
-        [Description("Optional. Where the rendered window starts in the selection, for paging. 0 = the beginning.")]
+        [Description("Optional. Where the rendered window starts in the selection (under walk=true, in the walk's " +
+                     "nodes), for paging. 0 = the beginning.")]
             int offset = 0,
         [Description("Optional. Write the complete result to this absolute .jsonl path (line 1 = manifest) and " +
                      "render only the manifest inline, as housecarl_records and housecarl_check do. One row per " +
@@ -132,15 +138,17 @@ public static class AssetTools
                      "a formids= row the formid, the slot, the paired path, its winner, whether the two differ, and " +
                      "face_note (the template root whose pair the row is, null for the NPC's own). The file covers the " +
                      "whole selection: limit= does not narrow it and row_count equals total. Re-enter it via " +
-                     "asset_paths=[\"@<path>\"]; its identity column is 'path', so it is not a formids= list.")]
+                     "asset_paths=[\"@<path>\"]; its identity column is 'path', so it is not a formids= list. Under " +
+                     "walk=true, one row per node in walk order, the same rows a spilled walk writes.")]
             string? to_file = null,
         [Description("Optional. Return a census instead of path rows: which MO2 layers win how many paths, which " +
                      "layers provide a copy that another layer wins over, how the winners split between loose and " +
-                     "BSA, and how many are absent. It covers the whole selection; limit= caps its tables' rows.")]
+                     "BSA, and how many are absent. It covers the whole selection; limit= caps its tables' rows. " +
+                     "Under walk=true, the walk's header, notes and counts per edge and per standing instead.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window; under walk=true, every node) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many layer rows it held back; raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
+        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window; under walk=true, every node, whatever the window) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many layer rows it held back; raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, call =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
@@ -163,17 +171,16 @@ public static class AssetTools
 
         if (recordsIn.Tokens is { Length: > 0 } && !walk)
             return Refuse("records= seeds the walk — pass walk=true with it.");
-        if (walk) return Walk(svc, pathsIn, underTokens, idsIn, provider, recordsIn, sourcesIn.Tokens, source_provider,
-                              wantFile: to_file is { Length: > 0 }, counts_only, json, Wire.Cap(max_chars));
-        if (pathsIn.Tokens is not { Length: > 0 } && underTokens is not { Length: > 0 }
+        if (!walk && pathsIn.Tokens is not { Length: > 0 } && underTokens is not { Length: > 0 }
             && idsIn.Tokens is not { Length: > 0 } && string.IsNullOrWhiteSpace(provider))
             return Refuse("asset_paths, under, formids and provider are all empty. Pass Data-relative asset path(s) in " +
                           "asset_paths (e.g. 'textures/armor/iron/cuirass_1.dds'), a Data-relative directory or glob " +
                           "in under (e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm'), NPC " +
                           "FormID(s) in formids (e.g. '01A51A:Dawnguard.esm') for their FaceGen pairs, or a mod or " +
                           "archive name in provider for every file it ships.");
-        // The window's own refusal, from the window: this tool and housecarl_skse answer the same input class.
-        if (new RowWindow(offset, limit).Error is { } bad) return ToolAnswer.Refusal(json, bad);
+        // The one set of transport checks, both lanes. The window's own refusal, from the window: this tool and housecarl_skse answer the same input class.
+        var window = new RowWindow(offset, limit);
+        if (window.Error is { } bad) return ToolAnswer.Refusal(json, bad);
         int cap = Wire.Cap(max_chars);
 
         var toFile = to_file?.Trim();
@@ -194,6 +201,15 @@ public static class AssetTools
         // A census covers the whole selection, so there is no selection window for offset= to move.
         if (counts_only && offset > 0)
             return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
+        if (walk && links) return ToolAnswer.Refusal(json, ReadSentences.WalkWithLinks);
+        // to_file= covers the whole walk, so limit= is ignored under it, as on the row lane.
+        if (walk) return Walk(svc, pathsIn, underTokens, idsIn, provider, recordsIn, sourcesIn.Tokens, source_provider,
+                              wantFile ? RowWindow.All : window, wantFile ? toFile : null, counts_only, limit, json, cap);
+
+        // The walk's own inputs, given without it, change nothing here: said, not dropped.
+        var callNotes = new List<string>();
+        if (sourcesIn.Tokens is { Length: > 0 }) callNotes.Add(ReadSentences.WalkOnlyInput("from_source="));
+        if (!string.IsNullOrWhiteSpace(source_provider)) callNotes.Add(ReadSentences.WalkOnlyInput("source_provider="));
 
         var (pathTokens, _, pathEcho, _) = pathsIn;
         var (idTokens, idDemand, idEcho, _) = idsIn;
@@ -242,6 +258,7 @@ public static class AssetTools
                                    wholeSelection: wantFile || counts_only, provider: provider, links: links);
         // The declared-cost refusal (the selection was counted and is past the bound) or an unknown provider: nothing was resolved.
         if (data.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
+        if (callNotes.Count > 0) data = data with { Notes = callNotes };
 
         if (counts_only)
             return ToolAnswer.Served(json ? JsonWire.RenderAssetCensus(data, cap, limit) : AssetCensus.Render(data, cap, limit));
@@ -291,14 +308,13 @@ public static class AssetTools
         return ToolAnswer.Served(json ? manifestOnly : RenderCap.Settle(manifestOnly, cap));
     });
 
-    /// <summary>The walk=true lane: the selection's paths and the records= keys seed <see cref="LoadOrderService.AssetWalk"/>.</summary>
+    /// <summary>The walk=true lane: the selection's paths and the records= keys seed <see cref="LoadOrderService.AssetWalk"/>.
+    /// The tool's transport checks have run: <paramref name="window"/> is legal, <paramref name="toFile"/> validated.</summary>
     static ToolAnswer Walk(LoadOrderService svc, ListRead pathsIn, string[]? under, ListRead idsIn, string? provider,
                        ListRead recordsIn, string[]? from_source, string? source_provider,
-                       bool wantFile, bool countsOnly, bool json, int cap)
+                       RowWindow window, string? toFile, bool countsOnly, int limit, bool json, int cap)
     {
         ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
-        if (wantFile || countsOnly)
-            return Refuse("walk=true renders its nodes inline and spills them whole to a results file past max_chars; drop to_file= and counts_only=.");
         // Each FormID artifact, formids= and records= alike, is epoch-checked the same way the row lane checks one.
         var demands = new[] { idsIn.Demand, recordsIn.Demand }.OfType<HousecarlCore.ArtifactDemand>().ToList();
         if (demands.Count > 0 && svc.CaptureView().Stamp.Epoch is var epoch)
@@ -342,18 +358,32 @@ public static class AssetTools
         }
         var w = svc.AssetWalk(paths, keys, from_source, source_provider, keyed);
         if (w.Refusal is { } wr) return ToolAnswer.Refusal(json, wr);
-        var rendered = AssetWalkWire.Render(w, selectorNotes, cap, json, null, out var cut);
+        // from_source= is read only by a record seed; with none it is said, not dropped.
+        if (from_source is { Length: > 0 } && recordsIn.Tokens is not { Length: > 0 } && formids is not { Length: > 0 })
+            w = w with { Notes = w.Notes.Prepend(ReadSentences.FromSourceWithoutRecordSeed).ToList() };
+        if (countsOnly) return ToolAnswer.Served(AssetWalkWire.RenderCounts(w, selectorNotes, cap, json, limit));
+
+        (OrderStamp? Order, string? NoEpochBecause) Stamp()
+        {
+            try { return (svc.CaptureView().Stamp, null); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            { return (null, Guard.Flatten(ex.Message)); }
+        }
+        if (toFile is not null)
+        {
+            var (fOrder, fNoEpoch) = Stamp();
+            var (file, fileErr) = AssetWalkWire.Write(w, ArtifactTarget.Named(toFile), "to_file", fOrder, fNoEpoch);
+            if (fileErr is not null) return ToolAnswer.Refusal(json, "error: " + fileErr);
+            return ToolAnswer.Served(AssetWalkWire.Render(w, selectorNotes, cap, json, SpillState.Spilled(file!, manifestOnly: true), window, out _));
+        }
+        var rendered = AssetWalkWire.Render(w, selectorNotes, cap, json, null, window, out var cut);
         if (!cut) return ToolAnswer.Served(rendered);
         // SPEC §2.1.1, as the row lane does: the whole walk to the results directory, the response naming it.
-        OrderStamp? order = null;
-        string? noEpochBecause = null;
-        try { order = svc.CaptureView().Stamp; }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-        { noEpochBecause = Guard.Flatten(ex.Message); }
+        var (order, noEpochBecause) = Stamp();
         using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
-        var (spill, spillErr) = AssetWalkWire.Write(w, reservation, order, noEpochBecause);
+        var (spill, spillErr) = AssetWalkWire.Write(w, reservation, "ceiling", order, noEpochBecause);
         return ToolAnswer.Served(AssetWalkWire.Render(w, selectorNotes, cap, json,
-                                    spillErr is null ? SpillState.Spilled(spill!, manifestOnly: false) : SpillState.WriteFailed(spillErr), out _));
+                                    spillErr is null ? SpillState.Spilled(spill!, manifestOnly: false) : SpillState.WriteFailed(spillErr), window, out _));
     }
 }
 
@@ -385,6 +415,7 @@ static class AssetWire
                 BatchRender.AppendRootFailures(sb, d.RootFailures, "an asset", room);
                 BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
                 AppendSelectorNotes(sb, d.SelectorNotes, room);
+                AppendNotes(sb, d.Notes, room);
             },
             (sb, r, _) => AppendPath(sb, r, d),
             out int rendered,
@@ -409,20 +440,25 @@ static class AssetWire
         BatchRender.AppendLines(sb, notes, "selector(s)", cap);
     }
 
+    /// <summary>The call's own notes, beside the selector notes and not under their heading; nothing when there are none.</summary>
+    internal static void AppendNotes(StringBuilder sb, IReadOnlyList<string>? notes, RenderCap cap)
+    {
+        if (notes is not { Count: > 0 }) return;
+        sb.Append("\n[!] notes (").Append(notes.Count).Append("):\n");
+        BatchRender.AppendLines(sb, notes, "note(s)", cap);
+    }
+
     /// <summary>What this response actually did, in the shared TRANSPORT vocabulary: the selection total, the window rendered, and the four distinct omissions.</summary>
     internal static TransportCounts Tally(AssetStatusData d, int rendered) =>
-        TransportAccounting.Tally(d.Selected, d.Results.Count, rendered, new RowWindow(d.Offset, d.Limit),
-                                  d.SelectorNotes?.Count ?? 0);
+        TransportAccounting.Tally(d.Selected, d.Results.Count, rendered, new RowWindow(d.Offset, d.Limit), d.NoteCount);
 
     /// <summary>The widest counts this response could state — what the json lane's tail reserve measures.</summary>
     internal static TransportCounts Widest(AssetStatusData d) =>
-        TransportAccounting.Widest(d.Selected, d.Results.Count, new RowWindow(d.Offset, d.Limit),
-                                   d.SelectorNotes?.Count ?? 0);
+        TransportAccounting.Widest(d.Selected, d.Results.Count, new RowWindow(d.Offset, d.Limit), d.NoteCount);
 
     /// <summary>The chars held back from max_chars so the accounting block is always affordable.</summary>
     internal static int AccountingReserve(AssetStatusData d) =>
-        TransportAccounting.Reserve(d.Selected, d.Results.Count, new RowWindow(d.Offset, d.Limit),
-                                    d.SelectorNotes?.Count ?? 0, RowNoun);
+        TransportAccounting.Reserve(d.Selected, d.Results.Count, new RowWindow(d.Offset, d.Limit), d.NoteCount, RowNoun);
 
     static void AppendPath(StringBuilder sb, AssetPathResult r, AssetStatusData d)
     {
@@ -648,6 +684,7 @@ static class AssetCensus
         BatchRender.AppendRootFailures(sb, d.RootFailures, "an asset", room);
         BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
         AssetWire.AppendSelectorNotes(sb, d.SelectorNotes, room);
+        AssetWire.AppendNotes(sb, d.Notes, room);
 
         sb.Append(Counters(c));
 

@@ -53,6 +53,13 @@ public sealed class AssetWalkWorld : IDisposable
     public const string OvHairNif = @"meshes\hcwalk\ovhair.nif";
     public const string OvHairTex = @"textures\hcwalk\ovhair.dds";
 
+    /// <summary>A mesh whose texture slot and SMP string name the same string that is no Data path (bug 7).</summary>
+    public const string DupNif = @"meshes\hcwalkdup\dup.nif";
+    public const string DupBad = @"..\..\outside\dup.dds";
+
+    /// <summary>A script whose bytes are no .pex, so its parent class cannot be read (bug 7).</summary>
+    public const string BadPex = @"scripts\hcwalkbadpex.pex";
+
     /// <summary>Sixty textures only the donor ships: a place set whose array alone passes a small max_chars.</summary>
     public static readonly string[] ManyTex = Enumerable.Range(0, 60).Select(i => $@"textures\hcwalk\many\t{i:D2}.dds").ToArray();
 
@@ -265,6 +272,8 @@ public sealed class AssetWalkWorld : IDisposable
         Write(cape, CapeNif, Mesh(new[] { @"data\textures\hcwalk\cape.dds" }, CapeXml));
         Write(cape, CapeXml, new byte[] { 1 });
         Write(cape, @"textures\hcwalk\cape.dds", new byte[] { 1 });
+        Write(cape, DupNif, Mesh(new[] { DupBad }, DupBad));
+        Write(cape, BadPex, new byte[] { 1, 2, 3 });
 
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + OtherPlugin + "\r\n" + Plugin + "\r\n" + LatePlugin + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + OtherPlugin + "\r\n*" + Plugin + "\r\n*" + LatePlugin + "\r\n");

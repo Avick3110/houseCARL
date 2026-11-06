@@ -1,0 +1,1 @@
+- **`asset_status walk=true` now pages with `limit=`/`offset=`, writes every node with `to_file=`, and counts by edge and standing with `counts_only=`; `links=` beside it is refused, and an unused `from_source=` or `source_provider=` gets a note.** Check: walk a record with `limit=5` and see five nodes and an `[accounting]` line.
