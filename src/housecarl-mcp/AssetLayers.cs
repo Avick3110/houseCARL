@@ -237,8 +237,9 @@ internal sealed partial class AssetLayers
 
     /// <summary>The face door's answer for each NPC key: the records, their templates and races read through
     /// <paramref name="pin"/> a round per hop, so a whole-order list costs a few batched reads. With
-    /// <paramref name="sources"/>, the lane's own record sources (docs/architecture/assets.md, One face door) are read
-    /// first, each key the winner where they hold none; without, the winners alone.</summary>
+    /// <paramref name="sources"/>, the lane's own record sources are read in their order, first hit (place's and
+    /// nif_inspect's winners first, the walk's from_source= as given; docs/architecture/assets.md, One FaceGen answer
+    /// per NPC); without, the winners alone.</summary>
     Dictionary<FormKey, NpcFaceAnswer> Faces(LoadOrderService.ViewPin pin, Mo2Roots roots, IEnumerable<FormKey> keys, FaceSources? sources)
     {
         using var session = pin.Resolver.OpenSession();
