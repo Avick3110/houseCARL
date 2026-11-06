@@ -489,8 +489,10 @@ per lane): the active order's winners, and where the lane reads plugins off the 
 the `into=` patch's plugins after the winners, so a clone a copy wrote there places by formid before it is enabled;
 `nif_inspect npc=` reads the plugins a `source_provider=` mod folder ships, after the winners. A folder's plugins are
 read by filename, first hit. Where the winners come first (`place`, `nif_inspect`, and a walk whose `from_source=`
-starts with `winner`), the off-order plugins are opened only for the keys the winners miss: an in-order NPC opens
-none, and a plugin there that will not open fails only those keys, "its record sources were not opened", naming it.
+starts with `winner`), the door opens the off-order plugins only when a read round's winners miss a key: any such
+key, an NPC's template or race included, opens them, and a plugin there that will not open fails only the missed
+keys, "its record sources were not opened", naming it. A walk with `records=` seeds builds its whole `from_source=`
+chain before reading, whatever its first element, and a chain that will not build refuses the call.
 `asset_status formids=` and the check read the winners alone. A key none of them defines gets the lane's own
 sentence (`FaceSources.Unset`): "no plugin in this order defines it", or that order and the sources it also read; a
 walk whose `from_source=` is all `winner` says the order's alone for both seed kinds (`AssetLayers.UnsetFor`). Any
