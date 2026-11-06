@@ -59,7 +59,7 @@ public sealed class TwoDisabledDonorsWorld : IDisposable
         var baseKey = new ModKey("HcBase", ModType.Master);
         var raceFk = new FormKey(baseKey, 0x800);
         var baseMod = new SkyrimMod(baseKey, SkyrimRelease.SkyrimSE);
-        baseMod.Races.Add(new Race(raceFk, SkyrimRelease.SkyrimSE) { EditorID = "HcTwoRace" });
+        baseMod.Races.Add(new Race(raceFk, SkyrimRelease.SkyrimSE) { EditorID = "HcTwoRace", Flags = Race.Flag.FaceGenHead });
         Write(baseMod, "BaseMod");
 
         var donorKey = new ModKey("Donor", ModType.Plugin);
@@ -212,10 +212,10 @@ public sealed class CopySourceFolderReadbackTests : IDisposable
             .SelectMany(d => Directory.EnumerateFiles(d, "*.esp")).Single();
         var cloneKey = CloneKeyIn(patchPath);
 
-        // By path: the patch is not enabled, so no plugin in the order defines the clone for a formid= placement.
+        // By formid: the patch is not enabled, and place reads the clone off the into= patch.
         var placed = PlaceTools.Place(_w.Svc, new[]
         {
-            new PlaceTarget { Path = FaceGenPath.For(cloneKey, FaceGenSlot.Mesh),
+            new PlaceTarget { Formid = $"{cloneKey.ID:X6}:{cloneKey.ModKey.FileName}", Kind = "mesh",
                               Source = _w.FaceRel, SourceProvider = folder },
         }, into: Path.GetFileName(patchPath));
         Assert.False(placed.StartsWith("error:", StringComparison.Ordinal), "refused: " + placed.Split('\n')[0]);

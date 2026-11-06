@@ -14,8 +14,9 @@ public sealed record FaceRoot(FormKey Root, string? Mesh, string? Tint, string? 
 public enum FaceGap { None, NoRace, RaceUnread, NoFaceGenHead, TraitsNoTemplate, UseTemplate, Other }
 
 /// <summary>An NPC's one FaceGen answer (docs/facegen.md): the roots its face is drawn from, each with a pair or a
-/// reason; the template chain's errors; and a <see cref="Reason"/> when the key names no NPC at all.</summary>
-public sealed record NpcFaceAnswer(FormKey Npc, IReadOnlyList<FaceRoot> Roots, IReadOnlyList<string> Errors, string? Reason)
+/// reason; the template chain's errors; and a <see cref="Reason"/> when the key names no NPC at all,
+/// <see cref="Undefined"/> when nothing the lane reads defines it.</summary>
+public sealed record NpcFaceAnswer(FormKey Npc, IReadOnlyList<FaceRoot> Roots, IReadOnlyList<string> Errors, string? Reason, bool Undefined = false)
 {
     /// <summary>An answer with no roots: the key names no NPC, or its record was not read.</summary>
     public static NpcFaceAnswer Fail(FormKey npc, string reason) => new(npc, Array.Empty<FaceRoot>(), Array.Empty<string>(), reason);
@@ -41,8 +42,9 @@ public sealed record NpcFaceAnswer(FormKey Npc, IReadOnlyList<FaceRoot> Roots, I
 /// <summary>The one door every lane asks for an NPC's face (DECISIONS 2026-11-05 (19)): the pair is Mutagen's resolved
 /// FaceGen link, asked on each face root as that root is. houseCARL adds only what Mutagen lacks: the Traits template
 /// walk (<see cref="FaceRoots"/>) and, where Mutagen names nothing, the first gate input the record
-/// leaves unmet, stated once. Records come through the lane's own <c>fetch</c>; races are kept per door.</summary>
-public sealed class NpcFace(Func<FormKey, IMajorRecordGetter?> fetch)
+/// leaves unmet, stated once. Records come through the lane's own <c>fetch</c>, and <c>unset</c> says where it looked
+/// for a key it finds nothing at; races are kept per door.</summary>
+public sealed class NpcFace(Func<FormKey, IMajorRecordGetter?> fetch, string unset = NpcFace.Unset)
 {
     public const string Unset = "no plugin in this order defines it";
     const string NoRace = "it names no race";
@@ -55,7 +57,7 @@ public sealed class NpcFace(Func<FormKey, IMajorRecordGetter?> fetch)
     /// null when nothing defines it).</summary>
     public NpcFaceAnswer Of(FormKey key, IMajorRecordGetter? body)
     {
-        if (body is null) return NpcFaceAnswer.Fail(key, Unset);
+        if (body is null) return NpcFaceAnswer.Fail(key, unset) with { Undefined = true };
         if (body is not INpcGetter npc)
             return NpcFaceAnswer.Fail(key, $"it is a {RecordNaming.StripOverlay(body.GetType().Name)}, not an NPC");
         var (roots, errors) = FaceRoots(npc, fetch);

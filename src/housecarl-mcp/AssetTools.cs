@@ -108,8 +108,9 @@ public static class AssetTools
             bool walk = false,
         [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from.")]
             string[]? records = null,
-        [Description("Optional, with records=. The ordered source list each record is read from, first hit wins: " +
-                     "'winner' (default) or a plugin filename, active or a file in a disabled mod folder.")]
+        [Description("Optional, with records= or formids=. The ordered source list each record is read from, first hit wins: " +
+                     "'winner' (default) or a plugin filename, active or a file in a disabled mod folder. A formids= " +
+                     "seed's NPC, its template and race are read through it too.")]
             string[]? from_source = null,
         [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
                      "not (the donor), 'overwrite', 'Data' or an active archive's filename. Each node it ships is from-source, " +
@@ -316,7 +317,9 @@ public static class AssetTools
         List<string>? selectorNotes = null;
         if (asset_paths is { Length: > 0 } || under is { Length: > 0 } || seeds.Count > 0 || !string.IsNullOrWhiteSpace(provider))
         {
-            var sel = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, 0, 0, seeds, wholeSelection: true, provider: provider);
+            // formids= seeds read their face through from_source=, as records= seeds do.
+            var sel = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, 0, 0, seeds, wholeSelection: true, provider: provider,
+                                      faceSources: from_source is { Length: > 0 } ? new FaceSources(from_source, "from_source", AssetLayers.RecordSourcesUnset) : null);
             if (sel.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
             selectorNotes = sel.SelectorNotes?.ToList() ?? new List<string>();
             foreach (var r in sel.Results)

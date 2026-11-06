@@ -39,6 +39,9 @@ internal sealed partial class AssetLayers
     /// <summary>How many form-link hops from a seed record the walk enters: NPC → head part → its extra part's texture set.</summary>
     internal const int RecordDepth = 3;
 
+    /// <summary>The face door's sentence for a key a walk with from_source= finds nothing at.</summary>
+    internal const string RecordSourcesUnset = "no plugin in this order or the record sources defines it";
+
     /// <summary>The asset walk (SPEC §3 with a file edge): from seed paths and seed records to every file they reach,
     /// through the paths a record lists, its implicit files (FaceGen, scripts, fragments, .seq, voice) and the links a
     /// file names (a mesh's textures, SMP XML and BODYTRI, a script's parent), each node resolved against
@@ -314,18 +317,27 @@ internal sealed partial class AssetLayers
         {
             var want = keys.Where(k => !_read.ContainsKey(k)).Distinct().ToList();
             if (want.Count == 0) return;
-            var got = chain.FetchMany(want);
-            var misses = new List<FormKey>();
+            var got = Through(chain, winners)(want);
             foreach (var k in want)
-                if (got[k].Fault is { } f) _read[k] = (null, new InvalidOperationException($"'{f.Arm.Spelling}' has it but could not read it — {f.Cause}"));
-                else if (got[k].Hit is { } hit) _read[k] = (hit.Body, null);
-                else misses.Add(k);
-            if (misses.Count == 0) return;
-            var winner = winners(misses);
-            foreach (var k in misses)
-                try { _read[k] = (winner(k), null); }
+                try { _read[k] = (got(k), null); }
                 catch (Exception ex) { _read[k] = (null, ex); }
         }
+
+        /// <summary>A round read through <paramref name="chain"/>, each key it holds none of from <paramref name="winners"/>;
+        /// a key an arm has but cannot read throws with why.</summary>
+        internal static Func<IReadOnlyCollection<FormKey>, Func<FormKey, IMajorRecordGetter?>> Through(
+            SourceChain chain, Func<IReadOnlyCollection<FormKey>, Func<FormKey, IMajorRecordGetter?>> winners) => keys =>
+        {
+            var got = chain.FetchMany(keys);
+            var misses = keys.Where(k => got[k].IsMiss).ToList();
+            var winner = misses.Count > 0 ? winners(misses) : null;
+            return k => got[k] switch
+            {
+                { Fault: { } f } => throw new InvalidOperationException($"'{f.Arm.Spelling}' has it but could not read it — {f.Cause}"),
+                { Hit: { } hit } => hit.Body,
+                _ => winner!(k),
+            };
+        };
 
         /// <summary>One key's body, read as a round of one if no round has read it.</summary>
         public IMajorRecordGetter? Get(FormKey fk)

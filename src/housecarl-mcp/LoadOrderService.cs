@@ -356,8 +356,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,
                                        IReadOnlyList<FaceGenSeed>? seeds = null, bool wholeSelection = false,
-                                       string? provider = null, bool links = false)
-        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider, links);
+                                       string? provider = null, bool links = false, FaceSources? faceSources = null)
+        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider, links, faceSources);
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
                                    IReadOnlyList<string>? fromSource, string? sourceProvider,
                                    IReadOnlyDictionary<string, string?>? keyedSeeds = null)
@@ -369,7 +369,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, CancellationToken ct = default) => _assetLayers.SkyPatcherLayer(use, ct: ct);
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(relPaths, sourceProvider, links);
     public NifInspectBatchData NifInspect(IReadOnlyList<NifTarget> targets, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(targets, sourceProvider, links);
-    public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys) => _assetLayers.NpcFaces(keys);
+    public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys, FaceSources? sources = null) => _assetLayers.NpcFaces(keys, sources);
+    public FaceSources? IntoFaceSources(string? into) => _assetLayers.IntoFaceSources(into);
+    public FaceSources? ProviderFaceSources(string? provider) => _assetLayers.ProviderFaceSources(provider);
     public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into, bool inPlace, bool acknowledge)
         => _assetLayers.NifSet(relPath, ops, sourceProvider, patchName, into, inPlace, acknowledge);
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into) => _assetLayers.PlaceAssets(requests, patchName, into);
@@ -1199,8 +1201,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string? IAssetHost.InstalledGameRuntime() => InstalledGameRuntime();
 
     SourceChain? IAssetHost.BuildWalkSources(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, Mo2Roots roots,
-                                            IReadOnlyList<string> poles, List<IDisposable> overlays, out string? error)
-        => _writes.BuildSourceChain(view, session, roots, poles, "from_source", overlays, out error);
+                                            IReadOnlyList<string> poles, List<IDisposable> overlays, out string? error, string param)
+        => _writes.BuildSourceChain(view, session, roots, poles, param, overlays, out error);
 
     /// <summary>The game dirs to search for the Creation Kit's compiler, in priority order: the load order's own, then the located real Skyrim SE install. De-duplicated, best-effort.</summary>
     public IReadOnlyList<string> CompilerGameDirHints()

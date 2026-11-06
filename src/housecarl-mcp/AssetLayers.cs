@@ -16,7 +16,7 @@ internal interface IAssetHost : ILoadOrderHost
 
     /// <summary>A walk's ordered record source universe (the from_source= pole list), off-order overlays appended to <paramref name="overlays"/> open.</summary>
     SourceChain? BuildWalkSources(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, Mo2Roots roots,
-                                  IReadOnlyList<string> poles, List<IDisposable> overlays, out string? error);
+                                  IReadOnlyList<string> poles, List<IDisposable> overlays, out string? error, string param = "from_source");
 }
 
 /// <summary>The assets area: asset status, the SKSE layer, NIF, the SkyPatcher layer scan and replay, place.</summary>
@@ -51,7 +51,8 @@ internal sealed partial class AssetLayers
         IReadOnlyList<FaceGenSeed>? seeds,
         bool wholeSelection,
         string? provider = null,
-        bool links = false)
+        bool links = false,
+        FaceSources? faceSources = null)
     {
         // formids= reads each NPC's record, so it takes the index with the assets; a call with none reads no record.
         var npcKeys = (seeds ?? Array.Empty<FaceGenSeed>()).Where(s => s.Error is null && s.Key is not null).Select(s => s.Key!.Value).ToList();
@@ -64,7 +65,7 @@ internal sealed partial class AssetLayers
             {
                 var (pin, assets) = _host.CapturePinAndAssets(null);
                 captured = assets;
-                faces = Faces(pin, npcKeys);
+                faces = Faces(pin, assets.Roots, npcKeys, faceSources);
             }
             catch (Exception ex)
             {
@@ -234,34 +235,81 @@ internal sealed partial class AssetLayers
     /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot, the other half's path and the face door's line for a template root. <c>Error</c> answers as its own row.</summary>
     readonly record struct Selection(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null, string? FaceNote = null);
 
-    /// <summary>The face door's answer for each NPC key: the winners, their templates and races read through
-    /// <paramref name="pin"/> a round per hop, so a whole-order list costs a few batched reads.</summary>
-    internal static Dictionary<FormKey, NpcFaceAnswer> Faces(LoadOrderService.ViewPin pin, IEnumerable<FormKey> keys)
+    /// <summary>The face door's answer for each NPC key: the records, their templates and races read through
+    /// <paramref name="pin"/> a round per hop, so a whole-order list costs a few batched reads. With
+    /// <paramref name="sources"/>, the lane's own record sources (docs/architecture/assets.md, One face door) are read
+    /// first, each key the winner where they hold none; without, the winners alone.</summary>
+    Dictionary<FormKey, NpcFaceAnswer> Faces(LoadOrderService.ViewPin pin, Mo2Roots roots, IEnumerable<FormKey> keys, FaceSources? sources)
     {
         using var session = pin.Resolver.OpenSession();
-        var reads = new RoundReads(k => BodyGather.Winners(pin.View, session, k));
-        var want = keys.Distinct().ToList();
-        reads.Read(want);
-        reads.FaceInputs(want.Select(k => reads.Peek(k).Body).OfType<INpcGetter>());
-        var door = new NpcFace(reads.Get);
-        var faces = new Dictionary<FormKey, NpcFaceAnswer>();
-        foreach (var k in want)
+        var overlays = new List<IDisposable>();
+        try
         {
-            // A key whose plugin the index could not read is not one nothing defines: said with the plugin's reason.
-            if (reads.Peek(k).Body is null && pin.View.ExcludedPlugins.TryGetValue(k.ModKey.FileName, out var unread))
-            { faces[k] = NpcFaceAnswer.Fail(k, $"its plugin {k.ModKey.FileName} was not read: {unread}"); continue; }
-            try { faces[k] = door.Of(k, reads.Get(k)); }
-            catch (Exception ex) { faces[k] = NpcFaceAnswer.Fail(k, $"its record was not read: {ex.Message}"); }
+            Func<IReadOnlyCollection<FormKey>, Func<FormKey, IMajorRecordGetter?>> winners = k => BodyGather.Winners(pin.View, session, k);
+            var want = keys.Distinct().ToList();
+            var faces = new Dictionary<FormKey, NpcFaceAnswer>();
+            var round = winners;
+            if (sources is { Poles.Count: > 0 })
+            {
+                if (_host.BuildWalkSources(pin.View, session, roots, sources.Poles, overlays, out var chainErr, sources.Param) is not { } chain)
+                {
+                    foreach (var k in want) faces[k] = NpcFaceAnswer.Fail(k, $"its record sources were not opened: {chainErr}");
+                    return faces;
+                }
+                round = MemberReads.Through(chain, winners);
+            }
+            var reads = new RoundReads(round);
+            reads.Read(want);
+            reads.FaceInputs(want.Select(k => reads.Peek(k).Body).OfType<INpcGetter>());
+            var door = new NpcFace(reads.Get, sources?.Unset ?? NpcFace.Unset);
+            foreach (var k in want)
+            {
+                // A key whose plugin the index could not read is not one nothing defines: said with the plugin's reason.
+                if (reads.Peek(k).Body is null && pin.View.ExcludedPlugins.TryGetValue(k.ModKey.FileName, out var unread))
+                { faces[k] = NpcFaceAnswer.Fail(k, $"its plugin {k.ModKey.FileName} was not read: {unread}"); continue; }
+                try { faces[k] = door.Of(k, reads.Get(k)); }
+                catch (Exception ex) { faces[k] = NpcFaceAnswer.Fail(k, $"its record was not read: {ex.Message}"); }
+            }
+            return faces;
         }
-        return faces;
+        finally { foreach (var o in overlays) { try { o.Dispose(); } catch { /* releasing the off-order overlays */ } } }
     }
 
-    /// <summary>The face door's answer for each NPC key over the current view (npc=, place formid=), or why the load
-    /// order could not be read.</summary>
-    public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys)
+    /// <summary>The face door's answer for each NPC key over the current view (npc=, place formid=), read through
+    /// <paramref name="sources"/> too when the lane has any, or why the load order could not be read.</summary>
+    public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys, FaceSources? sources = null)
     {
-        try { return (Faces(_host.CapturePinAndRoots(null).Pin, keys), null); }
+        try { var (pin, roots) = _host.CapturePinAndRoots(null); return (Faces(pin, roots, keys, sources), null); }
         catch (Exception ex) { return (null, $"the load order could not be read: {ex.Message}"); }
+    }
+
+    /// <summary>place's off-order face source: the plugins of the <paramref name="into"/> patch, where a clone copy wrote
+    /// waits until it is enabled; null with no into= or a folder that does not resolve, which the placement refuses itself.</summary>
+    public FaceSources? IntoFaceSources(string? into)
+    {
+        if (string.IsNullOrWhiteSpace(into)) return null;
+        try { return PluginSources(OutputLocations.ResolveOwnedPatchFolder(_host.ConfiguredRoots().Roots, into, needEsp: false), "into", "the into= patch"); }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>nif_inspect's off-order face source: the plugins a <paramref name="provider"/> mod folder ships, enabled or
+    /// not; null for any other provider, whose plugins are the order's.</summary>
+    public FaceSources? ProviderFaceSources(string? provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider)) return null;
+        try { return PluginSources(LooseListings.OnDisk(_host.ConfiguredRoots().Roots.ModsDir, provider.Trim()), "source_provider", $"source_provider '{provider.Trim()}'"); }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>The plugin files at a folder's root after the winners, or null when it holds none.</summary>
+    static FaceSources? PluginSources(string folder, string param, string named)
+    {
+        if (!Directory.Exists(folder)) return null;
+        var plugins = Directory.EnumerateFiles(folder)
+            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".esp" or ".esm" or ".esl")
+            .Order(StringComparer.OrdinalIgnoreCase).ToList();
+        return plugins.Count == 0 ? null
+             : new FaceSources(plugins.Prepend(SourcePoles.Winner).ToList(), param, $"no plugin in this order or {named} defines it");
     }
 
     // ---- SKSE-plugin-layer visibility: the DLLs, configs, winning provider and each DLL's declared manifest ----
