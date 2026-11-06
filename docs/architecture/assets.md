@@ -470,10 +470,13 @@ reason, plus the chain's errors:
   where Mutagen yields no link, **one reason**: the first unmet input of Mutagen's gate, in the order no race / race
   not read / not a race, no `FaceGenHead`, `Traits` with no `Template`, `ACBS` 0x100. Mutagen's gate is named as it
   is, not coded around: a 0x100 NPC the CK baked still gets the reason, not a pair.
-- **Reads are batched.** `NpcFace.Prefetch` reads each hop's templates and the roots' races in rounds;
-  `RoundReads` memoizes each key's record or its exception, so a lane that asks after the prefetch reads nothing.
-  The service lanes read through `BodyGather.Winners` on one pin; a key whose plugin is in the view's excluded set
-  says that plugin was not read rather than "no plugin defines it".
+- **Reads are batched where a lane prefetches.** On `formids=`, `npc=` and `place` (`AssetLayers.Faces`) and on
+  the walk (`MemberReads.Templates`), `NpcFace.Prefetch` reads each hop's templates and the roots' races in rounds,
+  and the memo (`RoundReads`, `MemberReads`) keeps each key's record or its exception, so the door reads nothing
+  after the prefetch. The check does not prefetch: it reads each race the first time the door asks, a round of one
+  through `RoundReads.Get`. On `formids=`, `npc=` and `place` only, an NPC key whose plugin is in the view's
+  excluded set says that plugin was not read rather than "no plugin defines it"; a template or race there, and
+  every key on the check and the walk, gets the door's not-found sentence.
 
 Each lane shows the answer in its own shape: a row per root path with `face_note` ("the face of template root X",
 ", one of N"), an error row per reason (`no FaceGen pair — …`), a walk note, a `place` refusal (several roots, or no
