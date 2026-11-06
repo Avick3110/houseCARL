@@ -200,7 +200,7 @@ internal sealed partial class AssetLayers
         // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
         var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
         IMajorRecordGetter? Fetch(FormKey fk) => members.Get(fk);
-        var faces = new NpcFace(Fetch);
+        var faces = new NpcFace(Fetch, chain.Arms.All(a => a.Spelling == SourcePoles.Winner) ? NpcFace.Unset : RecordSourcesUnset);
 
         // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
         for (int depth = 0; frontier.Count > 0; depth++)
