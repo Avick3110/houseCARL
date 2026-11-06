@@ -44,8 +44,8 @@ public static class NifTools
                      "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif' or " +
                      "'meshes\\armor\\iron\\cuirass_1.nif'. Read and returned in the order given. Forward or back " +
                      "slashes; a drive-rooted path ('C:\\…') or one with a '..' segment is an error on that path, " +
-                     "never normalized. Optional if npc= is passed.")]
-            string[]? mesh_paths = null,
+                     "never normalized. Optional if npc= is passed." + ListText.Paths)]
+            ListArg? mesh_paths = null,
         [Description("Optional. NPC FormID(s) whose FaceGen head mesh to read: " +
                      "'Meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' (Mutagen's spelling) is " +
                      "derived and read like any other path. 'XXXXXX:Plugin.esp', or the runtime form the game or " +
@@ -53,8 +53,8 @@ public static class NifTools
                      "Traits-templated NPC reads its template root's head, and an NPC with no FaceGen pair is an " +
                      "error row per reason (a leveled template's pairless member or broken chain entry beside the " +
                      "other members' heads). The folder is the plugin that defines that NPC, never " +
-                     "the conflict winner. Derived paths are read after any mesh_paths, in the order given.")]
-            string[]? npc = null,
+                     "the conflict winner. Derived paths are read after any mesh_paths, in the order given." + ListText.FormIds)]
+            ListArg? npc = null,
         [Description("Optional. Detail sections beyond the summary: any of 'shapes', 'partitions', 'alpha', " +
                      "'paths', 'shader', 'strings', 'nodes', 'bones', or 'all'; comma-, space- or JSON-array-separated " +
                      "(e.g. [\"shapes\",\"shader\"]). Per shape unless noted: 'shapes' the shape name, the NiAVObject " +
@@ -89,6 +89,16 @@ public static class NifTools
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, call =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
+        // Both lists through the one door; an npc= FormID artifact is epoch-checked before any NPC is read.
+        var meshIn = mesh_paths.Read("mesh_paths", ListKind.Path);
+        var npcIn = npc.Read("npc", ListKind.FormId);
+        if ((meshIn.Error ?? npcIn.Error) is { } listErr) return ToolAnswer.Refusal(listErr);
+        if (npcIn.Demand is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
+            return ToolAnswer.Refusal("error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
+        return Body(meshIn.Tokens, npcIn.Tokens);
+
+        ToolAnswer Body(string[]? mesh_paths, string[]? npc)
+        {
         bool anyPath = mesh_paths is not null && mesh_paths.Any(p => !string.IsNullOrWhiteSpace(p));
         bool anyNpc = npc is not null && npc.Any(p => !string.IsNullOrWhiteSpace(p));
         if (!anyPath && !anyNpc)
@@ -135,6 +145,7 @@ public static class NifTools
 
         var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(source_provider) ? null : source_provider, want.Contains("paths"));
         return ToolAnswer.Served(NifWire.Render(data, want, unknownTokens, Wire.Cap(max_chars)));
+        }
     });
 
     /// <summary>Parse <c>sections=</c> into the recognized set plus the unrecognized tokens, which are surfaced rather

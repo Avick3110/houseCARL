@@ -64,8 +64,8 @@ public sealed class DryRunGuardManifestTests : IDisposable
     [Fact]
     public void ABlankAtPathRefusesNamed()
     {
-        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: At("   ")), "names no file");
-        Assert.Contains("ops:", r);
+        var r = AssertRefusedNamedAndNothingWritten(() => ApplyTools.Apply(_w.Svc, ops: At("   ")), "names a list file but no path follows it");
+        Assert.Contains("ops=", r);
     }
 
     // L: a relative path refuses.

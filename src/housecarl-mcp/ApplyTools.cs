@@ -34,8 +34,8 @@ public static class ApplyTools
         LoadOrderService svc,
         [Description("The edits, all into one plugin: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …]. For a big job, write the ops to a manifest file, dry-run it, then apply it. The plugin write is atomic, so an interrupted call leaves the old file or the whole new one, though on the default lane it can leave the new mod folder holding only meta.ini, so a re-run is suffixed. If it may have landed, read the target before re-running, because a list Add or InsertAtIndex would apply twice and on the default lane a re-run writes a second, suffixed patch. Which ops a field takes follows its cardinality, so read that off the schema first.")]
             JsonElement? ops = null,
-        [Description("Copy, with assignments=: the field paths copied for every pair, e.g. [\"BasicStats.Damage\", \"Keywords\"]. Only these fields are copied; the record's identity and every other field are untouched. There are no preset bundles (such as an appearance set); name the paths.")]
-            string[]? bundle = null,
+        [Description("Copy, with assignments=: the field paths copied for every pair, e.g. [\"BasicStats.Damage\", \"Keywords\"]. Only these fields are copied; the record's identity and every other field are untouched. There are no preset bundles (such as an appearance set); name the paths." + ListText.Names)]
+            ListArg? bundle = null,
         [Description("Copy, with bundle=: [{target, from, from_source?}, …]. Each target is paired with its own source record, not with every source.")]
             JsonElement? assignments = null,
         [Description(LaneSentences.PatchDefault + LaneSentences.PatchSuffix)]
@@ -89,9 +89,11 @@ public static class ApplyTools
         }
 
         // An explicitly EMPTY bundle= is a supplied parameter: presence on the ARRAY, emptiness on its own terms.
-        bool hasBundle = bundle is not null;
+        var (bundlePaths, _, _, bundleErr) = bundle.Read("bundle", ListKind.Name);
+        if (bundleErr is not null) return Refuse(bundleErr.StartsWith("error: ", StringComparison.Ordinal) ? bundleErr[7..] : bundleErr);
+        bool hasBundle = bundlePaths is not null;
         bool hasAssignments = assignments is { } aEl && aEl.ValueKind is not JsonValueKind.Null;
-        if (hasBundle && bundle!.Length == 0)
+        if (hasBundle && bundlePaths!.Length == 0)
             return Refuse("bundle= is an empty array — give at least one dotted field path to copy (e.g. bundle=[\"BasicStats.Damage\"]), or drop bundle= and assignments= entirely.");
         if (hasBundle != hasAssignments)
             return Refuse(hasBundle
@@ -99,7 +101,7 @@ public static class ApplyTools
                 : "assignments= names the target/source PAIRS but bundle= names the field paths to copy — the zip needs both. Add bundle=[\"<field path>\", …].");
         if (hasBundle)
         {
-            var (paths, perr) = ReadBundlePaths(bundle!);
+            var (paths, perr) = ReadBundlePaths(bundlePaths!);
             if (perr is not null) return Refuse(perr);
             var (zipped, zerr) = ExpandZip(paths!, assignments!.Value);
             if (zerr is not null) return Refuse(zerr);
@@ -166,25 +168,9 @@ public static class ApplyTools
 
     // ---- the copy zip --------------------------------------------------------------------------------
 
-    /// <summary>Resolve <c>bundle=</c> to its field-path list, honoring the <c>["@&lt;path&gt;"]</c> spelling.</summary>
+    /// <summary>Check <c>bundle=</c>'s field paths, already read through the list door: a blank one is refused by index.</summary>
     static (IReadOnlyList<string>? Paths, string? Error) ReadBundlePaths(string[] bundle)
     {
-        // A MIXED inline/@file list is refused, in ListParams.Read's own words: an "@path" beside real paths would
-        // otherwise become a literal dotted FIELD path.
-        int atCount = bundle.Count(b => b?.TrimStart().StartsWith('@') == true);
-        if (atCount > 0 && bundle.Length != 1)
-            return (null, $"bundle: \"@<path>\" reads the WHOLE list from a file, so it cannot be mixed with inline elements " +
-                          $"(found {atCount} @-element(s) among {bundle.Length}). Pass either the inline array of field paths or a single \"@<absolute path>\".");
-        if (bundle.Length == 1 && bundle[0]?.TrimStart().StartsWith('@') == true)
-        {
-            var (text, err) = ListParams.ReadAtFile(bundle[0], "bundle");
-            if (err is not null) return (null, err);
-            string[]? paths;
-            try { paths = JsonSerializer.Deserialize<string[]>(text!, ListParams.Strict); }
-            catch (JsonException ex) { return (null, $"the file named by bundle could not be parsed: {ListParams.ShearStjPosition(Guard.Flatten(ex.Message))} Expected a JSON array of field-path strings."); }
-            if (paths is null || paths.Length == 0) return (null, "the file named by bundle holds no field paths — expected a JSON array of dotted field paths.");
-            bundle = paths;
-        }
         var clean = new List<string>(bundle.Length);
         for (int i = 0; i < bundle.Length; i++)
         {

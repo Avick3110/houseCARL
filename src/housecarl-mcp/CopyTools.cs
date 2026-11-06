@@ -31,12 +31,12 @@ public static class CopyTools
         LoadOrderService svc,
         [Description("The record to copy, 'XXXXXX:Plugin.esp' (e.g. '000D62:Vivace.esp').")]
             string from,
-        [Description("The sources records are read from, tried in order, first hit wins: 'winner' (the active load order's winning version) or a plugin filename, active or in a disabled mod. Default ['winner']. Several give a fallback, never a merge: from_source=['Override.esp','Donor.esp'] reads a look from an override patch while its records come from the defining plugin. The reply names the source of each record and, for a source in an MO2 mod folder, that folder, which is the provider to pass to " + ToolNames.Place + " for that record's files (its FaceGen, say); a source with no folder ('winner', the overwrite folder, game Data, a loose file) says so. What gets copied follows a rule: a linked record is internalized (duplicated under a new FormID) when it is defined in a plugin being copied away from, or does not resolve in the active load order; every other link is kept and mastered. The plugins copied away from are from='s own plugin and every plugin named here ('winner' names none), never a base-game master. A record no source can produce refuses the whole copy, naming every source consulted. When nothing is copied away from (a base-game from= with no mod named here, even when 'winner' resolves to a mod's override), the reply calls it an appearance transplant, not a standalone copy; naming a mod here makes it a standalone copy even for a base-game FormID.")]
-            string[]? from_source = null,
-        [Description("Required: the fields the walk starts from, e.g. ['HeadParts','HairColor','HeadTexture','WornArmor'] for an NPC's appearance. Each must be a record link or a list of record links by its declared type, so a field the source leaves empty still counts. A field whose entries are structures, not links (Factions, Perks, Items), is refused; copy those with " + ToolNames.Apply + "'s bundle= and assignments=, which replaces each named field whole on the target. A seed the source leaves unset or empty clears the target's, and the reply says so.")]
-            string[]? seed_paths = null,
-        [Description("Optional: record types the walk must not enter, each 'Type:stop' (prune it, keep the link) or 'Type:refuse' (fail the whole copy); a bare 'Type' means refuse. E.g. ['Race:refuse']: a race pulls in skeletons and sibling races, not an appearance. A kept link needs a plugin the patch can master: with target=, stopping at a record outside the active load order is refused before anything is written; with new_editorid=, the clone's links into the source are stripped anyway, so it refuses only if such a link survives. Any link to a plugin outside the active load order left in the finished patch refuses, and the refusal names the cause.")]
-            string[]? exclude_types = null,
+        [Description("The sources records are read from, tried in order, first hit wins: 'winner' (the active load order's winning version) or a plugin filename, active or in a disabled mod. Default ['winner']. Several give a fallback, never a merge: from_source=['Override.esp','Donor.esp'] reads a look from an override patch while its records come from the defining plugin. The reply names the source of each record and, for a source in an MO2 mod folder, that folder, which is the provider to pass to " + ToolNames.Place + " for that record's files (its FaceGen, say); a source with no folder ('winner', the overwrite folder, game Data, a loose file) says so. What gets copied follows a rule: a linked record is internalized (duplicated under a new FormID) when it is defined in a plugin being copied away from, or does not resolve in the active load order; every other link is kept and mastered. The plugins copied away from are from='s own plugin and every plugin named here ('winner' names none), never a base-game master. A record no source can produce refuses the whole copy, naming every source consulted. When nothing is copied away from (a base-game from= with no mod named here, even when 'winner' resolves to a mod's override), the reply calls it an appearance transplant, not a standalone copy; naming a mod here makes it a standalone copy even for a base-game FormID." + ListText.Plugins)]
+            ListArg? from_source = null,
+        [Description("Required: the fields the walk starts from, e.g. ['HeadParts','HairColor','HeadTexture','WornArmor'] for an NPC's appearance. Each must be a record link or a list of record links by its declared type, so a field the source leaves empty still counts. A field whose entries are structures, not links (Factions, Perks, Items), is refused; copy those with " + ToolNames.Apply + "'s bundle= and assignments=, which replaces each named field whole on the target. A seed the source leaves unset or empty clears the target's, and the reply says so." + ListText.Names)]
+            ListArg? seed_paths = null,
+        [Description("Optional: record types the walk must not enter, each 'Type:stop' (prune it, keep the link) or 'Type:refuse' (fail the whole copy); a bare 'Type' means refuse. E.g. ['Race:refuse']: a race pulls in skeletons and sibling races, not an appearance. A kept link needs a plugin the patch can master: with target=, stopping at a record outside the active load order is refused before anything is written; with new_editorid=, the clone's links into the source are stripped anyway, so it refuses only if such a link survives. Any link to a plugin outside the active load order left in the finished patch refuses, and the refusal names the cause." + ListText.Names)]
+            ListArg? exclude_types = null,
         [Description("Destination: an existing record to copy onto, 'XXXXXX:Plugin.esp', active or in the patch itself with into=. Only the seed fields are written, pointing at the copies; every other field keeps the target's own value. An NPC's inline face values (tint layers, face morphs and parts, TextureLighting, weight) are not links, so no seed carries them: copying a face onto an existing NPC needs a second call, " + ToolNames.Apply + " with bundle=['TintLayers','FaceMorph','FaceParts','TextureLighting','HairColor','HeadTexture','Weight'] and assignments= pairing this record with the source NPC. Pass this or new_editorid=.")]
             string? target = null,
         [Description("Destination: a clone of the source record with this EditorID. Every link on the clone still pointing into the source is stripped and named in the reply, including when clearing one removes a whole property (a script, say). A link the record type requires cannot be stripped, so that refuses. The clone is a whole-record duplicate, so an NPC's inline face values carry with it and need no second write. Pass this or target=.")]
@@ -47,6 +47,11 @@ public static class CopyTools
             string? into = null) => Guard.Tool(ToolNames.Copy, call =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
+        // Every list through the one door.
+        var sourcesIn = from_source.Read("from_source", ListKind.Plugin);
+        var seedsIn = seed_paths.Read("seed_paths", ListKind.Name);
+        var excludeIn = exclude_types.Read("exclude_types", ListKind.Name);
+        if ((sourcesIn.Error ?? seedsIn.Error ?? excludeIn.Error) is { } listErr) return ToolAnswer.Refusal(listErr);
 
         // A blank patch= or into= is no name, so the new_editorid= default applies; naming both lanes is refused.
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
@@ -74,7 +79,7 @@ public static class CopyTools
 
         // Blank elements are REFUSED BY INDEX, never dropped: dropping one shifts every later index, so the
         // service's own per-element refusals would then name the wrong position back to the caller.
-        var rawSeeds = seed_paths ?? Array.Empty<string>();
+        var rawSeeds = seedsIn.Tokens ?? Array.Empty<string>();
         for (int i = 0; i < rawSeeds.Length; i++)
             if (string.IsNullOrWhiteSpace(rawSeeds[i]))
                 return ToolAnswer.Refusal($"error: seed_paths[{i}] is blank — every element must name a field on the record being " +
@@ -85,7 +90,7 @@ public static class CopyTools
                    "(e.g. seed_paths=['HeadParts','WornArmor']). Without them there is nothing to copy.");
 
         var exclusions = new List<WalkExclusion>();
-        foreach (var raw in exclude_types ?? Array.Empty<string>())
+        foreach (var raw in excludeIn.Tokens ?? Array.Empty<string>())
         {
             // REFUSED, not skipped: skipping would run the copy with fewer exclusions than were passed, silently.
             // A blank here shifts no index the response reports, so it refuses by CONTENT rather than by index.
@@ -110,7 +115,7 @@ public static class CopyTools
                 $"excluded by the caller as '{sev}'"));
         }
 
-        var rawPoles = from_source ?? Array.Empty<string>();
+        var rawPoles = sourcesIn.Tokens ?? Array.Empty<string>();
         for (int i = 0; i < rawPoles.Length; i++)
             if (string.IsNullOrWhiteSpace(rawPoles[i]))
                 return ToolAnswer.Refusal($"error: from_source[{i}] is blank — every element must name a source ('winner', or a plugin " +

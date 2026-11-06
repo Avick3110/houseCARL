@@ -59,7 +59,7 @@ public sealed class ApplyGuardOpsGrammarTests : IDisposable
         var r = ApplyTools.Apply(W.Svc,
             ops: Je("[" + AtPath(manifest) + $$""", {"formid":"{{W.SubjectFid}}","field_path":"Name","value":"x"}]"""));
         Assert.StartsWith("error:", r);
-        Assert.Contains("cannot be mixed with inline elements", r);
+        Assert.Contains("mixes an '@file' entry with inline entries", r);
     }
 
     // probe: "a 1.x 'verb' member inside an op is refused BY NAME (not silently dropped)"

@@ -342,7 +342,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         try
         {
             var d = _w.Svc.AssetStatus(
-                Artifacts.ExpandListInput(new[] { "@" + list }, "asset_paths", identity: "path").Tokens!);
+                ListDoor.ReadItems(new[] { "@" + list }, "asset_paths", ListKind.Path).Tokens!);
 
             Assert.Equal(2, d.Results.Count);
             Assert.Equal(commaPath, d.Results[0].RelPath);

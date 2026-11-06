@@ -40,7 +40,7 @@ public static class AssetTools
                      "[\"@<absolute path>\"] in place of the list: a plain file, one path per line, or a to_file= " +
                      "artifact from this tool (identity column 'path'). A path list is not epoch-checked, so a saved " +
                      "sweep re-enters after the order changes.")]
-            string[]? asset_paths = null,
+            ListArg? asset_paths = null,
         [Description("Optional. Data-relative directory or glob selector(s): every file the load order provides " +
                      "beneath it, loose and BSA, is resolved, leaving out a loose file MO2 hides (a root meta.ini, " +
                      "readme.txt or fomod folder in any root, Data included, or a skip-list match in a mod or " +
@@ -50,8 +50,8 @@ public static class AssetTools
                      "'textures/actors/character/**/*.dds'. A glob needs no folder in front: '**/*goldbrand*' finds " +
                      "every file whose name holds 'goldbrand', in any folder, while '*goldbrand*' reads the Data root " +
                      "only. Matches come after the asset_paths and formids= rows, sorted, duplicates dropped. A " +
-                     "selector that matches nothing says so. With provider=, only that provider's files are walked.")]
-            string[]? under = null,
+                     "selector that matches nothing says so. With provider=, only that provider's files are walked." + ListText.Paths)]
+            ListArg? under = null,
         [Description("Optional. NPC FormIDs ('XXXXXX:Plugin.esp', the defining master's filename). Each contributes " +
                      "both halves of its FaceGen pair, " +
                      "'Meshes\\actors\\character\\facegendata\\facegeom\\<master>\\00<6hex>.nif' and " +
@@ -72,7 +72,7 @@ public static class AssetTools
                      "plain list file, or a housecarl_records artifact whose 'formid' column becomes the list " +
                      "(epoch-checked against the current build); records types=[\"NPC_\"] to_file= then " +
                      "formids=[\"@<that file>\"] sweeps the whole order.")]
-            string[]? formids = null,
+            ListArg? formids = null,
         [Description("Optional. One provider, as a row's providers line spells it: an enabled mod folder (its loose " +
                      "files and the active archives it ships), 'overwrite', 'Data' (the game's Data folder: its loose " +
                      "files and the base-game archives), or one archive's filename " +
@@ -108,12 +108,12 @@ public static class AssetTools
                      "enters any NPC builds the active order's reverse-reference index, once its records are walked, to find its lines, which takes " +
                      "time on a large order. Not with to_file= or counts_only=.")]
             bool walk = false,
-        [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from.")]
-            string[]? records = null,
+        [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
+            ListArg? records = null,
         [Description("Optional, with walk=true. The ordered source list each record is read from, first hit wins: " +
                      "'winner' (default) or a plugin filename, active or a file in a disabled mod folder. A records= " +
-                     "seed and a formids= seed's NPC, its template and race are read through it.")]
-            string[]? from_source = null,
+                     "seed and a formids= seed's NPC, its template and race are read through it." + ListText.Plugins)]
+            ListArg? from_source = null,
         [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
                      "not (the donor), 'overwrite', 'Data' or an active archive's filename. Each node it ships is from-source, " +
                      "except a loose file MO2 hides, which is absent and says so; " +
@@ -151,12 +151,22 @@ public static class AssetTools
         // The read/write surface's one refusal shape: ToolAnswer.Refusal strips the prefix on the json document.
         ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
 
-        if (records is { Length: > 0 } && !walk)
+        // Every list through the one door, each taking what its own entries are made of.
+        var pathsIn = asset_paths.Read("asset_paths", ListKind.Path);
+        var underIn = under.Read("under", ListKind.Path);
+        var idsIn = formids.Read("formids", ListKind.FormId);
+        var recordsIn = records.Read("records", ListKind.FormId);
+        var sourcesIn = from_source.Read("from_source", ListKind.Plugin);
+        foreach (var listErr in new[] { pathsIn.Error, underIn.Error, idsIn.Error, recordsIn.Error, sourcesIn.Error })
+            if (listErr is not null) return ToolAnswer.Refusal(json, listErr);
+        var underTokens = underIn.Tokens;
+
+        if (recordsIn.Tokens is { Length: > 0 } && !walk)
             return Refuse("records= seeds the walk — pass walk=true with it.");
-        if (walk) return Walk(svc, asset_paths, under, formids, provider, records, from_source, source_provider,
+        if (walk) return Walk(svc, pathsIn, underTokens, idsIn, provider, recordsIn, sourcesIn.Tokens, source_provider,
                               wantFile: to_file is { Length: > 0 }, counts_only, json, Wire.Cap(max_chars));
-        if ((asset_paths is null || asset_paths.Length == 0) && (under is null || under.Length == 0)
-            && (formids is null || formids.Length == 0) && string.IsNullOrWhiteSpace(provider))
+        if (pathsIn.Tokens is not { Length: > 0 } && underTokens is not { Length: > 0 }
+            && idsIn.Tokens is not { Length: > 0 } && string.IsNullOrWhiteSpace(provider))
             return Refuse("asset_paths, under, formids and provider are all empty. Pass Data-relative asset path(s) in " +
                           "asset_paths (e.g. 'textures/armor/iron/cuirass_1.dds'), a Data-relative directory or glob " +
                           "in under (e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm'), NPC " +
@@ -185,13 +195,8 @@ public static class AssetTools
         if (counts_only && offset > 0)
             return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
 
-        // The @file convention on both list inputs, each taking the identity column its own tokens are made of.
-        var (pathTokens, pathDemand, pathEcho, perr) =
-            Artifacts.ExpandListInput(asset_paths ?? Array.Empty<string>(), "asset_paths", identity: "path");
-        if (perr is not null) return ToolAnswer.Refusal(json, perr);
-        var (idTokens, idDemand, idEcho, ferr2) =
-            Artifacts.ExpandListInput(formids ?? Array.Empty<string>(), "formids");
-        if (ferr2 is not null) return ToolAnswer.Refusal(json, ferr2);
+        var (pathTokens, _, pathEcho, _) = pathsIn;
+        var (idTokens, idDemand, idEcho, _) = idsIn;
 
         // The FormID door parses the plugin-qualified form without touching the index; AssetStatus then reads each NPC, its templates and races.
         var door = FormIdDoor.For(svc);
@@ -233,7 +238,7 @@ public static class AssetTools
         }
 
         // counts_only= resolves the WHOLE selection, as to_file= does: a census of a window would answer about a window while the rows that need paging had no knob.
-        var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, counts_only ? 0 : limit, offset, seeds,
+        var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), underTokens, counts_only ? 0 : limit, offset, seeds,
                                    wholeSelection: wantFile || counts_only, provider: provider, links: links);
         // The declared-cost refusal (the selection was counted and is past the bound) or an unknown provider: nothing was resolved.
         if (data.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
@@ -246,7 +251,7 @@ public static class AssetTools
             var e = new List<KeyValuePair<string, string>>
             {
                 new("asset_paths", pathEcho ?? $"{pathTokens?.Length ?? 0} inline path(s)"),
-                new("under", under is { Length: > 0 } ? string.Join(",", under) : "<none>"),
+                new("under", underIn.EchoSource ?? (underTokens is { Length: > 0 } ? string.Join(",", underTokens) : "<none>")),
                 new("formids", idEcho ?? $"{seeds.Count} inline formid(s)"),
                 new("provider", data.Provider ?? "<none>"),
                 new("read_incomplete", data.ReadIncomplete ? "true" : "false"),
@@ -287,24 +292,22 @@ public static class AssetTools
     });
 
     /// <summary>The walk=true lane: the selection's paths and the records= keys seed <see cref="LoadOrderService.AssetWalk"/>.</summary>
-    static ToolAnswer Walk(LoadOrderService svc, string[]? asset_paths, string[]? under, string[]? formids, string? provider,
-                       string[]? records, string[]? from_source, string? source_provider,
+    static ToolAnswer Walk(LoadOrderService svc, ListRead pathsIn, string[]? under, ListRead idsIn, string? provider,
+                       ListRead recordsIn, string[]? from_source, string? source_provider,
                        bool wantFile, bool countsOnly, bool json, int cap)
     {
         ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
         if (wantFile || countsOnly)
             return Refuse("walk=true renders its nodes inline and spills them whole to a results file past max_chars; drop to_file= and counts_only=.");
-        // The same @file convention as the row lane, a formids= artifact epoch-checked the same way.
-        var (pathTokens, _, _, perr) = Artifacts.ExpandListInput(asset_paths ?? Array.Empty<string>(), "asset_paths", identity: "path");
-        if (perr is not null) return ToolAnswer.Refusal(json, perr);
-        var (idTokens, idDemand, _, ferr) = Artifacts.ExpandListInput(formids ?? Array.Empty<string>(), "formids");
-        if (ferr is not null) return ToolAnswer.Refusal(json, ferr);
-        if (idDemand is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
-            return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
-        asset_paths = pathTokens; formids = idTokens;
+        // Each FormID artifact, formids= and records= alike, is epoch-checked the same way the row lane checks one.
+        foreach (var d in new[] { idsIn.Demand, recordsIn.Demand })
+            if (d is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
+                return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
+        var asset_paths = pathsIn.Tokens;
+        var formids = idsIn.Tokens;
         var door = FormIdDoor.For(svc);
         var keys = new List<Mutagen.Bethesda.Plugins.FormKey>();
-        foreach (var raw in records ?? Array.Empty<string>())
+        foreach (var raw in recordsIn.Tokens ?? Array.Empty<string>())
         {
             try { keys.Add(door.Parse(raw)); }
             catch (Exception ex) { return Refuse($"records '{raw}' is not a FormID: {Guard.Flatten(ex.Message)} Expected 'XXXXXX:Plugin.esp'."); }

@@ -39,7 +39,7 @@ public static partial class RecordsTools
         [Description("The form: 'summary' (type, editorid, name, winner and override depth; the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a list field folded to one line per element; takes fields= naming the list, or one element as 'Conditions[0]', and depth=, default 4. Each line is the element's own summary plus every sub-field the read found; absent optionals are omitted, and a declared but null link is kept. One call audits a whole condition stack (fields=[\"Conditions\"]). A named field that is not a list is refused) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only: source= is the subject, versus= the reference; takes fields= to narrow. Each line shows the subject's value with the reference's beside it, labelled by plugin; versus=\"previous_provider\" shows what a plugin changed against what sat beneath it) | 'tree' (the conflict view: every provider of each record in priority order, the winner marked (a partial-form override, flag 0x4000 on a CELL, WRLD or DIAL, does not win), each showing only the fields that differ from versus=, default the winner; takes fields=. On a type that owns child records (a cell's placed references, a topic's INFO lines, a worldspace's cells) it also states, per such field, which providers declare children there, or how many do for a singular field such as Cell.Landscape, and says so when none do) | 'info_order' (DIAL topics only: the merged INFO sequence across every touching plugin, with moved lines marked; the 'why does the wrong line play' diagnostic. The game plays the first passing line from the top, and a plugin that re-lists a line without carrying its PNAM appends it to the bottom, so a reorder changes which line answers while no field differs, which a diff cannot show. Select a quest's topics with types=[\"DIAL\"] where=[\"Quest = <quest formid>\"]. source= can fold in one off-order plugin; see source=) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached; needs walk=, and carries the NPC template inheritance report and the reverse MGEF carrier rows. A cycle is a record the walk reached again from itself, found over the nodes it entered and reported once per closing link, so the count is a lower bound on distinct loops; the search stops at 200 loops per seed and says so. No cycles over a walk that finished means none; over one cut at walk.depth or walk.max_nodes it means none in what was read). delta and tree compare by content: a list reorder is flagged, and a truncated deep read is reported, never called identical.")]
         public string? form { get; set; }
 
-        [Description("Dotted field paths: read on the fields form, folded on the rows form, narrowed to on delta and tree. E.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list or dict element with brackets ('Effects[0].Data.Magnitude'). A path may lead with '*parent', the record that contains this one, as in where=; it chains. On the rows form these name the list(s) to fold, one line per element. On the fields form a step may be quantified: 'Effects[*count]' is one number per record, 'Effects[*]' one row per element in the rows form's row shape, and 'Effects[*].Data.Magnitude' that leaf per element; under format='dense' the extra rows repeat the record's identity columns.")]
+        [Description("Dotted field paths: read on the fields form, folded on the rows form, narrowed to on delta and tree. E.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list or dict element with brackets ('Effects[0].Data.Magnitude'). A path may lead with '*parent', the record that contains this one, as in where=; it chains. On the rows form these name the list(s) to fold, one line per element. On the fields form a step may be quantified: 'Effects[*count]' is one number per record, 'Effects[*]' one row per element in the rows form's row shape, and 'Effects[*].Data.Magnitude' that leaf per element; under format='dense' the extra rows repeat the record's identity columns." + ListText.Names)]
         public string[]? fields { get; set; }
 
         [Description("fields/rows/everything forms: expansion depth for list, dict and substruct contents (default 1; 4 on the rows form, where a shallower read renders each element as a bare type). fields=[\"Effects\"], depth=4 reaches every effect's Magnitude, Area and Duration.")]
@@ -55,7 +55,7 @@ public static partial class RecordsTools
     /// <summary>The traversal construct: follow record-to-record form links from this call's own SELECT and select what the walk reaches; expanding fields WITHIN a record is project.depth.</summary>
     public sealed class RecordsWalk
     {
-        [Description("Link fields that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]; '*parent' climbs to the record that contains the seed (a REFR to its CELL). Forward only. Omit for every link on the seed.")]
+        [Description("Link fields that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]; '*parent' climbs to the record that contains the seed (a REFR to its CELL). Forward only. Omit for every link on the seed." + ListText.Names)]
         public string[]? seed_paths { get; set; }
 
         [Description("The link path followed at every later hop. \"*\" (default) follows every link; a named path follows one chain, e.g. \"Template\" or \"*parent\". A reverse walk takes \"*\" (every link) or \"Effects[].BaseEffect\" (the MGEF carrier walk, one hop, with each carrier's magnitude, area and duration; types= narrows the carriers); under project.form='chain' only the carrier walk renders, so name it.")]
@@ -76,7 +76,7 @@ public static partial class RecordsTools
         [Description("Record types to stop at (kept, not expanded) or refuse (the call fails), each {match, severity}. Both directions; not on the carrier walk.")]
         public RecordsWalkExclusion[]? exclusions { get; set; }
 
-        [Description("Record types the walk expands through, e.g. [\"LeveledItem\", \"Outfit\"]. Seeds and stop boundaries stay in the reached set; any type not listed is left out and counted. Unset walks every type. Not on the carrier walk. A walk follows record links, not NPC template inheritance: with Npc as a stop boundary, an NPC that takes its inventory from a template is not reached.")]
+        [Description("Record types the walk expands through, e.g. [\"LeveledItem\", \"Outfit\"]. Seeds and stop boundaries stay in the reached set; any type not listed is left out and counted. Unset walks every type. Not on the carrier walk. A walk follows record links, not NPC template inheritance: with Npc as a stop boundary, an NPC that takes its inventory from a template is not reached." + ListText.Names)]
         public string[]? through { get; set; }
     }
 
@@ -135,19 +135,19 @@ public static partial class RecordsTools
     public static string Records(
         LoadOrderService svc,
         [Description("SELECT: records by FormID ('XXXXXX:Plugin.esp' or the runtime form), or [\"@<absolute path>\"] to read the list from a file or spilled artifact. Results return in input order; a bad or absent FormID is a per-item error, never a failed batch.")]
-            string[]? formids = null,
-        [Description("SELECT: record types, as signatures ('WEAP') or catalog names ('Weapon'); the scan takes their union. types alone enumerates every record of those types in whatever source= names.")]
-            string[]? types = null,
+            ListArg? formids = null,
+        [Description("SELECT: record types, as signatures ('WEAP') or catalog names ('Weapon'); the scan takes their union. types alone enumerates every record of those types in whatever source= names." + ListText.Names)]
+            ListArg? types = null,
         [Description("SELECT: the plugin scope, which records are considered (records these plugins touch). source= decides whose version is read.")]
             RecordsScope? plugins = null,
         [Description("SELECT: keep only records touched by more than one plugin (the contested set).")]
             bool conflicts_only = false,
-        [Description("SELECT: body predicates, ANDed. Comparisons: 'BasicStats.Damage >= 50', 'editorid contains Iron', 'editorid startswith REQ_'. Negation: a leading 'not' complements a string operator ('Name not contains Dagger', 'editorid not startswith REQ_'); the other operators have their own complement ('!=' for '=', 'missing' for 'exists', 'has_none' for 'has', 'not in' for 'in'). On a field path a negated term matches only records the path reads a value on, so 'Name contains X', 'Name not contains X' and 'Name missing' partition the scope; 'editorid' is the exception: it always gives a verdict, so a record with no EditorID lands on the negated side, where '!=' and 'not in' also put it, so the editorid trio overlaps by those records. Flag tests: 'BodyTemplate.FirstPersonFlags has Body' (every operand bit set), 'has_any' (at least one), 'has_none' (none). Use has, not '=': '= 4194304' matches only flags that are exactly that bit. Quantified steps over a list: 'Conditions[*any].Data.Function = IsGuard', 'Effects[*none].BaseEffect->editorid startswith REQ_' (absence, proved), 'Effects[*count] > 2'; [*any]/[*all]/[*none] fold to a boolean, [*count] to the number of elements, and [*all] is true on an empty list. A quantified step costs per element, and with '->' one winner fetch per element, which is heavy over a dense cell's references. Containment: '*parent' is the record that contains this one, which references= cannot see: '*parent.EditorID = GreetingsTopic' is an INFO's owning DIAL, '*parent.*parent.EditorID = Tamriel' a placed reference's worldspace; it leads a path and chains. Presence: 'VirtualMachineAdapter exists' (and 'missing'). Membership: 'formid not in @<file>' (how a spilled artifact re-enters) or 'Race in [XXXXXX:A.esm, YYYYYY:B.esm]'; list entries split on commas and newlines with brackets and quotes stripped, so test a value containing a comma or bracket with '='. One '->' link step: 'Perks->editorid startswith REQ_NULL_'. Provenance: 'winner = X.esp' (records X wins) resolves winners over the scanned scope, the cost of any winner scan. A link compares to a FormID: 'WorkbenchKeyword = 088108:Skyrim.esm'. Step into a list element with brackets ('Effects[0].Data.Magnitude'), not a dotted hop. A predicate on one arm of a union field is an arm test: an NPC's Configuration.Level is a fixed level or a PC-level multiplier, and 'Configuration.Level.LevelMult >= 0' returns exactly the NPCs on a multiplier. Needs types=, plugins= or formids= to bound it. A wrong path is reported, never a silent '0 matches'.")]
-            string[]? where = null,
+        [Description("SELECT: body predicates, ANDed. Comparisons: 'BasicStats.Damage >= 50', 'editorid contains Iron', 'editorid startswith REQ_'. Negation: a leading 'not' complements a string operator ('Name not contains Dagger', 'editorid not startswith REQ_'); the other operators have their own complement ('!=' for '=', 'missing' for 'exists', 'has_none' for 'has', 'not in' for 'in'). On a field path a negated term matches only records the path reads a value on, so 'Name contains X', 'Name not contains X' and 'Name missing' partition the scope; 'editorid' is the exception: it always gives a verdict, so a record with no EditorID lands on the negated side, where '!=' and 'not in' also put it, so the editorid trio overlaps by those records. Flag tests: 'BodyTemplate.FirstPersonFlags has Body' (every operand bit set), 'has_any' (at least one), 'has_none' (none). Use has, not '=': '= 4194304' matches only flags that are exactly that bit. Quantified steps over a list: 'Conditions[*any].Data.Function = IsGuard', 'Effects[*none].BaseEffect->editorid startswith REQ_' (absence, proved), 'Effects[*count] > 2'; [*any]/[*all]/[*none] fold to a boolean, [*count] to the number of elements, and [*all] is true on an empty list. A quantified step costs per element, and with '->' one winner fetch per element, which is heavy over a dense cell's references. Containment: '*parent' is the record that contains this one, which references= cannot see: '*parent.EditorID = GreetingsTopic' is an INFO's owning DIAL, '*parent.*parent.EditorID = Tamriel' a placed reference's worldspace; it leads a path and chains. Presence: 'VirtualMachineAdapter exists' (and 'missing'). Membership: 'formid not in @<file>' (how a spilled artifact re-enters) or 'Race in [XXXXXX:A.esm, YYYYYY:B.esm]'; list entries split on commas and newlines with brackets and quotes stripped, so test a value containing a comma or bracket with '='. One '->' link step: 'Perks->editorid startswith REQ_NULL_'. Provenance: 'winner = X.esp' (records X wins) resolves winners over the scanned scope, the cost of any winner scan. A link compares to a FormID: 'WorkbenchKeyword = 088108:Skyrim.esm'. Step into a list element with brackets ('Effects[0].Data.Magnitude'), not a dotted hop. A predicate on one arm of a union field is an arm test: an NPC's Configuration.Level is a fixed level or a PC-level multiplier, and 'Configuration.Level.LevelMult >= 0' returns exactly the NPCs on a multiplier. Needs types=, plugins= or formids= to bound it. A wrong path is reported, never a silent '0 matches'." + ListText.Names)]
+            ListArg? where = null,
         [Description("Which body where= matches on: 'scoped' (default, the body the scan streams) or 'winner' (the live load-order winner whatever the scan scope; the post-patch audit). Matching only; fields_source= sets display.")]
             string? where_source = null,
-        [Description("SELECT: records that reference these FormIDs (one step back; OR over the list, each match names the target(s) it hit). Needs no bounding scope: unbounded, it reads the reverse-reference index, built on first use by one whole-order link walk, and the response reports that cost and the index's freshness; with types= or plugins= it is cheaper. A '!' before an entry negates it: references=[\"!XXXXXX:A.esm\"] keeps records that do not reference that target, plain and negated entries combine by AND, and references=[\"!@C:/work/targets.jsonl\"] negates every target the file names. A negated entry alone with no types=/plugins= is the orphan sweep: every record nothing in the order references, minus any that link the named target; bound the call for the narrower question. Accepts [\"@<path>\"] like formids=.")]
-            string[]? references = null,
+        [Description("SELECT: records that reference these FormIDs (one step back; OR over the list, each match names the target(s) it hit). Needs no bounding scope: unbounded, it reads the reverse-reference index, built on first use by one whole-order link walk, and the response reports that cost and the index's freshness; with types= or plugins= it is cheaper. A '!' before an entry negates it: references=[\"!XXXXXX:A.esm\"] keeps records that do not reference that target, plain and negated entries combine by AND, and references=[\"!@C:/work/targets.jsonl\"] negates every target the file names. A negated entry alone with no types=/plugins= is the orphan sweep: every record nothing in the order references, minus any that link the named target; bound the call for the narrower question. Accepts [\"@<path>\"] like formids=." + ListText.FormIds)]
+            ListArg? references = null,
         [Description("SOURCE: whose version is read; the subject of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads that plugin's version whether it is active or on disk unticked, and the response states which; use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. SkyPatcher INIs can change records at runtime, which no other pole shows: {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads before or after that INI layer replays; add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would go in, or omit it when the draft's parent directory already is that folder) to read the post state with a draft not yet placed. Content from outside the load order (an off-order file, the SkyPatcher layer) is outside the epoch fingerprint, and the response says so. On project.form='info_order' the one value taken is an off-order plugin (any file not in the active order, including a plugin unticked inside an enabled mod), folded into the merge where MO2 would load it: the end of the order for a regular plugin, after the last master for an ESM-flagged one or a .esm/.esl, or the plugin's own slot when the order already carries that filename (a shadowed copy named by {\"file\", \"mod\"}). The response names the placement, the neighbour it landed beside and the flag behind it.")]
             JsonElement? source = null,
         [Description("SOURCE (delta and tree): the reference pole compared against. Same values as source=, plus \"previous_provider\" (delta only): the plugin just below the subject (whatever source= names) in the record's stack, measured from the subject, not the winner; with it, plugins above the subject are reported as plain fact, and a subject that defines the record, or does not touch it, is refused, never an empty diff. Required on delta; defaults to \"winner\" on tree; refused on other forms.")]
@@ -172,6 +172,15 @@ public static partial class RecordsTools
             string? to_file = null,
         CancellationToken ct = default) => Guard.Tool(ToolNames.Records, call =>
     {
+        // Every top-level list through the one door; the body below sees only what the door read.
+        var formidsIn = formids.Read("formids", ListKind.FormId);
+        var typesIn = types.Read("types", ListKind.Name);
+        var whereIn = where.Read("where", ListKind.Name);
+        var referencesIn = references.Read("references", ListKind.FormId, negation: '!');
+        return Body(formidsIn.Tokens, typesIn.Tokens, whereIn.Tokens, referencesIn.Tokens);
+
+        ToolAnswer Body(string[]? formids, string[]? types, string[]? where, string[]? references)
+    {
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
 
         // ---- TRANSPORT: format --------------------------------------------------------------------------
@@ -183,15 +192,18 @@ public static partial class RecordsTools
         long callStart = meterClock();
         bool dense = fmt is Wire.QueryFormat.Dense;
 
-        // plugins.names takes the @file spelling, one plugin filename per line: a name can carry a comma or a leading '['.
-        string? pluginsEcho = null;
-        if (plugins?.names is { Length: > 0 } scopeNames)
-        {
-            var (ptoks, pecho, perr) = Artifacts.ExpandPluginList(scopeNames, "plugins.names", "plugins={{\"names\": [{0}]}}");
-            if (perr is not null) return ToolAnswer.Refusal(json, perr);
-            plugins.names = ptoks;
-            pluginsEcho = pecho;
-        }
+        // The spec objects' own lists through the same door, each read back in place.
+        var pluginsIn = ListDoor.ReadItems(plugins?.names, "plugins.names", ListKind.Plugin, "plugins={{\"names\": [{0}]}}");
+        var fieldsIn = ListDoor.ReadItems(project?.fields, "project.fields", ListKind.Name, "project={{\"fields\": [{0}]}}");
+        var seedPathsIn = ListDoor.ReadItems(walk?.seed_paths, "walk.seed_paths", ListKind.Name, "walk={{\"seed_paths\": [{0}]}}");
+        var throughIn = ListDoor.ReadItems(walk?.through, "walk.through", ListKind.Name, "walk={{\"through\": [{0}]}}");
+        foreach (var listErr in new[] { formidsIn.Error, typesIn.Error, whereIn.Error, referencesIn.Error,
+                                        pluginsIn.Error, fieldsIn.Error, seedPathsIn.Error, throughIn.Error })
+            if (listErr is not null) return ToolAnswer.Refusal(json, listErr);
+        if (plugins is not null) plugins.names = pluginsIn.Tokens;
+        if (project is not null) project.fields = fieldsIn.Tokens;
+        if (walk is not null) { walk.seed_paths = seedPathsIn.Tokens; walk.through = throughIn.Tokens; }
+        string? pluginsEcho = pluginsIn.EchoSource;
 
         // ONE FormID door for the whole call; contract in docs/architecture/records-tool-front.md.
         var door = svc.OpenFormIdDoor();
@@ -653,6 +665,8 @@ public static partial class RecordsTools
         // A walk hands its reached set to the list lane as formids=, already bounded by walk.max_nodes, so the list
         // lane's own render bound is over a list the CALLER passed.
         bool walkDerived = false;
+        // What the door read off formids=, or a walk's derived set once it has replaced the list: that set names no file.
+        ListRead Fids() => walkDerived ? new(formids, null, null, null) : formidsIn;
 
         return scanLane
             ? ScanLane()          // including formids plus scan: the identity set rides the scan as an intersection
@@ -663,7 +677,7 @@ public static partial class RecordsTools
         // ================================================================================================
         ToolAnswer ListLane()
         {
-            var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(formids!, "formids");
+            var (toks, demand, echoSrc, xerr) = Fids();
             if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
             var ids = toks!;
 
@@ -1367,7 +1381,7 @@ public static partial class RecordsTools
             IReadOnlyList<FormKey>? formidSet = null;
             if (hasFormids)
             {
-                var (ftoks, fdemand, fecho, fxerr) = Artifacts.ExpandListInput(formids!, "formids");
+                var (ftoks, fdemand, fecho, fxerr) = Fids();
                 if (fxerr is not null) return ToolAnswer.Refusal(json, fxerr);
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
@@ -1437,7 +1451,7 @@ public static partial class RecordsTools
             var refs = references;
             if (refs is { Length: > 0 })
             {
-                var (toks, demand, echoSrc, xerr) = ExpandReferenceList(refs);
+                var (toks, demand, echoSrc, xerr) = referencesIn;
                 if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc;
             }
@@ -1812,7 +1826,7 @@ public static partial class RecordsTools
             var refs = references;
             if (refs is { Length: > 0 })
             {
-                var (toks, demand, echoSrc2, xerr) = ExpandReferenceList(refs);
+                var (toks, demand, echoSrc2, xerr) = referencesIn;
                 if (xerr is not null) return ToolAnswer.Refusal(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc2;
             }
@@ -1828,7 +1842,7 @@ public static partial class RecordsTools
             IReadOnlyList<FormKey>? formidSet = null;
             if (formids is { Length: > 0 })
             {
-                var (ftoks, fdemand, fecho, fxerr) = Artifacts.ExpandListInput(formids!, "formids");
+                var (ftoks, fdemand, fecho, fxerr) = Fids();
                 if (fxerr is not null) return ToolAnswer.Refusal(json, fxerr);
                 fidDemand = fdemand; fidEcho = fecho;
                 var fkList = new List<FormKey>();
@@ -2002,6 +2016,7 @@ public static partial class RecordsTools
             }
             return ToolAnswer.Outcome(outcome.Error is null, rendered);
         }
+        }
     }, ct);
 
     /// <summary>What the overlay refusals on a scan read off the call to name its list-lane route.</summary>
@@ -2140,25 +2155,6 @@ public static partial class RecordsTools
         return $"error: {param}= is a string (\"winner\" | a plugin filename{(subjectRole ? "" : " | \"previous_provider\"")}) or an object ({{\"file\", \"mod\"}} | {{\"overlay\", \"state\"}}).";
     }
 
-    /// <summary>references= @file expansion with the negation sigil carried across it: the sigil is stripped before the expander sees it, which decides "this is a file" on the first character, and put back on each expanded token.</summary>
-    static (string[]? Tokens, HousecarlCore.ArtifactDemand? Demand, string? EchoSource, string? Error)
-        ExpandReferenceList(string[] refs)
-    {
-        var bare = new string[refs.Length];
-        bool anyNegatedFile = false;
-        for (int i = 0; i < refs.Length; i++)
-        {
-            var t = refs[i]?.TrimStart() ?? "";
-            if (t.Length > 1 && t[0] == '!' && t[1..].TrimStart().StartsWith("@", StringComparison.Ordinal))
-            { anyNegatedFile = true; bare[i] = t[1..].TrimStart(); }
-            else bare[i] = refs[i];
-        }
-        if (!anyNegatedFile) return Artifacts.ExpandListInput(refs, "references");
-        var (toks, demand, echo, err) = Artifacts.ExpandListInput(bare, "references");
-        if (err is not null) return (null, null, null, err);
-        // '@file' stands in place of the whole list, so a negated one negates every token it expanded to.
-        return (toks!.Select(t => "!" + t.Trim()).ToArray(), demand, echo is null ? null : "!" + echo, null);
-    }
 
     /// <summary>Split references= into the targets a match must link to and the ones it must NOT, a leading '!' negating an entry; the two compose by AND, and a FormID never begins with '!'.</summary>
     static (List<FormKey>? Positive, List<FormKey>? Negative, string? Error)

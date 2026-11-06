@@ -26,7 +26,7 @@ public static class RemoveTools
     public static string Remove(
         LoadOrderService svc,
         [Description("The records to drop, each 'XXXXXX:Plugin.esp'. Only a record the lane's file itself defines or overrides can be named, in any group (cells, placed references, dialogue, navmesh). Removing a record also drops every record nested under it (a cell's placed references, a topic's lines), and the reply lists only the records you named. A record in a parent's single-child slot (a cell's Landscape, a worldspace's TopCell) is refused unless the records under it are named too. Also takes [\"@<absolute path>\"], a plain list file with one FormID per line, not a result artifact.")]
-            string[]? formids = null,
+            ListArg? formids = null,
         [Description("Filename of the houseCARL patch to remove the records from, e.g. 'MyMerge.esp'; it must be a patch houseCARL created, and carry them. " + LaneSentences.IntoFound)]
             string? into = null,
         [Description("Opt-in: the filename of an active plugin to drop the records straight out of" + LaneSentences.InPlaceAnyPlugin + LaneSentences.InPlaceRewrite + "Every record you drop is checked gone on the re-opened file.")]
@@ -56,10 +56,10 @@ public static class RemoveTools
             return Refuse("acknowledge= confirms the in-place trade-off and is meaningless without in_place=<plugin filename>. Drop it, or name the file to rewrite.");
 
         // ---- formids= (set-valued; the @file spelling shared with every other list input) ---------------
-        if (formids is null || formids.Length == 0)
-            return Refuse("formids= is empty — pass the FormID(s) to drop, e.g. formids=[\"0012AB:CoolMod.esp\"] (one is a set of one), or [\"@<absolute path>\"] to read the list from a file.");
-        var (tokens, demand, _, xerr) = Artifacts.ExpandListInput(formids, "formids");
+        var (tokens, demand, _, xerr) = formids.Read("formids", ListKind.FormId);
         if (xerr is not null) return Refuse(xerr.StartsWith("error: ", StringComparison.Ordinal) ? xerr[7..] : xerr);
+        if (tokens is not { Length: > 0 })
+            return Refuse("formids= is empty — pass the FormID(s) to drop, e.g. formids=[\"0012AB:CoolMod.esp\"] (one is a set of one), or [\"@<absolute path>\"] to read the list from a file.");
         if (demand is not null)
             // An artifact's identity column is only valid at the epoch it was captured at, and the write lanes
             // capture inside the engine, so nothing here can re-check it: refuse rather than honour it unverified.

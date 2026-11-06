@@ -88,13 +88,15 @@ public static partial class WriteTools
          "otherwise the report says which reason applied and whether " + ToolNames.CompactPlugin + " can still make it light.")]
     public static string MergePlugins(
         LoadOrderService svc,
-        [Description("The donor plugin filenames, at least one, each active in your load order (e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]). A set: order and repeats do not matter; load order decides id priority and conflicts. One donor is a rename: the same records under the new name, keeping every object id at or above 0x800. With several, the donor earliest in the load order keeps its object ids, later donors renumber only ids already taken, and any id below 0x800 renumbers. A record several donors carry resolves to the load-order winner, and each such conflict is reported; nested children the winner does not list (dialogue lines under a topic, references under a cell) are grafted into the winner's copy. A record injected into one donor's FormID space and carried by another is merged and renumbered like any other. Plugins outside the merge that depend on a donor are named as warnings, never refused; fix each before disabling the donors: a referencer, include it or repoint it; an overrider, include it or rebuild it against the output; one that only lists a donor as a master, remove that master.")]
-            string[] plugins,
+        [Description("The donor plugin filenames, at least one, each active in your load order (e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]). A set: order and repeats do not matter; load order decides id priority and conflicts. One donor is a rename: the same records under the new name, keeping every object id at or above 0x800. With several, the donor earliest in the load order keeps its object ids, later donors renumber only ids already taken, and any id below 0x800 renumbers. A record several donors carry resolves to the load-order winner, and each such conflict is reported; nested children the winner does not list (dialogue lines under a topic, references under a cell) are grafted into the winner's copy. A record injected into one donor's FormID space and carried by another is merged and renumbered like any other. Plugins outside the merge that depend on a donor are named as warnings, never refused; fix each before disabling the donors: a referencer, include it or repoint it; an overrider, include it or rebuild it against the output; one that only lists a donor as a master, remove that master." + ListText.Plugins)]
+            ListArg plugins,
         [Description("Name of the new mod folder; the merged plugin takes it too, so patch='MyMerge' writes 'houseCARL - MyMerge\\MyMerge.esp'. Never auto-suffixed, since configs, INIs and dependents bind to the exact basename: the name is refused when a mod folder 'houseCARL - <name>' exists, a <name>.esp is active, or a <name>.esp sits anywhere your order is not loading it. Every donor NPC's facegen and every voiced line are copied to folders under this name, and a .seq is refreshed when any donor shipped one. Saves that depend on the donors will not survive the switch; best for a new game.")]
             string patch) => Guard.Tool(ToolNames.MergePlugins, call =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
-        var outcome = svc.MergePlugins(plugins, patch);
+        var (names, _, _, listErr) = plugins.Read("plugins", ListKind.Plugin);
+        if (listErr is not null) return ToolAnswer.Refusal(listErr);
+        var outcome = svc.MergePlugins(names ?? Array.Empty<string>(), patch);
         return ToolAnswer.Outcome(outcome.Success, RenderMerge(outcome));
     });
 }

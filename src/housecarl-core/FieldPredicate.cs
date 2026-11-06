@@ -574,26 +574,23 @@ public sealed class FieldPredicateSet
     static string FoldToken(Fold f) => PathFoldGrammar.Token(f);
 
     /// <summary>Parse a generalized (non-formid) membership list; an all-FormKey list rides along pre-parsed, and a bare runtime FormID entry is resolved here.</summary>
+    /// <summary>How the list door's refusals name an <c>in @&lt;file&gt;</c> operand.</summary>
+    static string OperandLabel(string raw) => $"predicate '{raw}': the 'in'";
+
     static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, HashSet<FormKey>? Runtime, string? Error) ParseValueList(string raw, string operand, Func<string?, FormKey>? parseFormId, bool resolveRuntime)
     {
         string content;
         ArtifactDemand? artifact = null;
         if (operand[0] == '@')
         {
-            var path = operand.Substring(1).Trim().Trim('"', '\'');
-            if (path.Length == 0)
-                return (null, null, null, null, $"predicate '{raw}': '@' names a value-list file but no path follows it.");
-            if (PathArguments.NotAbsolute(path, $"predicate '{raw}': value-list file", "the file the values are in", "C:\\work\\values.txt") is { } notAbsolute)
-                return (null, null, null, null, notAbsolute);
-            try { content = File.ReadAllText(path); }
-            catch (Exception ex) { return (null, null, null, null, $"predicate '{raw}': could not read value-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+            var (path, text, rerr) = ListFile.Read(operand, OperandLabel(raw), "'in @<absolute path>'", "C:\\work\\values.txt");
+            if (rerr is not null) return (null, null, null, null, rerr);
+            content = text!;
             if (ResultArtifact.LooksLikeArtifact(content))
             {
-                var (manifest, tokens, aerr) = ResultArtifact.ReadIdentity(path, content);
+                var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content, "formid", OperandLabel(raw));
                 if (aerr is not null) return (null, null, null, null, $"predicate '{raw}': {aerr}");
-                if (!manifest!.Identity!.Equals("formid", StringComparison.OrdinalIgnoreCase))
-                    return (null, null, null, null, $"predicate '{raw}': artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' identities, not FormIDs — nothing in it to test a value against.");
-                artifact = new ArtifactDemand(path, manifest.Epoch);
+                artifact = demand;
                 content = string.Join("\n", tokens!);
             }
         }
@@ -641,21 +638,14 @@ public sealed class FieldPredicateSet
         bool fromFile = operand[0] == '@';
         if (fromFile)
         {
-            var path = operand.Substring(1).Trim().Trim('"', '\'');   // both quote kinds, matching the inline token trim
-            if (path.Length == 0)
-                return (null, null, null, $"predicate '{raw}': '@' names a formid-list file but no path follows it.");
-            if (PathArguments.NotAbsolute(path, $"predicate '{raw}': formid-list file", "the file the FormIDs are in", "C:\\work\\formids.txt") is { } notAbsolute)
-                return (null, null, null, notAbsolute);
-            try { content = File.ReadAllText(path); }
-            catch (Exception ex) { return (null, null, null, $"predicate '{raw}': could not read formid-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+            var (path, text, rerr) = ListFile.Read(operand, OperandLabel(raw), "'in @<absolute path>'", "C:\\work\\formids.txt");
+            if (rerr is not null) return (null, null, null, rerr);
+            content = text!;
 
             if (ResultArtifact.LooksLikeArtifact(content))
             {
-                var (manifest, tokens, aerr) = ResultArtifact.ReadIdentity(path, content);
+                var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content, "formid", OperandLabel(raw));
                 if (aerr is not null) return (null, null, null, $"predicate '{raw}': {aerr}");
-                if (!manifest!.Identity!.Equals("formid", StringComparison.OrdinalIgnoreCase))
-                    return (null, null, null, $"predicate '{raw}': artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' " +
-                                        $"identities, not FormIDs — there is no formid list in it to test membership against.");
                 var aset = new HashSet<FormKey>();
                 var aorder = new List<(FormKey Key, string Raw)>();
                 foreach (var tok in tokens!)
@@ -668,7 +658,7 @@ public sealed class FieldPredicateSet
                                             "the file does not match its own manifest (was it edited?). Regenerate it from the producing query.");
                     }
                 }
-                return (aset, aorder, new ArtifactDemand(path, manifest.Epoch), null);
+                return (aset, aorder, demand, null);
             }
         }
         else content = operand;

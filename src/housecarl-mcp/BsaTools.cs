@@ -18,8 +18,8 @@ public static class BsaTools
     public static string BsaList(
         [Description("Full path to the .bsa archive to list.")]
             string archive,
-        [Description(UnderText)]
-            string[]? under = null,
+        [Description(UnderText + ListText.Paths)]
+            ListArg? under = null,
         [Description("Optional. Return only the file count, of the under= matches when given.")]
             bool counts_only = false,
         [Description("Optional. Max characters before the file list is cut with an explicit notice. 0 = the server default (~40k).")]
@@ -62,10 +62,12 @@ public static class BsaTools
     const string SelectorFix = "pass an archive-relative path or glob such as 'scripts/**/*.pex'";
 
     /// <summary>The usable under= selectors (null when none were given) and a note per blank or bad one, or the refusal when none is usable.</summary>
-    static string? Keep(string[]? under, out List<(string Sel, Func<string, bool> Test)>? tests, out List<string> notes)
+    static string? Keep(ListArg? underArg, out List<(string Sel, Func<string, bool> Test)>? tests, out List<string> notes)
     {
         tests = null;
         notes = new();
+        var (under, _, _, listErr) = underArg.Read("under", ListKind.Path);
+        if (listErr is not null) return listErr;
         if (under is not { Length: > 0 }) return null;
         var usable = new List<(string Sel, Func<string, bool> Test)>();
         foreach (var raw in under)
@@ -110,8 +112,8 @@ public static class BsaTools
             string archive,
         [Description("Optional. Absolute path to the folder to unpack into. Omit for a new houseCARL mod folder under your mods directory; its path is reported.")]
             string? out_path = null,
-        [Description("Optional. Extract only the files matching these, as " + ToolNames.BsaList + " under=; matching none is refused.")]
-            string[]? under = null) => Guard.Tool(ToolNames.BsaExtract, call =>
+        [Description("Optional. Extract only the files matching these, as " + ToolNames.BsaList + " under=; matching none is refused." + ListText.Paths)]
+            ListArg? under = null) => Guard.Tool(ToolNames.BsaExtract, call =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return ToolAnswer.Refusal("error: no archive given. Pass the full path to the .bsa.");
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
