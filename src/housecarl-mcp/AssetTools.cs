@@ -110,9 +110,9 @@ public static class AssetTools
             bool walk = false,
         [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from.")]
             string[]? records = null,
-        [Description("Optional, with records= or formids=. The ordered source list each record is read from, first hit wins: " +
-                     "'winner' (default) or a plugin filename, active or a file in a disabled mod folder. A formids= " +
-                     "seed's NPC, its template and race are read through it too.")]
+        [Description("Optional, with walk=true. The ordered source list each record is read from, first hit wins: " +
+                     "'winner' (default) or a plugin filename, active or a file in a disabled mod folder. A records= " +
+                     "seed and a formids= seed's NPC, its template and race are read through it.")]
             string[]? from_source = null,
         [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
                      "not (the donor), 'overwrite', 'Data' or an active archive's filename. Each node it ships is from-source, " +
