@@ -258,7 +258,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     }
 
     /// <summary>A json counts_only walk stopped by the record cap, with no nodes and one note, so max_chars cuts no list
-    /// and stops no axis, still says truncated once bounded.</summary>
+    /// and stops no axis, still says truncated once bounded, and writes it before its overrun notice.</summary>
     [Fact]
     public void ABoundedCountsWalkStoppedByTheRecordCapSaysTruncated()
     {
@@ -279,6 +279,8 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
             foreach (var axis in new[] { "nodes_by_edge", "nodes_by_standing" })
                 Assert.Equal(System.Text.Json.JsonValueKind.Null, r.GetProperty(axis).GetProperty("cut_by").ValueKind);
             Assert.True(r.GetProperty("truncated").GetBoolean(), whole);
+            // The overrun notice is written last, after the flag, so the length it states counts the flag.
+            Assert.Equal(new[] { "truncated", "max_chars_overrun" }, r.EnumerateObject().Select(p => p.Name).TakeLast(2));
         }
         finally { area.MaxWalkRecords = prior; }
     }
