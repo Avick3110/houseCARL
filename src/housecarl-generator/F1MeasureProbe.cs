@@ -126,7 +126,7 @@ internal static class F1MeasureProbe
         // ================= MEASUREMENT 2 — copy with from_source naming the disabled donor =================
         var seeds = new[] { "HeadParts", "HairColor", "HeadTexture", "WornArmor" };
         var newOut = CopyTools.Copy(svc, donorFk.ToString(), new[] { "Donor.esp" }, seeds,
-                                    new[] { "Race:refuse" }, null, "TheClone", "M2New", null);
+                                    new[] { new RecordsTools.RecordsWalkExclusion { match = "Race", severity = "refuse" } }, null, "TheClone", "M2New", null);
         Say("M2a  housecarl_copy, from_source=['Donor.esp'] (the DISABLED donor) — the RECORD side", newOut);
 
         var newPatchFolder = Directory.EnumerateDirectories(mods, "houseCARL - M2New*").OrderBy(d => d, StringComparer.Ordinal).FirstOrDefault();
@@ -239,7 +239,7 @@ internal static class F1MeasureProbe
         // ---- the SUCCESSOR: the ordered pole list, then the carry ----
         var seeds = new[] { "HeadParts", "HairColor", "HeadTexture", "WornArmor" };
         var newOut = CopyTools.Copy(svc, donorFk.ToString(), new[] { "Override.esp", "Donor.esp" }, seeds,
-                                    new[] { "Race:refuse" }, null, "TheClone", "I14New", null);
+                                    new[] { new RecordsTools.RecordsWalkExclusion { match = "Race", severity = "refuse" } }, null, "TheClone", "I14New", null);
         Say("B  SUCCESSOR housecarl_copy, from_source=['Override.esp','Donor.esp']", newOut);
 
         var newFolder = Directory.EnumerateDirectories(mods, "houseCARL - I14New*").OrderBy(d => d, StringComparer.Ordinal).FirstOrDefault();

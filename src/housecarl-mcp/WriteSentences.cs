@@ -171,11 +171,11 @@ internal static class WriteSentences
         ". This is not a missing record: adding another source will not help. Repair or replace that plugin, or " +
         "name a different one in from_source=.";
 
-    [MustState("could not be read whole", "cannot be copied", "exclude_types=")]
-    internal const string CopyUnreadLinks = ": its links could not be read whole, so it cannot be copied. To copy past it, prune its type with exclude_types=['";
+    [MustState("could not be read whole", "cannot be copied", "exclusions=")]
+    internal const string CopyUnreadLinks = ": its links could not be read whole, so it cannot be copied. To copy past it, prune its type with exclusions=[{\"match\": \"";
 
-    [MustState(":stop'")]
-    internal const string CopyUnreadLinksStop = ":stop'], which prunes every record of that type the walk reaches.";
+    [MustState("\"severity\": \"stop\"")]
+    internal const string CopyUnreadLinksStop = "\", \"severity\": \"stop\"}], which prunes every record of that type the walk reaches.";
 
     [MustState("MO2 mod folder")]
     internal const string CopyArmFolderLead = "MO2 mod folder ";
@@ -240,7 +240,7 @@ internal static class WriteSentences
     [MustState("was already in this patch", "this call did not create it", "enable the mod", "a NEW patch")]
     internal const string CopyPatchOffOrderRoute =
         " is not in your active load order, so this patch cannot be written at all until that link resolves. The " +
-        "reference was already in this patch before this call — this call did not create it, and no exclude_types " +
+        "reference was already in this patch before this call — this call did not create it, and no exclusions " +
         "setting affects it. Either enable the mod that provides that plugin, or write to a NEW patch instead of " +
         "extending this one with into=. Nothing was written.";
 
@@ -277,19 +277,19 @@ internal static class WriteSentences
 
     [MustState("still point INTO the source", "not standalone")]
     internal const string CopyKeptExcluded =
-        "link(s) were pruned by exclude_types and still point INTO the source — this artifact is not standalone " +
+        "link(s) were pruned by exclusions and still point INTO the source — this artifact is not standalone " +
         "for them, and masters the plugin they live in.";
 
-    [MustState("exclude_types", "this call wrote it")]
+    [MustState("exclusions", "this call wrote it")]
     internal const string CopyLeakFromExclusion =
-        " was pruned by exclude_types and then attached to the target unmapped — this call wrote it, so the target " +
+        " was pruned by exclusions and then attached to the target unmapped — this call wrote it, so the target " +
         "is not where to look. Either drop that exclusion so the record is internalized, or copy a field set that " +
         "does not reach it.";
 
-    [MustState("master a plugin the game does not load", "'Type:refuse'", "enable the mod")]
+    [MustState("master a plugin the game does not load", "severity 'refuse'", "enable the mod")]
     internal const string CopyStopOffOrderRoute =
-        " is not in your active load order, and 'Type:stop' KEEPS the link — so this patch would have to master a " +
-        "plugin the game does not load, which cannot be written at all. Either use 'Type:refuse' for that type, so " +
+        " is not in your active load order, and severity 'stop' KEEPS the link — so this patch would have to master a " +
+        "plugin the game does not load, which cannot be written at all. Either use severity 'refuse' for that type, so " +
         "the copy stops there and tells you, or enable the mod so the link can be mastered normally. Nothing was written.";
 
     [MustState("NESTED group", "target=")]
