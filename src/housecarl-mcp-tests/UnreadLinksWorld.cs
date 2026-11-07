@@ -93,6 +93,15 @@ public sealed class UnreadLinksWorld : IDisposable
             {
                 ["List"] = list.FormKey, ["Perk"] = perk.FormKey, ["Spell"] = spell, ["Static"] = stat.FormKey,
             };
+            FormList? gone = null;
+            if (plugin == Dead)
+            {
+                // A deleted list whose Items still read, and a live list holding it, for the field-path walks.
+                gone = mod.FormLists.AddNew(); gone.EditorID = tag + "GoneList"; gone.Items.Add(stat.FormKey);
+                var holder = mod.FormLists.AddNew(); holder.EditorID = tag + "Holder"; holder.Items.Add(gone.FormKey);
+                Keys[plugin]["GoneList"] = gone.FormKey;
+                Keys[plugin]["Holder"] = holder.FormKey;
+            }
 
             var path = _mo2.InMod(tag + "Mod", key);
             mod.BeginWrite.ToPath(path).WithLoadOrder(lenient ? new ISkyrimModGetter[] { baseMod } : Array.Empty<ISkyrimModGetter>()).Write();
@@ -103,6 +112,7 @@ public sealed class UnreadLinksWorld : IDisposable
                 Assert.Equal(1, ProbeBytes.CorruptEpftBytes(path));
                 if (plugin == Dead) Assert.Equal(1, ProbeBytes.SetDeletedFlag(path, "PERK", perk.FormKey.ID));
             }
+            if (gone is not null) Assert.Equal(1, ProbeBytes.SetDeletedFlag(path, "FLST", gone.FormKey.ID));
 
             // Each fixture must still show its fault, or a green below proves nothing.
             using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
@@ -110,6 +120,12 @@ public sealed class UnreadLinksWorld : IDisposable
             Assert.Equal(plugin == Dead, bad.IsDeleted);
             Assert.ThrowsAny<Exception>(() => ((IFormLinkContainerGetter)bad).EnumerateFormLinks().Count());
             Assert.Equal(plugin == Lenient, PerkEffectDecode.ReadLinks(bad) is not null);
+            if (gone is not null)
+            {
+                var g = ov.FormLists.First(l => l.FormKey == gone.FormKey);
+                Assert.True(g.IsDeleted);
+                Assert.Equal(new[] { stat.FormKey }, g.Items.Select(i => i.FormKey));
+            }
         }
 
         _mo2.Profile(BaseMaster + "\r\n" + Lenient + "\r\n" + Dead + "\r\n" + Corrupt + "\r\n",
