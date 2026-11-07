@@ -57,7 +57,8 @@ public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorl
         Assert.Equal(expected, Measured(() => Asset()));
     }
 
-    /// <summary>OrdB's null extra part is skipped by both: no refusal, no miss note, and nothing entered for it.</summary>
+    /// <summary>OrdB's null extra part is skipped by both: copy succeeds and keeps no null boundary; the asset walk notes
+    /// no miss and nothing about the null key.</summary>
     [Fact]
     public void BothSkipANullLink()
     {
