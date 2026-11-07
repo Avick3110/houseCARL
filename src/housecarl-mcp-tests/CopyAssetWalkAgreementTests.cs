@@ -9,10 +9,11 @@ namespace HousecarlMcpTests;
 /// keeps its own loop (#1315): over one graph both reach whole, the same records in the same breadth-first order, each
 /// depth's group read once, and a null link skipped. Both read through the chain the same builder makes.</summary>
 [Trait("tier", "unit")]
-public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorld>
+public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorld>, IClassFixture<UnreadLinksFixture>
 {
     readonly AssetWalkPinWorld _w;
-    public CopyAssetWalkAgreementTests(AssetWalkPinWorld w) => _w = w;
+    readonly UnreadLinksWorld _u;
+    public CopyAssetWalkAgreementTests(AssetWalkPinWorld w, UnreadLinksFixture u) => (_w, _u) = (w, u.W);
 
     const string Seed = "HcPinOrd";
 
@@ -67,5 +68,25 @@ public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorl
         Assert.DoesNotContain(copy.Kept, k => k.Key.IsNull);
         var asset = Asset();
         Assert.DoesNotContain(asset.Notes, n => n.Contains("none of the sources") || n.Contains(FormIdToken.Of(FormKey.Null)));
+    }
+
+    /// <summary>A link set read only leniently is where the two postures part (#1316): the asset walk walks it and
+    /// says so; copy, which cannot duplicate the record, refuses at it.</summary>
+    [Fact]
+    public void ALenientLinkSetIsWalkedWithANoteByOneAndRefusedByTheOther()
+    {
+        var list = _u.Keys[UnreadLinksWorld.Lenient]["List"];
+        var perk = _u.Keys[UnreadLinksWorld.Lenient]["Perk"];
+        var copy = _u.Svc.WriteArea.WithSourceChainForGuard(new[] { SourcePoles.Winner }, "from_source", (chain, err) =>
+        {
+            Assert.Null(err);
+            return ClosureWalk.Run(new[] { new WalkSeed(list, "seed", "seed") }, chain!,
+                                   new WalkScope(fk => fk.ModKey == list.ModKey), Array.Empty<WalkExclusion>());
+        });
+        Assert.Equal("UnreadLinks", copy.Refusal?.Kind.ToString());   // named by text, so this case builds against the code before #1316
+        Assert.Equal(new[] { list, perk }, copy.Refusal!.Chain);
+        var asset = _u.Svc.AssetWalk(Array.Empty<string>(), new[] { list }, null, null);
+        Assert.Contains(asset.Nodes, n => n.Path == UnreadLinksWorld.RecoveredNif);
+        Assert.Contains(asset.Notes, n => n.Contains(FormIdToken.Of(perk)) && n.Contains("read leniently"));
     }
 }
