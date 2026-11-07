@@ -253,6 +253,9 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         var cut = Counts(cap);
         using var doc = JsonDocument.Parse(cut);
         var r = doc.RootElement;
+        // Bounded, every list the head carries says how many it cut, none or some.
+        foreach (var list in new[] { "bsa_failures", "root_failures", "warnings", "selector_notes", "notes" })
+            Assert.True(r.TryGetProperty(list + "_omitted", out _), list);
         Assert.True(cut.Length <= cap, $"{cut.Length} chars against {cap}");
         Assert.False(r.TryGetProperty("max_chars_overrun", out _));
         int notes = r.GetProperty("notes").GetArrayLength(), omitted = r.GetProperty("notes_omitted").GetInt32();
