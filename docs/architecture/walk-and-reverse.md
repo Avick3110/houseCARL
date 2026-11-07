@@ -8,7 +8,8 @@ covers: [src/housecarl-core/ClosureWalk.cs, src/housecarl-core/SourceChain.cs, s
 
 The walk half of the selection surface: the closure walk and its ordered source universe, and the
 whole-order reverse index behind an unbounded `references=`. The `where=` predicate and containment
-are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `EnumerateFormLinks`.
+are `docs/architecture/select-and-walk.md`. The walk reads a record's links only through the one link door,
+`RecordLinks` (`docs/architecture/read-engine.md`), as the asset walk and the records walk do.
 
 ## Contracts
 
@@ -31,7 +32,10 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
   they share is code: the chain and its `FetchMany`, and `SourceChain.NamedPlugins`, the plugins the arms name (copy
   drops base masters from it, the asset walk keeps them). The few answers they must give alike over one graph both
   reach whole (the records entered and their breadth-first order, one read per depth, a null link skipped) are
-  `CopyAssetWalkAgreementTests`.
+  `CopyAssetWalkAgreementTests`. Where they part is a record whose links read only leniently, or not at all: the
+  asset walk follows the lenient links and notes it, or notes the record and follows nothing; copy refuses there
+  (`WalkRefusalKind.UnreadLinks`, with the pull chain), because it could not duplicate that record. A deleted record
+  links to nothing in both (#1316).
 - Walk provenance is per node: each reached node records which arm produced its body and the full
   pull chain from a seed, which is what makes a cap refusal actionable.
 - A seed path's shape is decided off the DECLARED type before any value is read, so a null cannot be
