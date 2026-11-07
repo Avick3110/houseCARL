@@ -4,7 +4,7 @@ using Mutagen.Bethesda.Plugins.Records;
 namespace HousecarlCore;
 
 /// <summary>The ONE way a scan or a walk reads a record's links, so a record whose links only read leniently is
-/// reachable in all of them or in none, and a deleted record in none; contract in docs/architecture/read-engine.md.</summary>
+/// reachable in all of them or in none, and a deleted record has no links in any; contract in docs/architecture/read-engine.md.</summary>
 public static class RecordLinks
 {
     public enum Step { Continue, Stop }
@@ -18,9 +18,10 @@ public static class RecordLinks
         void Restart() { }
     }
 
-    /// <summary>Hand every FormKey this record links to <paramref name="visitor"/>, in Mutagen's order, a null link
-    /// included. A DELETED record links to nothing. Answers null when Mutagen's own walk finished, else what a LENIENT
-    /// re-read could not reach; RETHROWS when nothing can be recovered.</summary>
+    /// <summary>Hand every FormKey this record links to <paramref name="visitor"/>: Mutagen's own walk in its order, a
+    /// null link included; or, when that throws, the LENIENT re-read's keys, once each, nulls dropped, in field order.
+    /// A DELETED record links to nothing. Answers null when Mutagen's own walk finished, else what the lenient re-read
+    /// could not reach; RETHROWS when nothing can be recovered.</summary>
     public static string? Walk<TVisitor>(IMajorRecordGetter record, ref TVisitor visitor)
         where TVisitor : struct, IVisitor
     {
@@ -56,8 +57,8 @@ public static class RecordLinks
         public void Restart() => Keys.Clear();
     }
 
-    /// <summary>Every FormKey this record links, in order and repeats kept, into <paramref name="into"/>, which is
-    /// cleared first. Answers the lenient note as <see cref="Walk{TVisitor}"/> does; where that would rethrow a
+    /// <summary>Every FormKey this record links, in <see cref="Walk{TVisitor}"/>'s order (Mutagen's keeps repeats), into
+    /// <paramref name="into"/>, which is cleared first. Answers the lenient note as <see cref="Walk{TVisitor}"/> does; where that would rethrow a
     /// parse fault (<see cref="RecordParseFault"/>), <paramref name="into"/> is left empty and
     /// <paramref name="fault"/> names it, so each walk turns it into its own posture. Any other throw goes on up.</summary>
     public static string? List(IMajorRecordGetter record, List<FormKey> into, out string? fault)

@@ -293,7 +293,9 @@ matches that file or everything beneath that folder. As in `asset_status`, each 
 and a blank or bad selector beside a usable one is noted while the rest answer; only a call with no usable selector refuses.
 
 `AssetLinkHarvest` is the other selector: every asset path a set of records declares, from a generic
-`IAssetLinkGetter` walk over each record's property graph. Generated coverage, not a per-record-type field list.
+`IAssetLinkGetter` walk over each record's property graph. Generated coverage, not a per-record-type field list. A lazy
+list that throws a parse fault as it is stepped ends there: the harvest's `unread` names the first such list, and the
+paths before it, and in every other part, are still answered.
 
 ### Voice paths
 
@@ -412,9 +414,13 @@ defines (every plugin an arm names, base masters kept, which copy's bound set dr
 parts are entered) or, for a seed read through
 `winner`, the seed's own plugin defines, to 3 hops, so a base master's records reached from a donor's override are
 boundaries; links into other plugins are counted as boundaries in a note, and records past the depth are counted too, so
-nothing is cut silently. Each record contributes:
+nothing is cut silently. It reads a record's form links only through the one link door (`RecordLinks`,
+docs/architecture/read-engine.md): a deleted record is entered and follows none of them, with no note; a perk whose
+links read only leniently is followed on what the lenient read recovered, with a note; a record whose links cannot be
+read is a note, and the walk does not go past it (#1316). Each record contributes:
 
-- the paths it lists (`AssetLinkHarvest`);
+- the paths it lists (`AssetLinkHarvest`); a list it cannot read is a note naming the record, and the paths it did
+  read are listed;
 - Mutagen's inferred links: `Scripts\<name>.pex` (the `.psc` is dropped, a `:` maps to a folder as the script checks
   do), a start-game-enabled quest's `Seq\<plugin>.seq`, and any other inferred file;
 - each fragment `FileName` in its script adapter, found by reflection over the adapter, with a note that Mutagen
