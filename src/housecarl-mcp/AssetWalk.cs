@@ -336,7 +336,7 @@ internal sealed partial class AssetLayers
         if (pastDepth > 0)
             notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth={maxDepth} form-link hops from a seed and were not entered; raise walk.depth to walk them.");
         if (stopped > 0)
-            notes.Add($"{stopped} reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links)");
+            notes.Add($"{stopped} reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links).");
         if (values.Through is not null) notes.Add(WalkGrammar.LeftOutLine(leftOut));
         if (boundaries.Count > 0)
             notes.Add("form links into other plugins were kept as boundaries, not walked (their files are that plugin's): " +
