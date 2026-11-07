@@ -30,6 +30,9 @@ public static class ReverseWalkBatch
         /// <summary>How many reached records a stop exclusion kept as boundaries.</summary>
         public int Boundaries { get; init; }
 
+        /// <summary>How many tokens in the selection are not FormIDs: each is its own error row, not a record.</summary>
+        public int BadSeeds { get; init; }
+
         /// <summary>The build's fingerprint alone, for the places that compare epochs rather than render them.</summary>
         public string? Epoch => Stamp?.Epoch;
     }
@@ -61,7 +64,7 @@ public static class ReverseWalkBatch
         }
         // No seed parsed: nothing to walk, so the index is not built for it.
         if (seedKeys.Count == 0)
-            return new Result(Array.Empty<ReverseSelection.Hop>(), seedTokens, seedTokens.Count, false, DropCensus.Empty, null, stamp, null);
+            return new Result(Array.Empty<ReverseSelection.Hop>(), seedTokens, 0, false, DropCensus.Empty, null, stamp, null) { BadSeeds = seedTokens.Count };
 
         var built = view.EnsureReverseIndex();
         var index = view.ReverseIndex!;
@@ -229,12 +232,13 @@ public static class ReverseWalkBatch
         foreach (var hop in hops)
             foreach (var k in hop.Reached) selection.Add(FormIdToken.Of(k));
 
-        return new Result(hops, selection, seedTokens.Count, capped,
+        return new Result(hops, selection, seedKeys.Count, capped,
                           new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, stamp, null,
                           unreadableWinners, lenientRecords)
         {
             LeftOut = through is null ? null : leftOut.Values.ToList(),
             Boundaries = boundaries.Count,
+            BadSeeds = seedTokens.Count - seedKeys.Count,
         };
     }
 
