@@ -363,7 +363,7 @@ public static class AssetTools
         // counts_only= refuses offset= and to_file= at the front door, so the window is limit= alone, capping the tables.
         if (countsOnly) return ToolAnswer.Served(AssetWalkWire.RenderCounts(w, selectorNotes, cap, json, window.Limit));
 
-        // The seeds given, so a file re-read later says what was walked: a list's source, else inline paths and formids counted, records= and under= as their tokens.
+        // The seeds given, so a file re-read later says what was walked: asset_paths= and formids= by their list's source, else counted; under= as its tokens; provider= trimmed; records= by its list's source, else its tokens.
         var seedEcho = new List<KeyValuePair<string, string>>();
         if (asset_paths is { Length: > 0 }) seedEcho.Add(new("asset_paths", pathsIn.EchoSource ?? $"{asset_paths.Length} inline path(s)"));
         if (under is { Length: > 0 }) seedEcho.Add(new("under", string.Join(",", under)));
