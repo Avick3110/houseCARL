@@ -58,6 +58,9 @@ public enum WalkRefusalKind
     Excluded,
     /// <summary>A seed path names a real, link-BEARING field whose shape seed_paths does not support — the path is right and the lane is wrong.</summary>
     UnsupportedSeedShape,
+    /// <summary>A reached record's links could not be read whole (only leniently, or not at all), so it cannot be
+    /// copied. Carries the pull chain and, in Detail, what could not be read.</summary>
+    UnreadLinks,
 }
 
 /// <summary>A refusal as DATA. Every field a render might need is here; which ones matter depends on the kind.</summary>
@@ -70,7 +73,9 @@ public sealed record WalkRefusal(
     SourceMiss? Miss = null,
     SourceFault? Fault = null,
     WalkExclusion? Exclusion = null,
-    int Cap = 0);
+    int Cap = 0,
+    string? TypeName = null,
+    string? EditorId = null);
 
 /// <summary>The walk's outcome; a refusal carries nothing usable rather than a silently partial copy.</summary>
 public sealed record WalkResult(
@@ -292,10 +297,17 @@ public static class ClosureWalk
             labels[key] = label;
             var outgoing = new List<FormKey>();
             edges[key] = outgoing;
-            if (hit.Body is not IFormLinkContainerGetter flc) continue;
-            foreach (var link in flc.EnumerateFormLinks())
+            // Through the one link door: a deleted record links to nothing. A record whose links read only leniently,
+            // or not at all, is one copy cannot duplicate, so the walk refuses at it with the chain.
+            var links = new List<FormKey>();
+            string? unread;
+            try { unread = RecordLinks.List(hit.Body, links); }
+            catch (Exception ex) when (RecordParseFault.Is(ex)) { unread = $"{ex.GetType().Name}: {ex.Message}"; }
+            if (unread is not null)
+                return WalkResult.Fail(new WalkRefusal(
+                    WalkRefusalKind.UnreadLinks, key, pulledBy, ChainTo(key), unread, TypeName: typeName, EditorId: hit.Body.EditorID));
+            foreach (var target in links)
             {
-                var target = link.FormKey;
                 if (target.IsNull) continue;
                 outgoing.Add(target);
                 if (seen.Contains(target)) continue;

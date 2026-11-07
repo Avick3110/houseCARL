@@ -235,6 +235,9 @@ public static class CopyTools
         WalkRefusalKind.NodeCap =>
             $"the walk passed {w.Cap} records and was refused rather than truncated — a runaway, not a subtree. " +
             $"Last pull: {w.Key} via {w.PulledBy}. Chain: {string.Join(" -> ", w.Chain)}.",
+        WalkRefusalKind.UnreadLinks =>
+            $"{w.TypeName} {w.EditorId ?? "<no editorid>"} {w.Key} (reached via {w.PulledBy})" + WriteSentences.CopyUnreadLinks +
+            $"{w.Detail}. Chain: {string.Join(" -> ", w.Chain)}.",
         WalkRefusalKind.DepthCap =>
             $"the walk went deeper than {w.Cap} hops. Last pull: {w.Key} via {w.PulledBy}. " +
             $"Chain: {string.Join(" -> ", w.Chain)}.",

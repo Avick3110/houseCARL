@@ -171,6 +171,9 @@ internal static class WriteSentences
         ". This is not a missing record: adding another source will not help. Repair or replace that plugin, or " +
         "name a different one in from_source=.";
 
+    [MustState("could not be read whole", "cannot be copied")]
+    internal const string CopyUnreadLinks = ": its links could not be read whole, so it cannot be copied — ";
+
     [MustState("MO2 mod folder")]
     internal const string CopyArmFolderLead = "MO2 mod folder ";
 

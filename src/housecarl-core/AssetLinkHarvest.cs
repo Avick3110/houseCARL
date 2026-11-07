@@ -14,15 +14,21 @@ public static class AssetLinkHarvest
 {
     /// <summary>Harvest every asset path the given records list. Paths come back Data-relative (Mutagen's DataRelativePath).</summary>
     public static IReadOnlyList<string> HarvestAssetPaths(IEnumerable<IMajorRecordGetter> records)
+        => HarvestAssetPaths(records, out _);
+
+    /// <summary>The same harvest, with <paramref name="unread"/> naming the first list Mutagen could not parse (null
+    /// when every list read): the paths before it, and in every other part, are still answered.</summary>
+    public static IReadOnlyList<string> HarvestAssetPaths(IEnumerable<IMajorRecordGetter> records, out string? unread)
     {
         var paths = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        unread = null;
         foreach (var rec in records)
-            HarvestFrom(rec, paths, seen, new HashSet<object>(ReferenceEqualityComparer.Instance), depth: 0);
+            HarvestFrom(rec, paths, seen, new HashSet<object>(ReferenceEqualityComparer.Instance), depth: 0, ref unread);
         return paths;
     }
 
-    static void HarvestFrom(object node, List<string> paths, HashSet<string> seen, HashSet<object> visited, int depth)
+    static void HarvestFrom(object node, List<string> paths, HashSet<string> seen, HashSet<object> visited, int depth, ref string? unread)
     {
         if (depth > 6 || node is string || !visited.Add(node)) return;
 
@@ -36,8 +42,27 @@ public static class AssetLinkHarvest
 
         if (node is IEnumerable en and not IFormLinkGetter)
         {
-            foreach (var el in en)
-                if (el is not null) HarvestFrom(el, paths, seen, visited, depth + 1);
+            // A lazy list parses as it is stepped, so a step that throws ends this list, and is said.
+            var it = en.GetEnumerator();
+            try
+            {
+                while (true)
+                {
+                    object? el;
+                    try
+                    {
+                        if (!it.MoveNext()) break;
+                        el = it.Current;
+                    }
+                    catch (Exception ex) when (RecordParseFault.Is(ex))
+                    {
+                        unread ??= $"{ex.GetType().Name}: {ex.Message}";
+                        break;
+                    }
+                    if (el is not null) HarvestFrom(el, paths, seen, visited, depth + 1, ref unread);
+                }
+            }
+            finally { (it as IDisposable)?.Dispose(); }
             return;
         }
 
@@ -52,7 +77,7 @@ public static class AssetLinkHarvest
             object? val;
             try { val = prop.GetValue(node); } catch { continue; }
             if (val is null) continue;
-            HarvestFrom(val, paths, seen, visited, depth + 1);
+            HarvestFrom(val, paths, seen, visited, depth + 1, ref unread);
         }
     }
 }
