@@ -110,7 +110,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     public void AssetWalkExclusionsStopAndRefuse()
     {
         var stop = AssetWalk("{\"exclusions\": [{\"match\": \"Race\", \"severity\": \"stop\"}]}");
-        Assert.Contains("1 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links)", Notes(stop));
+        Assert.Contains("1 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links).", Notes(stop));
         Assert.DoesNotContain(Nodes(stop), n => n.PulledBy.StartsWith("Race ", StringComparison.Ordinal));
 
         var refuse = AssetWalk("{\"exclusions\": [{\"match\": \"RACE\", \"severity\": \"refuse\"}]}", format: null);
