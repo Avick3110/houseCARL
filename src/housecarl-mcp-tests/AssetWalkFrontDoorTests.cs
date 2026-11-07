@@ -211,6 +211,29 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(row, Many(offset: 2, counts: true));
     }
 
+    /// <summary>F1-b: a json counts_only walk whose thirty not-found notes pass max_chars stays inside it and says how many
+    /// notes it cut; at a cap it fits, the document is the uncapped one.</summary>
+    [Fact]
+    public void AJsonCountsOnlyWalkKeepsToMaxChars()
+    {
+        var seeds = Enumerable.Range(0, 30).Select(i => $"0EEE{i:X2}:{AssetWalkWorld.Plugin}").Prepend(_w.Id("HcWalkHero")).ToArray();
+        string Counts(int max) => AssetTools.AssetStatus(_w.Svc, records: seeds, walk: true, source_provider: AssetWalkWorld.DonorMod,
+                                                         counts_only: true, format: "json", max_chars: max);
+        var whole = Counts(Big);
+        Assert.Equal(whole, Counts(whole.Length));
+        Assert.DoesNotContain("_omitted", whole);
+
+        int cap = whole.Length / 2;
+        var cut = Counts(cap);
+        using var doc = JsonDocument.Parse(cut);
+        var r = doc.RootElement;
+        Assert.True(cut.Length <= cap, $"{cut.Length} chars against {cap}");
+        Assert.False(r.TryGetProperty("max_chars_overrun", out _));
+        int notes = r.GetProperty("notes").GetArrayLength(), omitted = r.GetProperty("notes_omitted").GetInt32();
+        Assert.True(omitted > 0, cut);
+        Assert.Equal(30, notes + omitted);
+    }
+
     /// <summary>A walk input given without the walk, and from_source= on a walk with no record seed, are each one note;
     /// a formids= walk with from_source= reads its face through it and has none.</summary>
     [Fact]
