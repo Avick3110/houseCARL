@@ -190,8 +190,7 @@ internal sealed partial class AssetLayers
     {
         var seenRec = new HashSet<FormKey>();
         var frontier = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
-        // The plugins each from_source arm names, as copy binds them (RecordCopy): an override donor's own records are
-        // entered. A seed read through 'winner' also enters its own plugin; one read through a named plugin does not.
+        // The plugins the from_source arms name, base masters kept, plus a 'winner' seed's own plugin (assets.md, Walking the links).
         var named = new HashSet<ModKey>(chain.NamedPlugins());
         foreach (var s in seeds) if (seenRec.Add(s)) frontier.Add((s, "seed", null));
         int pastDepth = 0;
