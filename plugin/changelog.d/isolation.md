@@ -1,1 +1,1 @@
-- **An asset walk, records walk or copy that reaches a record whose links cannot be read whole no longer fails as an internal error: the walks note that record and go on, and copy refuses naming it and its chain.** Check: walk a perk Mutagen refuses.
+- **An asset walk, records walk or copy reaching a record whose links cannot be read whole no longer fails as an internal error: the walks note it and go on; copy refuses, naming it.** Check: walk a perk Mutagen refuses.

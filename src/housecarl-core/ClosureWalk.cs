@@ -213,6 +213,8 @@ public static class ClosureWalk
         // parent[k] = the key that pulled k in; the pull chain is rebuilt from this, so a refusal shows the whole path.
         var parent = new Dictionary<FormKey, FormKey>();
         var excl = exclusions.ToDictionary(e => e.TypeName, e => e, StringComparer.OrdinalIgnoreCase);
+        // One buffer for every entered record's links, cleared by each read.
+        var links = new List<FormKey>();
 
         var queue = new Queue<(FormKey Key, string PulledBy, int Depth)>();
         foreach (var s in seeds) queue.Enqueue((s.Key, s.Label, 0));
@@ -299,10 +301,7 @@ public static class ClosureWalk
             edges[key] = outgoing;
             // Through the one link door: a deleted record links to nothing. A record whose links read only leniently,
             // or not at all, is one copy cannot duplicate, so the walk refuses at it with the chain.
-            var links = new List<FormKey>();
-            string? unread;
-            try { unread = RecordLinks.List(hit.Body, links); }
-            catch (Exception ex) when (RecordParseFault.Is(ex)) { unread = $"{ex.GetType().Name}: {ex.Message}"; }
+            var unread = RecordLinks.List(hit.Body, links, out var linkFault) ?? linkFault;
             if (unread is not null)
                 return WalkResult.Fail(new WalkRefusal(
                     WalkRefusalKind.UnreadLinks, key, pulledBy, ChainTo(key), unread, TypeName: typeName, EditorId: hit.Body.EditorID));

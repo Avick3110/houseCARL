@@ -51,17 +51,27 @@ public static class RecordLinks
     public struct Lister : IVisitor
     {
         public List<FormKey> Keys;
-        readonly int _start;
-        public Lister(List<FormKey> keys) => (Keys, _start) = (keys, keys.Count);
+        public Lister(List<FormKey> keys) => Keys = keys;
         public Step Link(FormKey key) { Keys.Add(key); return Step.Continue; }
-        public void Restart() => Keys.RemoveRange(_start, Keys.Count - _start);
+        public void Restart() => Keys.Clear();
     }
 
-    /// <summary>Every FormKey this record links, in order and repeats kept — same contract as <see cref="Walk{TVisitor}"/>.</summary>
-    public static string? List(IMajorRecordGetter record, List<FormKey> into)
+    /// <summary>Every FormKey this record links, in order and repeats kept, into <paramref name="into"/>, which is
+    /// cleared first. Answers the lenient note as <see cref="Walk{TVisitor}"/> does; where that would rethrow a
+    /// parse fault (<see cref="RecordParseFault"/>), <paramref name="into"/> is left empty and
+    /// <paramref name="fault"/> names it, so each walk turns it into its own posture. Any other throw goes on up.</summary>
+    public static string? List(IMajorRecordGetter record, List<FormKey> into, out string? fault)
     {
+        into.Clear();
+        fault = null;
         var v = new Lister(into);
-        return Walk(record, ref v);
+        try { return Walk(record, ref v); }
+        catch (Exception ex) when (RecordParseFault.Is(ex))
+        {
+            into.Clear();
+            fault = $"{ex.GetType().Name}: {ex.Message}";
+            return null;
+        }
     }
 
     /// <summary>Every FormKey this record links, collected — same contract as <see cref="Walk{TVisitor}"/>.</summary>

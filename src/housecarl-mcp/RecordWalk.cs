@@ -228,9 +228,11 @@ internal sealed partial class RecordReads
             note = null;
             if (segs is null)
             {
-                // Through the one link door: a deleted record links to nothing, and a perk read leniently says so.
+                // Through the one link door: a deleted record links to nothing, a perk read leniently says so, and a
+                // parse fault goes on up to the node's own catch, which keeps it as unscannable.
                 var all = new List<FormKey>();
-                note = RecordLinks.List(body, all) is { } lenient ? WalkLenientNote(lenient) : null;
+                var lister = new RecordLinks.Lister(all);
+                note = RecordLinks.Walk(body, ref lister) is { } lenient ? WalkLenientNote(lenient) : null;
                 var seen = new HashSet<FormKey>();
                 var list = new List<FormKey>();
                 foreach (var k in all)

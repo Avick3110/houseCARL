@@ -200,6 +200,8 @@ internal sealed partial class AssetLayers
         IAssetLinkCache Voice() => voiceCache ??= VoiceCache(session, overlays);
         int entered = 0;
         var npcs = new List<(FormKey Key, string Label)>();
+        // One buffer for every entered record's links, cleared by each read.
+        var links = new List<FormKey>();
 
         // Template members, races and speakers: the walk's own read when it reached them, else a round of their own.
         // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
@@ -258,13 +260,8 @@ internal sealed partial class AssetLayers
 
                 // Through the one link door: a deleted record links to nothing, a perk read leniently is followed and
                 // said, and one whose links cannot be read is said and not followed.
-                var links = new List<FormKey>();
-                try { if (RecordLinks.List(body, links) is { } lenient) notes.Add($"{label}: its links were read leniently — {lenient}"); }
-                catch (Exception ex) when (RecordParseFault.Is(ex))
-                {
-                    notes.Add($"{label}: its links could not be read, so the walk does not go past it — {ex.GetType().Name}: {ex.Message}");
-                    links.Clear();
-                }
+                if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add($"{label}: its links were read leniently — {lenient}");
+                if (unread is not null) notes.Add($"{label}: its links could not be read, so the walk does not go past it — {unread}");
                 foreach (var link in links)
                 {
                     if (link.IsNull || link == fk) continue;

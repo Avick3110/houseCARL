@@ -44,25 +44,22 @@ public static class AssetLinkHarvest
         {
             // A lazy list parses as it is stepped, so a step that throws ends this list, and is said.
             var it = en.GetEnumerator();
-            try
+            using var _ = it as IDisposable;
+            while (true)
             {
-                while (true)
+                object? el;
+                try
                 {
-                    object? el;
-                    try
-                    {
-                        if (!it.MoveNext()) break;
-                        el = it.Current;
-                    }
-                    catch (Exception ex) when (RecordParseFault.Is(ex))
-                    {
-                        unread ??= $"{ex.GetType().Name}: {ex.Message}";
-                        break;
-                    }
-                    if (el is not null) HarvestFrom(el, paths, seen, visited, depth + 1, ref unread);
+                    if (!it.MoveNext()) break;
+                    el = it.Current;
                 }
+                catch (Exception ex) when (RecordParseFault.Is(ex))
+                {
+                    unread ??= $"{ex.GetType().Name}: {ex.Message}";
+                    break;
+                }
+                if (el is not null) HarvestFrom(el, paths, seen, visited, depth + 1, ref unread);
             }
-            finally { (it as IDisposable)?.Dispose(); }
             return;
         }
 
