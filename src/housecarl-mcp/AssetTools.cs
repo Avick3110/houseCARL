@@ -26,7 +26,7 @@ public static class AssetTools
          "wins, shadowed by the winner, holding it hidden by MO2, or not provided. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
-         "counts only the window, except under to_file= and counts_only=, which resolve the whole selection. A loose " +
+         "counts only the window, except under to_file=, counts_only= and walk=true, which resolve the whole selection. A loose " +
          "file MO2 hides (the instance's skip lists, by default a mod's .mohidden name or .git folder; never in the game's Data folder), or x " +
          "when a mod holds only x.mohidden, provides nothing: the row says hidden by MO2 with the rule and the " +
          "holder, absent unless another layer's copy wins. A loose root meta.ini, readme.txt or fomod folder is " +
