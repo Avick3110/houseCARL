@@ -368,9 +368,13 @@ public static class AssetTools
         }
         var w = svc.AssetWalk(paths, keys, from_source, source_provider, keyed, values, badSeeds);
         if (w.Refusal is { } wr) return ToolAnswer.Refusal(json, wr);
-        // from_source= is read only by a record seed; with none it is said, not dropped.
-        if (from_source is { Length: > 0 } && recordsIn.Tokens is not { Length: > 0 } && formids is not { Length: > 0 })
+        // from_source= is read only by a record seed that parses; with none it is said, not dropped.
+        if (from_source is { Length: > 0 } && keys.Count == 0 && seeds.Count == 0)
             w = w with { Notes = w.Notes.Prepend(ReadSentences.FromSourceWithoutRecordSeed).ToList() };
+        // Walk values move only the walk from records= seeds; with none they are said unused. The defaults are walk=true's.
+        if (keys.Count == 0 && (values.Depth != WalkGrammar.AssetDefaultDepth || values.MaxNodes != WalkGrammar.DefaultMaxNodes
+                                || values.Through is not null || values.Exclusions.Count > 0))
+            w = w with { Notes = w.Notes.Prepend(ReadSentences.WalkValuesWithoutRecordSeed).ToList() };
         // counts_only= refuses offset= and to_file= at the front door, so the window is limit= alone, capping the tables.
         if (countsOnly) return ToolAnswer.Served(AssetWalkWire.RenderCounts(w, selectorNotes, cap, json, window.Limit));
 

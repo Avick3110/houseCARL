@@ -130,6 +130,25 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     [Fact]
     public void AssetWalkTrueIsTheDefaults() => Assert.Equal(AssetWalk("true"), AssetWalk("{}"));
 
+    /// <summary>Walk values with no records= seed that parses are said unused; walk=true and a records= seed say nothing.</summary>
+    [Fact]
+    public void AssetWalkValuesWithNoRecordSeedAreSaidUnused()
+    {
+        const string unused = ReadSentences.WalkValuesWithoutRecordSeed;
+        Assert.Contains(unused, Notes(AssetWalk("{\"through\": [\"HeadPart\"]}", records: Array.Empty<string>(), formids: new[] { Id("HcDoorA1") })));
+        Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"depth\": 1}"), format: "json")));
+        Assert.DoesNotContain(unused, Notes(AssetWalk("true", records: Array.Empty<string>(), formids: new[] { Id("HcDoorA1") })));
+        Assert.DoesNotContain(unused, Notes(AssetWalk("{\"depth\": 1}")));
+    }
+
+    /// <summary>from_source= with only a bad records= seed reads nothing through it, and says so.</summary>
+    [Fact]
+    public void AssetWalkFromSourceWithOnlyABadSeedIsSaidUnread()
+    {
+        Assert.Contains(ReadSentences.FromSourceWithoutRecordSeed, Notes(AssetWalk("true", records: new[] { "ZZZ" })));
+        Assert.DoesNotContain(ReadSentences.FromSourceWithoutRecordSeed, Notes(AssetWalk("true")));
+    }
+
     /// <summary>A seed that is not a FormID is one error node at its token, edge 'seed'; the good seed walks.</summary>
     [Fact]
     public void AssetWalkGivesABadRecordsSeedItsOwnNode()
