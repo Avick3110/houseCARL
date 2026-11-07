@@ -239,7 +239,9 @@ internal sealed partial class AssetLayers
                 var type = RecordNaming.StripOverlay(body.GetType().Name);
                 var label = body.EditorID is { Length: > 0 } edid ? $"{type} {edid} [{FormIdToken.Of(fk)}]" : $"{type} [{FormIdToken.Of(fk)}]";
 
-                foreach (var p in AssetLinkHarvest.HarvestAssetPaths(new[] { body })) addFile(p, "listed", label);
+                var listed = AssetLinkHarvest.HarvestAssetPaths(new[] { body }, out var unlisted);
+                foreach (var p in listed) addFile(p, "listed", label);
+                if (unlisted is not null) notes.Add($"{label}: part of the paths it lists could not be read, so files it names there may be missing — {unlisted}");
                 try { foreach (var e in AssetWalkEdges.Inferred(body, inferCache)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note); }
                 catch (Exception ex) { notes.Add($"{label}: its inferred links were not read — {ex.Message}"); }
                 foreach (var e in AssetWalkEdges.Fragments(body)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note);
@@ -254,12 +256,21 @@ internal sealed partial class AssetLayers
                     VoiceOf(view, source, info, label, Voice(), Fetch, addFile, notes);
                 }
 
-                foreach (var link in body.EnumerateFormLinks())
+                // Through the one link door: a deleted record links to nothing, a perk read leniently is followed and
+                // said, and one whose links cannot be read is said and not followed.
+                var links = new List<FormKey>();
+                try { if (RecordLinks.List(body, links) is { } lenient) notes.Add($"{label}: its links were read leniently — {lenient}"); }
+                catch (Exception ex) when (RecordParseFault.Is(ex))
                 {
-                    if (link.IsNull || link.FormKey == fk) continue;
-                    if (!home.Contains(link.FormKey.ModKey)) { boundaries[link.FormKey.ModKey.FileName] = boundaries.GetValueOrDefault(link.FormKey.ModKey.FileName) + 1; continue; }
-                    if (depth >= RecordDepth) { if (seenRec.Add(link.FormKey)) pastDepth++; continue; }
-                    if (seenRec.Add(link.FormKey)) next.Add((link.FormKey, label, home));
+                    notes.Add($"{label}: its links could not be read, so the walk does not go past it — {ex.GetType().Name}: {ex.Message}");
+                    links.Clear();
+                }
+                foreach (var link in links)
+                {
+                    if (link.IsNull || link == fk) continue;
+                    if (!home.Contains(link.ModKey)) { boundaries[link.ModKey.FileName] = boundaries.GetValueOrDefault(link.ModKey.FileName) + 1; continue; }
+                    if (depth >= RecordDepth) { if (seenRec.Add(link)) pastDepth++; continue; }
+                    if (seenRec.Add(link)) next.Add((link, label, home));
                 }
             }
             if (capped) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); next.Clear(); }

@@ -848,6 +848,7 @@ static class JsonWire
         }
         if (row.CyclesCapped) w.WriteBoolean("cycles_capped", true);
         WriteNullable(w, "truncation", row.TruncationNote);
+        if (row.Note is not null) w.WriteString("note", row.Note);
         if (row.TemplateReport is { } tr)
         {
             w.WriteStartArray("template_inheritance");

@@ -382,6 +382,7 @@ static partial class RecordsTools
                 rendered++; continue;
             }
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
+            if (row.Note is not null) sb.Append("  note: the seed's ").Append(row.Note).Append('\n');
             if (row.Nodes.Count == 0)
                 sb.Append("  no links to follow from this seed").Append(row.TruncationNote is null ? ".\n" : " before the cap.\n");
             // What the seed says about its WALK is a different loss from the nodes max_chars held back, so the tail
