@@ -216,10 +216,10 @@ internal static class ReadSentences
     internal static string WalkOnlyInput(string knob) => string.Format(WalkOnlyInputFormat, knob);
 
     /// <summary>The note when a walk names record sources and has no record seed to read through them.</summary>
-    [MustState("from_source=", "records=", "formids=", "nothing was read")]
+    [MustState("from_source=", "records=", "formids=", "is a FormID", "nothing was read")]
     internal const string FromSourceWithoutRecordSeed =
-        "from_source= names where records are read, and this walk has no records= or formids= seed, so nothing was read " +
-        "through it — add a records= or formids= seed, or drop from_source=.";
+        "from_source= names where records are read, and this walk has no records= or formids= seed that is a FormID, so " +
+        "nothing was read through it — add a records= or formids= seed that is a FormID, or drop from_source=.";
 
     /// <summary>The asset walk's note when walk values were passed and no records= seed is a FormID to walk them from.</summary>
     [MustState("records=", "not used", "walk=true")]
