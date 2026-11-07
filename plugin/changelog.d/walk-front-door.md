@@ -1,1 +1,1 @@
-- **`asset_status walk=true` now pages with `limit=`/`offset=` (a negative one refused), writes every node with `to_file=` and counts with `counts_only=`; an unreadable script parent is a note, not an error node.** Check: a `limit=5` walk lists five nodes and an `[accounting]` line.
+- **`asset_status walk=true` now pages with `limit=`/`offset=`, writes `to_file=`, counts with `counts_only=`, and refuses `links=`; an unused `from_source=` or `source_provider=` is a note.** Check: a `limit=5` walk lists five nodes and an `[accounting]` line.
