@@ -118,6 +118,84 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         Assert.EndsWith("a node class this call excludes with severity 'refuse'. Nothing is returned for this call.", refuse);
     }
 
+    const string PastDepthOne = "sit more than walk.depth=1 form-link hops";
+
+    /// <summary>A type walk.through leaves out is not entered: its own links are not followed past it.</summary>
+    [Fact]
+    public void AssetWalkThroughDoesNotEnterALeftOutRecord()
+    {
+        var notes = Notes(AssetWalk("{\"depth\": 1, \"through\": [\"Npc\"]}", records: new[] { Id("HcDoorChain0") }, countsOnly: true));
+        Assert.Contains("left out, not in walk.through: 1 FormList", notes);
+        Assert.DoesNotContain(notes, n => n.Contains(PastDepthOne, StringComparison.Ordinal));
+    }
+
+    /// <summary>A stop exclusion's record is not entered: its own links are not followed past it.</summary>
+    [Fact]
+    public void AssetWalkStopDoesNotEnterTheBoundary()
+    {
+        var notes = Notes(AssetWalk("{\"depth\": 1, \"exclusions\": [{\"match\": \"FormList\", \"severity\": \"stop\"}]}", records: new[] { Id("HcDoorChain0") }, countsOnly: true));
+        Assert.Contains("1 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links).", notes);
+        Assert.DoesNotContain(notes, n => n.Contains(PastDepthOne, StringComparison.Ordinal));
+    }
+
+    /// <summary>A seed is never judged: an exclusion naming the seed's own type still walks it.</summary>
+    [Fact]
+    public void AssetWalkNeverJudgesASeed()
+    {
+        var json = AssetWalk("{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}]}");
+        Assert.Contains(Nodes(json), n => n.Edge == "facegen" && n.PulledBy.StartsWith("Npc HcDoorA1 ", StringComparison.Ordinal));
+        Assert.DoesNotContain(Notes(json), n => n.Contains("matched a stop exclusion", StringComparison.Ordinal));
+    }
+
+    /// <summary>A record a stop exclusion keeps out is not entered, so it does not spend walk.max_nodes.</summary>
+    [Fact]
+    public void AssetWalkStopSpendsNoBudget()
+    {
+        var json = AssetWalk("{\"max_nodes\": 2, \"exclusions\": [{\"match\": \"FormList\", \"severity\": \"stop\"}]}",
+                             records: new[] { Id("HcDoorChain0"), Id("HcDoorChain3") }, countsOnly: true);
+        Assert.Contains("2 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links).", Notes(json));
+        Assert.DoesNotContain(Notes(json), n => n.Contains("walk.max_nodes=2", StringComparison.Ordinal));
+    }
+
+    /// <summary>An all-bad records= seed list walks to its error node, not the 'no seed' refusal.</summary>
+    [Fact]
+    public void AssetWalkWithOnlyABadSeedIsItsErrorNode()
+    {
+        var bad = Assert.Single(Nodes(AssetWalk("true", records: new[] { "ZZZ" })));
+        Assert.Equal(("ZZZ", "seed"), (bad.Path, bad.Edge));
+        Assert.NotNull(bad.Error);
+    }
+
+    /// <summary>The carrier walk reads max_nodes per seed, so its ceiling holds; the transitive reverse shares one budget.</summary>
+    [Fact]
+    public void TheCarrierWalkBudgetHasTheCeiling()
+    {
+        string Run(string follow) => RecordsTools.Records(_w.Svc, formids: new[] { Id("HcDoorA1") },
+            walk: new() { direction = "reverse", follow = follow, max_nodes = 250001 }, counts_only: true);
+        Assert.StartsWith("error: walk.max_nodes=250001 — the node budget's hard upper bound is 250000", Run("Effects[].BaseEffect"));
+        Assert.DoesNotContain("hard upper bound", Run("*"));
+    }
+
+    /// <summary>Both walks' unset node budget is 2000.</summary>
+    [Fact]
+    public void TheUnsetBudgetIsTwoThousandOnBothWalks()
+    {
+        Assert.Null(WalkGrammar.ReadAssetWalk(_w.Svc.Types, Walks.Of("{}"), out var asset));
+        Assert.Equal(2000, asset!.MaxNodes);
+        Assert.Null(WalkGrammar.Parse(_w.Svc.Types, null, null, null, null, WalkGrammar.RecordsDefaultDepth, WalkGrammar.Budget.PerSeed, out var records));
+        Assert.Equal(2000, records.MaxNodes);
+    }
+
+    /// <summary>walk=false is no walk: the call answers as with walk unset.</summary>
+    [Fact]
+    public void AssetWalkFalseIsNoWalk()
+    {
+        string Run(System.Text.Json.JsonElement? walk) => AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: walk);
+        var plain = Run(null);
+        Assert.DoesNotContain("error:", plain);
+        Assert.Equal(plain, Run(Walks.Of("false")));
+    }
+
     /// <summary>The records walk's shaping values are refused by name on the asset walk, never dropped.</summary>
     [Theory]
     [InlineData("{\"seed_paths\": [\"HeadParts\"]}", "error: walk.seed_paths is a records-walk value")]
