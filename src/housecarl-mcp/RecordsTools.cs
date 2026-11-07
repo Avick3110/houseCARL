@@ -80,10 +80,6 @@ public static partial class RecordsTools
         public string[]? through { get; set; }
     }
 
-    /// <summary>The refusal for a walk type field's entry that names no record type.</summary>
-    static string NotAWalkType(string field, string entry)
-        => $"error: {field} '{entry}' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').";
-
     /// <summary>How many INIs get their own pointer line before the rest are summed into one.</summary>
     const int NotePointerFiles = 5;
 
@@ -355,7 +351,7 @@ public static partial class RecordsTools
         }
         // ---- walk= (the traversal construct) ----
         string walkDirection = "forward";
-        int walkDepth = 16, walkMaxNodes = 2000;
+        int walkDepth = WalkGrammar.RecordsDefaultDepth, walkMaxNodes = WalkGrammar.DefaultMaxNodes;
         bool walkDepthAsked = false;
         var walkExclusions = new List<(string Match, bool Refuse)>();
         HashSet<string>? walkThrough = null;
@@ -365,44 +361,13 @@ public static partial class RecordsTools
             if (dir is not (null or "" or "forward" or "reverse"))
                 return ToolAnswer.Refusal(json, $"error: walk.direction='{walk.direction}' — use 'forward' (what the seeds point at) or 'reverse' (what points at them, at any depth; walk.follow picks which reverse edges: \"*\" for every link, \"{CarrierFollow}\" for the typed MGEF carriers).");
             if (!string.IsNullOrEmpty(dir)) walkDirection = dir!;
-            if (walk.depth is { } wd)
-            {
-                if (wd < 1) return ToolAnswer.Refusal(json, $"error: walk.depth={wd} — depth must be >= 1 (hops from the seed).");
-                walkDepth = wd;
-                walkDepthAsked = true;
-            }
-            if (walk.max_nodes is { } wn)
-            {
-                if (wn < 1) return ToolAnswer.Refusal(json, $"error: walk.max_nodes={wn} — the node budget must be >= 1.");
-                // The bound is on the PER-SEED reading of this budget; docs/architecture/records-tool-front.md.
-                bool perSeedBudget = walkDirection == "forward"
-                                  || string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
-                if (perSeedBudget && wn > RecordsWalk.Ceiling)
-                    return ToolAnswer.Refusal(json, $"error: walk.max_nodes={wn} — the node budget's hard upper bound is {RecordsWalk.Ceiling}; pass that or less, which is above the whole closure a single seed reaches on a large order.");
-                walkMaxNodes = wn;
-            }
-            foreach (var x in walk.exclusions ?? Array.Empty<RecordsWalkExclusion>())
-            {
-                if (string.IsNullOrWhiteSpace(x.match))
-                    return ToolAnswer.Refusal(json, "error: a walk.exclusions entry needs match= — the record type name a read reports (e.g. 'Race').");
-                var sev = x.severity?.Trim().ToLowerInvariant();
-                if (sev is not ("stop" or "refuse"))
-                    return ToolAnswer.Refusal(json, $"error: walk.exclusions '{x.match}': severity='{x.severity}' — use 'stop' (prune, record the boundary) or 'refuse' (the whole walk fails loud).");
-                // A name or a signature, matched as the type name a read reports.
-                if (svc.Types.DisplayNames(new[] { x.match! }) is not { } exNames) return ToolAnswer.Refusal(json, NotAWalkType("walk.exclusions", x.match!));
-                foreach (var n in exNames) walkExclusions.Add((n, sev == "refuse"));
-            }
-            if (walk.through is { } thr)
-            {
-                if (thr.Length == 0)
-                    return ToolAnswer.Refusal(json, "error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or omit it to walk every type.");
-                walkThrough = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var t in thr)
-                {
-                    if (svc.Types.DisplayNames(new[] { t ?? "" }) is not { } thNames) return ToolAnswer.Refusal(json, NotAWalkType("walk.through", t ?? ""));
-                    walkThrough.UnionWith(thNames);
-                }
-            }
+            // The forward and carrier walks read max_nodes per seed; docs/architecture/records-tool-front.md.
+            bool perSeedBudget = walkDirection == "forward"
+                              || string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
+            if (WalkGrammar.Parse(svc.Types, walk.depth, walk.max_nodes, walk.through, walk.exclusions, WalkGrammar.RecordsDefaultDepth,
+                                  perSeedBudget ? WalkGrammar.Budget.PerSeed : WalkGrammar.Budget.Shared, out var wv) is { } wvErr)
+                return ToolAnswer.Refusal(json, wvErr);
+            (walkDepth, walkDepthAsked, walkMaxNodes, walkThrough, walkExclusions) = wv;
             if (walkDirection == "reverse")
             {
                 // seed_paths is forward-only; follow stays legal and picks which reverse walk runs.
@@ -936,12 +901,8 @@ public static partial class RecordsTools
             if (reverseCarrier)
             {
                 // The typed MGEF lane: a non-MGEF seed fails loud per item rather than reading as '0 carriers'.
-                var parsed = new List<(string Raw, FormKey? Fk, string? Error)>(ids.Length);
-                foreach (var raw in ids)
-                {
-                    try { parsed.Add((raw, door.Parse(raw), null)); }
-                    catch (Exception ex) { parsed.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
-                }
+                var parsed = ids.Select(raw => WalkGrammar.ParseSeed(raw, door.Parse))
+                                .Select(s => (s.Raw, Fk: s.Key, s.Error)).ToList();
                 // Every seed off one capture and one carrier pass; the per-seed carrier bound is the walk's reach budget.
                 var chains = svc.ResolveEffectChains(parsed.Where(p => p.Fk is not null).Select(p => p.Fk!.Value).ToList(), types, walkMaxNodes, ct);
                 int next = 0;
@@ -1103,7 +1064,8 @@ public static partial class RecordsTools
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in rows)
             {
-                if (r.Error is not null) continue;
+                // A seed that is not a FormID rides into the list lane as its raw token, which reads as its own error row.
+                if (r.Error is not null) { if (r.Malformed && seen.Add(r.Seed)) combined.Add(r.Seed); continue; }
                 if (seen.Add(r.Seed)) combined.Add(r.Seed);
                 foreach (var n in r.Nodes)
                     if (n.Type is not null && seen.Add(n.Key)) combined.Add(n.Key);

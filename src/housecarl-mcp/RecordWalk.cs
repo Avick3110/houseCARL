@@ -69,7 +69,11 @@ internal sealed partial class RecordReads
     public sealed record WalkSeedResult(string Seed, string? Type, string? EditorId,
                                         IReadOnlyList<WalkNodeRow> Nodes, IReadOnlyList<string> Cycles,
                                         string? TruncationNote, IReadOnlyList<NpcTemplateCategory>? TemplateReport,
-                                        string? Error, bool CyclesCapped = false, string? Note = null);
+                                        string? Error, bool CyclesCapped = false, string? Note = null)
+    {
+        /// <summary>The seed token is not a FormID, so a reading form carries it to the list lane as its own error row.</summary>
+        public bool Malformed { get; init; }
+    }
 
     /// <summary>How many loops one seed's cycle search collects.</summary>
     public const int WalkCycleCap = 200;
@@ -333,8 +337,9 @@ internal sealed partial class RecordReads
         var seedGather = new List<FormKey>(s1 - s0);
         for (int i = s0; i < s1; i++)
         {
-            try { seedKeys[i] = view.ParseFormId(seeds[i]); seedGather.Add(seedKeys[i]); }
-            catch (Exception ex) { rows[i] = new WalkSeedResult(seeds[i]?.Trim() ?? "", null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null, $"bad FormID '{seeds[i]}': {ex.Message}"); }
+            var seed = WalkGrammar.ParseSeed(seeds[i], view.ParseFormId);
+            if (seed.Key is { } sk) { seedKeys[i] = sk; seedGather.Add(sk); }
+            else rows[i] = new WalkSeedResult(seeds[i]?.Trim() ?? "", null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null, seed.Error) { Malformed = true };
         }
         ThroughDoor(seedGather, (bodies, _) => { foreach (var (k, b) in bodies) bodyCache[k] = b; });
 
