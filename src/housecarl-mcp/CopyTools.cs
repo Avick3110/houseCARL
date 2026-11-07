@@ -53,7 +53,8 @@ public static class CopyTools
         var sourcesIn = from_source.Read("from_source", ListKind.Plugin);
         var seedsIn = seed_paths.Read("seed_paths", ListKind.Name);
         if ((sourcesIn.Error ?? seedsIn.Error) is { } listErr) return ToolAnswer.Refusal(listErr);
-        if (exclude_types is not null)
+        // A JSON null is no value, as unset is.
+        if (exclude_types is { ValueKind: not (System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined) })
             return ToolAnswer.Refusal("error: exclude_types= is retired — pass exclusions=[{\"match\": \"Race\", \"severity\": \"refuse\"}], one {match, severity} per type, the walks' walk.exclusions spelling ('Type:stop' is {\"match\": \"Type\", \"severity\": \"stop\"}).");
 
         // A blank patch= or into= is no name, so the new_editorid= default applies; naming both lanes is refused.

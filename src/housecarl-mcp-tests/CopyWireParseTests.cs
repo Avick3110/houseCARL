@@ -160,6 +160,11 @@ public sealed class CopyWireParseTests : IClassFixture<CopyParserWorld>
         Assert.False(Directory.EnumerateDirectories(Path.Combine(_w.Root, "inst", "mods"), "*PRetired*").Any());
     }
 
+    // a JSON null exclude_types= is no value: the copy answers as if it were unset
+    [Fact]
+    public void ANullExcludeTypesIsUnset()
+        => Has(CopyTools.Copy(_w.Svc, _w.From, seed_paths: Seed, exclude_types: Walks.Of("null"), new_editorid: "PNullEx", patch: "PNullEx"), "CLONED");
+
     // an unsupported list seed refuses BY NAME, naming the field, its entries' shape, the route (apply's zip, WHOLE), and writes nothing
     [Fact]
     public void AStructListSeedRefusesNamingTheFieldItsEntriesAndTheRoute()
