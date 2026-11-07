@@ -234,6 +234,26 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(30, notes + omitted);
     }
 
+    /// <summary>F1-c: a walk's file, under to_file= and under a ceiling spill, names each seed parameter the call gave.</summary>
+    [Fact]
+    public void TheWalkFileNamesItsSeeds()
+    {
+        var hero = _w.Id("HcWalkHero");
+        string Seeded(string? toFile, int max) => AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, records: new[] { hero }, walk: true,
+                                                                         source_provider: AssetWalkWorld.DonorMod, to_file: toFile, format: "json", max_chars: max);
+        var file = File("seeds");
+        Seeded(file, Big);
+        using var spilled = JsonDocument.Parse(Seeded(null, 3000));
+        foreach (var path in new[] { file, spilled.RootElement.GetProperty("spilled").GetProperty("path").GetString()! })
+        {
+            using var manifest = JsonDocument.Parse(System.IO.File.ReadLines(path).First());
+            var query = manifest.RootElement.GetProperty("query");
+            Assert.Equal(hero, query.GetProperty("records").GetString());
+            Assert.Equal($"{AssetWalkWorld.ManyTex.Length} inline path(s)", query.GetProperty("asset_paths").GetString());
+            Assert.False(query.TryGetProperty("formids", out _));
+        }
+    }
+
     /// <summary>A walk input given without the walk, and from_source= on a walk with no record seed, are each one note;
     /// a formids= walk with from_source= reads its face through it and has none.</summary>
     [Fact]

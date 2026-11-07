@@ -36,8 +36,9 @@ static class AssetWalkWire
     static readonly string[] RowSchema = { "path", "edge", "pulled_by", "standing", "provider", "provider_kind", "keyed", "note", "error" };
 
     /// <summary>Write every node to <paramref name="target"/>, one row each, <paramref name="reason"/> naming why
-    /// (<c>to_file</c> or <c>ceiling</c>); the spill to render, or why it failed.</summary>
-    internal static (SpillInfo? Spill, string? Error) Write(AssetWalkData d, ArtifactTarget target, string reason, OrderStamp? order, string? noEpochBecause)
+    /// (<c>to_file</c> or <c>ceiling</c>), <paramref name="seeds"/> the seed parameters the call gave; the spill to render, or why it failed.</summary>
+    internal static (SpillInfo? Spill, string? Error) Write(AssetWalkData d, ArtifactTarget target, string reason, OrderStamp? order, string? noEpochBecause,
+                                                            IReadOnlyList<KeyValuePair<string, string>> seeds)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var n in d.Nodes)
@@ -50,12 +51,10 @@ static class AssetWalkWire
         notes.AddRange(d.Notes.Select(n => "walk note: " + n));
         if (noEpochBecause is not null)
             notes.Add("'epoch' is EMPTY: the load order could not be read for a fingerprint when this was written — " + noEpochBecause);
-        var query = new List<KeyValuePair<string, string>>
-        {
-            new("walk", "true"),
-            new("source_provider", d.SourceProvider ?? "<none>"),
-            new("record_sources", d.RecordSources.Count > 0 ? string.Join(" > ", d.RecordSources) : "<none>"),
-        };
+        var query = new List<KeyValuePair<string, string>> { new("walk", "true") };
+        query.AddRange(seeds);
+        query.Add(new("source_provider", d.SourceProvider ?? "<none>"));
+        query.Add(new("record_sources", d.RecordSources.Count > 0 ? string.Join(" > ", d.RecordSources) : "<none>"));
         // A hidden node adds its hidden member, so the schema names it only then and a plain walk's artifact is unchanged.
         var schema = d.Nodes.Any(n => n.Hidden is not null) ? RowSchema.Append("hidden").ToArray() : RowSchema;
         var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path", schema,
