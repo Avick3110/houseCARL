@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-31
+updated: 2026-11-07
 covers: [src/housecarl-core/ClosureWalk.cs, src/housecarl-core/SourceChain.cs, src/housecarl-core/ReverseReferenceIndex.cs]
 ---
 # Walk and reverse
@@ -25,6 +25,13 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
   key still queued at the same depth that it would enter (not seen, inside the scope), at most as many
   as the node cap leaves room for, in one `FetchMany`. The answers, nodes, refusals and their order are
   the key-at-a-time walk's.
+- Copy's walk (`ClosureWalk.Run`) and the asset walk (`AssetWalk.WalkRecords`) are two loops on purpose: copy
+  decides each key when it dequeues it and refuses at any cap, miss or fault, so it never writes a partial closure;
+  the asset walk decides each link as it follows it, by the seed's own home, and notes what it left and goes on. What
+  they share is code: the chain and its `FetchMany`, and `SourceChain.NamedPlugins`, the plugins the arms name (copy
+  drops base masters from it, the asset walk keeps them). The few answers they must give alike over one graph both
+  reach whole (the records entered and their breadth-first order, one read per depth, a null link skipped) are
+  `CopyAssetWalkAgreementTests`.
 - Walk provenance is per node: each reached node records which arm produced its body and the full
   pull chain from a seed, which is what makes a cap refusal actionable.
 - A seed path's shape is decided off the DECLARED type before any value is read, so a null cannot be
@@ -65,6 +72,9 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
   — one batch per depth, reaching what the key-at-a-time walk reaches.
 - `CopyEndToEndTests` — the closure copy's own caps and reached order, end to end; the contract is in
   `docs/architecture/write-path.md`.
+- `SourceChainNamedPluginsTests` — the arms' plugins: `winner` and a spelling that names no plugin give none, a base
+  master and an off-order file arm are returned. `CopyAssetWalkAgreementTests` — copy's walk and the asset walk enter
+  one graph in the same order, read each depth's group once and skip a null link.
 - `AssetWalkDoorTests.ManyKeysAnswerAsOneKeyAtATime` — `FetchMany` over many keys answers each key's hit, fault and miss as it does over that key alone (a set of one; no other per-key read exists), each batch
   is read once and a later arm reads only the keys still unanswered; `AssetWalkDoorFaultTests.ABrokenGroupIsTheArmsFaultNotAMiss`
   — a group the door's walk faults on is the arm's fault, not a miss.
