@@ -94,6 +94,8 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.Equal(new[] { UnreadLinksWorld.BeforeNif, UnreadLinksWorld.AfterNif }, Paths(d));
         Assert.Contains(d.Notes, n => n.Contains(_w.Id(C, "Perk")) && n.Contains("its links could not be read"));
         Assert.Contains(d.Notes, n => n.Contains(_w.Id(C, "Perk")) && n.Contains("part of the paths it lists could not be read"));
+        // Mutagen hands over the master's spell before the corrupt effect throws; a link read that fails follows none.
+        Assert.DoesNotContain(d.Notes, n => n.Contains(UnreadLinksWorld.BaseMaster));
     }
 
     // ---- copy ----
@@ -161,7 +163,23 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.StartsWith("error: ", text);
         Assert.Contains(_w.Id(D, "Perk"), text);
         Assert.DoesNotContain("failed unexpectedly", text);
+        // The walk read no links off it, so it is the duplicate that refuses, not the link read.
+        Assert.Contains("could not duplicate", text);
+        Assert.DoesNotContain("could not be read whole", text);
         NothingWritten("HcIsoCopyDead");
+    }
+
+    /// <summary>The refusal's chain names every record from the seed down, not only the last.</summary>
+    [Fact]
+    public void CopysUnreadLinksRefusalRendersTheWholeChain()
+    {
+        var src = ModKey.FromFileName("ChainSrc.esp");
+        FormKey list = new(src, 0x800), perk = new(src, 0x801);
+        var text = CopyTools.Render(ClosureCopyOutcome.Fail(
+            walk: new WalkRefusal(WalkRefusalKind.UnreadLinks, perk, "FormList 000800:ChainSrc.esp", new[] { list, perk },
+                                  "effect(s) 0 were refused", TypeName: "Perk", EditorId: "ChainPerk"),
+            sources: new[] { new SourceArmRef("ChainSrc.esp", SourceArmKind.File, null) }));
+        Assert.Contains($"Chain: {list} -> {perk}.", text);
     }
 
     // ---- the records walk ----
@@ -224,6 +242,16 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         var followed = WalkWith(_w.Id(D, "Holder"), new RecordsTools.RecordsWalk { depth = 3, follow = "Items" });
         Assert.Contains("HcIsoDeadGoneList", followed);
         Assert.DoesNotContain("HcIsoDeadStatic", followed);
+    }
+
+    /// <summary>A follow= hop's path note is not the lenient note: a node row on a follow= walk carries none.</summary>
+    [Fact]
+    public void AFollowWalksNodeRowsCarryNoLenientNote()
+    {
+        var r = WalkWith(_w.Id(L, "List"), new RecordsTools.RecordsWalk { depth = 3, follow = "Items" });
+        var rows = r.Split('\n').Where(l => l.TrimStart().StartsWith("d1  ", StringComparison.Ordinal)).ToList();
+        Assert.Equal(3, rows.Count);
+        Assert.All(rows, row => Assert.Contains("[expanded]  <- ", row));
     }
 
     [Fact]
