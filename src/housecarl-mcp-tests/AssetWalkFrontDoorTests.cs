@@ -274,17 +274,22 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         var missing = Enumerable.Range(0, 30).Select(i => $"0EEE{i:X2}:{AssetWalkWorld.Plugin}").ToArray();
         // The hero alone: nodes and no notes, so only the axis rows can be cut.
         var hero = new[] { _w.Id("HcWalkHero") };
-        foreach (var (seeds, member, half) in new[] { (missing, "notes_omitted", true), (hero, "nodes_by_edge", false) })
+        // Each case: its seeds, the cap that cuts it, and what it says it cut.
+        var cases = new (string[] Seeds, Func<int, int> CapFor, Action<JsonElement, string> SaysItsCut)[]
+        {
+            (missing, len => len / 2, (r, cut) => Assert.True(r.GetProperty("notes_omitted").GetInt32() > 0, cut)),
+            (hero, len => len - 1, (r, _) => Assert.Equal("max_chars", r.GetProperty("nodes_by_edge").GetProperty("cut_by").GetString())),
+        };
+        foreach (var (seeds, capFor, saysItsCut) in cases)
         {
             var whole = Counts(seeds, Big);
             using var w = JsonDocument.Parse(whole);
             Assert.False(w.RootElement.GetProperty("truncated").GetBoolean(), whole);
 
-            var cut = Counts(seeds, half ? whole.Length / 2 : whole.Length - 1);
+            var cut = Counts(seeds, capFor(whole.Length));
             using var doc = JsonDocument.Parse(cut);
             var r = doc.RootElement;
-            if (member == "notes_omitted") Assert.True(r.GetProperty(member).GetInt32() > 0, cut);
-            else Assert.Equal("max_chars", r.GetProperty(member).GetProperty("cut_by").GetString());
+            saysItsCut(r, cut);
             Assert.True(r.GetProperty("truncated").GetBoolean(), cut);
         }
     }
