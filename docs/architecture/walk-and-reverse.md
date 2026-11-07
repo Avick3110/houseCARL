@@ -91,7 +91,8 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   a type outside `through` is not entered and is counted per type in the records walk's "left out, not in
   walk.through:" line; a refuse fails the call in `WalkExclusionMatch.RefuseSentence`'s words. Seeds are never judged.
   Its depth and budget notes name `walk.depth=` / `walk.max_nodes=` and say to raise them.
-- `ParseSeed` turns one seed token into its key or `bad FormID '<token>': <why>`. Each walk carries a malformed seed
+- `ParseSeed` turns one seed token into its key or `bad FormID '<token>': <why>`; the records walk's rows carry those
+  words alone, and the asset walk's error node adds ` Expected 'XXXXXX:Plugin.esp'.` after them. Each walk carries a malformed seed
   as its own row: the forward reading form (`WalkSeedResult.Malformed`), the carrier reading form and the transitive
   reverse walk put the raw token in the selection, which the list lane renders as a per-item error row; the bad token
   is not counted as a reached record and is not sent to `form='chain'`; the chain forms keep their own rows; the
