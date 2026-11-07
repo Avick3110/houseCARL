@@ -160,6 +160,25 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Contains("errors=1", RecordsTools.Records(_w.Svc, formids: new[] { "ZZZ", Id("HcDoorA1") }, walk: new() { direction = "reverse", depth = 1 }, counts_only: true));
     }
 
+    static string ReverseCounts(string text)
+        => System.Text.RegularExpressions.Regex.Match(text, @"selection = \d+ record\(s\) \(\d+ referrer\(s\), seeds included\)").Value;
+
+    /// <summary>The transitive reverse header counts records only, and an all-bad seed list walks nothing for want of a
+    /// FormID, not of expansion.</summary>
+    [Fact]
+    public void TheReverseHeaderDoesNotCountABadSeed()
+    {
+        string Run(params string[] ids) => RecordsTools.Records(_w.Svc, formids: ids, walk: new() { direction = "reverse" });
+        var good = ReverseCounts(Run(Id("HcDoorA1")));
+        Assert.NotEqual("", good);
+        Assert.Equal(good, ReverseCounts(Run("ZZZ", Id("HcDoorA1"))));
+
+        var bad = Run("ZZZ");
+        Assert.Contains("bad FormID 'ZZZ'", bad);
+        Assert.Contains("selection = 0 record(s) (0 referrer(s), seeds included)", bad);
+        Assert.DoesNotContain("nothing left to expand", bad);
+    }
+
     /// <summary>The forward walk's reading form lists the bad seed as one error row, in text and json.</summary>
     [Fact]
     public void TheForwardReadingFormGivesABadSeedItsOwnRow()

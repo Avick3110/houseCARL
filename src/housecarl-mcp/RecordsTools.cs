@@ -840,16 +840,19 @@ public static partial class RecordsTools
                     return ToolAnswer.Refusal(json, Wire.RefusalPrefix + rTear, rev.Stamp);
                 // Every hop is named with its count, empty ones included, and a hop the budget ended says 'cut'.
                 var hopLine = string.Join(", ", rev.Hops.Select(h => $"hop {h.Depth}: {h.Reached.Count}{(h.Cut ? " (cut by walk.max_nodes)" : "")}"));
-                if (!rev.Capped && rev.Hops.Count < walkDepth)
+                if (rev.Seeds == 0)
+                    hopLine = "no seed is a FormID, so nothing was walked";
+                else if (!rev.Capped && rev.Hops.Count < walkDepth)
                     hopLine += $" (nothing left to expand, so hops {rev.Hops.Count + 1}–{walkDepth} were not walked)";
                 // The other way a walk ends: walk.depth reached with the last hop still finding records, so what it
                 // reached was recorded and not expanded.
                 else if (!rev.Capped && rev.Hops.Count > 0 && rev.Hops[^1].Reached.Count > 0)
                     hopLine += $" (walk.depth={walkDepth} was reached with hop {walkDepth} still finding records, so they were recorded and not expanded — raise walk.depth to walk further)";
-                int reachedRev = rev.Selection.Count - rev.Seeds;
-                envelope.Add(new("walk", $"reverse (every link) depth={walkDepth} — {hopLine}; selection = the {rev.Selection.Count} record(s) the walk reached (seeds included)"));
+                int recordsRev = rev.Selection.Count - rev.BadSeeds;
+                int reachedRev = recordsRev - rev.Seeds;
+                envelope.Add(new("walk", $"reverse (every link) depth={walkDepth} — {hopLine}; selection = the {recordsRev} record(s) the walk reached (seeds included)"));
                 if (rev.IndexNote is not null) envelope.Add(new("reverse_index", rev.IndexNote));
-                headerLine += $"\nwalk=reverse (every link) depth={walkDepth}: {hopLine} — selection = {rev.Selection.Count} record(s) ({reachedRev} referrer(s), seeds included)";
+                headerLine += $"\nwalk=reverse (every link) depth={walkDepth}: {hopLine} — selection = {recordsRev} record(s) ({reachedRev} referrer(s), seeds included)";
                 if (rev.IndexNote is not null) headerLine += "\n" + rev.IndexNote;
                 if (rev.Dropped.Total > 0)
                 {
@@ -885,7 +888,7 @@ public static partial class RecordsTools
                 // The reached set's render bound, with its own remedy because chain and the scan terms are both
                 // refused on this walk; counts_only pays it too, since the list lane reads before it counts.
                 if (bodyForm
-                    && RenderBudget.Refuse(svc.Bounds, rev.Selection.Count, form == "everything",
+                    && RenderBudget.Refuse(svc.Bounds, recordsRev, form == "everything",
                                            counts_only ? RenderBudget.ReverseTransitiveCensusRemedy : RenderBudget.ReverseTransitiveRemedy,
                                            counts_only) is { } revTooBig)
                     return ToolAnswer.Refusal(json, revTooBig, rev.Stamp);
