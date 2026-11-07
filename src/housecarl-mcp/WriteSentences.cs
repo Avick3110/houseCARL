@@ -156,12 +156,12 @@ internal static class WriteSentences
     [MustState("Consulted, in order:")]
     internal const string CopySourceMissConsulted = ". Consulted, in order: ";
 
-    [MustState("from_source=", "'winner'", "dangling link", "'Type:refuse'")]
+    [MustState("from_source=", "'winner'", "dangling link", "exclusions=[{\"match\": \"<Type>\", \"severity\": \"refuse\"}]")]
     internal const string CopySourceMissRemedy =
         ". Name the plugin that defines it in from_source=, or 'winner' for the active load order's winning version. " +
         "If the record exists NOWHERE — a dangling link, which is the typical cause — no source will produce it: " +
-        "exclude its record type instead, with 'Type:refuse' to stop the copy at it, or 'Type:stop' to prune the " +
-        "link and keep it (which needs its plugin in your active load order).";
+        "exclude its record type instead, with exclusions=[{\"match\": \"<Type>\", \"severity\": \"refuse\"}] to stop " +
+        "the copy at it, or \"severity\": \"stop\" to prune the link and keep it (which needs its plugin in your active load order).";
 
     [MustState("could not be read")]
     internal const string CopySourceFaultLead = " but it could not be read — ";
