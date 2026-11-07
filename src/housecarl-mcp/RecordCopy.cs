@@ -187,13 +187,8 @@ internal sealed partial class RecordWrites
                 var bound = new HashSet<ModKey>();
                 if (!baseMasters.Contains(sourceKey.ModKey)) bound.Add(sourceKey.ModKey);
                 // EVERY arm the caller named, whatever kind it resolved to; `winner` stays exempt, being the whole order.
-                foreach (var arm in chain.Arms)
-                {
-                    if (string.Equals(arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)) continue;
-                    ModKey mk;
-                    try { mk = ModKey.FromFileName(Path.GetFileName(arm.Spelling)); } catch { continue; }
+                foreach (var mk in chain.NamedPlugins())
                     if (!baseMasters.Contains(mk)) bound.Add(mk);
-                }
                 bool IsBound(FormKey fk) => bound.Contains(fk.ModKey);
 
                 // The transplant note belongs to the case where the donor-bound set is EMPTY.

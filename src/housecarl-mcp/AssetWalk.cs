@@ -192,12 +192,7 @@ internal sealed partial class AssetLayers
         var frontier = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
         // The plugins each from_source arm names, as copy binds them (RecordCopy): an override donor's own records are
         // entered. A seed read through 'winner' also enters its own plugin; one read through a named plugin does not.
-        var named = new HashSet<ModKey>();
-        foreach (var arm in chain.Arms)
-        {
-            if (string.Equals(arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)) continue;
-            try { named.Add(ModKey.FromFileName(Path.GetFileName(arm.Spelling))); } catch { /* a spelling that names no plugin binds nothing */ }
-        }
+        var named = new HashSet<ModKey>(chain.NamedPlugins());
         foreach (var s in seeds) if (seenRec.Add(s)) frontier.Add((s, "seed", null));
         int pastDepth = 0;
         var boundaries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
