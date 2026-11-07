@@ -342,7 +342,7 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => { JsonWire.WriteChainRow(w, row, ms, int.MaxValue); },
                             row.Error is null ? row.Type : null);
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "nodes", "cycles?", "truncation?", "note?", "template_inheritance?" },
+                                          new[] { "formid", "error?", "type", "editorid", "nodes", "cycles?", "cycles_capped?", "truncation?", "note?", "template_inheritance?" },
                                           "input order", rows.Count, epoch ?? "", ManifestNotes(scan));
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
