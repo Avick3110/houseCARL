@@ -367,7 +367,8 @@ public static partial class RecordsTools
             if (WalkGrammar.Parse(svc.Types, walk.depth, walk.max_nodes, walk.through, walk.exclusions, WalkGrammar.RecordsDefaultDepth,
                                   perSeedBudget ? WalkGrammar.Budget.PerSeed : WalkGrammar.Budget.Shared, out var wv) is { } wvErr)
                 return ToolAnswer.Refusal(json, wvErr);
-            (walkDepth, walkDepthAsked, walkMaxNodes, walkThrough, walkExclusions) = wv;
+            (walkDepth, walkMaxNodes, walkThrough, walkExclusions) = wv;
+            walkDepthAsked = walk.depth is not null;
             if (walkDirection == "reverse")
             {
                 // seed_paths is forward-only; follow stays legal and picks which reverse walk runs.
@@ -823,10 +824,7 @@ public static partial class RecordsTools
             void SayLeftOut(IEnumerable<string> leftOutTypes)
             {
                 if (walkThrough is null) return;
-                var counts = leftOutTypes.GroupBy(t => t, StringComparer.Ordinal)
-                                         .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
-                                         .Select(g => $"{g.Count()} {g.Key}").ToList();
-                var line = "left out, not in walk.through: " + (counts.Count == 0 ? "none" : string.Join(", ", counts));
+                var line = WalkGrammar.LeftOutLine(leftOutTypes);
                 envelope.Add(new("walk_left_out", line));
                 headerLine += "\n" + line;
             }
@@ -901,12 +899,11 @@ public static partial class RecordsTools
             if (reverseCarrier)
             {
                 // The typed MGEF lane: a non-MGEF seed fails loud per item rather than reading as '0 carriers'.
-                var parsed = ids.Select(raw => WalkGrammar.ParseSeed(raw, door.Parse))
-                                .Select(s => (s.Raw, Fk: s.Key, s.Error)).ToList();
+                var parsed = ids.Select(raw => WalkGrammar.ParseSeed(raw, door.Parse)).ToList();
                 // Every seed off one capture and one carrier pass; the per-seed carrier bound is the walk's reach budget.
-                var chains = svc.ResolveEffectChains(parsed.Where(p => p.Fk is not null).Select(p => p.Fk!.Value).ToList(), types, walkMaxNodes, ct);
+                var chains = svc.ResolveEffectChains(parsed.Where(p => p.Key is not null).Select(p => p.Key!.Value).ToList(), types, walkMaxNodes, ct);
                 int next = 0;
-                var results = parsed.Select(p => p.Fk is { } fk
+                var results = parsed.Select(p => p.Key is { } fk
                     ? (Seed: FormIdToken.Of(fk), Result: chains[next++])
                     : (Seed: p.Raw?.Trim() ?? "", Result: EffectChainResult.Fail(p.Error!))).ToList();
                 // An @artifact seed list's epoch demand must match the one build the batch read.

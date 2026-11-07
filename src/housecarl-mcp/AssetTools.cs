@@ -323,7 +323,6 @@ public static class AssetTools
                        ListRead recordsIn, string[]? from_source, string? source_provider,
                        RowWindow window, string? toFile, bool countsOnly, bool json, int cap)
     {
-        ToolAnswer Refuse(string message) => ToolAnswer.Refusal(json, Wire.RefusalPrefix + message);
         // Each FormID artifact, formids= and records= alike, is epoch-checked the same way the row lane checks one.
         var demands = new[] { idsIn.Demand, recordsIn.Demand }.OfType<HousecarlCore.ArtifactDemand>().ToList();
         if (demands.Count > 0 && svc.CaptureView().Stamp.Epoch is var epoch)
