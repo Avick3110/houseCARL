@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-05
+updated: 2026-11-07
 covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/ArchiveReader.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
@@ -669,8 +669,9 @@ provided either; the generic lane does not, because it legitimately answers for 
   `AssetWalkTemplateDoorTests.ATemplateSharedByManyNpcsIsReadOncePerHop` — a template six NPCs share is read once
   per hop; an owner rank is not walked as a link (`AnOwnerRankIsNotWalkedAsALink`);
   the depth bound and the record cap stop where they did; `AssetWalkDoorFaultTests`
-  — a broken NPC group is the arm's fault note. Fragments and a `.pex`'s parent are not pinned by a test; they were
-  checked on the dev instance only.
+  — a broken NPC group is the arm's fault note. `AssetWalkPinTests` — the `listed`, `inferred` (a weight-variant
+  model), `fragment`, `.wav` voice and in-walk `bodytri` edges, and two seeds in two plugins each walking its own
+  plugin as home (`EachSeedsHomeIsItsOwnPlugin`); a `.pex`'s parent is `ArchiveReadOnceTests`'.
 - *One FaceGen answer per NPC*: `NpcFaceDoorTests` — a plain NPC is its own pair on every lane and the check
   judges it; a templated NPC is its root's pair on `formids=`, the walk, `npc=` and `place`, and the check excludes
   it as templated; a leveled-template NPC names each member, one of N, on `formids=`, the walk and `npc=`, and
