@@ -220,6 +220,12 @@ internal static class ReadSentences
         "from_source= names where records are read, and this walk has no records= or formids= seed, so nothing was read " +
         "through it — add a records= or formids= seed, or drop from_source=.";
 
+    /// <summary>The asset walk's note when walk values were passed and no records= seed is a FormID to walk them from.</summary>
+    [MustState("records=", "not used", "walk=true")]
+    internal const string WalkValuesWithoutRecordSeed =
+        "walk={…}'s depth, max_nodes, through and exclusions shape the walk from records= seeds, and this call has no " +
+        "records= seed that is a FormID, so they were not used — seed the records with records=, or pass walk=true.";
+
     // ---- a count table does not page ----------------------------------------------------------------
 
     /// <summary>The one sentence every lane refuses <c>offset=</c> against a whole-selection answer with (Aaron
