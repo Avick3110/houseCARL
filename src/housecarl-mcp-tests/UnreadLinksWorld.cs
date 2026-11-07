@@ -40,7 +40,7 @@ public sealed class UnreadLinksWorld : IDisposable
 
     public UnreadLinksWorld()
     {
-        // The lenient perk's ability spell lives in a master, so the asset walk counts it as a boundary, once per link.
+        // The lenient and corrupt perks' ability spell lives in a master, so the asset walk counts it as a boundary, once per link.
         var baseMod = new SkyrimMod(ModKey.FromFileName(BaseMaster), SkyrimRelease.SkyrimSE);
         var baseSpell = baseMod.Spells.AddNew(); baseSpell.EditorID = "HcIsoBaseSpell";
         baseMod.BeginWrite.ToPath(_mo2.InMod("HcIsoBaseMod", baseMod.ModKey)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -49,7 +49,7 @@ public sealed class UnreadLinksWorld : IDisposable
         {
             var key = ModKey.FromFileName(plugin);
             var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
-            bool lenient = plugin == Lenient;
+            bool lenient = plugin == Lenient, mastered = plugin != Dead;
             var tag = key.Name;
             HeadPart Part(string eid, string nif)
             {
@@ -59,7 +59,7 @@ public sealed class UnreadLinksWorld : IDisposable
                 return hp;
             }
             FormKey spell;
-            if (lenient) spell = baseSpell.FormKey;
+            if (mastered) spell = baseSpell.FormKey;
             else { var own = mod.Spells.AddNew(); own.EditorID = tag + "Spell"; spell = own.FormKey; }
             var stat = mod.Statics.AddNew(); stat.EditorID = tag + "Static";
             stat.Model = new Model { File = RecoveredNif };
@@ -104,7 +104,7 @@ public sealed class UnreadLinksWorld : IDisposable
             }
 
             var path = _mo2.InMod(tag + "Mod", key);
-            mod.BeginWrite.ToPath(path).WithLoadOrder(lenient ? new ISkyrimModGetter[] { baseMod } : Array.Empty<ISkyrimModGetter>()).Write();
+            mod.BeginWrite.ToPath(path).WithLoadOrder(mastered ? new ISkyrimModGetter[] { baseMod } : Array.Empty<ISkyrimModGetter>()).Write();
             // The lenient plugin has one master, so its own records sit at index 1 on disk.
             if (lenient) Assert.Equal(1, ProbeBytes.MakeEpftFunctionMismatch(path, (1u << 24) | perk.FormKey.ID));
             else
