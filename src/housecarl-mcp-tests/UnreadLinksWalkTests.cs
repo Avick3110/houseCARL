@@ -152,6 +152,8 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         var text = Copy(plugin, stem, new[] { "Perk:stop" });
         Assert.False(text.StartsWith("error:", StringComparison.Ordinal), text);
         Assert.DoesNotContain("could not be read whole", text);
+        // The pruned perk is the excluded boundary, so the standalone clone strips the list's link to it.
+        Assert.Contains($"- Items[1]  (was {_w.Id(plugin, "Perk")})", text);
     }
 
     /// <summary>A deleted record links to nothing, so the walk enters it; its body cannot be duplicated, and copy
