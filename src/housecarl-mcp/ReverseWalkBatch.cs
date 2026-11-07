@@ -202,7 +202,7 @@ public static class ReverseWalkBatch
             if (!shaped || !typeOf.TryGetValue(candidate, out var type)) return true;
             if (exclusions is not null && WalkExclusionMatch.Match(exclusions, type) is { } x)
             {
-                if (x.Refuse) throw new WalkRefused(WalkExclusionMatch.RefuseSentence(type, candidate));
+                if (x.Refuse) throw new WalkGrammar.WalkRefused(WalkExclusionMatch.RefuseSentence(type, candidate));
                 boundaries.Add(candidate);
                 return true;
             }
@@ -219,7 +219,7 @@ public static class ReverseWalkBatch
                                                shaped ? k => !boundaries.Contains(k) : null,
                                                frontier => index.ReferencersOf(frontier, WinnerOf, fromWinner, gen));
         }
-        catch (WalkRefused r)
+        catch (WalkGrammar.WalkRefused r)
         {
             return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, built.Note, stamp, r.Message);
         }
@@ -243,7 +243,4 @@ public static class ReverseWalkBatch
 
     /// <summary>One candidate's verdict for the check: its links, its type for the shaped walk, and its lenient note.</summary>
     readonly record struct PreJudged(PreKind Kind, IReadOnlySet<FormKey>? Links = null, string? Type = null, string? Note = null);
-
-    /// <summary>A refuse exclusion reached: the walk ends and the call returns nothing.</summary>
-    sealed class WalkRefused(string message) : Exception(message);
 }

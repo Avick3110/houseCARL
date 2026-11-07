@@ -114,7 +114,7 @@ internal sealed partial class AssetLayers
                 var chain = _host.BuildWalkSources(pin.View, session, captured.Roots, poles, overlays, out var chainErr);
                 if (chain is null) return Done(new(), new(), false, "error: " + chainErr);
                 try { WalkRecords(view, sourceProvider, pin.View, session, chain, seedRecords, overlays, AddFile, notes, values, ref truncated); }
-                catch (WalkRefused r) { return Done(new(), new(), false, "error: " + r.Message); }
+                catch (WalkGrammar.WalkRefused r) { return Done(new(), new(), false, "error: " + r.Message); }
             }
 
             // File edges: a mesh's links and a script's parent, read off the copy that answers the node.
@@ -208,15 +208,15 @@ internal sealed partial class AssetLayers
         // One buffer for every entered record's links, cleared by each read.
         var links = new List<FormKey>();
 
-        // Template members, races and speakers: the walk's own read when it reached them, else a round of their own.
-        // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
         // True when walk.exclusions or walk.through keeps the record out: a stop is a boundary, a type outside through
-        // is left out, neither entered; a refuse ends the call.
-        bool Judged(string type, FormKey fk, string pulledBy)
+        // is left out, neither entered; a refuse ends the call. Unset, no record is judged.
+        bool judging = values.Exclusions.Count > 0 || values.Through is not null;
+        bool Judged(IMajorRecordGetter body, FormKey fk, string pulledBy)
         {
+            var type = RecordNaming.StripOverlay(body.GetType().Name);
             if (WalkExclusionMatch.Match(values.Exclusions, type) is { } x)
             {
-                if (x.Refuse) throw new WalkRefused(WalkExclusionMatch.RefuseSentence(type, fk, pulledBy));
+                if (x.Refuse) throw new WalkGrammar.WalkRefused(WalkExclusionMatch.RefuseSentence(type, fk, pulledBy));
                 stopped++;
                 return true;
             }
@@ -224,6 +224,8 @@ internal sealed partial class AssetLayers
             return false;
         }
 
+        // Template members, races and speakers: the walk's own read when it reached them, else a round of their own.
+        // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
         var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
         IMajorRecordGetter? Fetch(FormKey fk) => members.Get(fk);
         var faces = new NpcFace(Fetch, UnsetFor(chain.Arms.Select(a => a.Spelling), RecordSourcesUnset));
@@ -246,7 +248,7 @@ internal sealed partial class AssetLayers
                     steps.Add((fk, pulledBy, homeIn, null, $"record {FormIdToken.Of(fk)} (pulled by {pulledBy}) is in none of the sources consulted: " +
                                                            string.Join(", ", chain.Arms.Select(a => a.Where)) + "."));
                 // A reached record is judged on the type its read body reports; a seed never is.
-                else if (depth > 0 && Judged(RecordNaming.StripOverlay(got.Hit.Body.GetType().Name), fk, pulledBy)) continue;
+                else if (depth > 0 && judging && Judged(got.Hit.Body, fk, pulledBy)) continue;
                 else if (++entered > maxRecords) { capped = true; break; }
                 else steps.Add((fk, pulledBy, homeIn, got.Hit, null));
             }
@@ -335,20 +337,11 @@ internal sealed partial class AssetLayers
             notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth={maxDepth} form-link hops from a seed and were not entered; raise walk.depth to walk them.");
         if (stopped > 0)
             notes.Add($"{stopped} reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links)");
-        if (values.Through is not null)
-        {
-            var counts = leftOut.GroupBy(t => t, StringComparer.Ordinal)
-                                .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
-                                .Select(g => $"{g.Count()} {g.Key}").ToList();
-            notes.Add("left out, not in walk.through: " + (counts.Count == 0 ? "none" : string.Join(", ", counts)));
-        }
+        if (values.Through is not null) notes.Add(WalkGrammar.LeftOutLine(leftOut));
         if (boundaries.Count > 0)
             notes.Add("form links into other plugins were kept as boundaries, not walked (their files are that plugin's): " +
                       string.Join(", ", boundaries.OrderByDescending(b => b.Value).Select(b => $"{b.Key} ×{b.Value}")) + ".");
     }
-
-    /// <summary>A refuse exclusion reached: the walk ends and the call returns nothing.</summary>
-    sealed class WalkRefused(string message) : Exception(message);
 
     /// <summary>Races, template members and speakers, read through the record sources, else off the active order, as the
     /// game would, a round of keys at a time, and kept by key for the whole walk. A key neither holds is null; one an arm

@@ -21,21 +21,33 @@ public static class WalkGrammar
     /// budget shared by every seed (no ceiling).</summary>
     internal enum Budget { PerSeed, Shared }
 
-    /// <summary>A walk's typed values: hops, whether the caller set them, the node budget, the types walk.through
-    /// expands (display names, null when unset), and the exclusions (display names, each type once, first match wins).</summary>
-    public sealed record Values(int Depth, bool DepthAsked, int MaxNodes, HashSet<string>? Through,
-                                  List<(string Match, bool Refuse)> Exclusions)
+    /// <summary>A walk's typed values: hops, the node budget, the types walk.through expands (display names, null when
+    /// unset), and the exclusions (display names, each type once, first match wins).</summary>
+    public sealed record Values(int Depth, int MaxNodes, HashSet<string>? Through, List<(string Match, bool Refuse)> Exclusions)
     {
         /// <summary>A walk's defaults, as walk=true or an empty walk object reads.</summary>
-        public static Values Defaults(int depth) => new(depth, false, DefaultMaxNodes, null, new());
+        public static Values Defaults(int depth) => new(depth, DefaultMaxNodes, null, new());
     }
 
-    /// <summary>The walk values, or the one refusal. <paramref name="through"/> has been read through the list door.</summary>
+    /// <summary>A refuse exclusion reached: the walk ends and the call returns nothing.</summary>
+    internal sealed class WalkRefused(string message) : Exception(message);
+
+    /// <summary>The line counting, per type, the records walk.through left out; "none" when it left none out.</summary>
+    internal static string LeftOutLine(IEnumerable<string> leftOutTypes)
+    {
+        var counts = leftOutTypes.GroupBy(t => t, StringComparer.Ordinal)
+                                 .Select(g => (Type: g.Key, Count: g.Count()))
+                                 .OrderByDescending(g => g.Count).ThenBy(g => g.Type, StringComparer.Ordinal)
+                                 .Select(g => $"{g.Count} {g.Type}").ToList();
+        return "left out, not in walk.through: " + (counts.Count == 0 ? "none" : string.Join(", ", counts));
+    }
+
+    /// <summary>The walk values, or the one refusal (values null). <paramref name="through"/> has been read through the list door.</summary>
     internal static string? Parse(TypeLookup types, int? depth, int? maxNodes, string[]? through,
                                   IReadOnlyList<RecordsTools.RecordsWalkExclusion>? exclusions,
                                   int defaultDepth, Budget budget, out Values values)
     {
-        values = Values.Defaults(defaultDepth);
+        values = null!;
         int d = defaultDepth, n = DefaultMaxNodes;
         if (depth is { } wd)
         {
@@ -63,7 +75,7 @@ public static class WalkGrammar
                 thr.UnionWith(names);
             }
         }
-        values = new(d, depth is not null, n, thr, ex);
+        values = new(d, n, thr, ex);
         return null;
     }
 
