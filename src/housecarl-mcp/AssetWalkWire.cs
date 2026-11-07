@@ -305,6 +305,9 @@ static class AssetWalkWire
     /// <summary>The head members a bounded counts document cuts, each with its <c>_omitted</c> count.</summary>
     static readonly HashSet<string> CappedLists = new() { "bsa_failures", "root_failures", "warnings", "selector_notes", "notes" };
 
+    /// <summary>The longest flag a bounded counts document writes after its axes.</summary>
+    const string TruncatedTail = ",\"truncated\":false";
+
     /// <summary>The json counts document; with <paramref name="cap"/> &gt; 0, bounded as the row census is
     /// (<see cref="JsonWire.RenderAssetCensus"/>): the lists and the axes' rows say what they cut, an overrun is said.</summary>
     static string CountsJson(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int place, int rowLimit, HistogramAxis[] axes, int cap)
@@ -312,13 +315,16 @@ static class AssetWalkWire
         // The lists leave room for what follows them: the counters, each axis's frame, and their own omitted counts.
         int depth = new JsonWire.JsonUnitDepths(1).AxisFrame;
         int listBudget = Math.Max(cap - 128 - CappedLists.Count * 32 - axes.Sum(a => JsonWire.HistogramFrameCostFor(a, depth)), 1);
+        int omitted = 0;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms))
         {
             w.WriteStartObject();
             foreach (var (k, v) in Head(d, selectorNotes))
             {
-                if (cap > 0 && CappedLists.Contains(k) && v is IReadOnlyList<string> items) { JsonWire.WriteCappedStringArray(w, ms, k, items, listBudget); continue; }
+                if (cap > 0 && CappedLists.Contains(k) && v is IReadOnlyList<string> items) { omitted += JsonWire.WriteCappedStringArray(w, ms, k, items, listBudget); continue; }
+                // Bounded, the flag follows the axes, once the cut is known, as on the row census.
+                if (cap > 0 && k == "truncated") continue;
                 w.WritePropertyName(k);
                 JsonSerializer.Serialize(w, v);
             }
@@ -326,9 +332,14 @@ static class AssetWalkWire
             w.WriteNumber("nodes", d.Nodes.Count);
             w.WriteNumber("keyed", d.Nodes.Count(n => n.Keyed));
             w.WriteNumber("place_set_count", place);
-            var body = cap > 0 ? new BoundedBody(acct: null, budget: cap - 2, () => { w.Flush(); return JsonWire.Chars(ms); }) : null;
+            // The axes leave room for the closing brace and the flag after them.
+            var body = cap > 0 ? new BoundedBody(acct: null, budget: cap - 2 - TruncatedTail.Length, () => { w.Flush(); return JsonWire.Chars(ms); }) : null;
             JsonWire.WriteHistogramAxes(w, body, rowLimit, axes);
-            if (cap > 0) JsonWire.WriteCapOverrun(w, ms, cap);
+            if (body is not null)
+            {
+                w.WriteBoolean("truncated", d.Truncated || omitted > 0 || axes.Any(a => body.Stopped(a.Subject)));
+                JsonWire.WriteCapOverrun(w, ms, cap);
+            }
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(ms.ToArray());
