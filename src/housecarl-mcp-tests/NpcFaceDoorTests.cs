@@ -221,7 +221,7 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
     public void AFormidsWalkSeedCarriesTheFaceLineOrANote()
     {
         var line = $"the face of template root {Id(_w.Root.FormKey)}";
-        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Templated.FormKey), Id(_w.UseTemplate.FormKey) }, walk: true);
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Templated.FormKey), Id(_w.UseTemplate.FormKey) }, walk: Walks.On);
         Assert.Contains(line, text);
         Assert.Contains($"formids '{Id(_w.UseTemplate.FormKey)}': no FaceGen pair — {NpcFace.UseTemplateFlag}", text);
     }
@@ -328,7 +328,7 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
     public void ADonorOnlyNpcGivesItsPairThroughTheLanesOwnSources()
     {
         var npc = _w.Donor.FormKey;
-        var walk = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(npc) }, walk: true, from_source: new[] { "HcFaceDonor.esp" });
+        var walk = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(npc) }, walk: Walks.On, from_source: new[] { "HcFaceDonor.esp" });
         Assert.DoesNotContain("no FaceGen pair", walk);
         Assert.Contains(Mesh(npc), walk, StringComparison.OrdinalIgnoreCase);
 
@@ -388,7 +388,7 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
     [InlineData(new[] { "HcFaceDonor.esp", "winner" }, AssetLayers.RecordSourcesUnset)]
     public void AWalksFormidsAndRecordsSeedsShareOneNotFoundSentence(string[] fromSource, string sentence)
     {
-        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Unset) }, walk: true,
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Unset) }, walk: Walks.On,
                                           records: new[] { Id(_w.RaceUnset.FormKey) }, from_source: fromSource);
         Assert.Contains($"formids '{Id(_w.Unset)}': no FaceGen pair — {sentence}", text);
         Assert.Contains($"its race {Id(new FormKey(_w.Unset.ModKey, 0xABCDF))} was not read: {sentence}", text);
@@ -400,7 +400,7 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
     [Fact]
     public void APluginOnlyFromSourceGivesTheRecordSourcesSentence()
     {
-        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Unset), Id(_w.Donor.FormKey) }, walk: true, from_source: new[] { "HcFaceDonor.esp" });
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(_w.Unset), Id(_w.Donor.FormKey) }, walk: Walks.On, from_source: new[] { "HcFaceDonor.esp" });
         Assert.Contains($"formids '{Id(_w.Unset)}': no FaceGen pair — {AssetLayers.RecordSourcesUnset}", text);
     }
 
@@ -410,7 +410,7 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
     public void AWinnerFirstFromSourceOpensNothingForAnInOrderSeed()
     {
         var npc = _w.Plain.FormKey;
-        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(npc) }, walk: true, from_source: new[] { "winner", "HcNoSuchPlugin.esp" });
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(npc) }, walk: Walks.On, from_source: new[] { "winner", "HcNoSuchPlugin.esp" });
         Assert.DoesNotContain("no FaceGen pair", text);
         Assert.DoesNotContain("its record sources were not opened", text);
         Assert.Contains(Mesh(npc), text, StringComparison.OrdinalIgnoreCase);

@@ -49,7 +49,7 @@ public sealed class CopyServiceRefusalTests : IDisposable
             CopyServiceWorld.StopHeadParts, null, "StopCloneEid", "StopClonePatch", null);
 
         CopyServiceWorld.Succeeded(o);
-        Assert.DoesNotContain("pruned by exclude_types", CopyTools.Render(o));
+        Assert.DoesNotContain("pruned by exclusions", CopyTools.Render(o));
         Assert.Contains(o.Stripped, s => s.Field.StartsWith("HeadParts", StringComparison.Ordinal));
     }
 

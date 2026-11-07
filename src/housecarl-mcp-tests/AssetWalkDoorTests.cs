@@ -234,7 +234,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     public void TheWalkStillStopsThreeHopsOut()
     {
         var d = Walk("HcDoorChain0");
-        Assert.Equal(new[] { $"1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than {AssetLayers.RecordDepth} form-link hops from a seed and were not entered; seed them with records= to walk them." },
+        Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=3 form-link hops from a seed and were not entered; raise walk.depth to walk them." },
                      d.Notes);
     }
 
@@ -243,18 +243,12 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     [Fact]
     public void TheCapStopsAtTheSameRecord()
     {
-        var area = _w.Svc.AssetArea;
-        var prior = area.MaxWalkRecords;
-        area.MaxWalkRecords = 3;
-        try
-        {
-            var d = Walk("HcDoorSeed");
-            Assert.True(d.Truncated);
-            Assert.Equal(new[] { "HcDoorA1", "HcDoorA2" }, d.Nodes.Where(n => n.Edge == "facegen").Select(n => n.PulledBy.Split(' ')[1]).Distinct());
-            Assert.Equal("the walk stopped entering records at 3.", d.Notes[0]);
-            Assert.Single(d.Notes, n => n.StartsWith("the walk stopped entering records"));
-        }
-        finally { area.MaxWalkRecords = prior; }
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcDoorSeed"] }, BothPlugins, null,
+                                 values: WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { MaxNodes = 3 });
+        Assert.True(d.Truncated);
+        Assert.Equal(new[] { "HcDoorA1", "HcDoorA2" }, d.Nodes.Where(n => n.Edge == "facegen").Select(n => n.PulledBy.Split(' ')[1]).Distinct());
+        Assert.Equal("the walk stopped entering records at walk.max_nodes=3 (every record entered counts, seeds included); raise walk.max_nodes to walk further.", d.Notes[0]);
+        Assert.Single(d.Notes, n => n.StartsWith("the walk stopped entering records"));
     }
 
     /// <summary>A json counts_only walk stopped by the record cap, with no nodes and one note, so max_chars cuts no list
@@ -262,27 +256,21 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     [Fact]
     public void ABoundedCountsWalkStoppedByTheRecordCapSaysTruncated()
     {
-        var area = _w.Svc.AssetArea;
-        var prior = area.MaxWalkRecords;
-        area.MaxWalkRecords = 1;
-        try
-        {
-            string Counts(int max) => AssetTools.AssetStatus(_w.Svc, records: new[] { FormIdToken.Of(_w.Keys["HcDoorChain0"]) }, walk: true,
-                                                             from_source: BothPlugins, counts_only: true, format: "json", max_chars: max);
-            var whole = Counts(400_000);
-            using var doc = System.Text.Json.JsonDocument.Parse(Counts(whole.Length - 1));
-            var r = doc.RootElement;
-            Assert.Equal(0, r.GetProperty("nodes").GetInt32());
-            Assert.Equal(new[] { "the walk stopped entering records at 1." }, r.GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
-            foreach (var list in new[] { "bsa_failures", "root_failures", "warnings", "selector_notes", "notes" })
-                Assert.Equal(0, r.GetProperty(list + "_omitted").GetInt32());
-            foreach (var axis in new[] { "nodes_by_edge", "nodes_by_standing" })
-                Assert.Equal(System.Text.Json.JsonValueKind.Null, r.GetProperty(axis).GetProperty("cut_by").ValueKind);
-            Assert.True(r.GetProperty("truncated").GetBoolean(), whole);
-            // The overrun notice is written last, after the flag, so the length it states counts the flag.
-            Assert.Equal(new[] { "truncated", "max_chars_overrun" }, r.EnumerateObject().Select(p => p.Name).TakeLast(2));
-        }
-        finally { area.MaxWalkRecords = prior; }
+        string Counts(int max) => AssetTools.AssetStatus(_w.Svc, records: new[] { FormIdToken.Of(_w.Keys["HcDoorChain0"]) }, walk: Walks.Of("{\"max_nodes\": 1}"),
+                                                         from_source: BothPlugins, counts_only: true, format: "json", max_chars: max);
+        var whole = Counts(400_000);
+        using var doc = System.Text.Json.JsonDocument.Parse(Counts(whole.Length - 1));
+        var r = doc.RootElement;
+        Assert.Equal(0, r.GetProperty("nodes").GetInt32());
+        Assert.Equal(new[] { "the walk stopped entering records at walk.max_nodes=1 (every record entered counts, seeds included); raise walk.max_nodes to walk further." },
+                     r.GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+        foreach (var list in new[] { "bsa_failures", "root_failures", "warnings", "selector_notes", "notes" })
+            Assert.Equal(0, r.GetProperty(list + "_omitted").GetInt32());
+        foreach (var axis in new[] { "nodes_by_edge", "nodes_by_standing" })
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, r.GetProperty(axis).GetProperty("cut_by").ValueKind);
+        Assert.True(r.GetProperty("truncated").GetBoolean(), whole);
+        // The overrun notice is written last, after the flag, so the length it states counts the flag.
+        Assert.Equal(new[] { "truncated", "max_chars_overrun" }, r.EnumerateObject().Select(p => p.Name).TakeLast(2));
     }
 
     /// <summary>Pins the chain's order and its fault: a key the first arm has but cannot read is that arm's fault even

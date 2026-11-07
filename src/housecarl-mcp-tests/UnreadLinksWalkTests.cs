@@ -101,13 +101,13 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
     // ---- copy ----
 
     string Copy(string plugin, string stem, string[]? exclude = null)
-        => CopyTools.Copy(_w.Svc, _w.Id(plugin, "List"), new[] { plugin }, new[] { "Items" }, exclude, null, stem, stem);
+        => CopyTools.Copy(_w.Svc, _w.Id(plugin, "List"), new[] { plugin }, new[] { "Items" }, Walks.Excl(exclude), null, stem, stem);
 
     /// <summary>The refusal says only what the walk decided, the same for a lenient read and a fault: no lenient note,
     /// no fault text, the perk's FormID once (in the chain), and the step that gets past it.</summary>
     void SaysOnlyTheRefusalAndItsStep(string plugin, string text)
     {
-        Assert.Contains("its links could not be read whole, so it cannot be copied. To copy past it, prune its type with exclude_types=['Perk:stop'], which prunes every record of that type the walk reaches.", text);
+        Assert.Contains("its links could not be read whole, so it cannot be copied. To copy past it, prune its type with exclusions=[{\"match\": \"Perk\", \"severity\": \"stop\"}], which prunes every record of that type the walk reaches.", text);
         Assert.DoesNotContain("effect(s)", text);
         Assert.DoesNotContain("Exception", text);
         var id = _w.Id(plugin, "Perk");
@@ -163,10 +163,10 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
     [InlineData(C, "HcIsoOntoCorrupt")]
     public void CopyOntoATargetPastThePerkNamesThePruneAsTheCause(string plugin, string stem)
     {
-        var text = CopyTools.Copy(_w.Svc, _w.Id(plugin, "List"), new[] { plugin }, new[] { "Items" }, new[] { "Perk:stop" },
+        var text = CopyTools.Copy(_w.Svc, _w.Id(plugin, "List"), new[] { plugin }, new[] { "Items" }, Walks.Excl("Perk:stop"),
                                   FormIdToken.Of(_w.Target), null, stem);
         Assert.StartsWith("error: ", text);
-        Assert.Contains($"the record {_w.Id(plugin, "Perk")} was pruned by exclude_types", text);
+        Assert.Contains($"the record {_w.Id(plugin, "Perk")} was pruned by exclusions", text);
         NothingWritten(stem);
     }
 

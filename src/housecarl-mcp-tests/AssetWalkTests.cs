@@ -145,7 +145,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(row.RootElement.GetProperty("results")[0].GetProperty("links").EnumerateArray(),
                         l => string.Equals(l.GetProperty("data_path").GetString(), AssetWalkWorld.CapeXml, StringComparison.OrdinalIgnoreCase));
 
-        using var walk = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: true, source_provider: "Cape", format: "json"));
+        using var walk = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, source_provider: "Cape", format: "json"));
         Assert.Equal(3, walk.RootElement.GetProperty("place_set").GetArrayLength());
     }
 
@@ -253,7 +253,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
             Assert.Null(writer.Save(ArtifactTarget.Named(file), ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(),
                                     "formid", new[] { "formid" }, "input order", total: 1, epoch: "e2-deadbeef").Error);
         }
-        Assert.Contains("e2-deadbeef", AssetTools.AssetStatus(_w.Svc, formids: new[] { "@" + file }, walk: true));
+        Assert.Contains("e2-deadbeef", AssetTools.AssetStatus(_w.Svc, formids: new[] { "@" + file }, walk: Walks.On));
     }
 
     /// <summary>A start-game-enabled quest reaches its plugin's .seq, keyed and absent here; one without the flag none.</summary>
@@ -348,7 +348,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void AFormidsSeedIsKeyed()
     {
-        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { _w.Id("HcWalkHero") }, walk: true, source_provider: AssetWalkWorld.BaseMod);
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { _w.Id("HcWalkHero") }, walk: Walks.On, source_provider: AssetWalkWorld.BaseMod);
         foreach (var slot in new[] { FaceGenSlot.Mesh, FaceGenSlot.Tint })
             Assert.Contains(FaceGenPath.For(_w.Keys["HcWalkHero"], slot) + "\n  seed of the selection   [keyed]", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("keyed nodes keep their FormID-named path", text);
@@ -362,7 +362,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         const int cap = 2500;
         static string[] Rows(string file) => File.ReadAllLines(file).Skip(1).ToArray();
 
-        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true,
+        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On,
                                           source_provider: AssetWalkWorld.DonorMod, max_chars: cap);
         Assert.True(text.Length <= cap, text);
         var at = text.IndexOf("spilled: complete result", StringComparison.Ordinal);
@@ -373,7 +373,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(AssetWalkWorld.ManyTex.Length, Rows(file).Length);
         Assert.Contains("place set (60): the spilled file's rows", text);
 
-        var json = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true,
+        var json = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On,
                                           source_provider: AssetWalkWorld.DonorMod, format: "json", max_chars: cap);
         Assert.True(json.Length <= cap, json);
         using var doc = JsonDocument.Parse(json);
@@ -393,14 +393,14 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         File.WriteAllText(dir, "a file where the results folder goes");
         try
         {
-            var text = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true,
+            var text = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On,
                                               source_provider: AssetWalkWorld.DonorMod, max_chars: cap);
             Assert.Contains("could NOT be written", text);
             Assert.DoesNotContain("Every node is in the file", text);
             Assert.DoesNotContain("spilled file", text);
             Assert.Contains("place set (60): not shown", text);
 
-            var json = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true,
+            var json = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On,
                                               source_provider: AssetWalkWorld.DonorMod, format: "json", max_chars: cap);
             using var doc = JsonDocument.Parse(json);
             Assert.True(doc.RootElement.TryGetProperty("spill_error", out _), json);
@@ -512,14 +512,14 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void APathSeedWalksThroughTheToolFront()
     {
-        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: true, source_provider: "Cape");
+        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, source_provider: "Cape");
         Assert.Contains("smp of " + AssetWalkWorld.CapeNif, text);
         Assert.Contains("place set (3)", text);
         // A path-only walk read no record, so it names no record source, whatever from_source= says.
         Assert.DoesNotContain("records from", text);
-        var json = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: true, from_source: new[] { "winner" }, format: "json");
+        var json = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, from_source: new[] { "winner" }, format: "json");
         Assert.Equal(JsonValueKind.Null, JsonDocument.Parse(json).RootElement.GetProperty("record_sources").ValueKind);
         Assert.Contains("records from " + AssetWalkWorld.OverridePlugin,
-            AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkBeast2") }, walk: true, from_source: new[] { AssetWalkWorld.OverridePlugin }));
+            AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkBeast2") }, walk: Walks.On, from_source: new[] { AssetWalkWorld.OverridePlugin }));
     }
 }

@@ -95,7 +95,7 @@ public sealed class PatchStemShadowTests
 
         var r = CopyTools.Copy(w.Svc, w.Fid(w.DonorNpc), new[] { "Donor.esp" },
                                new[] { "HeadParts", "HairColor", "HeadTexture", "WornArmor" },
-                               new[] { "Race:refuse" }, null, "Donor", null, null);
+                               Walks.Excl("Race:refuse"), null, "Donor", null, null);
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
         Assert.Single(Directory.EnumerateDirectories(w.ModsDir, "houseCARL - Donor_001"));

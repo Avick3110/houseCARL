@@ -6,7 +6,7 @@ using HousecarlMcp;
 namespace HousecarlMcpTests;
 
 /// <summary>The smallest copy universe that tells an exclusion severity apart by result: HcBase.esm (a race) and
-/// Src.esp, whose NPC seeds HeadParts → SrcHair → SrcTex. Both reached records live in Src.esp, so both are in scope;
+/// Src.esp, whose NPC seeds HeadParts → SrcHair → SrcTex, and whose form list SrcList holds a float global and SrcTex. Both reached records live in Src.esp, so both are in scope;
 /// the NPC's race lives in the base master, so the clone lane's required-link refusal never fires. The NPC's Factions
 /// is left empty on purpose. Each call writes its own named patch, so one instance serves a test class.</summary>
 public sealed class CopyParserWorld : IDisposable
@@ -15,6 +15,8 @@ public sealed class CopyParserWorld : IDisposable
     public LoadOrderService Svc { get; }
     /// <summary>Src.esp's NPC, as the wire spells it.</summary>
     public string From { get; }
+    /// <summary>Src.esp's form list SrcList, whose Items are the float global SrcGlob and SrcTex.</summary>
+    public string ListFrom { get; }
 
     public CopyParserWorld()
     {
@@ -46,7 +48,16 @@ public sealed class CopyParserWorld : IDisposable
         npc.Race.SetTo(raceFk);
         npc.HeadParts.Add(hpFk);
         srcMod.Npcs.Add(npc);
+        // A list of a float global and the texture set, for the exclusions that name a base type or a signature.
+        var globFk = new FormKey(srcKey, 0x803);
+        var listFk = new FormKey(srcKey, 0x804);
+        srcMod.Globals.Add(new GlobalFloat(globFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcGlob", Data = 1f });
+        var list = new FormList(listFk, SkyrimRelease.SkyrimSE) { EditorID = "SrcList" };
+        list.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(globFk));
+        list.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(txstFk));
+        srcMod.FormLists.Add(list);
         Write(mods, "SrcMod", srcMod, baseMod);
+        ListFrom = listFk.ToString();
 
         File.WriteAllText(Path.Combine(prof, "modlist.txt"), "+SrcMod\r\n+BaseMod\r\n");
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "HcBase.esm\r\nSrc.esp\r\n");
