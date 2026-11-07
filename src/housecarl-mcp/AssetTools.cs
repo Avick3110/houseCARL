@@ -26,7 +26,7 @@ public static class AssetTools
          "wins, shadowed by the winner, holding it hidden by MO2, or not provided. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported, so an 'absent' answer is never silently trusted. A call " +
          "that would resolve more than 1,200,000 paths is refused before it resolves any; with limit=, the bound " +
-         "counts only the window, except under to_file=, counts_only= and walk=true, which resolve the whole selection. A loose " +
+         "counts only the window, except under to_file=, counts_only= and a walk, which resolve the whole selection. A loose " +
          "file MO2 hides (the instance's skip lists, by default a mod's .mohidden name or .git folder; never in the game's Data folder), or x " +
          "when a mod holds only x.mohidden, provides nothing: the row says hidden by MO2 with the rule and the " +
          "holder, absent unless another layer's copy wins. A loose root meta.ini, readme.txt or fomod folder is " +
@@ -91,7 +91,7 @@ public static class AssetTools
                      "and the heading names it. A string that names no Data path says why. " + ToolNames.NifInspect +
                      " sections=paths lists every site. A " +
                      "to_file= or spilled file carries the same links on each row; refused with counts_only=, and " +
-                     "with walk=true, which already follows these files as nodes.")]
+                     "with a walk (walk=true or a walk object), which already follows these files as nodes.")]
             bool links = false,
         [Description("Optional. Walk from the selected paths and records= to every file they reach, returning one node " +
                      "per file: the paths a record lists, its implicit files (an NPC's FaceGen head and tint, or its " +
@@ -137,9 +137,9 @@ public static class AssetTools
             string? source_provider = null,
         [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
                      "whole selection. Under counts_only=true it caps each census table's rows instead; the census " +
-                     "still covers the whole selection. Under walk=true, max nodes to render; the walk still runs whole.")]
+                     "still covers the whole selection. On a walk, max nodes to render; the walk still runs whole.")]
             int limit = 0,
-        [Description("Optional. Where the rendered window starts in the selection (under walk=true, in the walk's " +
+        [Description("Optional. Where the rendered window starts in the selection (on a walk, in the walk's " +
                      "nodes), for paging. 0 = the beginning.")]
             int offset = 0,
         [Description("Optional. Write the complete result to this absolute .jsonl path (line 1 = manifest) and " +
@@ -149,16 +149,16 @@ public static class AssetTools
                      "face_note (the template root whose pair the row is, null for the NPC's own). The file covers the " +
                      "whole selection: limit= does not narrow it and row_count equals total. Re-enter it via " +
                      "asset_paths=[\"@<path>\"]; its identity column is 'path', so it is not a formids= list. Under " +
-                     "walk=true, one row per node in walk order, the same rows a spilled walk writes.")]
+                     "a walk, one row per node in walk order, the same rows a spilled walk writes.")]
             string? to_file = null,
         [Description("Optional. Return a census instead of path rows: which MO2 layers win how many paths, which " +
                      "layers provide a copy that another layer wins over, how the winners split between loose and " +
                      "BSA, and how many are absent. It covers the whole selection; limit= caps its tables' rows. " +
-                     "Under walk=true, the walk's header, notes and counts per edge and per standing instead.")]
+                     "On a walk, the walk's header, notes and counts per edge and per standing instead.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window; under walk=true, every node, whatever the window) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many table rows it held back (layer rows; under walk=true, edge and standing rows); raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
+        [Description("Optional. Character ceiling on the whole response; the path whose block would cross it is not written. What it holds back is not lost: the resolved result (under limit=, the window; on a walk, every node, whatever the window) is written whole to a file in the server's results directory, and the response names it. counts_only= spills nothing: a cut census says how many table rows it held back (layer rows; on a walk, edge and standing rows); raise max_chars or page the table with limit=. On a path-only sweep the first spill also builds the record index, which takes time on a large order. The alarms and the accounting line are always inside the ceiling; a cap too small for them says so and names the cap that clears it. 0 = the server default (~40k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, call =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
