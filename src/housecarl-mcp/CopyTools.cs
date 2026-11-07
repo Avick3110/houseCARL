@@ -18,7 +18,7 @@ public static class CopyTools
          "Copy a record together with the records it links to (its link closure) out of the plugins it comes " +
          "from and into a houseCARL patch, under new FormIDs, so the result no longer masters the plugins copied " +
          "away from. Each record is duplicated whole, so every field carries; EditorIDs are kept on the copies.\n\n" +
-         "What to copy: from=, read through from_source=. The walk: seed_paths= is where it starts, exclude_types= " +
+         "What to copy: from=, read through from_source=. The walk: seed_paths= is where it starts, exclusions= " +
          "bounds it. Destination: exactly one of target= (copy onto an existing record) or new_editorid= (a clone " +
          "of the source record). Output: a new patch (patch=) or an existing houseCARL patch (into=).\n\n" +
          "This tool copies records only. Place the files that go with them, such as an NPC's FaceGen mesh and " +
@@ -35,8 +35,8 @@ public static class CopyTools
             ListArg? from_source = null,
         [Description("Required: the fields the walk starts from, e.g. ['HeadParts','HairColor','HeadTexture','WornArmor'] for an NPC's appearance. Each must be a record link or a list of record links by its declared type, so a field the source leaves empty still counts. A field whose entries are structures, not links (Factions, Perks, Items), is refused; copy those with " + ToolNames.Apply + "'s bundle= and assignments=, which replaces each named field whole on the target. A seed the source leaves unset or empty clears the target's, and the reply says so." + ListText.Names)]
             ListArg? seed_paths = null,
-        [Description("Optional: record types the walk must not enter, each 'Type:stop' (prune it, keep the link) or 'Type:refuse' (fail the whole copy); a bare 'Type' means refuse. E.g. ['Race:refuse']: a race pulls in skeletons and sibling races, not an appearance. A kept link needs a plugin the patch can master: with target=, stopping at a record outside the active load order is refused before anything is written; with new_editorid=, the clone's links into the source are stripped anyway, so it refuses only if such a link survives. Any link to a plugin outside the active load order left in the finished patch refuses, and the refusal names the cause." + ListText.Names)]
-            ListArg? exclude_types = null,
+        [Description("Optional: record types the walk must not enter, each {match, severity} as on the walks' walk.exclusions: match is a type by name or signature ('Race' or 'RACE'; a base such as 'Global' covers every arm), severity 'stop' (prune it, keep the link) or 'refuse' (fail the whole copy). E.g. [{\"match\": \"Race\", \"severity\": \"refuse\"}]: a race pulls in skeletons and sibling races, not an appearance. A type named twice, or a base beside its arm, takes its first entry. A name that is no record type is refused before anything is read or written. A kept link needs a plugin the patch can master: with target=, stopping at a record outside the active load order is refused before anything is written; with new_editorid=, the clone's links into the source are stripped anyway, so it refuses only if such a link survives. Any link to a plugin outside the active load order left in the finished patch refuses, and the refusal names the cause.")]
+            RecordsTools.RecordsWalkExclusion[]? exclusions = null,
         [Description("Destination: an existing record to copy onto, 'XXXXXX:Plugin.esp', active or in the patch itself with into=. Only the seed fields are written, pointing at the copies; every other field keeps the target's own value. An NPC's inline face values (tint layers, face morphs and parts, TextureLighting, weight) are not links, so no seed carries them: copying a face onto an existing NPC needs a second call, " + ToolNames.Apply + " with bundle=['TintLayers','FaceMorph','FaceParts','TextureLighting','HairColor','HeadTexture','Weight'] and assignments= pairing this record with the source NPC. Pass this or new_editorid=.")]
             string? target = null,
         [Description("Destination: a clone of the source record with this EditorID. Every link on the clone still pointing into the source is stripped and named in the reply, including when clearing one removes a whole property (a script, say). A link the record type requires cannot be stripped, so that refuses. The clone is a whole-record duplicate, so an NPC's inline face values carry with it and need no second write. Pass this or target=.")]
@@ -44,14 +44,17 @@ public static class CopyTools
         [Description("Base filename for the new patch plugin and its mod folder (default: new_editorid= when cloning, else 'Patch'). " + LaneSentences.PatchSuffix)]
             string? patch = null,
         [Description(LaneSentences.IntoLead + LaneSentences.IntoFound)]
-            string? into = null) => Guard.Tool(ToolNames.Copy, call =>
+            string? into = null,
+        [Description("Retired: the walk's exclusions are exclusions=[{\"match\": \"Race\", \"severity\": \"refuse\"}]. A call passing this is refused.")]
+            System.Text.Json.JsonElement? exclude_types = null) => Guard.Tool(ToolNames.Copy, call =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         // Every list through the one door.
         var sourcesIn = from_source.Read("from_source", ListKind.Plugin);
         var seedsIn = seed_paths.Read("seed_paths", ListKind.Name);
-        var excludeIn = exclude_types.Read("exclude_types", ListKind.Name);
-        if ((sourcesIn.Error ?? seedsIn.Error ?? excludeIn.Error) is { } listErr) return ToolAnswer.Refusal(listErr);
+        if ((sourcesIn.Error ?? seedsIn.Error) is { } listErr) return ToolAnswer.Refusal(listErr);
+        if (exclude_types is not null)
+            return ToolAnswer.Refusal("error: exclude_types= is retired — pass exclusions=[{\"match\": \"Race\", \"severity\": \"refuse\"}], one {match, severity} per type, the walks' walk.exclusions spelling ('Type:stop' is {\"match\": \"Type\", \"severity\": \"stop\"}).");
 
         // A blank patch= or into= is no name, so the new_editorid= default applies; naming both lanes is refused.
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
@@ -89,31 +92,13 @@ public static class CopyTools
             return ToolAnswer.Refusal("error: seed_paths is required — name the link-bearing field(s) the walk starts from " +
                    "(e.g. seed_paths=['HeadParts','WornArmor']). Without them there is nothing to copy.");
 
-        var exclusions = new List<WalkExclusion>();
-        foreach (var raw in excludeIn.Tokens ?? Array.Empty<string>())
-        {
-            // REFUSED, not skipped: skipping would run the copy with fewer exclusions than were passed, silently.
-            // A blank here shifts no index the response reports, so it refuses by CONTENT rather than by index.
-            if (string.IsNullOrWhiteSpace(raw))
-                return ToolAnswer.Refusal("error: exclude_types has a blank entry. Every element must name a record type as " +
-                       "'Type:stop' (prune it, keep the link) or 'Type:refuse' (fail the copy) — remove the empty " +
-                       "entry rather than leaving it, because running with it dropped would silently apply FEWER " +
-                       "exclusions than you passed.");
-            var parts = raw.Split(':', 2);
-            var type = parts[0].Trim();
-            var sev = parts.Length > 1 ? parts[1].Trim().ToLowerInvariant() : "refuse";
-            if (type.Length == 0) return ToolAnswer.Refusal($"error: exclude_types entry '{raw}' names no record type. Use 'Type:stop' or 'Type:refuse'.");
-            if (sev is not ("stop" or "refuse"))
-                return ToolAnswer.Refusal($"error: exclude_types entry '{raw}' has severity '{sev}' — use 'stop' (prune, keep the link) or 'refuse' (fail the copy).");
-            // A duplicate type name would throw in the walk's ToDictionary, which Guard.Tool reports as an internal
-            // failure rather than bad input — so it is caught here, in the layer that owns prose.
-            if (exclusions.Any(x => string.Equals(x.TypeName, type, StringComparison.OrdinalIgnoreCase)))
-                return ToolAnswer.Refusal($"error: exclude_types names '{type}' more than once. One severity per record type — " +
-                       "'stop' (prune, keep the link) or 'refuse' (fail the copy) — so pick the one you mean.");
-            exclusions.Add(new WalkExclusion(type,
-                sev == "stop" ? ExclusionSeverity.Stop : ExclusionSeverity.Refuse,
-                $"excluded by the caller as '{sev}'"));
-        }
+        // The walks' one exclusions parse: each type once, as the display name a read reports, first entry wins.
+        if (WalkGrammar.ParseExclusions(svc.Types, exclusions, "exclusions", out var parsedExclusions) is { } exErr)
+            return ToolAnswer.Refusal(exErr);
+        var walkExclusions = parsedExclusions
+            .Select(x => new WalkExclusion(x.Match, x.Refuse ? ExclusionSeverity.Refuse : ExclusionSeverity.Stop,
+                                           $"excluded by the caller as '{(x.Refuse ? "refuse" : "stop")}'"))
+            .ToList();
 
         var rawPoles = sourcesIn.Tokens ?? Array.Empty<string>();
         for (int i = 0; i < rawPoles.Length; i++)
@@ -125,7 +110,7 @@ public static class CopyTools
         // refused above, rather than a list that quietly becomes something shorter.
         if (poles.Count == 0) poles.Add(SourcePoles.Winner);
 
-        var outcome = svc.CopyClosure(fromKey, poles, seeds, exclusions, targetKey, new_editorid, patchName, intoName);
+        var outcome = svc.CopyClosure(fromKey, poles, seeds, walkExclusions, targetKey, new_editorid, patchName, intoName);
         return ToolAnswer.Outcome(outcome.Success, Render(outcome));
     });
 
@@ -230,7 +215,7 @@ public static class CopyTools
         WalkRefusalKind.NoSeeds => WriteSentences.CopyNoSeeds,
         WalkRefusalKind.UnsupportedSeedShape => w.Detail + WriteSentences.CopySeedShapeRoute,
         WalkRefusalKind.Excluded =>
-            $"the walk reached {w.Key} ({w.Exclusion?.TypeName}), which exclude_types= marks 'refuse'. " +
+            $"the walk reached {w.Key} ({w.Exclusion?.TypeName}), which exclusions= marks 'refuse'. " +
             $"Pulled in via {w.PulledBy}.",
         WalkRefusalKind.NodeCap =>
             $"the walk passed {w.Cap} records and was refused rather than truncated — a runaway, not a subtree. " +
