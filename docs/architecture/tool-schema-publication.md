@@ -56,8 +56,9 @@ A parameter declared `JsonElement` so it can **bind** more than one wire shape p
 `ToolSchemas.ShapeUnionParams` stamps such a parameter's published `type` with the JSON kinds it accepts,
 plus `null` (every one of them is optional), so a shape the tool means to refuse reaches the tool and is
 refused in the tool's own words rather than by the shim's generic type-mismatch sentence.
-`housecarl_skse`'s `findings` is the one row: the tool takes one family and says so, while the array shape
+It has two rows. `housecarl_skse`'s `findings`: the tool takes one family and says so, while the array shape
 is the `housecarl_check` habit, so it must bind and be answered by the tool rather than intercepted.
+`housecarl_asset_status`'s `walk`: `true` walks at the defaults and an object carries the walk values.
 
 ### Pass 2 — no `$ref` in a published schema
 
