@@ -9,7 +9,7 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>Two active plugins for the asset walk's edge and home pins and the copy-vs-asset suite (#1315). B, loaded
-/// first, defines a head part X linking a head part Y, and a seed list of X; A, mastered on B, defines a second seed list of X, one record per
+/// first, defines a head part X linking a head part Y, and a seed list of X; A, mastered on B, defines a second seed list linking X twice, one record per
 /// edge kind (a head part, a weight-variant armor addon, a quest with a fragment file, a line voiced from a .wav, an
 /// effect mesh naming a BODYTRI) and a tree of head parts under one list. An enabled files mod ships the .wav and the mesh.</summary>
 public sealed class AssetWalkPinWorld : IDisposable
@@ -37,17 +37,17 @@ public sealed class AssetWalkPinWorld : IDisposable
         y.Model = new Model { File = YNif };
         var x = b.HeadParts.AddNew("HcPinX");
         x.ExtraParts.Add(y);
-        void SeedOfX(SkyrimMod m, string edid)
+        void SeedOfX(SkyrimMod m, string edid, int times)
         {
             var l = m.FormLists.AddNew(edid);
-            l.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(x.FormKey));
+            for (int i = 0; i < times; i++) l.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(x.FormKey));
             Keys[edid] = l.FormKey;
         }
-        SeedOfX(b, "HcPinSeedB");
+        SeedOfX(b, "HcPinSeedB", 1);
         b.BeginWrite.ToPath(_mo2.InMod("PinB", B)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         var a = new SkyrimMod(A, SkyrimRelease.SkyrimSE);
-        SeedOfX(a, "HcPinSeedA");
+        SeedOfX(a, "HcPinSeedA", 2);
 
         var listed = a.HeadParts.AddNew("HcPinListed");
         listed.Model = new Model { File = ListedNif };
@@ -170,14 +170,14 @@ public sealed class AssetWalkPinTests : IClassFixture<AssetWalkPinWorld>
         Assert.Equal(AssetWalkPinWorld.FxNif, n.PulledBy, ignoreCase: true);
     }
 
-    /// <summary>Two seeds read through the winner, one in each plugin, both linking B's X: A's link is a boundary into
-    /// B, counted once, and X is entered through B's seed, whose home B is, so X's own link to Y is walked and is no
-    /// second boundary.</summary>
+    /// <summary>Two seeds read through the winner, one in each plugin, both linking B's X: A's two links are boundaries
+    /// into B, counted per link, and X is entered through B's seed, whose home B is, so X's own link to Y is walked and
+    /// is no third boundary.</summary>
     [Fact]
     public void EachSeedsHomeIsItsOwnPlugin()
     {
         var d = Walk("HcPinSeedA", "HcPinSeedB");
-        Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkPinWorld.B.FileName + " ×1."));
+        Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkPinWorld.B.FileName + " ×2."));
         Assert.Contains("HcPinY", Node(d, AssetWalkPinWorld.YNif).PulledBy);
     }
 }
