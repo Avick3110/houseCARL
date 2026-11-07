@@ -210,7 +210,7 @@ internal static class ReadSentences
     /// <summary>The note when a walk-only input is given with no walk: <c>{0}</c> is the knob.</summary>
     [MustState("walk=true", "not used")]
     internal const string WalkOnlyInputFormat =
-        "{0} steers the walk, and this call has no walk=true, so it was not used — pass walk=true, or drop {0}.";
+        "{0} is read only by a walk, and this call has no walk=true, so it was not used — pass walk=true, or drop {0}.";
 
     internal static string WalkOnlyInput(string knob) => string.Format(WalkOnlyInputFormat, knob);
 
