@@ -33,12 +33,6 @@ public sealed record AssetWalkData(
 
 internal sealed partial class AssetLayers
 {
-    /// <summary>Records the walk enters, past which it stops and says so.</summary>
-    internal int MaxWalkRecords { get; set; } = 2_000;
-
-    /// <summary>How many form-link hops from a seed record the walk enters: NPC → head part → its extra part's texture set.</summary>
-    internal const int RecordDepth = 3;
-
     /// <summary>The face door's sentence for a key a walk with from_source= finds nothing at.</summary>
     internal const string RecordSourcesUnset = "no plugin in this order or the record sources defines it";
 
@@ -52,11 +46,16 @@ internal sealed partial class AssetLayers
     /// <paramref name="sourceProvider"/> first and then the load order. Records are read through
     /// <paramref name="fromSource"/> (default the winner) and the walk follows form links only into records the
     /// from_source plugins define, and for a seed read through 'winner' its own plugin's; others are boundaries. <paramref name="keyedSeeds"/> are the seed
-    /// paths a formids= row derived from an NPC's id. Contract in docs/architecture/assets.md, Walking the links.</summary>
+    /// paths a formids= row derived from an NPC's id. <paramref name="values"/> are the walk's depth, budget, through and
+    /// exclusions (null: the defaults); <paramref name="badSeeds"/> are seed tokens that are not FormIDs, each an error
+    /// node. Contract in docs/architecture/assets.md, Walking the links.</summary>
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
                                    IReadOnlyList<string>? fromSource, string? sourceProvider,
-                                   IReadOnlyDictionary<string, string?>? keyedSeeds = null)
+                                   IReadOnlyDictionary<string, string?>? keyedSeeds = null,
+                                   WalkGrammar.Values? values = null, IReadOnlyList<(string Raw, string Error)>? badSeeds = null)
     {
+        values ??= WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth);
+        badSeeds ??= Array.Empty<(string, string)>();
         var (pin, captured) = _host.CapturePinAndAssets(null);
         var view = captured.View;
         sourceProvider = sourceProvider?.Trim() is { Length: > 0 } sp ? sp : null;
@@ -66,7 +65,7 @@ internal sealed partial class AssetLayers
             => new(nodes, notes, sourceProvider, seedRecords.Count > 0 ? poles : Array.Empty<string>(), truncated, view.BsaFailures, view.RootFailures, captured.Warnings,
                    captured.ProfileName, refusal);
 
-        if (seedPaths.Count == 0 && seedRecords.Count == 0)
+        if (seedPaths.Count == 0 && seedRecords.Count == 0 && badSeeds.Count == 0)
             return Done(new(), new(), false, "error: the walk has no seed — pass asset_paths=, under=, provider=, formids= or records=.");
         // A source no provider and no mod folder answers to would mark every node elsewhere or absent, so it is refused by name.
         if (sourceProvider is not null && !view.HasProvider(sourceProvider)
@@ -104,6 +103,7 @@ internal sealed partial class AssetLayers
         }
 
         foreach (var p in seedPaths) AddFile(p, "seed", "the selection", keyed: keyedSeeds?.ContainsKey(p) == true, note: keyedSeeds?.GetValueOrDefault(p));
+        foreach (var (raw, error) in badSeeds) AddError(raw, "seed", "the selection", error);
 
         using var session = pin.Resolver.OpenSession();
         var overlays = new List<IDisposable>();
@@ -113,7 +113,8 @@ internal sealed partial class AssetLayers
             {
                 var chain = _host.BuildWalkSources(pin.View, session, captured.Roots, poles, overlays, out var chainErr);
                 if (chain is null) return Done(new(), new(), false, "error: " + chainErr);
-                WalkRecords(view, sourceProvider, pin.View, session, chain, seedRecords, overlays, AddFile, notes, ref truncated);
+                try { WalkRecords(view, sourceProvider, pin.View, session, chain, seedRecords, overlays, AddFile, notes, values, ref truncated); }
+                catch (WalkRefused r) { return Done(new(), new(), false, "error: " + r.Message); }
             }
 
             // File edges: a mesh's links and a script's parent, read off the copy that answers the node.
@@ -186,8 +187,12 @@ internal sealed partial class AssetLayers
     /// <summary>The record half: every seed and every record its form links reach inside the from_source plugins and,
     /// for a seed read through 'winner', its own plugin, each contributing the paths it lists and its implicit files.</summary>
     void WalkRecords(AssetResolver.AssetView view, string? source, LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session, SourceChain chain, IReadOnlyList<FormKey> seeds, List<IDisposable> overlays, FileSink addFile,
-                     List<string> notes, ref bool truncated)
+                     List<string> notes, WalkGrammar.Values values, ref bool truncated)
     {
+        int maxDepth = values.Depth, maxRecords = values.MaxNodes;
+        // What walk.exclusions kept as boundaries, and the type of each record walk.through left out.
+        int stopped = 0;
+        var leftOut = new List<string>();
         var seenRec = new HashSet<FormKey>();
         var frontier = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
         // The plugins the from_source arms name, base masters kept, plus a 'winner' seed's own plugin (assets.md, Walking the links).
@@ -205,6 +210,20 @@ internal sealed partial class AssetLayers
 
         // Template members, races and speakers: the walk's own read when it reached them, else a round of their own.
         // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
+        // True when walk.exclusions or walk.through keeps the record out: a stop is a boundary, a type outside through
+        // is left out, neither entered; a refuse ends the call.
+        bool Judged(string type, FormKey fk, string pulledBy)
+        {
+            if (WalkExclusionMatch.Match(values.Exclusions, type) is { } x)
+            {
+                if (x.Refuse) throw new WalkRefused(WalkExclusionMatch.RefuseSentence(type, fk, pulledBy));
+                stopped++;
+                return true;
+            }
+            if (values.Through is { } through && !through.Contains(type)) { leftOut.Add(type); return true; }
+            return false;
+        }
+
         var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
         IMajorRecordGetter? Fetch(FormKey fk) => members.Get(fk);
         var faces = new NpcFace(Fetch, UnsetFor(chain.Arms.Select(a => a.Spelling), RecordSourcesUnset));
@@ -226,7 +245,9 @@ internal sealed partial class AssetLayers
                 else if (got.Hit is null)
                     steps.Add((fk, pulledBy, homeIn, null, $"record {FormIdToken.Of(fk)} (pulled by {pulledBy}) is in none of the sources consulted: " +
                                                            string.Join(", ", chain.Arms.Select(a => a.Where)) + "."));
-                else if (++entered > MaxWalkRecords) { capped = true; break; }
+                // A reached record is judged on the type its read body reports; a seed never is.
+                else if (depth > 0 && Judged(RecordNaming.StripOverlay(got.Hit.Body.GetType().Name), fk, pulledBy)) continue;
+                else if (++entered > maxRecords) { capped = true; break; }
                 else steps.Add((fk, pulledBy, homeIn, got.Hit, null));
             }
             // Only the NPCs this depth enters have their template chains read.
@@ -266,11 +287,16 @@ internal sealed partial class AssetLayers
                 {
                     if (link.IsNull || link == fk) continue;
                     if (!home.Contains(link.ModKey)) { boundaries[link.ModKey.FileName] = boundaries.GetValueOrDefault(link.ModKey.FileName) + 1; continue; }
-                    if (depth >= RecordDepth) { if (seenRec.Add(link)) pastDepth++; continue; }
+                    if (depth >= maxDepth) { if (seenRec.Add(link)) pastDepth++; continue; }
                     if (seenRec.Add(link)) next.Add((link, label, home));
                 }
             }
-            if (capped) { truncated = true; notes.Add($"the walk stopped entering records at {MaxWalkRecords}."); next.Clear(); }
+            if (capped)
+            {
+                truncated = true;
+                notes.Add($"the walk stopped entering records at walk.max_nodes={maxRecords} (every record entered counts, seeds included); raise walk.max_nodes to walk further.");
+                next.Clear();
+            }
             frontier = next;
         }
         // An NPC's dialogue lines: the active order's lines whose winning copy it speaks (AssetWalkEdges.Speaks),
@@ -306,11 +332,23 @@ internal sealed partial class AssetLayers
             catch (Exception ex) { notes.Add($"the dialogue lines naming the walked NPCs were not read — {ex.GetType().Name}: {ex.Message}"); }
         }
         if (pastDepth > 0)
-            notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than {RecordDepth} form-link hops from a seed and were not entered; seed them with records= to walk them.");
+            notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth={maxDepth} form-link hops from a seed and were not entered; raise walk.depth to walk them.");
+        if (stopped > 0)
+            notes.Add($"{stopped} reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links)");
+        if (values.Through is not null)
+        {
+            var counts = leftOut.GroupBy(t => t, StringComparer.Ordinal)
+                                .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+                                .Select(g => $"{g.Count()} {g.Key}").ToList();
+            notes.Add("left out, not in walk.through: " + (counts.Count == 0 ? "none" : string.Join(", ", counts)));
+        }
         if (boundaries.Count > 0)
             notes.Add("form links into other plugins were kept as boundaries, not walked (their files are that plugin's): " +
                       string.Join(", ", boundaries.OrderByDescending(b => b.Value).Select(b => $"{b.Key} ×{b.Value}")) + ".");
     }
+
+    /// <summary>A refuse exclusion reached: the walk ends and the call returns nothing.</summary>
+    sealed class WalkRefused(string message) : Exception(message);
 
     /// <summary>Races, template members and speakers, read through the record sources, else off the active order, as the
     /// game would, a round of keys at a time, and kept by key for the whole walk. A key neither holds is null; one an arm
