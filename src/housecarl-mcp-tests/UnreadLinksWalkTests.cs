@@ -156,6 +156,20 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.Contains($"- Items[1]  (was {_w.Id(plugin, "Perk")})", text);
     }
 
+    /// <summary>Onto a target the pruned perk is kept as a link into the source, which copy refuses naming the prune as
+    /// the cause (unchanged behaviour, pinned: the cause comes from the excluded boundary the walk keeps).</summary>
+    [Theory]
+    [InlineData(L, "HcIsoOntoLenient")]
+    [InlineData(C, "HcIsoOntoCorrupt")]
+    public void CopyOntoATargetPastThePerkNamesThePruneAsTheCause(string plugin, string stem)
+    {
+        var text = CopyTools.Copy(_w.Svc, _w.Id(plugin, "List"), new[] { plugin }, new[] { "Items" }, new[] { "Perk:stop" },
+                                  FormIdToken.Of(_w.Target), null, stem);
+        Assert.StartsWith("error: ", text);
+        Assert.Contains($"the record {_w.Id(plugin, "Perk")} was pruned by exclude_types", text);
+        NothingWritten(stem);
+    }
+
     /// <summary>A deleted record links to nothing, so the walk enters it; its body cannot be duplicated, and copy
     /// refuses there, naming it.</summary>
     [Fact]
