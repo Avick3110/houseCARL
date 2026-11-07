@@ -12,12 +12,9 @@ namespace HousecarlCore;
 
 public static class AssetLinkHarvest
 {
-    /// <summary>Harvest every asset path the given records list. Paths come back Data-relative (Mutagen's DataRelativePath).</summary>
-    public static IReadOnlyList<string> HarvestAssetPaths(IEnumerable<IMajorRecordGetter> records)
-        => HarvestAssetPaths(records, out _);
-
-    /// <summary>The same harvest, with <paramref name="unread"/> naming the first list Mutagen could not parse (null
-    /// when every list read): the paths before it, and in every other part, are still answered.</summary>
+    /// <summary>Harvest every asset path the given records list. Paths come back Data-relative (Mutagen's
+    /// DataRelativePath). <paramref name="unread"/> names the first list Mutagen could not parse (null when every list
+    /// read): the paths before it, and in every other part, are still answered.</summary>
     public static IReadOnlyList<string> HarvestAssetPaths(IEnumerable<IMajorRecordGetter> records, out string? unread)
     {
         var paths = new List<string>();
