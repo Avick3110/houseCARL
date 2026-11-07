@@ -23,8 +23,8 @@ namespace HousecarlMcpTests;
 /// Built fresh per test class; copy writes its patch folder under mods, which a test then looks for.</summary>
 public sealed class UnreadLinksWorld : IDisposable
 {
-    public string Root { get; }
-    public string ModsDir { get; }
+    readonly ScratchMo2 _mo2 = new("hc-unread-links-");
+    public string ModsDir => _mo2.ModsDir;
     public LoadOrderService Svc { get; }
 
     public const string BaseMaster = "HcIsoBase.esm";
@@ -40,21 +40,10 @@ public sealed class UnreadLinksWorld : IDisposable
 
     public UnreadLinksWorld()
     {
-        Root = Path.Combine(Path.GetTempPath(), "hc-unread-links-" + Guid.NewGuid().ToString("N"));
-        var instance = Path.Combine(Root, "instance");
-        var profiles = Path.Combine(instance, "profiles", "Default");
-        ModsDir = Path.Combine(instance, "mods");
-        foreach (var d in new[] { profiles, ModsDir, Path.Combine(Root, "game", "Data") }) Directory.CreateDirectory(d);
-        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
-            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
-            + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
-
         // The lenient perk's ability spell lives in a master, so the asset walk counts it as a boundary, once per link.
         var baseMod = new SkyrimMod(ModKey.FromFileName(BaseMaster), SkyrimRelease.SkyrimSE);
         var baseSpell = baseMod.Spells.AddNew(); baseSpell.EditorID = "HcIsoBaseSpell";
-        var basePath = Path.Combine(ModsDir, "HcIsoBaseMod", BaseMaster);
-        Directory.CreateDirectory(Path.GetDirectoryName(basePath)!);
-        baseMod.BeginWrite.ToPath(basePath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        baseMod.BeginWrite.ToPath(_mo2.InMod("HcIsoBaseMod", baseMod.ModKey)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         foreach (var plugin in new[] { Lenient, Dead, Corrupt })
         {
@@ -105,8 +94,7 @@ public sealed class UnreadLinksWorld : IDisposable
                 ["List"] = list.FormKey, ["Perk"] = perk.FormKey, ["Spell"] = spell, ["Static"] = stat.FormKey,
             };
 
-            var path = Path.Combine(ModsDir, tag + "Mod", plugin);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var path = _mo2.InMod(tag + "Mod", key);
             mod.BeginWrite.ToPath(path).WithLoadOrder(lenient ? new ISkyrimModGetter[] { baseMod } : Array.Empty<ISkyrimModGetter>()).Write();
             // The lenient plugin has one master, so its own records sit at index 1 on disk.
             if (lenient) Assert.Equal(1, ProbeBytes.MakeEpftFunctionMismatch(path, (1u << 24) | perk.FormKey.ID));
@@ -124,17 +112,16 @@ public sealed class UnreadLinksWorld : IDisposable
             Assert.Equal(plugin == Lenient, PerkEffectDecode.ReadLinks(bad) is not null);
         }
 
-        File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + BaseMaster + "\r\n" + Lenient + "\r\n" + Dead + "\r\n" + Corrupt + "\r\n");
-        File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + BaseMaster + "\r\n*" + Lenient + "\r\n*" + Dead + "\r\n*" + Corrupt + "\r\n");
-        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+HcIsoBaseMod\r\n+HcIsoLenientMod\r\n+HcIsoDeadMod\r\n+HcIsoCorruptMod\r\n");
-
-        Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
+        _mo2.Profile(BaseMaster + "\r\n" + Lenient + "\r\n" + Dead + "\r\n" + Corrupt + "\r\n",
+                     "*" + BaseMaster + "\r\n*" + Lenient + "\r\n*" + Dead + "\r\n*" + Corrupt + "\r\n",
+                     "+HcIsoBaseMod\r\n+HcIsoLenientMod\r\n+HcIsoDeadMod\r\n+HcIsoCorruptMod\r\n");
+        Svc = _mo2.Open();
     }
 
     /// <summary>The perk of <paramref name="plugin"/> read off its own file, for the door's own tests.</summary>
     public T ReadPerk<T>(string plugin, Func<IPerkGetter, T> read)
     {
-        var path = Path.Combine(ModsDir, ModKey.FromFileName(plugin).Name + "Mod", plugin);
+        var path = _mo2.InMod(ModKey.FromFileName(plugin).Name + "Mod", ModKey.FromFileName(plugin));
         using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
         return read(ov.Perks.First(p => p.FormKey == Keys[plugin]["Perk"]));
     }
@@ -144,6 +131,6 @@ public sealed class UnreadLinksWorld : IDisposable
     public void Dispose()
     {
         Svc.Dispose();
-        try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
+        _mo2.Delete();
     }
 }
