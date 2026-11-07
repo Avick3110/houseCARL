@@ -257,6 +257,32 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         finally { area.MaxWalkRecords = prior; }
     }
 
+    /// <summary>A json counts_only walk stopped by the record cap, with no nodes and one note, so max_chars cuts no list
+    /// and stops no axis, still says truncated once bounded.</summary>
+    [Fact]
+    public void ABoundedCountsWalkStoppedByTheRecordCapSaysTruncated()
+    {
+        var area = _w.Svc.AssetArea;
+        var prior = area.MaxWalkRecords;
+        area.MaxWalkRecords = 1;
+        try
+        {
+            string Counts(int max) => AssetTools.AssetStatus(_w.Svc, records: new[] { FormIdToken.Of(_w.Keys["HcDoorChain0"]) }, walk: true,
+                                                             from_source: BothPlugins, counts_only: true, format: "json", max_chars: max);
+            var whole = Counts(400_000);
+            using var doc = System.Text.Json.JsonDocument.Parse(Counts(whole.Length - 1));
+            var r = doc.RootElement;
+            Assert.Equal(0, r.GetProperty("nodes").GetInt32());
+            Assert.Equal(new[] { "the walk stopped entering records at 1." }, r.GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
+            foreach (var list in new[] { "bsa_failures", "root_failures", "warnings", "selector_notes", "notes" })
+                Assert.Equal(0, r.GetProperty(list + "_omitted").GetInt32());
+            foreach (var axis in new[] { "nodes_by_edge", "nodes_by_standing" })
+                Assert.Equal(System.Text.Json.JsonValueKind.Null, r.GetProperty(axis).GetProperty("cut_by").ValueKind);
+            Assert.True(r.GetProperty("truncated").GetBoolean(), whole);
+        }
+        finally { area.MaxWalkRecords = prior; }
+    }
+
     /// <summary>Pins the chain's order and its fault: a key the first arm has but cannot read is that arm's fault even
     /// when a later arm holds it, a key only the later arm holds is its hit, and a key neither holds is a miss — the
     /// same answers one key at a time gives, with each batch read once and the later arm's over only the keys the
