@@ -87,8 +87,19 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
 
     // ---- copy ----
 
-    string Copy(string plugin, string stem)
-        => CopyTools.Copy(_w.Svc, _w.Id(plugin, "List"), new[] { plugin }, new[] { "Items" }, null, null, stem, stem);
+    string Copy(string plugin, string stem, string[]? exclude = null)
+        => CopyTools.Copy(_w.Svc, _w.Id(plugin, "List"), new[] { plugin }, new[] { "Items" }, exclude, null, stem, stem);
+
+    /// <summary>The refusal says only what the walk decided, the same for a lenient read and a fault: no lenient note,
+    /// no fault text, the perk's FormID once (in the chain), and the step that gets past it.</summary>
+    void SaysOnlyTheRefusalAndItsStep(string plugin, string text)
+    {
+        Assert.Contains("its links could not be read whole, so it cannot be copied. To copy past it, prune it with exclude_types=['Perk:stop'].", text);
+        Assert.DoesNotContain("effect(s)", text);
+        Assert.DoesNotContain("Exception", text);
+        var id = _w.Id(plugin, "Perk");
+        Assert.Equal(text.IndexOf(id, StringComparison.Ordinal), text.LastIndexOf(id, StringComparison.Ordinal));
+    }
 
     void NothingWritten(string stem)
         => Assert.DoesNotContain(Directory.EnumerateFileSystemEntries(_w.ModsDir, "*" + stem + "*", SearchOption.AllDirectories), _ => true);
@@ -104,6 +115,7 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.Contains("its links could not be read whole, so it cannot be copied", text);
         Assert.Contains($"Chain: {_w.Keys[L]["Perk"]}.", text);
         Assert.Contains("Nothing was written.", text);
+        SaysOnlyTheRefusalAndItsStep(L, text);
         NothingWritten("HcIsoCopyLenient");
     }
 
@@ -113,8 +125,20 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         var text = Copy(C, "HcIsoCopyCorrupt");
         Assert.StartsWith("error: ", text);
         Assert.Contains("Perk HcIsoCorruptPerk", text);
-        Assert.Contains("its links could not be read whole, so it cannot be copied", text);
+        SaysOnlyTheRefusalAndItsStep(C, text);
         NothingWritten("HcIsoCopyCorrupt");
+    }
+
+    /// <summary>The step the refusal names is one the walk honours: the exclusion check runs before the link read, so
+    /// the copy gets past the perk.</summary>
+    [Theory]
+    [InlineData(L, "HcIsoStopLenient")]
+    [InlineData(C, "HcIsoStopCorrupt")]
+    public void CopyGetsPastThePerkWithTheStepTheRefusalNames(string plugin, string stem)
+    {
+        var text = Copy(plugin, stem, new[] { "Perk:stop" });
+        Assert.False(text.StartsWith("error:", StringComparison.Ordinal), text);
+        Assert.DoesNotContain("could not be read whole", text);
     }
 
     /// <summary>A deleted record links to nothing, so the walk enters it; its body cannot be duplicated, and copy
