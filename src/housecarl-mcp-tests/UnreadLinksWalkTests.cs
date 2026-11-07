@@ -107,7 +107,7 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
     /// no fault text, the perk's FormID once (in the chain), and the step that gets past it.</summary>
     void SaysOnlyTheRefusalAndItsStep(string plugin, string text)
     {
-        Assert.Contains("its links could not be read whole, so it cannot be copied. To copy past it, prune it with exclude_types=['Perk:stop'].", text);
+        Assert.Contains("its links could not be read whole, so it cannot be copied. To copy past it, prune its type with exclude_types=['Perk:stop'], which prunes every record of that type the walk reaches.", text);
         Assert.DoesNotContain("effect(s)", text);
         Assert.DoesNotContain("Exception", text);
         var id = _w.Id(plugin, "Perk");
