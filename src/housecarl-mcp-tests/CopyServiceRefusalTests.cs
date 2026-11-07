@@ -77,7 +77,7 @@ public sealed class CopyServiceRefusalTests : IDisposable
         var text = CopyTools.Render(Carried());
 
         Assert.Contains("seed_paths=", text);
-        Assert.DoesNotContain("'Type:refuse'", text);
+        Assert.DoesNotContain("exclusions=", text);
     }
 
     // probe arm 7d (a): a struct-element seed the donor carries NONE of still refuses by shape, naming the field
