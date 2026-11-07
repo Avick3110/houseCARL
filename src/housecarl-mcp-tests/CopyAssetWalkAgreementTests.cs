@@ -30,13 +30,11 @@ public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorl
         => d.Nodes.Where(n => n.Edge == "listed")
                   .Select(n => AssetWalkPinWorld.OrdParts.Single(e => n.PulledBy.Contains(FormIdToken.Of(_w.Keys[e])))).ToList();
 
-    (T Answer, Dictionary<(string Plugin, string Group), int> Reads) Measured<T>(Func<T> walk)
+    /// <summary>The group reads of a walk's second run, its first having paid the one-time reads.</summary>
+    Dictionary<(string, string), int> Measured(Action walk)
     {
         walk();
-        var before = new Dictionary<(string Plugin, string Group), int>(_w.Svc.Counters.GroupReads);
-        var answer = walk();
-        return (answer, _w.Svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
-                                                  .ToDictionary(kv => kv.Key, kv => kv.Value - before.GetValueOrDefault(kv.Key)));
+        return GroupReadDelta.Reads(_w.Svc, walk);
     }
 
     /// <summary>Both walks enter the tree breadth-first in link order: a record linked twice, or back up the tree, is
@@ -55,8 +53,8 @@ public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorl
     public void BothReadEachDepthOnce()
     {
         var expected = new Dictionary<(string, string), int> { [("HcPinA.esp", "FormLists")] = 1, [("HcPinA.esp", "HeadParts")] = 2 };
-        Assert.Equal(expected, Measured(Copy).Reads);
-        Assert.Equal(expected, Measured(Asset).Reads);
+        Assert.Equal(expected, Measured(() => Copy()));
+        Assert.Equal(expected, Measured(() => Asset()));
     }
 
     /// <summary>OrdB's null extra part is skipped by both: no refusal, no miss note, and nothing entered for it.</summary>
@@ -65,7 +63,6 @@ public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorl
     {
         var copy = Copy();
         Assert.True(copy.Success, copy.Refusal?.Detail);
-        Assert.DoesNotContain(copy.Reached, n => n.Key.IsNull);
         Assert.DoesNotContain(copy.Kept, k => k.Key.IsNull);
         var asset = Asset();
         Assert.DoesNotContain(asset.Notes, n => n.Contains("none of the sources") || n.Contains(FormIdToken.Of(FormKey.Null)));

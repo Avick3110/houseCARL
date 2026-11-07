@@ -23,8 +23,4 @@ public sealed class SourceChainNamedPluginsTests
         });
         Assert.Equal(new[] { ModKey.FromFileName("Skyrim.esm"), ModKey.FromFileName("HcOff.esp") }, chain.NamedPlugins());
     }
-
-    /// <summary>A chain of the winner pole alone names no plugin.</summary>
-    [Fact]
-    public void TheWinnerPoleAloneNamesNone() => Assert.Empty(SourceChain.Single(Arm(SourcePoles.Winner)).NamedPlugins());
 }

@@ -186,9 +186,8 @@ internal sealed partial class RecordWrites
                 var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
                 var bound = new HashSet<ModKey>();
                 if (!baseMasters.Contains(sourceKey.ModKey)) bound.Add(sourceKey.ModKey);
-                // EVERY arm the caller named, whatever kind it resolved to; `winner` stays exempt, being the whole order.
-                foreach (var mk in chain.NamedPlugins())
-                    if (!baseMasters.Contains(mk)) bound.Add(mk);
+                // EVERY arm the caller named, whatever kind it resolved to; `winner` names no plugin, being the whole order.
+                bound.UnionWith(chain.NamedPlugins().Where(mk => !baseMasters.Contains(mk)));
                 bool IsBound(FormKey fk) => bound.Contains(fk.ModKey);
 
                 // The transplant note belongs to the case where the donor-bound set is EMPTY.

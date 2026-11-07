@@ -126,10 +126,6 @@ public sealed class SourceChain
     public IEnumerable<ModKey> NamedPlugins()
     {
         foreach (var arm in Arms)
-        {
-            ModKey mk;
-            try { mk = ModKey.FromFileName(Path.GetFileName(arm.Spelling)); } catch { continue; }
-            yield return mk;
-        }
+            if (ModKey.TryFromNameAndExtension(Path.GetFileName(arm.Spelling), out var mk)) yield return mk;
     }
 }

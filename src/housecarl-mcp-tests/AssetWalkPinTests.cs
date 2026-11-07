@@ -96,14 +96,9 @@ public sealed class AssetWalkPinWorld : IDisposable
         Keys["HcPinOrd"] = ord.FormKey;
         a.BeginWrite.ToPath(_mo2.InMod("PinA", A)).WithLoadOrder(new ISkyrimModGetter[] { b, a }).Write();
 
-        void Ship(string rel, byte[] bytes)
-        {
-            var p = Path.Combine(_mo2.ModsDir, "PinFiles", rel);
-            Directory.CreateDirectory(Path.GetDirectoryName(p)!);
-            File.WriteAllBytes(p, bytes);
-        }
-        Ship(Wav, new byte[] { 1 });
-        Ship(FxNif, AssetWalkWorld.FxMesh(@"textures\hcpin\fx.dds", FxTri));
+        var files = Path.Combine(_mo2.ModsDir, "PinFiles");
+        NifSourceLaneInstance.Loose(files, Wav, new byte[] { 1 });
+        NifSourceLaneInstance.Loose(files, FxNif, AssetWalkWorld.FxMesh(@"textures\hcpin\fx.dds", FxTri));
 
         var names = new[] { B, A }.Select(k => k.FileName.String).ToList();
         _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")), "+PinFiles\r\n+PinA\r\n+PinB\r\n");
