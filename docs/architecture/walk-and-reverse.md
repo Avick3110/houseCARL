@@ -28,7 +28,8 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   the key-at-a-time walk's.
 - Copy's walk (`ClosureWalk.Run`) and the asset walk (`AssetWalk.WalkRecords`) are two loops on purpose: copy
   decides each key when it dequeues it and refuses at any cap, miss or fault, so it never writes a partial closure;
-  the asset walk decides each link as it follows it, by the seed's own home, and notes what it left and goes on. What
+  the asset walk decides each link as it follows it, by the seed's own home, and notes what it left and goes on,
+  except at a 'refuse' exclusion, which fails the call. What
   they share is code: the chain and its `FetchMany`, and `SourceChain.NamedPlugins`, the plugins the arms name (copy
   drops base masters from it, the asset walk keeps them). The few answers they must give alike over one graph both
   reach whole (the records entered and their breadth-first order, one read per depth, a null link skipped) are
