@@ -242,6 +242,12 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         var whole = Counts(Big);
         Assert.Equal(whole, Counts(whole.Length));
         Assert.DoesNotContain("_omitted", whole);
+        // The document's members in order: the head, then the counters, then the two axes.
+        using (var w = JsonDocument.Parse(whole))
+            Assert.Equal(new[] { "tool", "walk", "profile", "source_provider", "record_sources", "bsa_failures", "root_failures", "warnings",
+                                 "selector_notes", "notes", "truncated", "counts_only", "nodes", "keyed", "place_set_count",
+                                 "nodes_by_edge", "nodes_by_standing" },
+                         w.RootElement.EnumerateObject().Select(p => p.Name));
 
         int cap = whole.Length / 2;
         var cut = Counts(cap);
