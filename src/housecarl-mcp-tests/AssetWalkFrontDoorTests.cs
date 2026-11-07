@@ -64,6 +64,11 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
             Assert.Equal(lead, Lead(Many(7, offset)));
         }
         Assert.Equal(all, paged);
+
+        // A walk's note is on every page, not windowed with the nodes.
+        using var noted = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: true, from_source: new[] { AssetWalkWorld.Plugin },
+                                                                    limit: 7, offset: 7, format: "json", max_chars: Big));
+        Assert.Equal(ReadSentences.FromSourceWithoutRecordSeed, Assert.Single(noted.RootElement.GetProperty("notes").EnumerateArray()).GetString());
     }
 
     /// <summary>A window that fits max_chars spills nothing, though the whole walk would; a window that does not fit
@@ -158,12 +163,17 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
             Assert.Equal(60, manifest.RootElement.GetProperty("total").GetInt32());
         }
         Assert.Equal(60, lines.Length - 1);
+        // The rows are the walk's nodes in walk order.
+        using (var whole = JsonDocument.Parse(Many(format: "json")))
+            Assert.Equal(Paths(whole.RootElement), lines.Skip(1).Select(l => { using var row = JsonDocument.Parse(l); return row.RootElement.GetProperty("path").GetString()!; }));
         Assert.Contains("written at your request (to_file=)", text);
+        Assert.Contains(file, text);
         Assert.DoesNotContain("\n" + AssetWalkWorld.ManyTex[0] + "\n", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("[accounting]", text);
-        using var json = JsonDocument.Parse(Many(toFile: File("walkj"), format: "json"));
+        var jfile = File("walkj");
+        using var json = JsonDocument.Parse(Many(toFile: jfile, format: "json"));
         Assert.Empty(Paths(json.RootElement));
-        Assert.True(json.RootElement.GetProperty("spilled").GetProperty("path").GetString()!.EndsWith(".jsonl"));
+        Assert.Equal(jfile, json.RootElement.GetProperty("spilled").GetProperty("path").GetString());
 
         foreach (var (offset, counts) in new[] { (3, false), (0, true) })
         {
@@ -201,10 +211,17 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Contains("nodes by standing (", text);
         Assert.DoesNotContain("\n  seed of ", text);
         Assert.DoesNotContain("spilled:", text);
+        foreach (var n in nodes) Assert.DoesNotContain("\n" + n.GetProperty("path").GetString() + "\n", text, StringComparison.OrdinalIgnoreCase);
+        // Nothing follows the last table: no spill line, written or failed.
+        Assert.DoesNotContain("\n\n", text[text.IndexOf("nodes by standing (", StringComparison.Ordinal)..]);
 
         using var capped = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkHero") }, walk: true,
                                                                      counts_only: true, limit: 1, format: "json"));
-        Assert.Single(capped.RootElement.GetProperty("nodes_by_edge").GetProperty("rows").EnumerateArray());
+        foreach (var axis in new[] { "nodes_by_edge", "nodes_by_standing" })
+        {
+            Assert.True(capped.RootElement.GetProperty(axis).GetProperty("distinct").GetInt32() > 1, axis);
+            Assert.Single(capped.RootElement.GetProperty(axis).GetProperty("rows").EnumerateArray());
+        }
 
         var row = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, counts_only: true, offset: 2);
         Assert.StartsWith("error:", row);
@@ -274,6 +291,12 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         var faceWalk = (string)AssetTools.AssetStatus(_w.Svc, formids: new[] { _w.Id("HcWalkHero") }, walk: true, from_source: new[] { AssetWalkWorld.Plugin });
         Assert.DoesNotContain(ReadSentences.FromSourceWithoutRecordSeed, faceWalk);
         Assert.DoesNotContain(ReadSentences.WalkOnlyInput("from_source="), faceWalk);
+        var recordWalk = (string)AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkHero") }, walk: true, from_source: new[] { AssetWalkWorld.Plugin });
+        Assert.DoesNotContain(ReadSentences.FromSourceWithoutRecordSeed, recordWalk);
+
+        // The row lane's census says the note too.
+        var census = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, from_source: new[] { AssetWalkWorld.Plugin }, counts_only: true);
+        Assert.Contains(ReadSentences.WalkOnlyInput("from_source="), census);
     }
 
     /// <summary>Bug 7: a mesh naming one non-Data string at two sites, and a .pex whose parent cannot be read, give one
@@ -284,6 +307,9 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         var dup = _w.Svc.AssetWalk(new[] { AssetWalkWorld.DupNif }, Array.Empty<Mutagen.Bethesda.Plugins.FormKey>(), null, null);
         Assert.Single(dup.Nodes, n => n.Path == AssetWalkWorld.DupBad);
         Assert.Equal(2, dup.Nodes.Count);
+        // A bad seed named twice is one error row too.
+        var badSeed = _w.Svc.AssetWalk(new[] { "C:/outside/x.dds", "C:/outside/x.dds" }, Array.Empty<Mutagen.Bethesda.Plugins.FormKey>(), null, null);
+        Assert.Equal(WalkStanding.Error, Assert.Single(badSeed.Nodes).Standing);
 
         var pex = _w.Svc.AssetWalk(new[] { AssetWalkWorld.BadPex }, Array.Empty<Mutagen.Bethesda.Plugins.FormKey>(), null, null);
         Assert.Single(pex.Nodes);
