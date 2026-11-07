@@ -157,6 +157,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         var bad = Assert.Single(nodes, n => n.Error is not null);
         Assert.Equal(("ZZZ", "seed"), (bad.Path, bad.Edge));
         Assert.StartsWith("bad FormID 'ZZZ'", bad.Error);
+        Assert.EndsWith(" Expected 'XXXXXX:Plugin.esp'.", bad.Error);
         Assert.Contains(nodes, n => n.Edge == "facegen" && n.PulledBy.StartsWith("Npc HcDoorA1 ", StringComparison.Ordinal));
     }
 
@@ -166,6 +167,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         var nodes = Nodes(AssetWalk("true", records: Array.Empty<string>(), formids: new[] { "ZZZ", Id("HcDoorA1") }));
         var bad = Assert.Single(nodes, n => n.Error is not null);
         Assert.Equal(("ZZZ", "seed"), (bad.Path, bad.Edge));
+        Assert.EndsWith(" Expected 'XXXXXX:Plugin.esp'.", bad.Error);
         Assert.Contains(nodes, n => n.Edge == "seed" && n.Error is null);
     }
 
