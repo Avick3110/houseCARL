@@ -173,6 +173,26 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Contains(rows, r => r.GetProperty("formid").GetString() == Id("HcDoorA1"));
     }
 
+    static string WalkEnvelope(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("walk").GetString()!;
+    }
+
+    /// <summary>The forward reading form's header counts records only: the bad seed is a row here, not a reached record
+    /// and not a seed error left to form='chain'.</summary>
+    [Fact]
+    public void TheForwardReadingFormDoesNotCountABadSeed()
+    {
+        string Run(string? format, params string[] ids) => RecordsTools.Records(_w.Svc, formids: ids, walk: new() { depth = 1 }, format: format);
+        var good = Run(null, Id("HcDoorA1"));
+        var line = good.Split('\n').Single(l => l.StartsWith("walk: selection = ", StringComparison.Ordinal));
+        Assert.Contains(line, Run(null, "ZZZ", Id("HcDoorA1")).Split('\n'));
+        var env = WalkEnvelope(Run("json", "ZZZ", Id("HcDoorA1")));
+        Assert.Equal(WalkEnvelope(Run("json", Id("HcDoorA1"))), env);
+        Assert.DoesNotContain("form='chain'", env);
+    }
+
     /// <summary>All seeds malformed: only their error rows, not the 'reached nothing readable' refusal.</summary>
     [Fact]
     public void AllBadSeedsAreOnlyErrorRows()
