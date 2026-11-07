@@ -120,18 +120,18 @@ public static class AssetTools
                      "the call on a 'refuse' type. Seeds are never judged. A cap note names the value to raise. " +
                      "seed_paths, follow and direction are the records walk's and are refused here.")]
             JsonElement? walk = null,
-        [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
+        [Description("Optional, with walk= (true or a walk object). Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
             ListArg? records = null,
-        [Description("Optional, with walk=true. The ordered source list each record is read from, first hit wins: " +
+        [Description("Optional, with walk= (true or a walk object). The ordered source list each record is read from, first hit wins: " +
                      "'winner' (default) or a plugin filename, active or a file in a disabled mod folder. A records= " +
                      "seed and a formids= seed's NPC, its template and race are read through it; a walk with " +
                      "neither seed, or a call with no walk, reads nothing through it and says so in a note." + ListText.Plugins)]
             ListArg? from_source = null,
-        [Description("Optional, with walk=true. The provider the walk reads files from first: a mod folder, enabled or " +
+        [Description("Optional, with walk= (true or a walk object). The provider the walk reads files from first: a mod folder, enabled or " +
                      "not (the donor), 'overwrite', 'Data' or an active archive's filename. Each node it ships is from-source, " +
                      "except a loose file MO2 hides, which is absent and says so; " +
                      "one it does not is elsewhere or absent. Omitted, or '" + AssetSourceChoice.WinnerToken + "', names no " +
-                     "source: each node is present or absent. Without walk=true it is not used, and a note says so.")]
+                     "source: each node is present or absent. Without a walk it is not used, and a note says so.")]
             string? source_provider = null,
         [Description("Optional. Max paths to resolve and render. 0 = no limit. to_file= ignores it and covers the " +
                      "whole selection. Under counts_only=true it caps each census table's rows instead; the census " +
@@ -180,7 +180,7 @@ public static class AssetTools
         bool walking = walkValues is not null;
 
         if (recordsIn.Tokens is { Length: > 0 } && !walking)
-            return Refuse("records= seeds the walk — pass walk=true with it.");
+            return Refuse("records= seeds the walk — pass walk=true, or a walk object, with it.");
         if (!walking && pathsIn.Tokens is not { Length: > 0 } && underTokens is not { Length: > 0 }
             && idsIn.Tokens is not { Length: > 0 } && string.IsNullOrWhiteSpace(provider))
             return Refuse("asset_paths, under, formids and provider are all empty. Pass Data-relative asset path(s) in " +
