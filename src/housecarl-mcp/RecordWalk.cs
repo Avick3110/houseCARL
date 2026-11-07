@@ -35,7 +35,14 @@ internal sealed partial class RecordReads
         => $"could not be scanned (Mutagen could not parse its content) and was not entered — {fault}";
 
     /// <summary>How a walk reports a record whose links were read leniently — the scans' own lenient read.</summary>
-    static string WalkLenientNote(string lenient) => $"links read leniently — {lenient}";
+    static string WalkLenientNote(FormKey fk, string lenient) => $"links read leniently — {LenientNoteBody(fk, lenient)}";
+
+    /// <summary>The door's lenient note without its leading FormID, for a sentence that already names the record.</summary>
+    internal static string LenientNoteBody(FormKey fk, string note)
+    {
+        var lead = FormIdToken.Of(fk) + " — ";
+        return note.StartsWith(lead, StringComparison.Ordinal) ? note[lead.Length..] : note;
+    }
 
     static string WalkFaultOf(Exception ex) => $"{ex.GetType().Name}: {ex.Message}";
 
@@ -232,7 +239,7 @@ internal sealed partial class RecordReads
                 // parse fault goes on up to the node's own catch, which keeps it as unscannable.
                 var all = new List<FormKey>();
                 var lister = new RecordLinks.Lister(all);
-                note = RecordLinks.Walk(body, ref lister) is { } lenient ? WalkLenientNote(lenient) : null;
+                note = RecordLinks.Walk(body, ref lister) is { } lenient ? WalkLenientNote(body.FormKey, lenient) : null;
                 var seen = new HashSet<FormKey>();
                 var list = new List<FormKey>();
                 foreach (var k in all)

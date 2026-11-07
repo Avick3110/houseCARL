@@ -59,6 +59,17 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.Contains(d.Notes, n => n.Contains(_w.Id(L, "Perk")) && n.Contains("part of the paths it lists could not be read"));
     }
 
+    /// <summary>A sentence that names the record before the door's note names its FormID once, not again in the note.</summary>
+    static void NamesOnce(string id, string text)
+    {
+        Assert.Contains(id, text);
+        Assert.Equal(text.IndexOf(id, StringComparison.Ordinal), text.LastIndexOf(id, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TheAssetWalksLenientNoteNamesThePerksFormIdOnce()
+        => NamesOnce(_w.Id(L, "Perk"), Asset(L).Notes.Single(n => n.Contains("its links were read leniently")));
+
     /// <summary>Mutagen hands over the master's spell link before the refused effect throws, and the lenient re-read
     /// starts over: the boundary counts the one link the perk holds, not that link twice.</summary>
     [Fact]
@@ -170,6 +181,7 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         var perkRow = r.Split('\n').Single(l => l.TrimStart().StartsWith("d1  " + _w.Id(L, "Perk"), StringComparison.Ordinal));
         Assert.Contains("[expanded]", perkRow);
         Assert.Contains("links read leniently", perkRow);
+        NamesOnce(_w.Id(L, "Perk"), perkRow);
         Assert.Contains("HcIsoLenientStatic", r);
         Assert.DoesNotContain("could not be scanned", r);
     }
@@ -179,6 +191,7 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
     {
         var r = Walk(_w.Id(L, "Perk"));
         Assert.Contains("note: the seed's links read leniently", r);
+        Assert.DoesNotContain(_w.Id(L, "Perk"), r.Split('\n').Single(l => l.Contains("note: the seed's")));
         Assert.Contains("HcIsoLenientStatic", r);
     }
 
@@ -193,6 +206,7 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
             return doc.RootElement.GetProperty("rows")[0].TryGetProperty("note", out var n) ? n.GetString() : null;
         }
         Assert.StartsWith("links read leniently", Note(_w.Id(L, "Perk")));
+        Assert.DoesNotContain(_w.Id(L, "Perk"), Note(_w.Id(L, "Perk")));
         Assert.Null(Note(_w.Id(L, "List")));
     }
 

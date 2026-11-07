@@ -260,7 +260,7 @@ internal sealed partial class AssetLayers
 
                 // Through the one link door: a deleted record links to nothing, a perk read leniently is followed and
                 // said, and one whose links cannot be read is said and not followed.
-                if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add($"{label}: its links were read leniently — {lenient}");
+                if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add($"{label}: its links were read leniently — {RecordReads.LenientNoteBody(fk, lenient)}");
                 if (unread is not null) notes.Add($"{label}: its links could not be read, so the walk does not go past it — {unread}");
                 foreach (var link in links)
                 {
