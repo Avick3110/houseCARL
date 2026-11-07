@@ -107,17 +107,18 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
 
     AssetWalkData Walk() => Walk(_npcs);
 
-    AssetWalkData Walk(IReadOnlyList<FormKey> seeds) => _svc.AssetWalk(Array.Empty<string>(), seeds, new[] { SourcePoles.Winner }, null);
+    AssetWalkData Walk(IReadOnlyList<FormKey> seeds, WalkGrammar.Values? values = null)
+        => _svc.AssetWalk(Array.Empty<string>(), seeds, new[] { SourcePoles.Winner }, null, values: values);
 
     /// <summary>NPC group walks of a second walk over <paramref name="seeds"/>, the first paying the walk's one-time reads.</summary>
-    int NpcReads(IReadOnlyList<FormKey> seeds) => GroupReads(seeds, "Npcs");
+    int NpcReads(IReadOnlyList<FormKey> seeds, WalkGrammar.Values? values = null) => GroupReads(seeds, "Npcs", values);
 
     /// <summary><paramref name="group"/> walks of a second walk over <paramref name="seeds"/>.</summary>
-    int GroupReads(IReadOnlyList<FormKey> seeds, string group)
+    int GroupReads(IReadOnlyList<FormKey> seeds, string group, WalkGrammar.Values? values = null)
     {
-        Walk(seeds);
+        Walk(seeds, values);
         var before = _svc.Counters.GroupReads.GetValueOrDefault((A.FileName.String, group));
-        Walk(seeds);
+        Walk(seeds, values);
         return _svc.Counters.GroupReads.GetValueOrDefault((A.FileName.String, group)) - before;
     }
 
@@ -152,7 +153,7 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     [Fact]
     public void ATemplateChainIsReadNoFurtherThanTheCap()
     {
-        Assert.Equal(NpcFace.TemplateChainCap - 1 + AssetLayers.RecordDepth + (AssetLayers.RecordDepth + 1), NpcReads(new[] { _chains[0] }));
+        Assert.Equal(NpcFace.TemplateChainCap - 1 + WalkGrammar.AssetDefaultDepth + (WalkGrammar.AssetDefaultDepth + 1), NpcReads(new[] { _chains[0] }));
         Assert.Equal(NpcReads(new[] { _chains[1] }), NpcReads(new[] { _chains[0] }));
     }
 
@@ -178,14 +179,8 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     [Fact]
     public void AnNpcPastTheRecordCapHasNoTemplateRead()
     {
-        var area = _svc.AssetArea;
-        var prior = area.MaxWalkRecords;
-        area.MaxWalkRecords = 1;
-        try
-        {
-            Assert.True(Walk(new[] { _plain, _templated }).Truncated);
-            Assert.Equal(1, NpcReads(new[] { _plain, _templated }));
-        }
-        finally { area.MaxWalkRecords = prior; }
+        var one = WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { MaxNodes = 1 };
+        Assert.True(Walk(new[] { _plain, _templated }, one).Truncated);
+        Assert.Equal(1, NpcReads(new[] { _plain, _templated }, one));
     }
 }

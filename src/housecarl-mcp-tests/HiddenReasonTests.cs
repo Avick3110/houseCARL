@@ -164,7 +164,7 @@ public sealed class HiddenReasonTests : IDisposable
             Assert.Equal(mods.Length, hidden.GetProperty("holders_total").GetInt32());
         }
         Bounded(Assets(Status(svc, "meta.ini", format: "json")).GetProperty("results")[0].GetProperty("hidden"));
-        Bounded(Assets(AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: true, format: "json"))
+        Bounded(Assets(AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: Walks.On, format: "json"))
                     .GetProperty("nodes")[0].GetProperty("hidden"));
         var target = Path.Combine(p.Root, "many.jsonl");
         AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, to_file: target);
@@ -213,7 +213,7 @@ public sealed class HiddenReasonTests : IDisposable
     public void AWalkToFileNamesTheHiddenColumnOnlyWhenANodeIsHidden()
     {
         // A walk spills whole past max_chars; the file is named in the render.
-        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "meta.ini" }, walk: true, max_chars: 300);
+        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "meta.ini" }, walk: Walks.On, max_chars: 300);
         var file = System.Text.RegularExpressions.Regex.Match(text, @"[A-Za-z]:\\[^\s']+\.jsonl").Value;
         Assert.True(File.Exists(file), text);
 
@@ -360,9 +360,9 @@ public sealed class HiddenReasonTests : IDisposable
     {
         var svc = _p.Open();
 
-        var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: true);
+        var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: Walks.On);
         Assert.Contains("ABSENT — hidden by MO2", text);
-        var json = AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: true, format: "json");
+        var json = AssetTools.AssetStatus(svc, asset_paths: new[] { "meta.ini" }, walk: Walks.On, format: "json");
         Assert.Contains("\"hidden\":{\"rule\":\"root_name\"", json);
     }
 
@@ -497,7 +497,7 @@ public sealed class HiddenReasonTests : IDisposable
     [Fact]
     public void AWalkFromAFolderPutsNoHiddenNodeInThePlaceSet()
     {
-        var t = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { ".git/HEAD" }, walk: true, source_provider: "ModA");
+        var t = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { ".git/HEAD" }, walk: Walks.On, source_provider: "ModA");
 
         Assert.DoesNotContain("FROM SOURCE", t);
         Assert.Contains("ABSENT — hidden by MO2 (skipped by MO2's VFS, under a '.git' folder) in 'ModA'", t);
@@ -507,7 +507,7 @@ public sealed class HiddenReasonTests : IDisposable
     [Fact]
     public void AWalkFromAnUntickedFolderSaysItsCopyIsHidden()
     {
-        var t = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { @"meshes\c.nif.mohidden" }, walk: true, source_provider: "ModC");
+        var t = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { @"meshes\c.nif.mohidden" }, walk: Walks.On, source_provider: "ModC");
 
         Assert.Contains("ABSENT — hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix) in 'ModC'", t);
     }
@@ -518,15 +518,15 @@ public sealed class HiddenReasonTests : IDisposable
         PlaceInstance.Loose(_p.Mod("ModS"), @"textures\x.dds", X);   // ModS wins x; ModA holds only x.mohidden
         var svc = _p.Open();
 
-        var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: true, source_provider: "ModA");
+        var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: Walks.On, source_provider: "ModA");
         Assert.Contains("ELSEWHERE: \"ModS\" (loose) wins it; \"ModA\" holds it, hidden by MO2 (skipped by MO2's VFS, by the '.mohidden' suffix), as 'textures\\x.dds.mohidden'", text);
         Assert.DoesNotContain("does not ship it", text);
-        var node = JsonDocument.Parse(AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: true,
+        var node = JsonDocument.Parse(AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: Walks.On,
                                                              source_provider: "ModA", format: "json"))
                                .RootElement.GetProperty("nodes")[0];
         Assert.Equal("elsewhere", node.GetProperty("standing").GetString());
         Assert.Equal("skip_suffix", node.GetProperty("hidden").GetProperty("rule").GetString());
-        var spilled = AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: true, source_provider: "ModA", max_chars: 300);
+        var spilled = AssetTools.AssetStatus(svc, asset_paths: new[] { "textures/x.dds" }, walk: Walks.On, source_provider: "ModA", max_chars: 300);
         var file = System.Text.RegularExpressions.Regex.Match(spilled, @"[A-Za-z]:\\[^\s']+\.jsonl").Value;
         Assert.True(File.Exists(file), spilled);
         Assert.Contains(File.ReadAllLines(file), l => l.Contains("\"standing\":\"elsewhere\"") && l.Contains("\"hidden\":{\"rule\":\"skip_suffix\""));
@@ -537,7 +537,7 @@ public sealed class HiddenReasonTests : IDisposable
     {
         // Pins unchanged behaviour: ModS holds no copy of x, hidden or not.
         PlaceInstance.Loose(_p.Mod("ModD"), @"textures\x.dds", X);
-        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "textures/x.dds" }, walk: true, source_provider: "ModS");
+        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "textures/x.dds" }, walk: Walks.On, source_provider: "ModS");
 
         Assert.Contains("wins it; \"ModS\" does not ship it", text);
     }
@@ -566,7 +566,7 @@ public sealed class HiddenReasonTests : IDisposable
         Assert.True(PlaceInstance.TryDenyList(deny), "the list deny did not bite on this machine");
         try
         {
-            var t = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "textures/deny/t.dds" }, walk: true, source_provider: "ModD");
+            var t = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { "textures/deny/t.dds" }, walk: Walks.On, source_provider: "ModD");
 
             Assert.Contains("FROM SOURCE: \"ModD\" (loose) (enabled, but its folder did not read this build)", t);
             Assert.DoesNotContain("not loaded by the game", t);

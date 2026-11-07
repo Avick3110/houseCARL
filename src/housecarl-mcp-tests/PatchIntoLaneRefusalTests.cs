@@ -90,7 +90,7 @@ public sealed class PatchIntoLaneRefusalTests
         var before = Folders(w.ModsDir);
 
         var r = CopyTools.Copy(w.Svc, w.Fid(w.DonorNpc), new[] { "Donor.esp" }, new[] { "HeadParts" },
-                               new[] { "Race:refuse" }, null, "HcLaneClone", "HcLaneA", "HcLaneB.esp");
+                               Walks.Excl("Race:refuse"), null, "HcLaneClone", "HcLaneA", "HcLaneB.esp");
 
         Assert.StartsWith("error:", r);
         Assert.Contains("exclusive", r);
@@ -103,7 +103,7 @@ public sealed class PatchIntoLaneRefusalTests
         using var w = new TwoDisabledDonorsWorld();
 
         var r = CopyTools.Copy(w.Svc, w.Fid(w.DonorNpc), new[] { "Donor.esp" }, new[] { "HeadParts" },
-                               new[] { "Race:refuse" }, null, "HcTrimClone", "  ", null);
+                               Walks.Excl("Race:refuse"), null, "HcTrimClone", "  ", null);
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         Assert.Single(Directory.EnumerateDirectories(w.ModsDir, "houseCARL - HcTrimClone"));
@@ -115,7 +115,7 @@ public sealed class PatchIntoLaneRefusalTests
         using var w = new TwoDisabledDonorsWorld();
 
         var r = CopyTools.Copy(w.Svc, w.Fid(w.DonorNpc), new[] { "Donor.esp" }, new[] { "HeadParts" },
-                               new[] { "Race:refuse" }, null, "MyClone", "  ", "");
+                               Walks.Excl("Race:refuse"), null, "MyClone", "  ", "");
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         Assert.Single(Directory.EnumerateDirectories(w.ModsDir, "houseCARL - MyClone"));

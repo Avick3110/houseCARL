@@ -148,7 +148,7 @@ public sealed class CopySourceFolderReadbackTests : IDisposable
 
     string Copy(string patch) => CopyTools.Copy(
         _w.Svc, _w.Fid(_w.DonorNpc), new[] { "Override.esp", "Donor.esp" }, Seeds,
-        new[] { "Race:refuse" }, null, "HcTwoClone", patch, null);
+        Walks.Excl("Race:refuse"), null, "HcTwoClone", patch, null);
 
     /// <summary>The folder named for a given source arm, read out of the readback the way a caller reads it. The
     /// delimiter is the double quote a Windows folder name cannot contain, so a name holding an apostrophe or a
@@ -259,7 +259,7 @@ public sealed class CopyEnabledDonorFolderTests : IDisposable
 
     string Copy(string source, string patch) => CopyTools.Copy(
         _w.Svc, _w.Fid(_w.DonorNpc), new[] { source }, Seeds,
-        new[] { "Race:refuse" }, null, "HcEnabledClone", patch, null);
+        Walks.Excl("Race:refuse"), null, "HcEnabledClone", patch, null);
 
     [Fact]
     public void AnActivePluginSourceNamesTheModFolderItLivesIn()
@@ -324,7 +324,7 @@ public sealed class CopyUnregisteredSourceFolderTests : IDisposable
     {
         var r = CopyTools.Copy(
             _w.Svc, _w.Fid(_w.DonorNpc), new[] { "Fresh.esp", "Donor.esp" }, Seeds,
-            new[] { "Race:refuse" }, null, "HcFreshClone", "HcFreshFolder", null);
+            Walks.Excl("Race:refuse"), null, "HcFreshClone", "HcFreshFolder", null);
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
         var line = r.Split('\n').Single(l => l.StartsWith($"note: '{TwoDisabledDonorsWorld.UnregisteredFolder}'",
@@ -354,7 +354,7 @@ public sealed class CopyReservedFolderNameTests : IDisposable
     {
         var r = CopyTools.Copy(
             _w.Svc, _w.Fid(_w.DonorNpc), new[] { "Collide.esp", "Donor.esp" }, Seeds,
-            new[] { "Race:refuse" }, null, "HcReservedClone", "HcReservedFolder", null);
+            Walks.Excl("Race:refuse"), null, "HcReservedClone", "HcReservedFolder", null);
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
         Assert.Contains($"Collide.esp (MO2 mod folder \"{TwoDisabledDonorsWorld.ReservedNameFolder}\"", r);

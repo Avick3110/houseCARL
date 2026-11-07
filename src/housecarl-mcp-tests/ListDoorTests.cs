@@ -51,8 +51,8 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
     public void AWalkRecordsArtifactWalksTheSameNodesAsTheListInline()
     {
         var ids = Ids("HcWalkHero", "HcWalkSge");
-        var inline = AssetTools.AssetStatus(_w.Svc, records: ids, walk: true);
-        var fromFile = AssetTools.AssetStatus(_w.Svc, records: new[] { Artifact("formid", Epoch, ids) }, walk: true);
+        var inline = AssetTools.AssetStatus(_w.Svc, records: ids, walk: Walks.On);
+        var fromFile = AssetTools.AssetStatus(_w.Svc, records: new[] { Artifact("formid", Epoch, ids) }, walk: Walks.On);
 
         Assert.DoesNotContain("error:", inline);
         Same(inline, fromFile);
@@ -62,7 +62,7 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void AStaleWalkRecordsArtifactIsRefusedNamingBothEpochs()
     {
-        var r = AssetTools.AssetStatus(_w.Svc, records: new[] { Artifact("formid", "e2-deadbeef", Ids("HcWalkHero")) }, walk: true);
+        var r = AssetTools.AssetStatus(_w.Svc, records: new[] { Artifact("formid", "e2-deadbeef", Ids("HcWalkHero")) }, walk: Walks.On);
 
         Assert.StartsWith("error:", r);
         Assert.Contains("e2-deadbeef", r);
@@ -73,10 +73,10 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void RecordsRefusesAPathArtifactByIdentityAndAMixedListInTheDoorsSentence()
     {
-        var byIdentity = AssetTools.AssetStatus(_w.Svc, records: new[] { Artifact("path", Epoch, AssetWalkWorld.CapeNif) }, walk: true);
+        var byIdentity = AssetTools.AssetStatus(_w.Svc, records: new[] { Artifact("path", Epoch, AssetWalkWorld.CapeNif) }, walk: Walks.On);
         Assert.Contains("carries 'path' identities, not 'formid' ones", byIdentity);
 
-        var mixed = AssetTools.AssetStatus(_w.Svc, records: new[] { Lines(Ids("HcWalkHero")), _w.Id("HcWalkSge") }, walk: true);
+        var mixed = AssetTools.AssetStatus(_w.Svc, records: new[] { Lines(Ids("HcWalkHero")), _w.Id("HcWalkSge") }, walk: Walks.On);
         Assert.Contains("records= mixes an '@file' entry with inline entries", mixed);
     }
 
@@ -86,8 +86,8 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
     {
         var ids = Ids("HcWalkHero");
         var sources = new[] { AssetWalkWorld.OverridePlugin, "winner" };
-        var inline = AssetTools.AssetStatus(_w.Svc, records: ids, from_source: sources, walk: true);
-        var fromFile = AssetTools.AssetStatus(_w.Svc, records: ids, from_source: new[] { Lines(sources) }, walk: true);
+        var inline = AssetTools.AssetStatus(_w.Svc, records: ids, from_source: sources, walk: Walks.On);
+        var fromFile = AssetTools.AssetStatus(_w.Svc, records: ids, from_source: new[] { Lines(sources) }, walk: Walks.On);
 
         Assert.Contains(AssetWalkWorld.OverridePlugin, inline);
         Same(inline, fromFile);
@@ -249,10 +249,10 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
         Same(RecordsTools.Records(_w.Svc, formids: Ids("HcWalkHero"), walk: new() { seed_paths = new[] { "HeadParts" }, through = new[] { "HeadPart" } }),
                      RecordsTools.Records(_w.Svc, formids: Ids("HcWalkHero"), walk: new() { seed_paths = new[] { Lines("HeadParts") }, through = new[] { Lines("HeadPart") } }));
 
-        // copy exclude_types= and seed_paths=, refused at the severity before anything is written.
-        var copyInline = CopyTools.Copy(_w.Svc, _w.Id("HcWalkHero"), seed_paths: new[] { "HeadParts" }, exclude_types: new[] { "Npc:bogus" }, new_editorid: "HcDoorClone");
-        Assert.Contains("severity 'bogus'", copyInline);
-        Same(copyInline, CopyTools.Copy(_w.Svc, _w.Id("HcWalkHero"), seed_paths: new[] { Lines("HeadParts") }, exclude_types: new[] { Lines("Npc:bogus") }, new_editorid: "HcDoorClone"));
+        // copy seed_paths=, refused at the exclusion's severity before anything is written (exclusions= is an object list, no @file).
+        var copyInline = CopyTools.Copy(_w.Svc, _w.Id("HcWalkHero"), seed_paths: new[] { "HeadParts" }, exclusions: Walks.Excl("Npc:bogus"), new_editorid: "HcDoorClone");
+        Assert.Contains("severity='bogus'", copyInline);
+        Same(copyInline, CopyTools.Copy(_w.Svc, _w.Id("HcWalkHero"), seed_paths: new[] { Lines("HeadParts") }, exclusions: Walks.Excl("Npc:bogus"), new_editorid: "HcDoorClone"));
 
         // copy from_source= and merge_plugins plugins=, each refused naming a plugin the order does not hold.
         var sourceInline = CopyTools.Copy(_w.Svc, _w.Id("HcWalkHero"), from_source: new[] { "HcDoorNoSuch.esp" }, seed_paths: new[] { "HeadParts" }, new_editorid: "HcDoorClone");
