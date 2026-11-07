@@ -14,7 +14,8 @@ namespace HousecarlMcpTests;
 /// (a readable ability effect: Lenient and Corrupt master the base spell, Dead has its own) and a
 /// static (inside a condition of its one entry-point effect), each head part and the static listing a mesh. Dead also
 /// holds a deleted FormList whose Items still read the static (<c>GoneList</c>) and a live FormList listing it
-/// (<c>Holder</c>). The perks are written by Mutagen and patched on disk:
+/// (<c>Holder</c>), and a deleted DialogTopic whose Quest still reads (<c>GoneTopic</c>, <c>Quest</c>) holding a live
+/// response (<c>Info</c>). The perks are written by Mutagen and patched on disk:
 /// <list type="bullet">
 /// <item><see cref="Lenient"/>: the entry-point effect gets the encoding Mutagen refuses and xEdit reads
 ///   (<see cref="ProbeBytes.MakeEpftFunctionMismatch"/>), so its links read only leniently.</item>
@@ -37,7 +38,7 @@ public sealed class UnreadLinksWorld : IDisposable
     public const string AfterNif = @"meshes\hciso\after.nif";
     public const string RecoveredNif = @"meshes\hciso\recovered.nif";
 
-    /// <summary>By plugin: its list, perk, spell and static, keyed "List", "Perk", "Spell", "Static"; Dead's also "GoneList", "Holder".</summary>
+    /// <summary>By plugin: its list, perk, spell and static, keyed "List", "Perk", "Spell", "Static"; Dead's also "GoneList", "Holder", "GoneTopic", "Quest", "Info".</summary>
     public Dictionary<string, Dictionary<string, FormKey>> Keys { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public UnreadLinksWorld()
@@ -96,6 +97,7 @@ public sealed class UnreadLinksWorld : IDisposable
                 ["List"] = list.FormKey, ["Perk"] = perk.FormKey, ["Spell"] = spell, ["Static"] = stat.FormKey,
             };
             FormList? gone = null;
+            DialogTopic? goneTopic = null;
             if (plugin == Dead)
             {
                 // A deleted list whose Items still read, and a live list holding it, for the field-path walks.
@@ -103,6 +105,15 @@ public sealed class UnreadLinksWorld : IDisposable
                 var holder = mod.FormLists.AddNew(); holder.EditorID = tag + "Holder"; holder.Items.Add(gone.FormKey);
                 Keys[plugin]["GoneList"] = gone.FormKey;
                 Keys[plugin]["Holder"] = holder.FormKey;
+                // A deleted topic whose Quest still reads, holding a live response, for the '*parent.X' walk.
+                var quest = mod.Quests.AddNew(); quest.EditorID = tag + "Quest";
+                goneTopic = mod.DialogTopics.AddNew(); goneTopic.EditorID = tag + "GoneTopic";
+                goneTopic.Quest.SetTo(quest);
+                var info = new DialogResponses(mod) { EditorID = tag + "Info" };
+                goneTopic.Responses.Add(info);
+                Keys[plugin]["Quest"] = quest.FormKey;
+                Keys[plugin]["GoneTopic"] = goneTopic.FormKey;
+                Keys[plugin]["Info"] = info.FormKey;
             }
 
             var path = _mo2.InMod(tag + "Mod", key);
@@ -115,6 +126,7 @@ public sealed class UnreadLinksWorld : IDisposable
                 if (plugin == Dead) Assert.Equal(1, ProbeBytes.SetDeletedFlag(path, "PERK", perk.FormKey.ID));
             }
             if (gone is not null) Assert.Equal(1, ProbeBytes.SetDeletedFlag(path, "FLST", gone.FormKey.ID));
+            if (goneTopic is not null) Assert.Equal(1, ProbeBytes.SetDeletedFlag(path, "DIAL", goneTopic.FormKey.ID));
 
             // Each fixture must still show its fault, or a green below proves nothing.
             using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
@@ -127,6 +139,13 @@ public sealed class UnreadLinksWorld : IDisposable
                 var g = ov.FormLists.First(l => l.FormKey == gone.FormKey);
                 Assert.True(g.IsDeleted);
                 Assert.Equal(new[] { stat.FormKey }, g.Items.Select(i => i.FormKey));
+            }
+            if (goneTopic is not null)
+            {
+                var t = ov.DialogTopics.First(d => d.FormKey == goneTopic.FormKey);
+                Assert.True(t.IsDeleted);
+                Assert.Equal(Keys[plugin]["Quest"], t.Quest.FormKey);
+                Assert.Equal(new[] { Keys[plugin]["Info"] }, t.Responses.Select(r => r.FormKey));
             }
         }
 
