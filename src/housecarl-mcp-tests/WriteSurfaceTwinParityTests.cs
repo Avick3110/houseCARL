@@ -374,6 +374,10 @@ public sealed class TwinRenderSweep : IDisposable
             CopyTools.Render(ClosureCopyOutcome.Fail(
                 walk: new WalkRefusal(WalkRefusalKind.NoSeeds, new FormKey(src, 0x827), "", Array.Empty<FormKey>(), ""),
                 sources: sources)),
+            CopyTools.Render(ClosureCopyOutcome.Fail(
+                walk: new WalkRefusal(WalkRefusalKind.UnreadLinks, new FormKey(src, 0x828), "FormList 000800:CopySrc.esp",
+                    new[] { new FormKey(src, 0x828) }, "effect(s) 0 were refused by Mutagen", TypeName: "Perk", EditorId: "LenientPerk"),
+                sources: sources)),
         };
     }
 
