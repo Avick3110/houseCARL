@@ -311,6 +311,20 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         Assert.DoesNotContain("form='chain'", env);
     }
 
+    /// <summary>The forward reading form's reached count is the number of record rows it lists, with and without a bad
+    /// seed beside the good one.</summary>
+    [Fact]
+    public void TheForwardReadingFormCountsEachRecordRow()
+    {
+        foreach (var ids in new[] { new[] { Id("HcDoorA1") }, new[] { "ZZZ", Id("HcDoorA1") } })
+        {
+            using var doc = JsonDocument.Parse(RecordsTools.Records(_w.Svc, formids: ids, walk: new() { depth = 1 }, format: "json"));
+            int records = doc.RootElement.GetProperty("records").EnumerateArray().Count(r => !r.TryGetProperty("error", out _));
+            Assert.True(records > 1);
+            Assert.Contains($"selection = the {records} record(s) the walk reached", doc.RootElement.GetProperty("walk").GetString()!);
+        }
+    }
+
     /// <summary>All seeds malformed: only their error rows, not the 'reached nothing readable' refusal.</summary>
     [Fact]
     public void AllBadSeedsAreOnlyErrorRows()
