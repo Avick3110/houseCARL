@@ -202,15 +202,16 @@ internal static class ReadSentences
 
     // ---- the asset walk's front door --------------------------------------------------------------
 
-    /// <summary>asset_status's refusal of links= beside walk=true: the walk already follows a mesh's links as nodes.</summary>
-    [MustState("walk=true", "links=", "drop links=")]
+    /// <summary>asset_status's refusal of links= beside a walk: the walk already follows a mesh's links as nodes.</summary>
+    [MustState("walk=", "links=", "drop links=")]
     internal const string WalkWithLinks =
-        "error: links= lists each mesh's files on its own row, and walk=true already follows those files as nodes — drop links=.";
+        "error: links= lists each mesh's files on its own row, and a walk (walk=true or a walk object) already follows those " +
+        "files as nodes — drop links=.";
 
     /// <summary>The note when a walk-only input is given with no walk: <c>{0}</c> is the knob.</summary>
-    [MustState("walk=true", "not used")]
+    [MustState("walk=", "not used")]
     internal const string WalkOnlyInputFormat =
-        "{0} is read only by a walk, and this call has no walk=true, so it was not used — drop {0}.";
+        "{0} is read only by a walk, and this call has no walk= (true or a walk object), so it was not used — drop {0}.";
 
     internal static string WalkOnlyInput(string knob) => string.Format(WalkOnlyInputFormat, knob);
 
