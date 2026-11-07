@@ -448,8 +448,8 @@ quest), or one with no winner, is never read.
 
 Each file node then resolves: from-source when `source_provider=` ships it (`AssetSourceSelection`, so a disabled mod
 answers off its own disk), elsewhere when another provider wins it (named), present with no source named, or absent;
-a string that names no Data path is an error node. Every node, an error node too, enters through one door (`AddFile`):
-one row per path, counted against the file bound. A present `.nif` walks on through its links, read off the copy
+a string that names no Data path is an error node. Every node, an error node too, enters through one door (`Admit`,
+which `AddFile` and `AddError` both call): one row per path, counted against the file bound. A present `.nif` walks on through its links, read off the copy
 that answers it, and a `.pex` through its parent class; a mesh whose links or a script whose parent cannot be read is
 a walk note on that file, not a second row at its path. FaceGen, `.seq` and voice nodes are **keyed**: they sit at a
 path named by the defining plugin and id, so a copy that keeps the FormKey places them as walked, and a renumbering
