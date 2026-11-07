@@ -92,9 +92,10 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   walk.through:" line; a refuse fails the call in `WalkExclusionMatch.RefuseSentence`'s words. Seeds are never judged.
   Its depth and budget notes name `walk.depth=` / `walk.max_nodes=` and say to raise them.
 - `ParseSeed` turns one seed token into its key or `bad FormID '<token>': <why>`. Each walk carries a malformed seed
-  as its own row: the forward reading form (`WalkSeedResult.Malformed`) and the transitive reverse walk put the raw
-  token in the selection, which the list lane renders as a per-item error row; the chain and carrier forms keep
-  their own rows; the asset walk adds an error node at the token, edge `seed`. All seeds malformed answers only the
+  as its own row: the forward reading form (`WalkSeedResult.Malformed`), the carrier reading form and the transitive
+  reverse walk put the raw token in the selection, which the list lane renders as a per-item error row; the bad token
+  is not counted as a reached record and is not sent to `form='chain'`; the chain forms keep their own rows; the
+  asset walk adds an error node at the token, edge `seed`. All seeds malformed answers only the
   error rows. An unresolved seed still answers as each walk did.
 - Not covered: `exclusions` is an object list, so it takes no `@file` on any of the three tools; an unknown member
   inside the walk object (`walk={"depht": 1}`) is dropped, not refused: by the binder on the records walk, by the
@@ -104,7 +105,8 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
 
 - `WalkGrammarTests` — the shared refusal cases against both walks, the per-seed ceiling, the asset walk's depth,
   budget, through and exclusions, its refusal of the records walk's shaping values, and a malformed seed's row on the
-  asset, reverse and forward walks. `CopyWireParseTests` — copy's exclusions: signature, base type, first match,
+  asset, reverse and forward walks. `WalkBadSeedReadingFormTests` — a malformed seed's row on the carrier reading
+  form, alone and beside a good seed. `CopyWireParseTests` — copy's exclusions: signature, base type, first match,
   unknown type, the retired `exclude_types=`, and the same patch byte for byte as the old spelling's core input.
 
 - `ClosureWalkGraphTests` / `SourceChainTests` — the walk's default caps, cycles and refusals, and the chain's
