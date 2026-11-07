@@ -3,8 +3,8 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-/// <summary>The ONE way a scan or a walk reads a record's links, so a record whose links only read leniently is
-/// reachable in all of them or in none, and a deleted record has no links in any; contract in docs/architecture/read-engine.md.</summary>
+/// <summary>The ONE way a scan or a walk reads a record's whole link set (a records-walk field path reads one path
+/// through ReadEngine.CollectLinksAt); contract in docs/architecture/read-engine.md.</summary>
 public static class RecordLinks
 {
     public enum Step { Continue, Stop }
