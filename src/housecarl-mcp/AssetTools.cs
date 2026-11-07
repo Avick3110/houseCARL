@@ -334,17 +334,18 @@ public static class AssetTools
         var door = FormIdDoor.For(svc);
         // A seed token that is not a FormID is its own error node, edge 'seed'; the other seeds walk.
         var badSeeds = new List<(string Raw, string Error)>();
+        const string Spelling = " Expected 'XXXXXX:Plugin.esp'.";
         var keys = new List<Mutagen.Bethesda.Plugins.FormKey>();
         foreach (var raw in recordsIn.Tokens ?? Array.Empty<string>())
         {
             var seed = WalkGrammar.ParseSeed(raw, door.Parse);
-            if (seed.Key is { } k) keys.Add(k); else badSeeds.Add((raw, Guard.Flatten(seed.Error!)));
+            if (seed.Key is { } k) keys.Add(k); else badSeeds.Add((raw, Guard.Flatten(seed.Error!) + Spelling));
         }
         var seeds = new List<FaceGenSeed>();
         foreach (var raw in formids ?? Array.Empty<string>())
         {
             var seed = WalkGrammar.ParseSeed(raw, door.Parse);
-            if (seed.Key is { } k) seeds.Add(new FaceGenSeed(raw, k, null)); else badSeeds.Add((raw, Guard.Flatten(seed.Error!)));
+            if (seed.Key is { } k) seeds.Add(new FaceGenSeed(raw, k, null)); else badSeeds.Add((raw, Guard.Flatten(seed.Error!) + Spelling));
         }
         var paths = new List<string>();
         var keyed = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
