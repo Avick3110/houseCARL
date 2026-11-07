@@ -9,10 +9,12 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>Three active plugins, one per way a walked record's links fail to read (#1316). Each holds a FormList
-/// whose Items are [a head part, the perk, another head part], and the perk links a spell (a readable ability effect)
-/// and a static (inside a condition of its one entry-point effect), each head part and the static listing a mesh. The
-/// perks are written by Mutagen and patched on disk:
+/// <summary>Three active plugins, one per way a walked record's links fail to read (#1316), and a master holding one
+/// spell. Each holds a FormList whose Items are [a head part, the perk, another head part], and the perk links a spell
+/// (a readable ability effect: Lenient and Corrupt master the base spell, Dead has its own) and a
+/// static (inside a condition of its one entry-point effect), each head part and the static listing a mesh. Dead also
+/// holds a deleted FormList whose Items still read the static (<c>GoneList</c>) and a live FormList listing it
+/// (<c>Holder</c>). The perks are written by Mutagen and patched on disk:
 /// <list type="bullet">
 /// <item><see cref="Lenient"/>: the entry-point effect gets the encoding Mutagen refuses and xEdit reads
 ///   (<see cref="ProbeBytes.MakeEpftFunctionMismatch"/>), so its links read only leniently.</item>
@@ -35,7 +37,7 @@ public sealed class UnreadLinksWorld : IDisposable
     public const string AfterNif = @"meshes\hciso\after.nif";
     public const string RecoveredNif = @"meshes\hciso\recovered.nif";
 
-    /// <summary>By plugin: its list, perk, spell and static, keyed "List", "Perk", "Spell", "Static".</summary>
+    /// <summary>By plugin: its list, perk, spell and static, keyed "List", "Perk", "Spell", "Static"; Dead's also "GoneList", "Holder".</summary>
     public Dictionary<string, Dictionary<string, FormKey>> Keys { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public UnreadLinksWorld()
