@@ -109,8 +109,8 @@ public static class AssetTools
                      "enters any NPC builds the active order's reverse-reference index, once its records are walked, to find its lines, which takes " +
                      "time on a large order. The walk always runs whole: limit= and offset= window only the nodes " +
                      "listed (the header, notes, standing counts and place set still cover every node, and a paged " +
-                     "answer ends with the [accounting] line); to_file= writes every node to the file and renders " +
-                     "the manifest only; counts_only= returns counts per edge and per standing, no nodes. Not with links=.")]
+                     "answer ends with the [accounting] line); to_file= writes every node to the file and lists " +
+                     "none (the header, notes, counts, place set and the file it wrote still print); counts_only= returns counts per edge and per standing, no nodes. Not with links=.")]
             bool walk = false,
         [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
             ListArg? records = null,

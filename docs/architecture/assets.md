@@ -470,7 +470,7 @@ links as nodes). Then:
   `[accounting]` line (json `accounting`, `next_limit`/`next_offset`, `offset_note` past the end); an unpaged one has
   none, so a default walk is the answer it always was (DECISIONS 2026-11-06 (25)).
 - **`to_file=`** writes every node to the named file, the spill's own rows (the answer's spill reason `to_file`), and renders
-  the manifest only. `limit=` is ignored under it.
+  no nodes: the header, notes, standing counts, place set and the file it wrote still print. `limit=` is ignored under it.
 - **`counts_only=`** runs the walk whole and returns the header, alarms, notes, the standing line and two group-by
   tables, nodes by edge and nodes by standing (`limit=` caps their rows); the place set as its count; no nodes, no spill.
 - **Notes, not silence.** `from_source=` or `source_provider=` without `walk=true`, and `from_source=` on a walk
