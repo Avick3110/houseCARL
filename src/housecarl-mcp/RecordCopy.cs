@@ -182,7 +182,7 @@ internal sealed partial class RecordWrites
                         walk: new WalkRefusal(WalkRefusalKind.SourceMiss, sourceKey, "from",
                             new[] { sourceKey }, "", Miss: chain.Miss(sourceKey, "from")), sources: consulted);
 
-                // The BOUND universe: the source record's own plugin plus every FILE arm named, never a base master.
+                // The BOUND universe: the source record's own plugin plus every plugin an arm names, never a base master.
                 var baseMasters = Mutagen.Bethesda.Plugins.Implicits.Get(Mutagen.Bethesda.GameRelease.SkyrimSE).BaseMasters;
                 var bound = new HashSet<ModKey>();
                 if (!baseMasters.Contains(sourceKey.ModKey)) bound.Add(sourceKey.ModKey);
