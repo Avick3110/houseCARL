@@ -159,6 +159,20 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
     }
 
     [Fact]
+    public void TheRecordsWalksJsonRowCarriesTheSeedsNoteOnlyWhenThereIsOne()
+    {
+        string? Note(string seed)
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(RecordsTools.Records(
+                _w.Svc, formids: new[] { seed }, walk: new RecordsTools.RecordsWalk { depth = 1 },
+                project: new RecordsTools.RecordsProject { form = "chain" }, format: "json"));
+            return doc.RootElement.GetProperty("rows")[0].TryGetProperty("note", out var n) ? n.GetString() : null;
+        }
+        Assert.StartsWith("links read leniently", Note(_w.Id(L, "Perk")));
+        Assert.Null(Note(_w.Id(L, "List")));
+    }
+
+    [Fact]
     public void TheRecordsWalkFromADeletedThrowingRecordAnswers()
     {
         var r = Walk(_w.Id(D, "Perk"));
