@@ -99,6 +99,30 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(60, json.RootElement.GetProperty("place_set").GetArrayLength());
     }
 
+    /// <summary>F1-a: a past-the-end page whose place set does not fit max_chars spills and points at the file, as a page
+    /// inside the walk does, text and json; a json page that fits a small cap spills nothing.</summary>
+    [Fact]
+    public void APastTheEndPageWhosePlaceSetDoesNotFitSpills()
+    {
+        const int cap = 2000;
+        var text = Many(0, 500, max: cap);
+        Assert.True(text.Length <= cap, $"{text.Length} chars");
+        Assert.Contains("spilled: complete result (60 rows)", text);
+        Assert.Contains("place set (60): the spilled file's rows with standing from_source", text);
+        Assert.DoesNotContain("assets=[", text);
+
+        var raw = Many(0, 500, "json", cap);
+        Assert.True(raw.Length <= cap, $"{raw.Length} chars");
+        using var json = JsonDocument.Parse(raw);
+        Assert.True(json.RootElement.GetProperty("place_set_in_file").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("place_set").ValueKind);
+        Assert.EndsWith(".jsonl", json.RootElement.GetProperty("spilled").GetProperty("path").GetString());
+
+        using var fits = JsonDocument.Parse(Many(1, 0, "json", 6000));
+        Assert.False(fits.RootElement.TryGetProperty("spilled", out _));
+        Assert.Single(Paths(fits.RootElement));
+    }
+
     /// <summary>At defaults a walk carries no accounting line (Aaron's pick, DECISIONS 2026-11-06 (25)): only a paged one does.</summary>
     [Fact]
     public void OnlyAPagedWalkCarriesTheAccounting()
