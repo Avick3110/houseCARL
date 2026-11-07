@@ -238,8 +238,12 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
     {
         var gone = _w.Id(D, "GoneList");
         Assert.DoesNotContain("HcIsoDeadStatic", WalkWith(gone, new RecordsTools.RecordsWalk { depth = 2 }));
-        Assert.DoesNotContain("HcIsoDeadStatic", WalkWith(gone, new RecordsTools.RecordsWalk { depth = 2, seed_paths = new[] { "Items" } }));
+        var seeded = WalkWith(gone, new RecordsTools.RecordsWalk { depth = 2, seed_paths = new[] { "Items" } });
+        Answered(seeded);
+        Assert.Contains("no links to follow from this seed", seeded);
+        Assert.DoesNotContain("HcIsoDeadStatic", seeded);
         var followed = WalkWith(_w.Id(D, "Holder"), new RecordsTools.RecordsWalk { depth = 3, follow = "Items" });
+        Answered(followed);
         Assert.Contains("HcIsoDeadGoneList", followed);
         Assert.DoesNotContain("HcIsoDeadStatic", followed);
     }
