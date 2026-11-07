@@ -244,6 +244,22 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.DoesNotContain("HcIsoDeadStatic", followed);
     }
 
+    /// <summary>A '*parent.X' path from a live record reads X off its container; a deleted container gives no links.</summary>
+    [Fact]
+    public void AParentPathFromALiveRecordFollowsNoneOfItsDeletedContainersLinks()
+    {
+        var r = WalkWith(_w.Id(D, "Info"), new RecordsTools.RecordsWalk { depth = 1, seed_paths = new[] { "*parent.Quest" } });
+        Answered(r);
+        Assert.Contains("no links to follow from this seed", r);
+        Assert.DoesNotContain("HcIsoDeadQuest", r);
+    }
+
+    static void Answered(string r)
+    {
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.DoesNotContain("failed unexpectedly", r);
+    }
+
     /// <summary>A follow= hop's path note is not the lenient note: a node row on a follow= walk carries none.</summary>
     [Fact]
     public void AFollowWalksNodeRowsCarryNoLenientNote()
