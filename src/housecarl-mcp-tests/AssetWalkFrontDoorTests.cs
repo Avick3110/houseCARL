@@ -254,6 +254,32 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(30, notes + omitted);
     }
 
+    /// <summary>F2-b: a json counts_only walk cut by max_chars says truncated, whether its notes or its axis rows were cut;
+    /// whole, it says false.</summary>
+    [Fact]
+    public void ABoundedJsonCountsWalkSaysItWasCut()
+    {
+        string Counts(string[] seeds, int max) => AssetTools.AssetStatus(_w.Svc, records: seeds, walk: true, source_provider: AssetWalkWorld.DonorMod,
+                                                                         counts_only: true, format: "json", max_chars: max);
+        // Thirty not-found seeds: notes and no nodes, so only the notes can be cut.
+        var missing = Enumerable.Range(0, 30).Select(i => $"0EEE{i:X2}:{AssetWalkWorld.Plugin}").ToArray();
+        // The hero alone: nodes and no notes, so only the axis rows can be cut.
+        var hero = new[] { _w.Id("HcWalkHero") };
+        foreach (var (seeds, member, half) in new[] { (missing, "notes_omitted", true), (hero, "nodes_by_edge", false) })
+        {
+            var whole = Counts(seeds, Big);
+            using var w = JsonDocument.Parse(whole);
+            Assert.False(w.RootElement.GetProperty("truncated").GetBoolean(), whole);
+
+            var cut = Counts(seeds, half ? whole.Length / 2 : whole.Length - 1);
+            using var doc = JsonDocument.Parse(cut);
+            var r = doc.RootElement;
+            if (member == "notes_omitted") Assert.True(r.GetProperty(member).GetInt32() > 0, cut);
+            else Assert.Equal("max_chars", r.GetProperty(member).GetProperty("cut_by").GetString());
+            Assert.True(r.GetProperty("truncated").GetBoolean(), cut);
+        }
+    }
+
     /// <summary>F1-c: a walk's file, under to_file= and under a ceiling spill, names each seed parameter the call gave.</summary>
     [Fact]
     public void TheWalkFileNamesItsSeeds()
