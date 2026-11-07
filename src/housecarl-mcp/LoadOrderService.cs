@@ -360,8 +360,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider, links, faceSources);
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
                                    IReadOnlyList<string>? fromSource, string? sourceProvider,
-                                   IReadOnlyDictionary<string, string?>? keyedSeeds = null)
-        => _assetLayers.AssetWalk(seedPaths, seedRecords, fromSource, sourceProvider, keyedSeeds);
+                                   IReadOnlyDictionary<string, string?>? keyedSeeds = null,
+                                   WalkGrammar.Values? values = null, IReadOnlyList<(string Raw, string Error)>? badSeeds = null)
+        => _assetLayers.AssetWalk(seedPaths, seedRecords, fromSource, sourceProvider, keyedSeeds, values, badSeeds);
     public SkseInventoryData SkseInventory(string? peekFilter = null) => _assetLayers.SkseInventory(peekFilter);
     public SkseConfigAuditData SkseConfigAudit() => _assetLayers.SkseConfigAudit();
     public NativePairingAuditData NativePairingAudit() => _assetLayers.NativePairingAudit();

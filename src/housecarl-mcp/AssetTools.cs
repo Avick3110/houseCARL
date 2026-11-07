@@ -110,8 +110,16 @@ public static class AssetTools
                      "time on a large order. The walk always runs whole: limit= and offset= window only the nodes " +
                      "listed (the header, notes, standing counts and place set still cover every node, and a paged " +
                      "answer ends with the [accounting] line); to_file= writes every node to the file and lists " +
-                     "none (the header, notes, counts, place set and the file it wrote still print); counts_only= returns counts per edge and per standing, no nodes. Not with links=.")]
-            bool walk = false,
+                     "none (the header, notes, counts, place set and the file it wrote still print); counts_only= returns counts per edge and per standing, no nodes. Not with links=.\n\n" +
+                     "walk=true walks at the defaults; walk={depth, max_nodes, through, exclusions} takes the records " +
+                     "walk's values under the same names and refusals: depth (default 3) is the form-link hops from a " +
+                     "seed record whose records are entered; max_nodes (default 2000) counts every record entered, seeds " +
+                     "included, one budget shared by every seed, with no upper bound (the file bound is asset_status's own); " +
+                     "through (record types) enters only records of those types and counts the rest per type; exclusions " +
+                     "([{match, severity}]) keeps a 'stop' type as a boundary, not entered (no files, no links), and fails " +
+                     "the call on a 'refuse' type. Seeds are never judged. A cap note names the value to raise. " +
+                     "seed_paths, follow and direction are the records walk's and are refused here.")]
+            JsonElement? walk = null,
         [Description("Optional, with walk=true. Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
             ListArg? records = null,
         [Description("Optional, with walk=true. The ordered source list each record is read from, first hit wins: " +
@@ -168,10 +176,12 @@ public static class AssetTools
         foreach (var listErr in new[] { pathsIn.Error, underIn.Error, idsIn.Error, recordsIn.Error, sourcesIn.Error })
             if (listErr is not null) return ToolAnswer.Refusal(json, listErr);
         var underTokens = underIn.Tokens;
+        if (WalkGrammar.ReadAssetWalk(svc.Types, walk, out var walkValues) is { } walkErr) return ToolAnswer.Refusal(json, walkErr);
+        bool walking = walkValues is not null;
 
-        if (recordsIn.Tokens is { Length: > 0 } && !walk)
+        if (recordsIn.Tokens is { Length: > 0 } && !walking)
             return Refuse("records= seeds the walk — pass walk=true with it.");
-        if (!walk && pathsIn.Tokens is not { Length: > 0 } && underTokens is not { Length: > 0 }
+        if (!walking && pathsIn.Tokens is not { Length: > 0 } && underTokens is not { Length: > 0 }
             && idsIn.Tokens is not { Length: > 0 } && string.IsNullOrWhiteSpace(provider))
             return Refuse("asset_paths, under, formids and provider are all empty. Pass Data-relative asset path(s) in " +
                           "asset_paths (e.g. 'textures/armor/iron/cuirass_1.dds'), a Data-relative directory or glob " +
@@ -201,9 +211,9 @@ public static class AssetTools
         // A census covers the whole selection, so there is no selection window for offset= to move.
         if (counts_only && offset > 0)
             return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
-        if (walk && links) return ToolAnswer.Refusal(json, ReadSentences.WalkWithLinks);
+        if (walking && links) return ToolAnswer.Refusal(json, ReadSentences.WalkWithLinks);
         // to_file= covers the whole walk, so limit= is ignored under it, as on the row lane.
-        if (walk) return Walk(svc, pathsIn, underTokens, idsIn, provider, recordsIn, sourcesIn.Tokens, source_provider,
+        if (walking) return Walk(svc, walkValues!, pathsIn, underTokens, idsIn, provider, recordsIn, sourcesIn.Tokens, source_provider,
                               wantFile ? RowWindow.All : window, wantFile ? toFile : null, counts_only, json, cap);
 
         // The walk's own inputs, given without it, change nothing here: said, not dropped.
@@ -309,7 +319,7 @@ public static class AssetTools
 
     /// <summary>The walk=true lane: the selection's paths and the records= keys seed <see cref="LoadOrderService.AssetWalk"/>.
     /// The tool's transport checks have run: <paramref name="window"/> is legal, <paramref name="toFile"/> validated.</summary>
-    static ToolAnswer Walk(LoadOrderService svc, ListRead pathsIn, string[]? under, ListRead idsIn, string? provider,
+    static ToolAnswer Walk(LoadOrderService svc, WalkGrammar.Values values, ListRead pathsIn, string[]? under, ListRead idsIn, string? provider,
                        ListRead recordsIn, string[]? from_source, string? source_provider,
                        RowWindow window, string? toFile, bool countsOnly, bool json, int cap)
     {
@@ -323,17 +333,19 @@ public static class AssetTools
         var asset_paths = pathsIn.Tokens;
         var formids = idsIn.Tokens;
         var door = FormIdDoor.For(svc);
+        // A seed token that is not a FormID is its own error node, edge 'seed'; the other seeds walk.
+        var badSeeds = new List<(string Raw, string Error)>();
         var keys = new List<Mutagen.Bethesda.Plugins.FormKey>();
         foreach (var raw in recordsIn.Tokens ?? Array.Empty<string>())
         {
-            try { keys.Add(door.Parse(raw)); }
-            catch (Exception ex) { return Refuse($"records '{raw}' is not a FormID: {Guard.Flatten(ex.Message)} Expected 'XXXXXX:Plugin.esp'."); }
+            var seed = WalkGrammar.ParseSeed(raw, door.Parse);
+            if (seed.Key is { } k) keys.Add(k); else badSeeds.Add((raw, Guard.Flatten(seed.Error!)));
         }
         var seeds = new List<FaceGenSeed>();
         foreach (var raw in formids ?? Array.Empty<string>())
         {
-            try { seeds.Add(new FaceGenSeed(raw, door.Parse(raw), null)); }
-            catch (Exception ex) { return Refuse($"formids '{raw}' is not a FormID: {Guard.Flatten(ex.Message)}"); }
+            var seed = WalkGrammar.ParseSeed(raw, door.Parse);
+            if (seed.Key is { } k) seeds.Add(new FaceGenSeed(raw, k, null)); else badSeeds.Add((raw, Guard.Flatten(seed.Error!)));
         }
         var paths = new List<string>();
         var keyed = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
@@ -355,7 +367,7 @@ public static class AssetTools
                 if (r.Slot is not null) keyed[r.RelPath] = r.FaceNote;
             }
         }
-        var w = svc.AssetWalk(paths, keys, from_source, source_provider, keyed);
+        var w = svc.AssetWalk(paths, keys, from_source, source_provider, keyed, values, badSeeds);
         if (w.Refusal is { } wr) return ToolAnswer.Refusal(json, wr);
         // from_source= is read only by a record seed; with none it is said, not dropped.
         if (from_source is { Length: > 0 } && recordsIn.Tokens is not { Length: > 0 } && formids is not { Length: > 0 })

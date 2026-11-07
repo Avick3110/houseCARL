@@ -30,6 +30,8 @@ internal static class ToolSchemas
     {
         // housecarl_skse takes one family; the array shape must bind and be answered by the tool, not intercepted.
         new(ToolNames.Skse, "findings", new[] { "string", "array" }),
+        // asset_status walks at the defaults on true and takes the walk values as an object.
+        new(ToolNames.AssetStatus, "walk", new[] { "boolean", "object" }),
     };
 
     /// <summary>How many times one pointer may be inlined along a nesting chain before <see cref="Terminator"/> closes it.</summary>
