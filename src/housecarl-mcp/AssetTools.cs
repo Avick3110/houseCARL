@@ -363,10 +363,18 @@ public static class AssetTools
         // counts_only= refuses offset= and to_file= at the front door, so the window is limit= alone, capping the tables.
         if (countsOnly) return ToolAnswer.Served(AssetWalkWire.RenderCounts(w, selectorNotes, cap, json, window.Limit));
 
+        // The seeds given, in the row lane's spelling, so a file re-read later says what was walked.
+        var seedEcho = new List<KeyValuePair<string, string>>();
+        if (asset_paths is { Length: > 0 }) seedEcho.Add(new("asset_paths", pathsIn.EchoSource ?? $"{asset_paths.Length} inline path(s)"));
+        if (under is { Length: > 0 }) seedEcho.Add(new("under", string.Join(",", under)));
+        if (formids is { Length: > 0 }) seedEcho.Add(new("formids", idsIn.EchoSource ?? $"{formids.Length} inline formid(s)"));
+        if (!string.IsNullOrWhiteSpace(provider)) seedEcho.Add(new("provider", provider.Trim()));
+        if (recordsIn.Tokens is { Length: > 0 } recs) seedEcho.Add(new("records", recordsIn.EchoSource ?? string.Join(",", recs)));
+
         if (toFile is not null)
         {
             var (fOrder, fNoEpoch) = TryStamp(svc);
-            var (file, fileErr) = AssetWalkWire.Write(w, ArtifactTarget.Named(toFile), "to_file", fOrder, fNoEpoch);
+            var (file, fileErr) = AssetWalkWire.Write(w, ArtifactTarget.Named(toFile), "to_file", fOrder, fNoEpoch, seedEcho);
             if (fileErr is not null) return ToolAnswer.Refusal(json, "error: " + fileErr);
             return ToolAnswer.Served(AssetWalkWire.Render(w, selectorNotes, cap, json, SpillState.Spilled(file!, manifestOnly: true), window, out _));
         }
@@ -375,7 +383,7 @@ public static class AssetTools
         // SPEC §2.1.1, as the row lane does: the whole walk to the results directory, the response naming it.
         var (order, noEpochBecause) = TryStamp(svc);
         using var reservation = ResultsStore.Reserve(svc.ResultsDir, ToolNames.AssetStatus, order?.Epoch ?? "none");
-        var (spill, spillErr) = AssetWalkWire.Write(w, reservation, "ceiling", order, noEpochBecause);
+        var (spill, spillErr) = AssetWalkWire.Write(w, reservation, "ceiling", order, noEpochBecause, seedEcho);
         return ToolAnswer.Served(AssetWalkWire.Render(w, selectorNotes, cap, json,
                                     spillErr is null ? SpillState.Spilled(spill!, manifestOnly: false) : SpillState.WriteFailed(spillErr), window, out _));
     }
