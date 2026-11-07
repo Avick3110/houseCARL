@@ -1065,15 +1065,19 @@ public static partial class RecordsTools
             // seam-checked against the walk's build.
             var combined = new List<string>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int badTokens = 0;
             foreach (var r in rows)
             {
                 // A seed that is not a FormID rides into the list lane as its raw token, which reads as its own error row.
-                if (r.Error is not null) { if (r.Malformed && seen.Add(r.Seed)) combined.Add(r.Seed); continue; }
+                if (r.Error is not null) { if (r.Malformed && seen.Add(r.Seed)) { combined.Add(r.Seed); badTokens++; } continue; }
                 if (seen.Add(r.Seed)) combined.Add(r.Seed);
                 foreach (var n in r.Nodes)
                     if (n.Type is not null && seen.Add(n.Key)) combined.Add(n.Key);
             }
             int seedErrs = rows.Count(r => r.Error is not null);
+            // The records reached, and the seed errors only form='chain' lists; a bad token is a row of this answer.
+            int fwdReached = combined.Count - badTokens;
+            int fwdChainErrs = seedErrs - rows.Count(r => r.Malformed);
             if (combined.Count == 0)
                 return ToolAnswer.Refusal(json, $"error: the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome).", wEpoch, epochLine: true);
 
@@ -1081,13 +1085,13 @@ public static partial class RecordsTools
             // with its own remedy since the scan window is not what moves a walk. form='chain' returned above and
             // pays no SECOND body read; counts_only pays this, because the list lane reads before it counts. ----
             if (bodyForm
-                && RenderBudget.Refuse(svc.Bounds, combined.Count, form == "everything",
+                && RenderBudget.Refuse(svc.Bounds, fwdReached, form == "everything",
                                        counts_only ? RenderBudget.WalkCensusRemedy : RenderBudget.WalkRemedy,
                                        counts_only) is { } walkTooBig)
                 return ToolAnswer.Refusal(json, walkTooBig, wEpoch);
 
-            envelope.Add(new("walk", $"forward{(walk.follow is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {combined.Count} record(s) the walk reached (seeds included{(seedErrs > 0 ? $"; {seedErrs} seed error(s), listed via form='chain'" : "")})"));
-            headerLine += $"\nwalk: selection = {combined.Count} reached record(s) (seeds included)";
+            envelope.Add(new("walk", $"forward{(walk.follow is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {fwdReached} record(s) the walk reached (seeds included{(fwdChainErrs > 0 ? $"; {fwdChainErrs} seed error(s), listed via form='chain'" : "")})"));
+            headerLine += $"\nwalk: selection = {fwdReached} reached record(s) (seeds included)";
             expectEpoch = wEpoch?.Epoch;
             formids = combined.ToArray();
             walk = null;
