@@ -1,0 +1,1 @@
+- **The asset walk takes the records walk's values, `walk={depth, max_nodes, through, exclusions}`, with the same refusals; a seed that is not a FormID is its own error row on every walk; copy's `exclude_types=` is now `exclusions=[{match, severity}]`.** Check: `asset_status records=["ZZZ", <npc>] walk={"depth": 1}`.

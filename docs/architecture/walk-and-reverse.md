@@ -1,6 +1,6 @@
 ---
 updated: 2026-11-07
-covers: [src/housecarl-core/ClosureWalk.cs, src/housecarl-core/SourceChain.cs, src/housecarl-core/ReverseReferenceIndex.cs]
+covers: [src/housecarl-core/ClosureWalk.cs, src/housecarl-core/SourceChain.cs, src/housecarl-core/ReverseReferenceIndex.cs, src/housecarl-mcp/WalkGrammar.cs]
 ---
 # Walk and reverse
 
@@ -69,7 +69,41 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   and the stop exclusions: a record it rejects is still reached but kept as a boundary, never added to
   the next frontier. Unset, the next frontier is exactly the reached list.
 
+## One walk grammar
+
+- `WalkGrammar` (`src/housecarl-mcp/WalkGrammar.cs`) is the one parse of a walk's values and seeds (#1317). Every
+  walk calls it and nothing else parses these values, so the names, defaults and refusal words are the same on every
+  walk by construction. `Parse` takes `depth`, `max_nodes`, `through` (already read through the list door) and
+  `exclusions` plus the asking walk's default depth and budget reading, and returns typed `Values` or one refusal:
+  depth below 1; max_nodes below 1, or above `RecordsWalk.Ceiling` on a per-seed reading only (forward, carrier); an
+  empty `through`; a `through` or `exclusions` entry naming no type; a blank `match`; a severity that is missing or
+  not stop/refuse. `through` and `exclusions` expand to display names (a polymorphic base to its arms), each
+  exclusion type once at its first entry, so `[{Global, stop}, {GlobalFloat, refuse}]` stops at every global and
+  copy's `ClosureWalk` dictionary never sees a duplicate.
+- The records walk keeps its spellings and defaults (depth 16, max_nodes 2,000). The asset walk takes
+  `walk=true` (its defaults) or `walk={depth, max_nodes, through, exclusions}` (`ReadAssetWalk`), depth 3, one
+  shared budget with no ceiling, counting every record entered, seeds included; `seed_paths`, `follow` and
+  `direction` are refused by name. Copy takes `ParseExclusions` alone as `exclusions=[{match, severity}]`;
+  `exclude_types=` is refused naming the new spelling, and a bare type no longer defaults to refuse.
+- The asset walk judges `through` and the exclusions where it enters a record, on the read body's type, so the
+  type is the same whichever source arm read it. A stop is not entered (no files, no links) and is counted in a note;
+  a type outside `through` is not entered and is counted per type in the records walk's "left out, not in
+  walk.through:" line; a refuse fails the call in `WalkExclusionMatch.RefuseSentence`'s words. Seeds are never judged.
+  Its depth and budget notes name `walk.depth=` / `walk.max_nodes=` and say to raise them.
+- `ParseSeed` turns one seed token into its key or `bad FormID '<token>': <why>`. Each walk carries a malformed seed
+  as its own row: the forward reading form (`WalkSeedResult.Malformed`) and the transitive reverse walk put the raw
+  token in the selection, which the list lane renders as a per-item error row; the chain and carrier forms keep
+  their own rows; the asset walk adds an error node at the token, edge `seed`. All seeds malformed answers only the
+  error rows. An unresolved seed still answers as each walk did.
+- Not covered: `exclusions` is an object list, so it takes no `@file` on any of the three tools; an unknown member
+  inside the walk object (`walk={"depht": 1}`) is dropped by the binder, not refused.
+
 ## Pinned by
+
+- `WalkGrammarTests` — the shared refusal cases against both walks, the per-seed ceiling, the asset walk's depth,
+  budget, through and exclusions, its refusal of the records walk's shaping values, and a malformed seed's row on the
+  asset, reverse and forward walks. `CopyWireParseTests` — copy's exclusions: signature, base type, first match,
+  unknown type, the retired `exclude_types=`, and the same patch byte for byte as the old spelling's core input.
 
 - `ClosureWalkGraphTests` / `SourceChainTests` — the walk's default caps, cycles and refusals, and the chain's
   first-hit-wins, fault-stops and miss-names-every-arm rules; `ClosureWalkGraphTests.EachDepthIsReadInOneBatch`
