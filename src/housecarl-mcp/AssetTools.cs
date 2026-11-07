@@ -102,8 +102,8 @@ public static class AssetTools
                      "ships it), elsewhere (another provider wins it, named), present, or absent; keyed nodes sit at a " +
                      "FormID-named path, so a renumbering copy carries them rather than placing them. A formids= " +
                      "seed, or a root, with no FaceGen pair is a note with the reason, not a node. With " +
-                     "source_provider= shipping any node, the response ends with those nodes as a housecarl_place assets= " +
-                     "array (none ships: no such line, and the count reads from_source=0). " +
+                     "source_provider= shipping any node, the node list is followed by those nodes as a housecarl_place assets= " +
+                     "array (counts_only=: their count only; none ships: no such line, and the count reads from_source=0). " +
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
                      "through 'winner', its own plugin; links into other plugins are counted as boundaries. A walk that " +
                      "enters any NPC builds the active order's reverse-reference index, once its records are walked, to find its lines, which takes " +
