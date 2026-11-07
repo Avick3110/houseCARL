@@ -143,7 +143,7 @@ public sealed class AssetWalkPinTests : IClassFixture<AssetWalkPinWorld>
     [Fact]
     public void AnAdaptersFileNameIsAFragment()
     {
-        var n = Node(Walk("HcPinFragQ"), AssetWalkEdges.ScriptPex(AssetWalkPinWorld.FragmentFile));
+        var n = Node(Walk("HcPinFragQ"), @"Scripts\HcPinFrag.pex");
         Assert.Equal("fragment", n.Edge);
         Assert.Contains("Mutagen infers no link for it", n.Note);
     }
