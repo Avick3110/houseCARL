@@ -474,7 +474,8 @@ links as nodes). Then:
 - **`counts_only=`** runs the walk whole and returns the header, alarms, notes, the standing line and two group-by
   tables, nodes by edge and nodes by standing (`limit=` caps their rows); the place set as its count; no nodes, no spill.
   A json one past `max_chars=` is bounded as the row census is: each list and axis says what it cut, and `truncated`,
-  written after the axes, is true when anything was cut or the walk met its own file bound.
+  written after the axes, is true when the walk met its own bound (its file cap or its record cap), a list was cut,
+  or an axis was stopped by `max_chars=`; an axis cut by `limit=` (`cut_by` `"limit"`) does not set it.
 - **Notes, not silence.** `from_source=` or `source_provider=` without `walk=true`, and `from_source=` on a walk
   with no `records=` and no `formids=` seed, are each one note: on the row lane under `[!] notes`, counted in
   `notes=`; on the walk first among its walk notes.
