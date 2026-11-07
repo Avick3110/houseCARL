@@ -85,6 +85,8 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Contains("[accounting] total=60 rendered=3 skipped=10", fits);
 
         var cut = Many(50, 0, max: cap);
+        // The accounting line is held back from the nodes, so the cut page still fits.
+        Assert.True(cut.Length <= cap, $"{cut.Length} chars against {cap}");
         Assert.Contains("of 50 node(s) not shown: max_chars was reached.", cut);
         Assert.Contains("spilled: complete result (60 rows)", cut);
     }
@@ -206,14 +208,15 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(nodes.Count, c.GetProperty("nodes").GetInt32());
         Assert.Equal(whole.RootElement.GetProperty("place_set").GetArrayLength(), c.GetProperty("place_set_count").GetInt32());
 
-        var text = (string)AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkHero") }, walk: true, counts_only: true);
+        var text = (string)AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkHero") }, walk: true, source_provider: AssetWalkWorld.DonorMod, counts_only: true);
         Assert.Contains("nodes by edge (", text);
         Assert.Contains("nodes by standing (", text);
         Assert.DoesNotContain("\n  seed of ", text);
         Assert.DoesNotContain("spilled:", text);
         foreach (var n in nodes) Assert.DoesNotContain("\n" + n.GetProperty("path").GetString() + "\n", text, StringComparison.OrdinalIgnoreCase);
-        // Nothing follows the last table: no spill line, written or failed.
-        Assert.DoesNotContain("\n\n", text[text.IndexOf("nodes by standing (", StringComparison.Ordinal)..]);
+        // Nothing follows the last table, its title and one line per standing: no spill line, written or failed.
+        Assert.Equal(1 + By(nodes.Select(n => n.GetProperty("standing").GetString()!)).Count,
+                     text[text.IndexOf("nodes by standing (", StringComparison.Ordinal)..].Split('\n').Length);
 
         using var capped = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkHero") }, walk: true,
                                                                      counts_only: true, limit: 1, format: "json"));
