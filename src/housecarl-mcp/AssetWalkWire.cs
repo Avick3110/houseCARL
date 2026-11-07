@@ -131,8 +131,9 @@ static class AssetWalkWire
         var spillText = Wire.SpillText(spill);
         // What the answer writes after the nodes, plus slack for the cut sentence.
         int Owed() => tail.Length + spillText.Length + acctReserve + 120;
+        bool tailOver = place.Count > 0 && cap > 0 && sb.Length + Owed() > cap;
         // A spilled walk whose array would not fit points at the file's from_source rows instead; a failed spill has no file.
-        if (spill is not null && place.Count > 0 && cap > 0 && sb.Length + Owed() > cap)
+        if (spill is not null && tailOver)
             tail = spill.Spill is not null
                 ? $"\nplace set ({place.Count}): the spilled file's rows with standing from_source, for {ToolNames.Place} source_provider=\"{d.SourceProvider}\".\n" + keyedNote
                 : $"\nplace set ({place.Count}): not shown — its array does not fit max_chars and no results file was written; raise max_chars.\n";
@@ -147,9 +148,10 @@ static class AssetWalkWire
             sb.Append(block);
             shown++;
         }
-        // Counted against the window, so a window that fits is not a cut and spills nothing.
-        truncated = shown < listed.Count;
-        if (truncated)
+        // Counted against the window, so a window that fits is not a cut and spills nothing; a page listing no node
+        // whose place set does not fit spills too, as a page whose nodes do not fit does.
+        truncated = shown < listed.Count || (spill is null && tailOver);
+        if (shown < listed.Count)
             sb.Append($"\n[!] {listed.Count - shown} of {listed.Count} node(s) not shown: max_chars was reached.")
               .Append(spill?.Spill is null ? " Raise max_chars, or narrow the seeds.\n" : " Every node is in the file below.\n");
         sb.Append(tail);
@@ -215,15 +217,16 @@ static class AssetWalkWire
                 if (spill.Spill is not null) doc["place_set_in_file"] = true;
             }
         }
-        // The document with no nodes, then each node while the whole still fits; with no nodes to list, nothing to measure.
-        int size = nodes.Count == 0 ? 0 : Emit(doc, nodes, 0, spill, widest).Length + 16, shown = 0;
+        // The document with no nodes, then each node while the whole still fits.
+        int bare = Emit(doc, nodes, 0, spill, widest).Length, size = bare + 16, shown = 0;
         foreach (var n in nodes)
         {
             if (cap > 0 && size + n.Length + 1 > cap) break;
             size += n.Length + 1;
             shown++;
         }
-        truncated = shown < nodes.Count;
+        // As the text walk: a page listing no node whose place set does not fit spills too.
+        truncated = shown < nodes.Count || (spill is null && cap > 0 && bare > cap && doc["place_set"] is List<Dictionary<string, string>> { Count: > 0 });
         if (spill is not null) doc["nodes_shown"] = shown;
         TransportCounts? acct = widest is null ? null
             : TransportAccounting.Tally(d.Nodes.Count, listed.Count, shown, window, notes);
