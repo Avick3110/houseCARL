@@ -118,6 +118,8 @@ public static class AssetTools
                      "through (record types) enters only records of those types and counts the rest per type; exclusions " +
                      "([{match, severity}]) keeps a 'stop' type as a boundary, not entered (no files, no links), and fails " +
                      "the call on a 'refuse' type. Seeds are never judged. A cap note names the value to raise. " +
+                     "An entered NPC's dialogue lines and their voice files are found off the NPC, not entered: " +
+                     "through, exclusions and max_nodes do not judge or count them. " +
                      "seed_paths, follow and direction are the records walk's and are refused here.")]
             JsonElement? walk = null,
         [Description("Optional, with walk= (true or a walk object). Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
