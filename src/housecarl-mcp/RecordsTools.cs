@@ -936,8 +936,12 @@ public static partial class RecordsTools
                 {
                     var carrierSel = new List<string>(ids.Length + carrierRows);
                     var carrierSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var r in results)
+                    int carrierBad = 0;
+                    for (int i = 0; i < results.Count; i++)
                     {
+                        var r = results[i];
+                        // A seed that is not a FormID rides into the list lane as its raw token, which reads as its own error row.
+                        if (parsed[i].Key is null) { if (carrierSeen.Add(r.Seed)) { carrierSel.Add(r.Seed); carrierBad++; } continue; }
                         if (r.Result.Error is not null) continue;
                         if (carrierSeen.Add(r.Seed)) carrierSel.Add(r.Seed);
                         foreach (var row in r.Result.Rows)
@@ -946,20 +950,22 @@ public static partial class RecordsTools
                             if (carrierSeen.Add(key)) carrierSel.Add(key);
                         }
                     }
+                    int carrierReached = carrierSel.Count - carrierBad;
+                    int chainErrs = results.Count(r => r.Result.Error is not null) - parsed.Count(p => p.Key is null);
                     if (carrierSel.Count == 0)
                         return ToolAnswer.Refusal(json, $"error: the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome).", epochR, epochLine: true);
                     // A seed that failed contributed no carriers, and the reading form says so.
-                    envelope.Add(new("selection", $"the {carrierSel.Count} record(s) the carrier walk reached (seeds included)"
-                                                  + (seedErrs2 > 0 ? $"; {seedErrs2} seed error(s), listed via form='chain'" : "")));
-                    headerLine += $"\nwalk: selection = {carrierSel.Count} reached record(s) (seeds included)";
-                    if (seedErrs2 > 0)
-                        headerLine += $"\n[!] {seedErrs2} seed(s) failed and contributed no carriers — run form='chain' to see each seed's outcome.";
+                    envelope.Add(new("selection", $"the {carrierReached} record(s) the carrier walk reached (seeds included)"
+                                                  + (chainErrs > 0 ? $"; {chainErrs} seed error(s), listed via form='chain'" : "")));
+                    headerLine += $"\nwalk: selection = {carrierReached} reached record(s) (seeds included)";
+                    if (chainErrs > 0)
+                        headerLine += $"\n[!] {chainErrs} seed(s) failed and contributed no carriers — run form='chain' to see each seed's outcome.";
                     if (cappedSeeds > 0)
                         headerLine += $"\n[!] {cappedSeeds} seed(s) hit the walk.max_nodes carrier bound ({walkMaxNodes}, per seed on this lane) — the selection is a prefix of the {carrierTotal} carrier(s) reached; raise walk.max_nodes.";
                     // The reached set's render bound, without walk.depth among its levers because this walk reaches
                     // nothing past hop 1; counts_only pays it too, since the census reads bodies.
                     if (bodyForm
-                        && RenderBudget.Refuse(svc.Bounds, carrierSel.Count, form == "everything",
+                        && RenderBudget.Refuse(svc.Bounds, carrierReached, form == "everything",
                                                counts_only ? RenderBudget.ReverseCarrierCensusRemedy : RenderBudget.ReverseCarrierRemedy,
                                                counts_only) is { } carrierTooBig)
                         return ToolAnswer.Refusal(json, carrierTooBig, epochR);
