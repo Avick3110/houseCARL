@@ -96,7 +96,8 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   their own rows; the asset walk adds an error node at the token, edge `seed`. All seeds malformed answers only the
   error rows. An unresolved seed still answers as each walk did.
 - Not covered: `exclusions` is an object list, so it takes no `@file` on any of the three tools; an unknown member
-  inside the walk object (`walk={"depht": 1}`) is dropped by the binder, not refused.
+  inside the walk object (`walk={"depht": 1}`) is dropped, not refused: by the binder on the records walk, by the
+  asset walk's own read of the object (`WalkGrammar.ReadAssetWalk`) on `asset_status`.
 
 ## Pinned by
 
