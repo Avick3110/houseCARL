@@ -121,8 +121,9 @@ public sealed class SourceChain
 
     public SourceMiss Miss(FormKey key, string pulledBy) => new(key, pulledBy, Arms);
 
-    /// <summary>The plugins the arms name, by their spelling's file name, in arm order. A spelling that names no plugin
-    /// names none, the <c>winner</c> pole among them. No filter: a base master or a file off the order is returned, for the caller to keep or drop.</summary>
+    /// <summary>The plugins the arms name, by their spelling's file name, in arm order. A spelling with no plugin
+    /// extension (the <c>winner</c> pole) gives none; one that is only an extension (<c>.esp</c>) gives <c>ModKey.Null</c>.
+    /// No filter: a base master or a file off the order is returned, for the caller to keep or drop.</summary>
     public IEnumerable<ModKey> NamedPlugins()
     {
         foreach (var arm in Arms)

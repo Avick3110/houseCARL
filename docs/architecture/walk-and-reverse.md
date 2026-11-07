@@ -72,8 +72,8 @@ are `docs/architecture/select-and-walk.md`. The walk expands through Mutagen's `
   — one batch per depth, reaching what the key-at-a-time walk reaches.
 - `CopyEndToEndTests` — the closure copy's own caps and reached order, end to end; the contract is in
   `docs/architecture/write-path.md`.
-- `SourceChainNamedPluginsTests` — the arms' plugins: `winner` and a spelling that names no plugin give none, a base
-  master and an off-order file arm are returned. `CopyAssetWalkAgreementTests` — copy's walk and the asset walk enter
+- `SourceChainNamedPluginsTests` — the arms' plugins: `winner` and a spelling with no plugin extension give none (a bare
+  `.esp` would give `ModKey.Null`, see `SourceChain.NamedPlugins`), a base master and an off-order file arm are returned. `CopyAssetWalkAgreementTests` — copy's walk and the asset walk enter
   one graph in the same order, read each depth's group once and skip a null link.
 - `AssetWalkDoorTests.ManyKeysAnswerAsOneKeyAtATime` — `FetchMany` over many keys answers each key's hit, fault and miss as it does over that key alone (a set of one; no other per-key read exists), each batch
   is read once and a later arm reads only the keys still unanswered; `AssetWalkDoorFaultTests.ABrokenGroupIsTheArmsFaultNotAMiss`
