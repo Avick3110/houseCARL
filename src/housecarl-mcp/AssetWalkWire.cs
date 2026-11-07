@@ -292,24 +292,46 @@ static class AssetWalkWire
         int rowLimit = AssetCensus.RowLimit(limit);
         if (json)
         {
-            using var ms = new MemoryStream();
-            using (var w = new Utf8JsonWriter(ms))
-            {
-                w.WriteStartObject();
-                foreach (var (k, v) in Head(d, selectorNotes)) { w.WritePropertyName(k); JsonSerializer.Serialize(w, v); }
-                w.WriteBoolean("counts_only", true);
-                w.WriteNumber("nodes", d.Nodes.Count);
-                w.WriteNumber("keyed", d.Nodes.Count(n => n.Keyed));
-                w.WriteNumber("place_set_count", place);
-                JsonWire.WriteHistogramAxes(w, null, rowLimit, axes);
-                w.WriteEndObject();
-            }
-            return Encoding.UTF8.GetString(ms.ToArray());
+            // At a cap it fits, the document it always was; past it, the bounded one.
+            var whole = CountsJson(d, selectorNotes, place, rowLimit, axes, cap: 0);
+            return cap <= 0 || whole.Length <= cap ? whole : CountsJson(d, selectorNotes, place, rowLimit, axes, cap);
         }
         var sb = Lead(d, selectorNotes, RenderCap.For(cap, axes.Sum(a => a.TextFixed)));
         if (place > 0) sb.Append("place set: ").Append(place).Append(" node(s) from source \"").Append(d.SourceProvider).Append("\"; drop counts_only= to list them.\n");
         var body = new BoundedBody(acct: null, budget: cap, () => sb.Length);
         CheckTextRender.AppendHistogramAxes(sb, body, rowLimit, axes);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+    }
+
+    /// <summary>The head members a bounded counts document cuts, each with its <c>_omitted</c> count.</summary>
+    static readonly HashSet<string> CappedLists = new() { "bsa_failures", "root_failures", "warnings", "selector_notes", "notes" };
+
+    /// <summary>The json counts document; with <paramref name="cap"/> &gt; 0, bounded as the row census is
+    /// (<see cref="JsonWire.RenderAssetCensus"/>): the lists and the axes' rows say what they cut, an overrun is said.</summary>
+    static string CountsJson(AssetWalkData d, IReadOnlyList<string>? selectorNotes, int place, int rowLimit, HistogramAxis[] axes, int cap)
+    {
+        // The lists leave room for what follows them: the counters, each axis's frame, and their own omitted counts.
+        int depth = new JsonWire.JsonUnitDepths(1).AxisFrame;
+        int listBudget = Math.Max(cap - 128 - CappedLists.Count * 32 - axes.Sum(a => JsonWire.HistogramFrameCostFor(a, depth)), 1);
+        using var ms = new CharCountedStream();
+        using (var w = new Utf8JsonWriter(ms))
+        {
+            w.WriteStartObject();
+            foreach (var (k, v) in Head(d, selectorNotes))
+            {
+                if (cap > 0 && CappedLists.Contains(k) && v is IReadOnlyList<string> items) { JsonWire.WriteCappedStringArray(w, ms, k, items, listBudget); continue; }
+                w.WritePropertyName(k);
+                JsonSerializer.Serialize(w, v);
+            }
+            w.WriteBoolean("counts_only", true);
+            w.WriteNumber("nodes", d.Nodes.Count);
+            w.WriteNumber("keyed", d.Nodes.Count(n => n.Keyed));
+            w.WriteNumber("place_set_count", place);
+            var body = cap > 0 ? new BoundedBody(acct: null, budget: cap - 2, () => { w.Flush(); return JsonWire.Chars(ms); }) : null;
+            JsonWire.WriteHistogramAxes(w, body, rowLimit, axes);
+            if (cap > 0) JsonWire.WriteCapOverrun(w, ms, cap);
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 }
