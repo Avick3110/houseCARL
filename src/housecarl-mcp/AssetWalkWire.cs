@@ -6,7 +6,7 @@ namespace HousecarlMcp;
 /// <summary>Renders <see cref="AssetWalkData"/>: the build alarms and the walk's notes first, then one block per node
 /// in walk order (through <c>limit=</c>/<c>offset=</c>'s window), then the from-source set as the assets= array
 /// <c>housecarl_place</c> takes. A walk past max_chars is written whole to a results-directory file (SPEC §2.1.1), which
-/// the response names; <c>to_file=</c> writes it there and renders the manifest only; <c>counts_only=</c> renders counts.</summary>
+/// the response names; <c>to_file=</c> writes it there and lists no nodes; <c>counts_only=</c> renders counts.</summary>
 static class AssetWalkWire
 {
     /// <summary>What a paged walk's accounting counts.</summary>
