@@ -210,6 +210,22 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.Null(Note(_w.Id(L, "List")));
     }
 
+    string WalkWith(string seed, RecordsTools.RecordsWalk walk) => RecordsTools.Records(
+        _w.Svc, formids: new[] { seed }, walk: walk, project: new RecordsTools.RecordsProject { form = "chain" });
+
+    /// <summary>A field-path walk reads a deleted record the way the plain walk does: it follows none of its links,
+    /// though the deleted list's Items still read.</summary>
+    [Fact]
+    public void TheRecordsWalksFieldPathsFollowNoneOfADeletedRecordsLinks()
+    {
+        var gone = _w.Id(D, "GoneList");
+        Assert.DoesNotContain("HcIsoDeadStatic", WalkWith(gone, new RecordsTools.RecordsWalk { depth = 2 }));
+        Assert.DoesNotContain("HcIsoDeadStatic", WalkWith(gone, new RecordsTools.RecordsWalk { depth = 2, seed_paths = new[] { "Items" } }));
+        var followed = WalkWith(_w.Id(D, "Holder"), new RecordsTools.RecordsWalk { depth = 3, follow = "Items" });
+        Assert.Contains("HcIsoDeadGoneList", followed);
+        Assert.DoesNotContain("HcIsoDeadStatic", followed);
+    }
+
     [Fact]
     public void TheRecordsWalkFromADeletedThrowingRecordAnswers()
     {

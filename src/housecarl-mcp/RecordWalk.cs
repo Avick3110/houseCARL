@@ -268,6 +268,8 @@ internal sealed partial class RecordReads
                 body = up;
             }
 
+            // A deleted record links to nothing, as the one link door says (RecordLinks).
+            if (DeletedRecordRule.HasNoLiveBody(body)) return new List<FormKey>();
             var (links, n) = ReadEngine.CollectLinksAt(body, hops == 0 ? segs : segs[hops..]);
             note = n;
             return links ?? new List<FormKey>();
