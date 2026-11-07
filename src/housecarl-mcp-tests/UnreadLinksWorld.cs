@@ -41,11 +41,16 @@ public sealed class UnreadLinksWorld : IDisposable
     /// <summary>By plugin: its list, perk, spell and static, keyed "List", "Perk", "Spell", "Static"; Dead's also "GoneList", "Holder", "GoneTopic", "Quest", "Info".</summary>
     public Dictionary<string, Dictionary<string, FormKey>> Keys { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>An empty FormList in the master, for copy's target= lane.</summary>
+    public FormKey Target { get; }
+
     public UnreadLinksWorld()
     {
         // The lenient and corrupt perks' ability spell lives in a master, so the asset walk counts it as a boundary, once per link.
         var baseMod = new SkyrimMod(ModKey.FromFileName(BaseMaster), SkyrimRelease.SkyrimSE);
         var baseSpell = baseMod.Spells.AddNew(); baseSpell.EditorID = "HcIsoBaseSpell";
+        var target = baseMod.FormLists.AddNew(); target.EditorID = "HcIsoTarget";
+        Target = target.FormKey;
         baseMod.BeginWrite.ToPath(_mo2.InMod("HcIsoBaseMod", baseMod.ModKey)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         foreach (var plugin in new[] { Lenient, Dead, Corrupt })
