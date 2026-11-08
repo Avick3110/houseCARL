@@ -174,7 +174,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>The note counting the NPCs a walk reached past a seed and kept as boundaries.</summary>
     internal static string NpcBoundaryNote(int count)
-        => $"{count} NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.";
+        => $"{count} NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records= to walk it, or name Npc in walk.through beside every other record type to keep, since a set walk.through enters only the types it names.";
 
     /// <summary>The record cycles a walk found, each stated as its loop of records, and whether the search cap stopped it.</summary>
     internal sealed record RecordCycles(IReadOnlyList<string> Loops, bool Capped);

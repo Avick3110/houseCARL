@@ -107,8 +107,9 @@ public static class AssetTools
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
                      "through 'winner', its own plugin; links into other plugins are counted as boundaries. An NPC the walk reaches " +
                      "past a seed (a quest alias's, a location's unique actor, a race's preset, a script property's, a template) is a " +
-                     "boundary too, not entered (no files, no links), and counted in a note: seed it with records=, or name Npc in " +
-                     "walk.through, to walk it (entered so, it gets no FaceGen). A loop of records the " +
+                     "boundary too, not entered (no files, no links), and counted in a note: seed it with records= to walk it, or name Npc " +
+                     "in walk.through beside every other record type to keep, since through's record types enter only those types " +
+                     "(entered so, it gets no FaceGen). A loop of records the " +
                      "walk enters is counted in a note (recorded, not an error), a lower bound: one per link the search finds closing " +
                      "a loop, none for a loop met again through a record already searched, and none for a loop through a record " +
                      "not entered (past walk.depth or walk.max_nodes, a reached NPC, or in another plugin); the format=json walk answer " +
