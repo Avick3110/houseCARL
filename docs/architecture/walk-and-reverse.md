@@ -73,14 +73,16 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
 ## One walk grammar
 
 - `WalkGrammar` (`src/housecarl-mcp/WalkGrammar.cs`) is the one parse of a walk's values and seeds (#1317). Every
-  walk calls it and nothing else parses these values, so the names, defaults and refusal words are the same on every
-  walk by construction. `Parse` takes `depth`, `max_nodes`, `through` (already read through the list door) and
+  walk calls it and nothing else parses these values, so the names and defaults are the same on every walk by
+  construction, and so are the refusal words, except where the asset walk's edge kinds come in (below). `Parse` takes `depth`, `max_nodes`, `through` (already read through the list door) and
   `exclusions` plus the asking walk's default depth and budget reading, and returns typed `Values` or one refusal:
   depth below 1; max_nodes below 1, or above `RecordsWalk.Ceiling` on a per-seed reading only (forward, carrier); an
   empty `through`; a `through` or `exclusions` entry naming no type; a blank `match`; a severity that is missing or
   not stop/refuse. On the asset walk (`edgeKinds`), a `through` token is a record type or one of the file edge kinds
   (`WalkEdgeKind`, assets.md "Walking the links"), carried apart in `Values.Through` and `Values.Edges`; one that is
-  neither is refused naming both kinds of value, and `seed` is refused (seed rows are always shown). The records walk
+  neither is refused naming both kinds of value, and `seed` is refused (seed rows are always shown); there an empty
+  `through` is refused naming the edge kinds too, and an `exclusions` entry that is an edge kind is refused by name,
+  pointing at `through`. The records walk
   refuses an edge kind by name and any other non-type in its words as before (#1278). `through` and `exclusions` expand to display names (a polymorphic base to its arms), each
   exclusion type once at its first entry, so `[{Global, stop}, {GlobalFloat, refuse}]` stops at every global and
   copy's `ClosureWalk` dictionary never sees a duplicate.

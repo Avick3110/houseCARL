@@ -431,7 +431,8 @@ read is a note, and the walk does not go past it (#1316). Each record contribute
   lists included) marked one of N; a loop or an unresolved link is a note naming the chain, and the other members
   keep their pairs. A root Mutagen names no pair for is a note with the door's reason. The race and the template
   members are read through the record sources, then the active order. An NPC the walk enters past a seed gets no
-  FaceGen: one note counts those NPCs and says to seed them (#1278; DECISIONS 2026-11-07 (26), F2);
+  FaceGen: one note counts those NPCs and says to seed them (#1278; DECISIONS 2026-11-07 (26), F2), leaving out any
+  NPC a seed's face door asked for (its template chain and leveled-template members), whose face is the seed's;
 - on a dialogue line the walk enters (a seed, or one a form link reaches, such as shared response data), the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
   the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does (shipped by the order or by
   `source_provider=`, so a disabled donor's format counts); both listed, with no claim on which
@@ -450,12 +451,16 @@ seed NPCs' Traits template chains (none past the record cap), one round per hop 
 cap, each round with its NPCs' races (`MemberReads.Templates`). A voice's speaker answers from the walk's read, else
 is read as a set of one. Every member read is kept by key for the whole walk.
 
-Each followed form link (inside the home plugins, within `walk.depth`, a record's link to itself too) is recorded, and
-after the walk `GraphCycles.Find` reports the loops over the records entered, capped at `RecordReads.WalkCycleCap`
-(200), the records walk's per-seed cap, here once for the shared budget (#1278; DECISIONS 2026-11-08 (3), C2). The
-text answer counts them in one note ("recorded, not an error") and, at the cap, says so in a second; the json answer
-lists each loop under `cycles` (`cycles_capped` at the cap) and a spilled or `to_file=` file carries each as a
-`walk cycle:` manifest note. A walk with no loop has neither member. File edges are not searched: a script's parent
+Each followed form link (inside the home plugins, a record's link to itself too, and a link out of a record at
+`walk.depth`) is recorded, and after the walk `GraphCycles.Find` reports the loops over the records entered, capped at
+`RecordReads.WalkCycleCap` (200), the records walk's per-seed cap, here once for the shared budget (#1278; DECISIONS
+2026-11-08 (3), C2). A link to a record never entered closes no loop. The count is one per link closing a loop and a
+lower bound: a loop through a record past `walk.depth` or past `walk.max_nodes` is not seen. The text answer counts
+them in one note ("recorded, not an error") and, at the cap, says so in a second; the json walk answer (not
+`counts_only=`) lists each loop under `cycles` (`cycles_capped` at the cap) and a spilled or `to_file=` file carries
+each as a `walk cycle:` manifest note. A walk with no loop has neither member. At `max_chars` the json `cycles` take
+the room the rest of the document leaves, the nodes first: each loop whole, in order, then one entry counting the
+loops held back, and a walk whose loops do not all fit spills, as one whose nodes do not. File edges are not searched: a script's parent
 cannot loop and compile, and no mesh names a mesh.
 
 Each file node then resolves: from-source when `source_provider=` ships it (`AssetSourceSelection`, so a disabled mod
@@ -694,7 +699,9 @@ provided either; the generic lane does not, because it legitimately answers for 
   and an off-order line seed is voiced (`AnOffOrderLineSeedIsVoiced`); an edge kind shows its rows and counts the rest
   (`AnEdgeKindShowsItsRowsAndCountsTheRest`), reads what the whole walk reads (`AnEdgeKindLeavesTheWalkWhole`) and
   chooses a path-only walk's rows (`AnEdgeKindChoosesAPathOnlyWalksRows`); a loop of records is counted, listed in json
-  and the file, and capped (`ALoopOfRecordsIsCountedAndListed`). `AssetWalkDoorTests` — each depth
+  and the file, and capped (`ALoopOfRecordsIsCountedAndListed`), closed at the depth cap (`ALoopClosedAtTheDepthCapIsCounted`)
+  and bounded in json by `max_chars` (`AJsonWalksCyclesStayWithinMaxChars`); a seed's template chain is not counted
+  faceless (`ASeedsTemplateChainIsNotCountedFaceless`). `AssetWalkDoorTests` — each depth
   reads each (plugin, group) once; no line is found off an NPC, with no reverse index and no topic or cell group read
   (`NoLineIsFoundOffAnNpc`); a reached NPC has no FaceGen and is counted (`AReachedNpcHasNoFaceGen`); the nodes, edges and notes are a queue's
   (`TheAnswerIsTheOneAQueueGave`); a seed's template member and a line's speaker come from the walk's read, with no

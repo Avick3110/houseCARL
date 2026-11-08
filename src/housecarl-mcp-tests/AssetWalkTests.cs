@@ -594,7 +594,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     public void ALoopOfRecordsIsCountedAndListed()
     {
         var loop = $"{_w.Id("HcWalkLoopA")} (HcWalkLoopA) -> {_w.Id("HcWalkLoopB")} (HcWalkLoopB) -> {_w.Id("HcWalkLoopA")} (HcWalkLoopA)";
-        const string Count = "1 record cycle(s) found (recorded, not an error): a record the walk reached again from itself, one per closing link; the loops are listed in format=json and in a to_file= file.";
+        const string Count = "1 record cycle(s) found (recorded, not an error): one per link that closes a loop back to a record the walk entered, a lower bound, since a loop closing past walk.depth or walk.max_nodes is not seen; each loop is listed in the format=json walk answer (not counts_only=) and in a to_file= or spilled file.";
         var seed = new[] { _w.Id("HcWalkLoopA") };
         var text = AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On);
         Assert.Contains(Count, text);
