@@ -106,7 +106,7 @@ public static class AssetTools
                      "array (counts_only=: their count only; none ships: no such line, and the count reads from_source=0). " +
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
                      "through 'winner', its own plugin; links into other plugins are counted as boundaries. An NPC the walk reaches " +
-                     "past a seed (a quest alias's, a location's unique actor, a race's preset, a script property's, a template) is a " +
+                     "past a seed (a quest alias's actor, a location's unique actor, a race's chargen preset, a script property, a template) is a " +
                      "boundary too, not entered (no files, no links), and counted in a note: seed it with records= to walk it, or name Npc " +
                      "in walk.through beside every other record type to keep, since through's record types enter only those types " +
                      "(entered so, it gets no FaceGen). A loop of records the " +
