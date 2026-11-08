@@ -268,7 +268,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     public void TheWalkStillStopsThreeHopsOut()
     {
         var d = Walk("HcDoorChain0");
-        Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=3 form-link hops from a seed and were not entered; raise walk.depth to walk them." },
+        Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=3 form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
                      d.Notes);
     }
 
@@ -280,7 +280,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcDoorChain0"] }, BothPlugins, null,
                                  values: WalkGrammar.Values.Defaults(1));
         Assert.Empty(d.Cycles);
-        Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth to walk them." },
+        Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
                      d.Notes);
     }
 
