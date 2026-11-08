@@ -201,10 +201,14 @@ static class AssetWalkWire
     {
         var nodes = listed.Select(n => JsonSerializer.Serialize(NodeDoc(n))).ToList();
         var doc = Head(d, selectorNotes);
-        // The record cycles, only when the walk found any, so a walk with none is the document it always was.
+        // The record cycles, only when the walk found any, so a walk with none is the document it always was. At a cap
+        // they are measured as their held-back entry alone and take the room the nodes leave, below.
+        string Held(int count) => $"[{count} more cycle(s) held back at max_chars — "
+                                  + (spill?.Spill is not null ? "every cycle is in the results file]" : "raise max_chars, or to_file= for the complete walk]");
+        bool boundCycles = cap > 0 && d.Cycles.Count > 0;
         if (d.Cycles.Count > 0)
         {
-            doc["cycles"] = d.Cycles;
+            doc["cycles"] = boundCycles ? new List<string> { Held(d.Cycles.Count) } : d.Cycles;
             if (d.CyclesCapped) doc["cycles_capped"] = true;
         }
         doc["nodes"] = null;
@@ -236,7 +240,32 @@ static class AssetWalkWire
         if (spill is not null) doc["nodes_shown"] = shown;
         TransportCounts? acct = widest is null ? null
             : TransportAccounting.Tally(d.Nodes.Count, listed.Count, shown, window, notes);
+        if (boundCycles)
+        {
+            var (fit, heldBack) = FitCycles(d.Cycles, Held, cap - Emit(doc, nodes, shown, spill, acct).Length);
+            doc["cycles"] = fit;
+            // A walk whose loops do not all fit spills, as one whose nodes do not.
+            truncated |= heldBack;
+        }
         return Emit(doc, nodes, shown, spill, acct);
+    }
+
+    /// <summary>The cycles that fit in <paramref name="room"/> more chars than their held-back entry alone takes: the
+    /// whole list when it fits, else each loop whole in order, then the entry counting the rest.</summary>
+    static (IReadOnlyList<string> Fit, bool HeldBack) FitCycles(IReadOnlyList<string> cycles, Func<int, string> held, int room)
+    {
+        static int Cost(string s) => JsonSerializer.Serialize(s).Length;
+        // The whole list replaces the entry, one separator between loops.
+        if (cycles.Sum(c => Cost(c) + 1) - 1 - Cost(held(cycles.Count)) <= room) return (cycles, false);
+        var kept = new List<string>();
+        foreach (var c in cycles)
+        {
+            if (Cost(c) + 1 > room) break;
+            room -= Cost(c) + 1;
+            kept.Add(c);
+        }
+        kept.Add(held(cycles.Count - kept.Count));
+        return (kept, true);
     }
 
     /// <summary>The key in a walk document where the spill state's members are written.</summary>
