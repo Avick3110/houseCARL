@@ -592,6 +592,14 @@ public sealed class WalkPartsTests
         // The "*" paths are read on every type; they are checked on a type that has a model.
         var getter = type == WalkParts.AnyType ? typeof(IStaticGetter) : Skyrim.GetType($"Mutagen.Bethesda.Skyrim.I{type}Getter");
         Assert.True(getter is not null && typeof(IMajorRecordGetter).IsAssignableFrom(getter), $"'{type}' names no Skyrim record type");
+        // The walk keys a record by its read body's type name, a binary overlay's with the suffix dropped, so the key
+        // must be one a read reports, not only an interface's name.
+        if (type != WalkParts.AnyType)
+        {
+            var overlay = Skyrim.GetType($"Mutagen.Bethesda.Skyrim.{type}BinaryOverlay");
+            Assert.True(overlay is not null && getter!.IsAssignableFrom(overlay), $"'{type}' is no type name a read reports");
+            Assert.Equal(type, RecordNaming.StripOverlay(overlay!.Name));
+        }
         var at = getter!;
         foreach (var seg in path.Split('.'))
         {
