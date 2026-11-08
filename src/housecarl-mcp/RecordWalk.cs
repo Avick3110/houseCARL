@@ -167,7 +167,7 @@ internal sealed partial class RecordReads
 
         // Each followed path's segments; null for the closure, a list holding "*" included.
         List<string[]>? followSegs = null;
-        bool closure = follow is null || follow.All(string.IsNullOrWhiteSpace) || follow.Any(p => p.Trim() == "*");
+        bool closure = follow is null || WalkGrammar.FollowsEveryLink(follow);
         if (!closure)
         {
             followSegs = new();

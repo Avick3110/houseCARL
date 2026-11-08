@@ -32,17 +32,7 @@ public static class OwnedChildUnion
     public static IReadOnlyDictionary<string, ChildUnion>? Compute(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, FormKey fk,
         string subjectPlugin, IMajorRecordGetter subjectBody, IReadOnlyDictionary<string, OwnedChildShape> fields)
-    {
-        if (fields.Count == 0) return null;
-        var touching = view.TouchingPlugins(fk);
-        if (touching is null || touching.Count <= 1) return null;
-        // A sibling plugin that will not OPEN must not fault the read; it becomes an unreadable the note names.
-        return Assemble(touching, subjectPlugin, subjectBody, fields, plugin =>
-        {
-            try { return BodyGather.Copies(view, session, new[] { fk }, _ => plugin)(fk); }
-            catch { return null; }
-        });
-    }
+        => ComputeMany(view, session, new[] { (fk, subjectPlugin, subjectBody, fields) })[0];
 
     /// <summary><see cref="Compute"/> over many records at once: each touching plugin's copies are read in one pass of
     /// that plugin per call, not one read per record and plugin. Each answer is the one <see cref="Compute"/> gives.</summary>
@@ -51,7 +41,8 @@ public static class OwnedChildUnion
         IReadOnlyList<(FormKey Key, string SubjectPlugin, IMajorRecordGetter Body, IReadOnlyDictionary<string, OwnedChildShape> Fields)> items)
     {
         var touching = items.Select(i => i.Fields.Count == 0 ? null : view.TouchingPlugins(i.Key)).ToList();
-        // Every other toucher's key, by plugin, read in one pass of each plugin; a plugin or key that will not read is null.
+        // Every other toucher's key, by plugin, read in one pass of each plugin; a plugin or key that will not read is
+        // null, an unreadable the note names (#308), never a fault of the read.
         var wanted = new Dictionary<string, List<FormKey>>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < items.Count; i++)
             if (touching[i] is { Count: > 1 } t)
@@ -66,10 +57,8 @@ public static class OwnedChildUnion
             catch { get = null; }
             foreach (var k in keys)
             {
-                IMajorRecordGetter? body = null;
-                try { body = get?.Invoke(k); }
-                catch { body = null; }
-                read[(plugin, k)] = body;
+                try { read[(plugin, k)] = get?.Invoke(k); }
+                catch { read[(plugin, k)] = null; }
             }
         }
         var result = new IReadOnlyDictionary<string, ChildUnion>?[items.Count];

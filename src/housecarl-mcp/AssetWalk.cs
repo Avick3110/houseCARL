@@ -249,7 +249,7 @@ internal sealed partial class AssetLayers
         int entered = 0;
         // One buffer for every entered record's followed links, one for its whole link set, cleared by each read.
         var links = new List<FormKey>();
-        var allLinks = new List<FormKey>();
+        var allLinks = new HashSet<FormKey>();
         var unreadParts = new List<string>();
 
         // True when walk.exclusions or walk.through keeps the record out: a stop is a boundary, a type outside through
@@ -348,9 +348,12 @@ internal sealed partial class AssetLayers
                     foreach (var u in unreadParts) notes.Add($"{label}: the links under {u} could not be read, so the walk does not follow them");
                     if (follow is null) ChildrenOf(body, children!.GetValueOrDefault(fk), label, links, notes);
                     // The rest of its form links, counted per type; the link door's own faults are said by a walk that follows them.
-                    RecordLinks.List(body, allLinks, out _);
-                    var kept = links.ToHashSet();
-                    int left = allLinks.Where(k => !k.IsNull && k != fk && kept.Add(k)).Count();
+                    allLinks.Clear();
+                    RecordLinks.Collect(body, allLinks);
+                    allLinks.Remove(fk);
+                    allLinks.Remove(FormKey.Null);
+                    allLinks.ExceptWith(links);
+                    int left = allLinks.Count;
                     if (left > 0) notFollowed[type] = notFollowed.GetValueOrDefault(type) + left;
                 }
                 var outgoing = edges[fk] = new List<FormKey>();

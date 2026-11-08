@@ -251,6 +251,9 @@ public static class ReadEngine
     public const string NoFieldPrefix = "(no field ";
 
     /// <summary>Is this note the no-such-field answer, as opposed to a read fault?</summary>
+    /// <summary>How a link read of a field that holds no links starts.</summary>
+    public const string NoLinksPrefix = "(no links:";
+
     public static bool IsNoSuchFieldNote(string? note) =>
         note is not null && note.StartsWith(NoFieldPrefix, StringComparison.Ordinal);
 
@@ -348,7 +351,7 @@ public static class ReadEngine
                     Add(link.FormKey);
                     break;
                 case string:
-                    return (null, $"(no links: '{display}' is a string, not a link-bearing field)");
+                    return (null, $"{NoLinksPrefix} '{display}' is a string, not a link-bearing field)");
                 case System.Collections.IEnumerable list:
                     foreach (var item in list)
                     {
@@ -361,7 +364,7 @@ public static class ReadEngine
                     foreach (var l in sub.EnumerateFormLinks()) Add(l.FormKey);
                     break;
                 default:
-                    return (null, $"(no links: '{display}' is not a link-bearing field)");
+                    return (null, $"{NoLinksPrefix} '{display}' is not a link-bearing field)");
             }
             return (keys, null);
         }
