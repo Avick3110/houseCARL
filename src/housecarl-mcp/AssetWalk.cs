@@ -339,7 +339,7 @@ internal sealed partial class AssetLayers
                 {
                     // Through the one link door: a deleted record links to nothing, a perk read leniently is followed and
                     // said, and one whose links cannot be read is said and not followed.
-                    if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add($"{label}: its links were read leniently — {RecordReads.LenientNoteBody(fk, lenient)}");
+                    if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add(LenientNote(label, fk, lenient));
                     if (unread is not null) notes.Add($"{label}: its links could not be read, so the walk does not go past it — {unread}");
                 }
                 else
@@ -348,8 +348,8 @@ internal sealed partial class AssetLayers
                     WalkParts.Links(body, follow ?? WalkParts.For(type), links, unreadParts);
                     foreach (var u in unreadParts) notes.Add($"{label}: the links under {u} could not be read, so the walk does not follow them");
                     if (follow is null) ChildrenOf(body, children!.GetValueOrDefault(fk), label, links, notes);
-                    // The rest of its own form links, counted per type; the link door's own faults are said by a walk that follows them.
-                    OwnLinks(body, follow is null, allLinks, linkBuffer);
+                    // The rest of its own form links, counted per type, read through the link door, which says a lenient read.
+                    if (OwnLinks(body, follow is null, allLinks, linkBuffer) is { } lenient) notes.Add(LenientNote(label, fk, lenient));
                     allLinks.Remove(fk);
                     allLinks.Remove(FormKey.Null);
                     allLinks.ExceptWith(links);
@@ -395,13 +395,14 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>The form links <paramref name="body"/> holds, into <paramref name="into"/>, which is cleared first; when
-    /// <paramref name="ownOnly"/>, less those its own child records hold, which the walk enters and counts itself.</summary>
-    static void OwnLinks(IMajorRecordGetter body, bool ownOnly, HashSet<FormKey> into, List<FormKey> buffer)
+    /// <paramref name="ownOnly"/>, less those its own child records hold, which the walk enters and counts itself.
+    /// Answers the link door's lenient note.</summary>
+    static string? OwnLinks(IMajorRecordGetter body, bool ownOnly, HashSet<FormKey> into, List<FormKey> buffer)
     {
         into.Clear();
-        RecordLinks.Collect(body, into);
+        var lenient = RecordLinks.Collect(body, into);
         var fields = OwnedChildContent.Fields(body);
-        if (!ownOnly || fields.Count == 0 || body is not IMajorRecordGetterEnumerable nested) return;
+        if (!ownOnly || fields.Count == 0 || body is not IMajorRecordGetterEnumerable nested) return lenient;
         // Mutagen's walk of a parent hands over each child's links in turn, so a link stays the body's own only while it
         // occurs more often in the body's walk than in its children's.
         RecordLinks.List(body, buffer, out _);
@@ -415,7 +416,11 @@ internal sealed partial class AssetLayers
             foreach (var l in links.EnumerateFormLinks()) count[l.FormKey] = count.GetValueOrDefault(l.FormKey) - 1;
         }
         foreach (var (k, n) in count) if (n <= 0) into.Remove(k);
+        return lenient;
     }
+
+    /// <summary>The note on a record whose links the link door read leniently.</summary>
+    static string LenientNote(string label, FormKey fk, string lenient) => $"{label}: its links were read leniently — {RecordReads.LenientNoteBody(fk, lenient)}";
 
     /// <summary>The note counting, per holding type, the form links the walk's follow rule left unwalked.</summary>
     internal static string NotFollowedNote(IReadOnlyDictionary<string, int> perType, bool partFields)

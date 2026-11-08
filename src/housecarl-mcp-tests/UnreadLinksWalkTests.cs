@@ -45,16 +45,26 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
 
     // ---- the asset walk ----
 
-    AssetWalkData Asset(string plugin) => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[plugin]["List"] }, null, null, values: Walks.EveryLink());
+    /// <summary>The walk from the plugin's list under walk.follow <paramref name="follow"/>: "*" every link, null the
+    /// default part fields, else that one field.</summary>
+    AssetWalkData Asset(string plugin, string? follow = "*")
+        => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[plugin]["List"] }, null, null,
+                            values: follow is null ? null : WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { Follow = new[] { follow } });
 
     static List<string> Paths(AssetWalkData d) => d.Nodes.Select(n => n.Path).ToList();
 
-    [Fact]
-    public void TheAssetWalkFollowsALenientPerksRecoveredLinksAndSaysSo()
+    /// <summary>Under "*" the perk's recovered static is followed; the default and a named walk.follow follow no perk
+    /// field, so they list the two head parts and say the lenient read off the count's read.</summary>
+    [Theory]
+    [InlineData("*")]
+    [InlineData(null)]
+    [InlineData("Items")]
+    public void TheAssetWalkFollowsALenientPerksRecoveredLinksAndSaysSo(string? follow)
     {
-        var d = Asset(L);
+        var d = Asset(L, follow);
         Assert.Null(d.Refusal);
-        Assert.Equal(new[] { UnreadLinksWorld.BeforeNif, UnreadLinksWorld.AfterNif, UnreadLinksWorld.RecoveredNif }, Paths(d));
+        Assert.Equal(follow == "*" ? new[] { UnreadLinksWorld.BeforeNif, UnreadLinksWorld.AfterNif, UnreadLinksWorld.RecoveredNif }
+                               : new[] { UnreadLinksWorld.BeforeNif, UnreadLinksWorld.AfterNif }, Paths(d));
         Assert.Contains(d.Notes, n => n.Contains(_w.Id(L, "Perk")) && n.Contains("its links were read leniently"));
         Assert.Contains(d.Notes, n => n.Contains(_w.Id(L, "Perk")) && n.Contains("part of the paths it lists could not be read"));
     }
@@ -66,9 +76,12 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.Equal(text.IndexOf(id, StringComparison.Ordinal), text.LastIndexOf(id, StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void TheAssetWalksLenientNoteNamesThePerksFormIdOnce()
-        => NamesOnce(_w.Id(L, "Perk"), Asset(L).Notes.Single(n => n.Contains("its links were read leniently")));
+    [Theory]
+    [InlineData("*")]
+    [InlineData(null)]
+    [InlineData("Items")]
+    public void TheAssetWalksLenientNoteNamesThePerksFormIdOnce(string? follow)
+        => NamesOnce(_w.Id(L, "Perk"), Asset(L, follow).Notes.Single(n => n.Contains("its links were read leniently")));
 
     /// <summary>Mutagen hands over the master's spell link before the refused effect throws, and the lenient re-read
     /// starts over: the default walk, which follows no perk field, counts the perk's two links (the static and the
