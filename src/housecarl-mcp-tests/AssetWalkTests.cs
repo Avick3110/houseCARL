@@ -555,10 +555,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
             Assert.Contains("walk cycle: " + loop, manifest.RootElement.GetProperty("notes").EnumerateArray().Select(n => n.GetString()));
 
         var many = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkSelves"] }, null, null);
-        Assert.Equal(RecordReads.WalkCycleCap, many.Cycles!.Count);
+        Assert.Equal(RecordReads.WalkCycleCap, many.Cycles.Count);
         Assert.True(many.CyclesCapped);
         Assert.Contains($"the cycle search stopped at {RecordReads.WalkCycleCap} loops — more loops are there than are counted.", many.Notes);
-        Assert.Empty(Walk(records: new[] { "HcWalkHero" }).Cycles!);
+        Assert.Empty(Walk(records: new[] { "HcWalkHero" }).Cycles);
     }
     /// <summary>A disabled donor shipping a line as .xwm + .lip with nothing active: both from the source and in the
     /// place set. An active .fuz beside a donor .xwm: both listed.</summary>

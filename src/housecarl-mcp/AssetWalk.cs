@@ -29,9 +29,9 @@ public sealed record AssetWalkData(
     IReadOnlyList<string> RootFailures,
     IReadOnlyList<string> Warnings,
     string ProfileName,
-    string? Refusal = null,
-    IReadOnlyList<string>? Cycles = null,
-    bool CyclesCapped = false);
+    IReadOnlyList<string> Cycles,
+    bool CyclesCapped,
+    string? Refusal = null);
 
 internal sealed partial class AssetLayers
 {
@@ -66,7 +66,7 @@ internal sealed partial class AssetLayers
         var poles = fromSource is { Count: > 0 } ? fromSource : new[] { SourcePoles.Winner };
         AssetWalkData Done(List<AssetWalkNode> nodes, List<string> notes, bool truncated, string? refusal = null, RecordCycles? cycles = null)
             => new(nodes, notes, sourceProvider, seedRecords.Count > 0 ? poles : Array.Empty<string>(), truncated, view.BsaFailures, view.RootFailures, captured.Warnings,
-                   captured.ProfileName, refusal, cycles?.Loops ?? Array.Empty<string>(), cycles?.Capped == true);
+                   captured.ProfileName, cycles?.Loops ?? Array.Empty<string>(), cycles?.Capped == true, refusal);
 
         if (seedPaths.Count == 0 && seedRecords.Count == 0 && badSeeds.Count == 0)
             return Done(new(), new(), false, "error: the walk has no seed — pass asset_paths=, under=, provider=, formids= or records=.");
@@ -352,9 +352,8 @@ internal sealed partial class AssetLayers
             notes.Add($"{facelessNpcs} NPC(s) the walk reached past a seed were entered without their FaceGen (only a seed NPC's face is listed); seed an NPC with records= to list its FaceGen.");
 
         // Every loop over the followed links, capped as the records walk caps its search (one cap, the shared budget's).
-        var found = GraphCycles.Find(edges, RecordReads.WalkCycleCap, out var cyclesCapped);
-        string Named(FormKey k) => $"{FormIdToken.Of(k)} ({editorIds.GetValueOrDefault(k) ?? "<no editorid>"})";
-        return new RecordCycles(found.Select(path => string.Join(" -> ", path.Select(Named)) + " -> " + Named(path[0])).ToList(), cyclesCapped);
+        var loops = RecordReads.CycleLines(edges, k => editorIds.GetValueOrDefault(k), out var cyclesCapped);
+        return new RecordCycles(loops, cyclesCapped);
     }
 
     /// <summary>Races, template members and speakers, read through the record sources, else off the active order, as the
