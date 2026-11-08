@@ -346,6 +346,18 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         Assert.DoesNotContain(d.Notes, n => n.Contains("were not walked"));
     }
 
+    /// <summary>walk.follow "*" is a superset of the default on a cell: it enters the cell's children across both
+    /// plugins too, so the base plugin's chair and chest stay beside the override's lamp.</summary>
+    [Theory]
+    [InlineData(AssetWalkPartsWorld.ChairNif)]
+    [InlineData(AssetWalkPartsWorld.ChestNif)]
+    [InlineData(AssetWalkPartsWorld.LampNif)]
+    public void FollowEveryLinkKeepsTheCellsPlacedBases(string path)
+    {
+        var d = Walk("HcShapeCell", Values("{\"follow\": \"*\"}"));
+        Assert.True(Has(d, path), path + " missing from:\n" + Paths(d));
+    }
+
     /// <summary>The links-not-followed note counts, per holding type, every form link an entered record holds outside its
     /// part fields: the sword's pick-up sound (one on Weapon), and nothing on the static or the sound it never entered.</summary>
     [Fact]
