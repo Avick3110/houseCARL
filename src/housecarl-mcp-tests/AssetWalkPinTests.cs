@@ -15,7 +15,7 @@ namespace HousecarlMcpTests;
 public sealed class AssetWalkPinWorld : IDisposable
 {
     readonly ScratchMo2 _mo2 = new("hc-walk-pin-");
-    public static readonly ModKey A = ModKey.FromFileName("HcPinA.esp"), B = ModKey.FromFileName("HcPinB.esp");
+    public static readonly ModKey A = ModKey.FromFileName("HcPinA.esp"), B = ModKey.FromFileName("HcPinB.esp"), C = ModKey.FromFileName("HcPinC.esp");
     public const string ListedNif = @"meshes\hcpin\listed.nif";
     public const string ArmaNif = @"hcpin\body_1.nif";
     public const string FragmentFile = "HcPinFrag";
@@ -96,12 +96,19 @@ public sealed class AssetWalkPinWorld : IDisposable
         Keys["HcPinOrd"] = ord.FormKey;
         a.BeginWrite.ToPath(_mo2.InMod("PinA", A)).WithLoadOrder(new ISkyrimModGetter[] { b, a }).Write();
 
+        // C masters A alone: its list names A's seed list, whose items are B's X, so B is neither C nor C's master.
+        var c = new SkyrimMod(C, SkyrimRelease.SkyrimSE);
+        var seedC = c.FormLists.AddNew("HcPinSeedC");
+        seedC.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(Keys["HcPinSeedA"]));
+        Keys["HcPinSeedC"] = seedC.FormKey;
+        c.BeginWrite.ToPath(_mo2.InMod("PinC", C)).WithLoadOrder(new ISkyrimModGetter[] { b, a, c }).Write();
+
         var files = Path.Combine(_mo2.ModsDir, "PinFiles");
         NifSourceLaneInstance.Loose(files, Wav, new byte[] { 1 });
         NifSourceLaneInstance.Loose(files, FxNif, AssetWalkWorld.FxMesh(@"textures\hcpin\fx.dds", FxTri));
 
-        var names = new[] { B, A }.Select(k => k.FileName.String).ToList();
-        _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")), "+PinFiles\r\n+PinA\r\n+PinB\r\n");
+        var names = new[] { B, A, C }.Select(k => k.FileName.String).ToList();
+        _mo2.Profile(string.Join("\r\n", names) + "\r\n", string.Join("", names.Select(n => "*" + n + "\r\n")), "+PinFiles\r\n+PinC\r\n+PinA\r\n+PinB\r\n");
         Svc = _mo2.Open();
     }
 
@@ -178,5 +185,16 @@ public sealed class AssetWalkPinTests : IClassFixture<AssetWalkPinWorld>
         var d = Walk("HcPinSeedA");
         Assert.Contains("HcPinY", Node(d, AssetWalkPinWorld.YNif).PulledBy);
         Assert.DoesNotContain(d.Notes, n => n.Contains("boundaries, not walked"));
+    }
+
+    /// <summary>A from_source= walk enters a record in a plugin it never named that is not its master either: C's list
+    /// reaches A's list, read off the load order, and its item X in B, whose extra part Y lists its mesh.</summary>
+    [Fact]
+    public void AFromSourceWalkEntersAThirdPluginItNeverNamed()
+    {
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcPinSeedC"] }, new[] { AssetWalkPinWorld.C.FileName.String }, null);
+        var y = Node(d, AssetWalkPinWorld.YNif);
+        Assert.Contains("HcPinY", y.PulledBy);
+        Assert.EndsWith("(read from the load order: no from_source plugin has it)", y.PulledBy);
     }
 }
