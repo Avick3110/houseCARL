@@ -47,8 +47,8 @@ public static class WalkParts
             if (links is null)
             {
                 // Absent, no such field, or not a link-bearing field: no links, not a fault.
-                if (note is not null && note != ReadEngine.AbsentNote && !note.StartsWith(ReadEngine.NoFieldPrefix, StringComparison.Ordinal)
-                    && !note.StartsWith("(no links:", StringComparison.Ordinal))
+                if (note is not null && !ReadEngine.IsAbsentNote(note) && !ReadEngine.IsNoSuchFieldNote(note)
+                    && !note.StartsWith(ReadEngine.NoLinksPrefix, StringComparison.Ordinal))
                     unread.Add($"{path} {note}");
                 continue;
             }
