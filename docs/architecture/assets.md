@@ -409,22 +409,42 @@ ceiling-spill artifact row carries the same `links` member (and the manifest's r
 `asset_status walk=true` is SPEC §3's construct with a second edge kind, record or file → file
 (`AssetLayers.AssetWalk`, `AssetWalkEdges`). It seeds from the selection (every row the selectors chose) and from
 `records=`, read through the `from_source=` pole list the copy uses (`BuildSourceChain`; default `winner`, a plugin
-in a disabled mod by name). From a record it enters form links only into records a named `from_source=` plugin
-defines (every plugin an arm names, base masters kept, which copy's bound set drops; so an override donor's own head
-parts are entered) or, for a seed read through
-`winner`, the seed's own plugin defines, to `walk.depth` hops (default 3), so a base master's records reached from a
-donor's override are boundaries; links into other plugins are counted as boundaries in a note, and records past the
-depth are counted too, so nothing is cut silently. `walk.through`'s record types and `walk.exclusions` are judged as a
+in a disabled mod by name). From a record it follows a link only when the link sits in one of the record's **part
+fields**, plus the record's **child records**, into any plugin, to `walk.depth` hops (default 16, a safety cap; past it
+records are counted in a note), with no seed-plugin rule (DECISIONS 2026-11-08 (20), part fields). The part fields
+are data, not code: `walk-parts.json` in housecarl-core, embedded and read by `WalkParts`, maps a record type (the name
+a read reports) to the field paths whose links hold a part of it, plus `*` paths read on every type: an NPC's head
+parts, hair colour, face texture, skin (`WornArmor`), outfits and far-away model; a head part's extra parts, texture
+set and colour; an armour's addons, template and world model; an addon's skin texture, swap list, models and art
+object; an outfit's, form list's and leveled list's items; a weapon's 1st-person model and template; a placed
+reference's base; a line's shared response data; any model's alternate textures. `WalkPartsTests` checks each entry
+exists on its type. No generated data says whether a field holds a part or a mention (an NPC's `WornArmor` and a race's
+`Skin` both target an armour), which is why the list is hand-kept; every type is still read and listed when seeded or
+reached, so this is not record coverage. A path is read through `ReadEngine.CollectLinksAt`, the records walk's field
+door; a field the type lacks, an absent value or a non-link field gives no links, and a path that cannot be read is a
+note. The child records are the generated child-bearing fields (`OwnedChildContent`, a cell's references, a topic's
+lines, a worldspace's cells): the read body's own, then the union over every plugin that touches the record
+(`OwnedChildUnion.ComputeMany`, each touching plugin's copies read in one pass per depth); a plugin whose copy cannot
+be read is a note. Every other form link an entered record holds (a race, a quest alias, a script property, a sound,
+a keyword) is not walked, and one note counts them per holding type, naming `walk.follow`. `walk.follow` replaces the
+default: one path or a list, read on every record from the seed on (the asset walk has no `seed_paths`), with no child
+records; `*` is every form link through the one link door below, which is the old reach without the plugin rule. A
+record reached past a seed that no `from_source=` arm holds is read off the load order's winner, a round per depth,
+and its label, and so every row it pulls, ends "(read from the load order: no from_source plugin has it)"; a seed no
+arm holds is still a note naming every arm, and a `from_source=` list holding `winner` already reads the order.
+A quest's topics and scenes name the quest, not the quest them, so its dialogue and voice are a selector and a walk,
+two calls the tool text names; the walk follows no link backwards.
+`walk.through`'s record types and `walk.exclusions` are judged as a
 record is entered, and a malformed seed is an error node; both are walk-and-reverse.md's "One walk grammar". A record
-past a seed whose read body is an NPC (a quest alias's actor, a location's unique actor, a race's chargen preset, a
-script property, a template) is a boundary: not entered, so it lists no files, follows no links and spends no
+past a seed whose read body is an NPC (a placed NPC's base, a leveled list's NPC; under `walk.follow`, a quest alias's
+actor, a location's unique actor, a race's chargen preset, a script property, a template) is a boundary: not entered, so it lists no files, follows no links and spends no
 `walk.max_nodes`, and one note counts those NPCs and says to seed them, or to name `Npc` in `walk.through` beside
 every other record type to keep: a set `walk.through` enters only the types it names, so `Npc` alone enters the NPCs
 and leaves every other reached record out (#1371; DECISIONS 2026-11-08 (11)). The rule sits at the one entry door after `walk.exclusions` and
 `walk.through` are judged, so a stop or refuse on `Npc` is unchanged, a `walk.through` without `Npc` still leaves them
 out on the left-out line (one count, one place), and an edge-kind-only `walk.through` enters none. A seed's FaceGen
 still reads its template chain through the face door, which needs no NPC entered. It reads a record's form links only through the one link door (`RecordLinks`,
-docs/architecture/read-engine.md): a deleted record is entered and follows none of them, with no note, except a
+docs/architecture/read-engine.md) under `walk.follow` `*`, and counts the default's unfollowed links through it: a deleted record is entered and follows none of them, with no note, except a
 deleted NPC past a seed, a boundary as any reached NPC since the rule tests only the read body's type; a perk whose
 links read only leniently is followed on what the lenient read recovered, with a note; a record whose links cannot be
 read is a note, and the walk does not go past it (#1316). Each record contributes:
@@ -459,14 +479,13 @@ seed NPCs' Traits template chains (none past the record cap), one round per hop 
 cap, each round with its NPCs' races (`MemberReads.Templates`). A voice's speaker answers from the walk's read, else
 is read as a set of one. Every member read is kept by key for the whole walk.
 
-Each form link out of an entered record (inside the home plugins, a record's link to itself too, and a link out of a
-record at `walk.depth`, which is not followed) is recorded, and after the walk `GraphCycles.Find` reports the loops over the records entered, capped at
+Each link the walk follows out of an entered record (a record's link to itself too, and a link out of a record at
+`walk.depth`, which is not entered) is recorded, and after the walk `GraphCycles.Find` reports the loops over the records entered, capped at
 `RecordReads.WalkCycleCap` (200), the records walk's per-seed cap, here once for the shared budget (#1278; DECISIONS
 2026-11-08 (3), C2). A link to a record never entered closes no loop. The count is a lower bound on the loops: one per
 back edge the search finds, and an edge into a record it already finished is skipped, so a loop met again through one
 is not counted; a loop through a record not entered (past `walk.depth`, past `walk.max_nodes`, a reached NPC kept as a
-boundary, or in a plugin outside
-the home plugins, whose links are boundaries) is not seen. The text answer counts
+boundary, or past a link the walk does not follow) is not seen. The text answer counts
 them in one note ("recorded, not an error") and, at the cap, says so in a second; the json walk answer (not
 `counts_only=`) lists each loop under `cycles` (`cycles_capped` at the cap) and a spilled or `to_file=` file carries
 each as a `walk cycle:` manifest note. A walk with no loop has neither member. At `max_chars` the json `cycles` take
