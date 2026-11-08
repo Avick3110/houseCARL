@@ -151,7 +151,8 @@ internal sealed partial class AssetLayers
         finally { foreach (var o in overlays) { try { o.Dispose(); } catch { /* releasing the off-order overlays */ } } }
 
         if (filesCut)
-            notes.Add($"the walk stopped at {cap} files (the asset_status path bound); what it reached so far is listed.");
+            notes.Add($"the walk stopped at {cap} files (the asset_status path bound); what it reached so far is listed"
+                      + (values.Edges is null ? "." : ", the rows of walk.through's edge kinds shown and the rest counted on the left-out line."));
         // The walk is whole; through's edge kinds choose only the rows shown, so every lane reads the same set.
         if (values.Edges is { } edges)
         {
@@ -164,7 +165,7 @@ internal sealed partial class AssetLayers
         }
         if (cycles is { Loops.Count: > 0 } c)
         {
-            notes.Add($"{c.Loops.Count} record cycle(s) found (recorded, not an error): a record the walk reached again from itself, one per closing link; the loops are listed in format=json and in a to_file= file.");
+            notes.Add($"{c.Loops.Count} record cycle(s) found (recorded, not an error): one per link that closes a loop back to a record the walk entered, a lower bound, since a loop closing past walk.depth or walk.max_nodes is not seen; each loop is listed in the format=json walk answer (not counts_only=) and in a to_file= or spilled file.");
             if (c.Capped) notes.Add($"the cycle search stopped at {RecordReads.WalkCycleCap} loops — more loops are there than are counted.");
         }
         return Done(nodes, notes, truncated, cycles: cycles);

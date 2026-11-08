@@ -4,7 +4,7 @@ using Mutagen.Bethesda.Plugins;
 namespace HousecarlMcp;
 
 /// <summary>The one parse of a walk's values and of its seeds: every walk calls it and nothing else parses these
-/// values, so their names, defaults and refusal words are the same on every walk; a bad seed's words differ by walk.
+/// values, so their names and defaults are the same on every walk; refusals touching edge kinds and a bad seed's words differ by walk.
 /// Contract in docs/architecture/walk-and-reverse.md, "One walk grammar".</summary>
 public static class WalkGrammar
 {
