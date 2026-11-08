@@ -135,7 +135,7 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
         Assert.Equal(0, _svc.Counters.BodySeeks - seeks);
         var name = A.FileName.String;
         Assert.Equal(2, reads[(name, "LeveledNpcs")]);   // the faces' round, then the walk entering the list
-        Assert.Equal(3, reads[(name, "Npcs")]);          // the seeds, the members' round, the walk entering them
+        Assert.Equal(3, reads[(name, "Npcs")]);          // the seeds, the members' round, the walk reading them as boundaries
         foreach (var member in _members)
             Assert.Contains(walk.Nodes, n => n.Edge == "facegen" && n.PulledBy.Contains(FormIdToken.Of(_npcs[0]))
                                              && n.Note == $"the face of template root {FormIdToken.Of(member)}, one of 2");

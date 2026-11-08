@@ -23,9 +23,9 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         => RecordsTools.Records(_w.Svc, formids: new[] { Id(seed) }, walk: JsonSerializer.Deserialize<RecordsTools.RecordsWalk>(walkJson, Wire),
                                 counts_only: true, format: format);
 
-    string AssetWalk(string walkJson, string[]? records = null, string[]? formids = null, string? format = "json", bool countsOnly = false)
+    string AssetWalk(string walkJson, string[]? records = null, string[]? formids = null, string? format = "json", bool countsOnly = false, string[]? fromSource = null)
         => AssetTools.AssetStatus(_w.Svc, records: records ?? new[] { Id("HcDoorA1") }, formids: formids, walk: Walks.Of(walkJson),
-                                  from_source: BothPlugins, format: format, counts_only: countsOnly, max_chars: 400_000);
+                                  from_source: fromSource ?? BothPlugins, format: format, counts_only: countsOnly, max_chars: 400_000);
 
     /// <summary>Each walk value's refusal, the same sentence from both walks; the records half is the records walk's
     /// words on main, unchanged.</summary>
@@ -164,8 +164,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     [Fact]
     public void AssetWalkEdgeKindsCountOnTheOneLeftOutLine()
     {
-        string[] Run(string walk) => Notes(AssetTools.AssetStatus(_w.Svc, records: new[] { Id("HcDoorSeed") }, walk: Walks.Of(walk),
-                                                                  from_source: new[] { BothPlugins[1] }, format: "json", counts_only: true, max_chars: 400_000));
+        string[] Run(string walk) => Notes(AssetWalk(walk, records: new[] { Id("HcDoorSeed") }, countsOnly: true, fromSource: new[] { BothPlugins[1] }));
         var types = Run("{\"through\": [\"Npc\"]}");
         var both = Run("{\"through\": [\"Npc\", \"facegen\"]}");
         int at = Array.FindIndex(types, n => n.StartsWith("left out, not in walk.through: "));

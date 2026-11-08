@@ -172,6 +172,10 @@ internal sealed partial class AssetLayers
         return Done(nodes, notes, truncated, cycles: cycles);
     }
 
+    /// <summary>The note counting the NPCs a walk reached past a seed and kept as boundaries.</summary>
+    internal static string NpcBoundaryNote(int count)
+        => $"{count} NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.";
+
     /// <summary>The record cycles a walk found, each stated as its loop of records, and whether the search cap stopped it.</summary>
     internal sealed record RecordCycles(IReadOnlyList<string> Loops, bool Capped);
 
@@ -281,7 +285,7 @@ internal sealed partial class AssetLayers
                                                            string.Join(", ", chain.Arms.Select(a => a.Where)) + "."));
                 // A reached record is judged on the type its read body reports; a seed never is.
                 else if (depth > 0 && judging && Judged(got.Hit.Body, fk, pulledBy)) continue;
-                // A reached NPC is a boundary, its files and links its own record's, unless walk.through names Npc (#1371).
+                // A reached NPC is a boundary when walk.through is unset (#1371); a through set has judged it above.
                 else if (depth > 0 && values.Through is null && got.Hit.Body is INpcGetter) { npcBoundaries++; continue; }
                 else if (++entered > maxRecords) { capped = true; break; }
                 else steps.Add((fk, pulledBy, homeIn, got.Hit, null));
@@ -350,8 +354,7 @@ internal sealed partial class AssetLayers
         if (boundaries.Count > 0)
             notes.Add("form links into other plugins were kept as boundaries, not walked (their files are that plugin's): " +
                       string.Join(", ", boundaries.OrderByDescending(b => b.Value).Select(b => $"{b.Key} ×{b.Value}")) + ".");
-        if (npcBoundaries > 0)
-            notes.Add($"{npcBoundaries} NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.");
+        if (npcBoundaries > 0) notes.Add(NpcBoundaryNote(npcBoundaries));
 
         // Every loop over the recorded links, capped as the records walk caps its search (one cap, the shared budget's).
         var loops = RecordReads.CycleLines(edges, k => editorIds.GetValueOrDefault(k), out var cyclesCapped);

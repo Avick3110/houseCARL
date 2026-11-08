@@ -220,12 +220,11 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     {
         var d = Walk("HcDoorSeed");
         Assert.Empty(d.Nodes);
-        Assert.Contains("5 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.", d.Notes);
+        Assert.Contains(AssetLayers.NpcBoundaryNote(5), d.Notes);
     }
 
     /// <summary>FaceGen is a seed NPC's only (#1278, F2): walk.through naming Npc enters the list's five NPCs with no
-    /// FaceGen node, and no note counts them: the boundary note is for NPCs not entered, and the note counting entered
-    /// NPCs without their FaceGen is gone (#1371).</summary>
+    /// FaceGen node and no note counting them (#1371).</summary>
     [Fact]
     public void AnNpcThroughEntersHasNoFaceGen()
     {

@@ -18,9 +18,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     readonly AssetWalkWorld _w;
     public AssetWalkTests(AssetWalkWorld w) => _w = w;
 
-    AssetWalkData Walk(string[]? paths = null, string[]? records = null, string? source = null, string[]? fromSource = null)
+    AssetWalkData Walk(string[]? paths = null, string[]? records = null, string? source = null, string[]? fromSource = null, string? walk = null)
         => _w.Svc.AssetWalk(paths ?? Array.Empty<string>(),
-                            (records ?? Array.Empty<string>()).Select(r => _w.Keys[r]).ToList(), fromSource, source);
+                            (records ?? Array.Empty<string>()).Select(r => _w.Keys[r]).ToList(), fromSource, source,
+                            values: walk is null ? null : Values(walk));
 
     static AssetWalkNode Node(AssetWalkData d, string path)
         => d.Nodes.Single(n => string.Equals(n.Path, path, StringComparison.OrdinalIgnoreCase));
@@ -204,14 +205,15 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(errors, e => e.Contains("loops") && e.Contains(FormIdToken.Of(a.FormKey)) && e.Contains(FormIdToken.Of(b.FormKey)));
     }
 
-    const string OneBoundary = "1 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.";
+    static readonly string[] ActorQuest = { "HcWalkActorQuest" };
+    const string OneBoundary ="1 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.";
 
     /// <summary>A reached NPC is a boundary (#1371; DECISIONS 2026-11-08 (11), B): the quest's alias reaches the hero,
     /// which lists no script, has its hair not entered and spends no walk.max_nodes, and one note counts it.</summary>
     [Fact]
     public void ANpcReachedThroughAnAliasIsABoundary()
     {
-        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null, values: Values("{\"max_nodes\": 1}"));
+        var d = Walk(records: ActorQuest, walk: "{\"max_nodes\": 1}");
         Assert.Empty(d.Nodes);
         Assert.False(d.Truncated);
         Assert.Equal(new[] { OneBoundary }, d.Notes);
@@ -222,7 +224,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ThroughNamingNpcEntersAReachedNpc()
     {
-        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null, values: Values("{\"through\": [\"Npc\", \"HeadPart\"]}"));
+        var d = Walk(records: ActorQuest, walk: "{\"through\": [\"Npc\", \"HeadPart\"]}");
         Assert.Equal("script", Node(d, AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript)).Edge);
         Assert.Equal("listed", Node(d, AssetWalkWorld.HairNif).Edge);
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "facegen");
@@ -234,13 +236,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ThroughWithoutNpcAndAStopOnNpcAreUnchanged()
     {
-        var through = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null, values: Values("{\"through\": [\"HeadPart\"]}"));
-        Assert.Equal(new[] { "left out, not in walk.through: 1 Npc" }, through.Notes);
-        var stop = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null,
-                                    values: Values("{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}]}"));
-        Assert.Equal(new[] { "1 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links)." }, stop.Notes);
-        Assert.NotNull(_w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null,
-                                        values: Values("{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"refuse\"}]}")).Refusal);
+        Assert.Equal(new[] { "left out, not in walk.through: 1 Npc" }, Walk(records: ActorQuest, walk: "{\"through\": [\"HeadPart\"]}").Notes);
+        Assert.Equal(new[] { "1 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links)." },
+                     Walk(records: ActorQuest, walk: "{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}]}").Notes);
+        Assert.NotNull(Walk(records: ActorQuest, walk: "{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"refuse\"}]}").Refusal);
     }
 
     /// <summary>A seed's template chain is a boundary too (#1371) and the seed's face is unchanged: HcWalkTemplated's
@@ -260,7 +259,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     public void ALeveledNpcIsEnteredAndItsNpcsAreBoundaries()
     {
         var d = Walk(records: new[] { "HcWalkLeveled" });
-        Assert.Contains("2 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.", d.Notes);
+        Assert.Contains(AssetLayers.NpcBoundaryNote(2), d.Notes);
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "script");
     }
 
@@ -269,11 +268,11 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ALoopThroughAReachedNpcIsNotReported()
     {
-        var seed = new[] { _w.Keys["HcWalkNpcLoop"] };
-        var d = _w.Svc.AssetWalk(Array.Empty<string>(), seed, null, null);
+        var seed = new[] { "HcWalkNpcLoop" };
+        var d = Walk(records: seed);
         Assert.Empty(d.Cycles);
         Assert.Empty(d.Nodes);
-        var entered = _w.Svc.AssetWalk(Array.Empty<string>(), seed, null, null, values: Values("{\"through\": [\"Npc\", \"FormList\"]}"));
+        var entered = Walk(records: seed, walk: "{\"through\": [\"Npc\", \"FormList\"]}");
         Assert.Single(entered.Cycles);
         Assert.Equal("script", Node(entered, AssetWalkEdges.ScriptPex(AssetWalkWorld.LoopNpcScript)).Edge);
     }
@@ -634,7 +633,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ALaterDepthGivesItsRowsInQueueOrder()
     {
-        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkPair"] }, null, null, values: Values("{\"through\": [\"Npc\", \"Quest\"]}"));
+        var d = Walk(records: new[] { "HcWalkPair" }, walk: "{\"through\": [\"Npc\", \"Quest\"]}");
         Assert.Equal(new[] { AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript), AssetWalkEdges.ScriptPex(AssetWalkWorld.AliasScript) },
                      d.Nodes.Where(n => n.Edge == "script").Select(n => n.Path), StringComparer.OrdinalIgnoreCase);
     }
