@@ -22,7 +22,9 @@ namespace HousecarlMcpTests;
 /// <item><see cref="Dead"/>: the perk is DELETED and its EPFT corrupt (<see cref="ProbeBytes.CorruptEpftBytes"/>), so
 ///   its links throw, as ARR's deleted package overrides do.</item>
 /// <item><see cref="Corrupt"/>: the EPFT is corrupt on a live perk, so its links throw and nothing is recovered; its
-///   NextPerk names the static and still reads on its own.</item>
+///   NextPerk names the static and still reads on its own. It also holds a topic of two lines whose ResponseData name
+///   each other (<c>Gate</c>, <c>Reply</c>); Gate's one condition gets a function index none has, so its links throw
+///   while its ResponseData reads.</item>
 /// </list>
 /// Built fresh per test class; copy writes its patch folder under mods, which a test then looks for.</summary>
 public sealed class UnreadLinksWorld : IDisposable
@@ -106,6 +108,22 @@ public sealed class UnreadLinksWorld : IDisposable
             };
             FormList? gone = null;
             DialogTopic? goneTopic = null;
+            DialogResponses? gate = null;
+            if (plugin == Corrupt)
+            {
+                // Two lines whose ResponseData name each other; Gate's condition is made unreadable on disk below.
+                var topic = mod.DialogTopics.AddNew(); topic.EditorID = tag + "Topic";
+                gate = new DialogResponses(mod) { EditorID = tag + "Gate" };
+                var reply = new DialogResponses(mod) { EditorID = tag + "Reply" };
+                var gateIsId = new GetIsIDConditionData { RunOnType = Condition.RunOnType.Subject };
+                gateIsId.Object = new FormLinkOrIndex<IReferenceableObjectGetter>(gateIsId, stat.FormKey);
+                gate.Conditions.Add(new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = gateIsId });
+                gate.ResponseData.SetTo(reply.FormKey);
+                reply.ResponseData.SetTo(gate.FormKey);
+                topic.Responses.Add(gate); topic.Responses.Add(reply);
+                Keys[plugin]["Gate"] = gate.FormKey;
+                Keys[plugin]["Reply"] = reply.FormKey;
+            }
             if (plugin == Dead)
             {
                 // A deleted list whose Items still read, and a live list holding it, for the field-path walks.
@@ -135,6 +153,7 @@ public sealed class UnreadLinksWorld : IDisposable
             }
             if (gone is not null) Assert.Equal(1, ProbeBytes.SetDeletedFlag(path, "FLST", gone.FormKey.ID));
             if (goneTopic is not null) Assert.Equal(1, ProbeBytes.SetDeletedFlag(path, "DIAL", goneTopic.FormKey.ID));
+            if (gate is not null) Assert.Equal(1, BreakCondition(path, (1u << 24) | gate.FormKey.ID));
 
             // Each fixture must still show its fault, or a green below proves nothing.
             using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
@@ -156,6 +175,12 @@ public sealed class UnreadLinksWorld : IDisposable
                 Assert.Equal(Keys[plugin]["Quest"], t.Quest.FormKey);
                 Assert.Equal(new[] { Keys[plugin]["Info"] }, t.Responses.Select(r => r.FormKey));
             }
+            if (gate is not null)
+            {
+                var g = ov.DialogTopics.SelectMany(t => t.Responses).First(r => r.FormKey == gate.FormKey);
+                Assert.ThrowsAny<Exception>(() => ((IFormLinkContainerGetter)g).EnumerateFormLinks().Count());
+                Assert.Equal(Keys[plugin]["Reply"], g.ResponseData.FormKey);
+            }
         }
 
         _mo2.Profile(BaseMaster + "\r\n" + Lenient + "\r\n" + Dead + "\r\n" + Corrupt + "\r\n",
@@ -173,6 +198,30 @@ public sealed class UnreadLinksWorld : IDisposable
     }
 
     public string Id(string plugin, string what) => FormIdToken.Of(Keys[plugin][what]);
+
+    /// <summary>Sets the function index of the first CTDA in the INFO whose on-disk FormID is <paramref name="rawFormId"/>
+    /// to one no condition has, in place, so reading that condition throws while the line's other fields read.</summary>
+    static int BreakCondition(string path, uint rawFormId)
+    {
+        var bytes = File.ReadAllBytes(path);
+        for (int rec = 0; rec + 24 <= bytes.Length; rec++)
+        {
+            if (bytes[rec] != 'I' || bytes[rec + 1] != 'N' || bytes[rec + 2] != 'F' || bytes[rec + 3] != 'O' || BitConverter.ToUInt32(bytes, rec + 12) != rawFormId) continue;
+            int end = rec + 24 + (int)BitConverter.ToUInt32(bytes, rec + 4);
+            for (int i = rec + 24; i + 6 < end; i++)
+            {
+                if (bytes[i] != 'C' || bytes[i + 1] != 'T' || bytes[i + 2] != 'D' || bytes[i + 3] != 'A') continue;
+                // Cut its payload to 8 bytes and turn the rest into a filler subrecord, so no length outside it moves.
+                int len = BitConverter.ToUInt16(bytes, i + 4);
+                BitConverter.GetBytes((ushort)8).CopyTo(bytes, i + 4);
+                "XXXX"u8.CopyTo(bytes.AsSpan(i + 6 + 8));
+                BitConverter.GetBytes((ushort)(len - 8 - 6)).CopyTo(bytes, i + 6 + 8 + 4);
+                File.WriteAllBytes(path, bytes);
+                return 1;
+            }
+        }
+        return 0;
+    }
 
     public void Dispose()
     {
