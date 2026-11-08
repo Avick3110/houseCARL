@@ -1,6 +1,6 @@
 ---
-updated: 2026-11-07
-covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/ArchiveReader.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
+updated: 2026-11-08
+covers: [src/housecarl-core/WalkParts.cs, src/housecarl-core/walk-parts.json, src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/ArchiveReader.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
 
@@ -417,18 +417,23 @@ a read reports) to the field paths whose links hold a part of it, plus `*` paths
 parts, hair colour, face texture, skin (`WornArmor`), outfits and far-away model; a head part's extra parts, texture
 set and colour; an armour's addons, template and world model; an addon's skin texture, swap list, models and art
 object; an outfit's, form list's and leveled list's items; a weapon's 1st-person model and template; a placed
-reference's base; a line's shared response data; any model's alternate textures. `WalkPartsTests` checks each entry
-exists on its type. No generated data says whether a field holds a part or a mention (an NPC's `WornArmor` and a race's
+reference's base; a line's shared response data; any model's alternate textures. `WalkPartsTests` checks each entry's
+key is a type name a read reports and each path's fields exist on it. No generated data says whether a field holds a part or a mention (an NPC's `WornArmor` and a race's
 `Skin` both target an armour), which is why the list is hand-kept; every type is still read and listed when seeded or
 reached, so this is not record coverage. A path is read through `ReadEngine.CollectLinksAt`, the records walk's field
 door; a field the type lacks, an absent value or a non-link field gives no links, and a path that cannot be read is a
-note. The child records are the generated child-bearing fields (`OwnedChildContent`, a cell's references, a topic's
+note. A path's first field is matched by name with its index dropped, so `HeadParts[0]` reads the first head part. The child records are the generated child-bearing fields (`OwnedChildContent`, a cell's references, a topic's
 lines, a worldspace's cells): the read body's own, then the union over every plugin that touches the record
 (`OwnedChildUnion.ComputeMany`, each touching plugin's copies read in one pass per depth); a plugin whose copy cannot
 be read is a note. Every other form link an entered record holds (a race, a quest alias, a script property, a sound,
-a keyword) is not walked, and one note counts them per holding type, naming `walk.follow`. `walk.follow` replaces the
+a keyword) is not walked, and one note counts them per holding type, naming `walk.follow`. A child-bearing record's
+count is its own links: the links its own child records hold, which Mutagen hands over as the parent's, are taken off
+by occurrence, since the walk enters those children and counts them on their own types. `walk.follow` replaces the
 default: one path or a list, read on every record from the seed on (the asset walk has no `seed_paths`), with no child
-records; `*` is every form link through the one link door below, which is the old reach without the plugin rule. A
+records; a named path no entered record's type has the first field of (a typo, or the wrong case: field names are
+case-sensitive) is a note naming it. `*` is every form link through the one link door below, which is the old reach
+without the plugin rule, plus the child records, so it is a superset of the default; `*` beside named paths, and a
+`*parent` climb at any segment, are refused. A
 record reached past a seed that no `from_source=` arm holds is read off the load order's winner, a round per depth,
 and its label, and so every row it pulls, ends "(read from the load order: no from_source plugin has it)"; a seed no
 arm holds is still a note naming every arm, and a `from_source=` list holding `winner` already reads the order.
@@ -436,7 +441,7 @@ A quest's topics and scenes name the quest, not the quest them, so its dialogue 
 two calls the tool text names; the walk follows no link backwards.
 `walk.through`'s record types and `walk.exclusions` are judged as a
 record is entered, and a malformed seed is an error node; both are walk-and-reverse.md's "One walk grammar". A record
-past a seed whose read body is an NPC (a placed NPC's base, a leveled list's NPC; under `walk.follow`, a quest alias's
+past a seed whose read body is an NPC (a placed NPC's base; under `walk.follow`, a quest alias's
 actor, a location's unique actor, a race's chargen preset, a script property, a template) is a boundary: not entered, so it lists no files, follows no links and spends no
 `walk.max_nodes`, and one note counts those NPCs and says to seed them, or to name `Npc` in `walk.through` beside
 every other record type to keep: a set `walk.through` enters only the types it names, so `Npc` alone enters the NPCs
@@ -444,10 +449,13 @@ and leaves every other reached record out (#1371; DECISIONS 2026-11-08 (11)). Th
 `walk.through` are judged, so a stop or refuse on `Npc` is unchanged, a `walk.through` without `Npc` still leaves them
 out on the left-out line (one count, one place), and an edge-kind-only `walk.through` enters none. A seed's FaceGen
 still reads its template chain through the face door, which needs no NPC entered. It reads a record's form links only through the one link door (`RecordLinks`,
-docs/architecture/read-engine.md) under `walk.follow` `*`, and counts the default's unfollowed links through it: a deleted record is entered and follows none of them, with no note, except a
+docs/architecture/read-engine.md) under `walk.follow` `*`, and counts the default's and a named `walk.follow`'s
+unfollowed links through it: a deleted record is entered and follows none of them, with no note, except a
 deleted NPC past a seed, a boundary as any reached NPC since the rule tests only the read body's type; a perk whose
-links read only leniently is followed on what the lenient read recovered, with a note; a record whose links cannot be
-read is a note, and the walk does not go past it (#1316). Each record contributes:
+links read only leniently is followed under `*` on what the lenient read recovered, and counted on it otherwise, with
+a note either way; a record whose links cannot be read is a note: under `*` the walk does not go past it, and
+otherwise it follows only the fields it reads one by one and counts none of the rest (#1316). Each record
+contributes:
 
 - the paths it lists (`AssetLinkHarvest`); a list it cannot read is a note naming the record, and the paths it did
   read are listed;
@@ -461,7 +469,8 @@ read is a note, and the walk does not go past it (#1316). Each record contribute
   keep their pairs. A root Mutagen names no pair for is a note with the door's reason. The race and the template
   members are read through the record sources, then the active order. Only a seed NPC's face is listed (#1278;
   DECISIONS 2026-11-07 (26), F2): a reached NPC is a boundary (below), and one `walk.through` enters gets no FaceGen;
-- on a dialogue line the walk enters (a seed, or one a form link reaches, such as shared response data), the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
+- on a dialogue line the walk enters (a seed, a seeded topic's line, which is its child record, or one a form link
+  reaches, such as shared response data), the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
   the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does (shipped by the order or by
   `source_provider=`, so a disabled donor's format counts); both listed, with no claim on which
   plays, when both ship. A line Mutagen finds no voice for is a note naming why (no Speaker, a speaker that is not an
@@ -746,8 +755,15 @@ provided either; the generic lane does not, because it legitimately answers for 
   per hop; an owner rank is not walked as a link (`AnOwnerRankIsNotWalkedAsALink`);
   the depth bound and the record cap stop where they did; `AssetWalkDoorFaultTests`
   — a broken NPC group is the arm's fault note. `AssetWalkPinTests` — the `listed`, `inferred` (a weight-variant
-  model), `fragment`, `.wav` voice and in-walk `bodytri` edges, and two seeds in two plugins each walking its own
-  plugin as home (`EachSeedsHomeIsItsOwnPlugin`); a `.pex`'s parent is `ArchiveReadOnceTests`'.
+  model), `fragment`, `.wav` voice and in-walk `bodytri` edges, and a seed's parts followed into any plugin
+  (`ASeedsPartsAreFollowedIntoAnyPlugin`); a `.pex`'s parent is `ArchiveReadOnceTests`'. `AssetWalkPartsTests` — each
+  forward job's rows and noise; each `walk-parts.json` entry followed (`EachPartFieldIsFollowed`); a cell's and a
+  topic's own links counted (`TheCellCountsOnlyItsOwnLinksNotFollowed`, `AssetWalkTests.ATopicSeedCountsOnlyItsOwnLinksNotFollowed`);
+  `*` keeps a cell's children (`FollowEveryLinkKeepsTheCellsPlacedBases`); a `walk.follow` path no record has, an
+  indexed path, `*` beside names and a `*parent` climb (`AFollowPathNoRecordHasIsSaidByName`,
+  `AnIndexedFollowPathFollowsThatElement`, `FollowRefusesEveryLinkBesideNamesAndAnyParentClimb`); two cells' unions
+  read in one pass (`TwoCellsReadTheirUnionsInOnePass`); a miss in every source and the order is a note
+  (`AReachedRecordInNoSourceNorTheOrderIsSaid`).
 - *One FaceGen answer per NPC*: `NpcFaceDoorTests` — a plain NPC is its own pair on every lane and the check
   judges it; a templated NPC is its root's pair on `formids=`, the walk, `npc=` and `place`, and the check excludes
   it as templated; a leveled-template NPC names each member, one of N, on `formids=`, the walk and `npc=`, and
