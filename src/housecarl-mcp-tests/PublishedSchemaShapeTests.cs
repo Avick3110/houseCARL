@@ -101,6 +101,17 @@ public sealed class PublishedSchemaShapeTests
     /// also be one the detector cannot see. Whether a survivor resolves is reported as detail, since that says
     /// WHICH failure it is.</para>
     /// </summary>
+    /// <summary>walk.follow binds through its own converter, so its published shape is stamped: a string or a list of
+    /// strings, null kept.</summary>
+    [Fact]
+    public void WalkFollowPublishesAStringOrAList()
+    {
+        var follow = _s.PublishedTools[ToolNames.Records].GetProperty("inputSchema").GetProperty("properties")
+                       .GetProperty("walk").GetProperty("properties").GetProperty("follow");
+        Assert.Equal(new[] { "string", "array", "null" }, follow.GetProperty("type").EnumerateArray().Select(t => t.GetString()));
+        Assert.Equal("string", follow.GetProperty("items").GetProperty("type").GetString());
+    }
+
     [Fact]
     public void NoPublishedToolSchemaCarriesARefMemberInAnySpelling()
     {

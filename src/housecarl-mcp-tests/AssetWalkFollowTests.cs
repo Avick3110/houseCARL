@@ -170,11 +170,15 @@ public sealed class AssetWalkFollowTests : IClassFixture<AssetWalkFollowWorld>
         Assert.Contains(d.Notes, n => n.Contains("sit more than walk.depth=1 form-link hops from a seed off the walk.follow fields"));
     }
 
-    /// <summary>A follow field no entered record carries followed nothing, and the walk says so by name.</summary>
+    /// <summary>A follow field no entered record carries followed nothing, and the walk says so by name; one an entered
+    /// record carries but leaves unset (FwSharedAA's SkinTexture) is no note.</summary>
     [Fact]
     public void AFollowFieldNoRecordCarriesIsSaid()
-        => Assert.Contains("walk.follow 'HeadPart' names no link field on any record the walk entered, so it followed nothing; check its spelling against the record type's fields.",
-                           Walk("{\"follow\": [\"HeadPart\"]}").Notes);
+    {
+        Assert.Contains("walk.follow 'HeadPart' names no link field on any record the walk entered, so it followed nothing; check its spelling against the record type's fields.",
+                        Walk("{\"follow\": [\"HeadPart\"]}").Notes);
+        Assert.DoesNotContain(Walk("{\"follow\": [\"Items\", \"Armature\", \"SkinTexture\"]}", seed: "FwNpc2").Notes, n => n.StartsWith("walk.follow 'SkinTexture'"));
+    }
 
     /// <summary>An armour reached past depth through the race's Skin first is still entered through the outfit's Items,
     /// and is not counted past depth.</summary>

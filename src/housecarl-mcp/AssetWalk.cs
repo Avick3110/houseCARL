@@ -247,7 +247,7 @@ internal sealed partial class AssetLayers
         var followMatched = new bool[values.Follow?.Count ?? 0];
         HashSet<FormKey>? FollowedLinks(IMajorRecordGetter body)
         {
-            if (values.Follow is not { } paths || DeletedRecordRule.HasNoLiveBody(body)) return null;
+            if (values.Follow is not { } paths) return null;
             var keys = new HashSet<FormKey>();
             for (int i = 0; i < paths.Count; i++)
             {
@@ -342,8 +342,8 @@ internal sealed partial class AssetLayers
                 // said, and one whose links cannot be read is said and not followed.
                 if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add($"{label}: its links were read leniently — {RecordReads.LenientNoteBody(fk, lenient)}");
                 if (unread is not null) notes.Add($"{label}: its links could not be read, so the walk does not go past it — {unread}");
-                // The links under walk.follow's fields, followed past walk.depth; none off a record whose links were not read.
-                var followed = unread is null ? FollowedLinks(body) : null;
+                // The links under walk.follow's fields, followed past walk.depth; only links the door listed are, so a deleted or unread record follows none.
+                var followed = FollowedLinks(body);
                 var outgoing = edges[fk] = new List<FormKey>();
                 foreach (var link in links)
                 {
