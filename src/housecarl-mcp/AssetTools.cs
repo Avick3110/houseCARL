@@ -118,7 +118,8 @@ public static class AssetTools
                      "none (the header, notes, counts, place set and the file it wrote still print); counts_only= returns counts per edge and per standing, no nodes. Not with links=.\n\n" +
                      "walk=true walks at the defaults; walk={depth, max_nodes, through, exclusions} takes the records " +
                      "walk's values under the same names and refusals, except that through also takes edge kinds, and " +
-                     "the refusals of through and exclusions here name them: depth (default 3) is the form-link hops from a " +
+                     "a through entry that is neither is refused naming both, and an exclusions entry that is an edge kind is refused " +
+                     "pointing at through: depth (default 3) is the form-link hops from a " +
                      "seed record whose records are entered; max_nodes (default 2000) counts every record entered, seeds " +
                      "included, one budget shared by every seed, with no upper bound (the file bound is asset_status's own); " +
                      "through takes record types and edge kinds: its record types enter only records of those types and count " +
