@@ -234,8 +234,29 @@ internal sealed partial class AssetLayers
         var frontier = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
         // The plugins the from_source arms name, base masters kept, plus a 'winner' seed's own plugin (assets.md, Walking the links).
         var named = new HashSet<ModKey>(chain.NamedPlugins());
+        HashSet<ModKey> WinnerHome(FormKey seed)
+        {
+            var home = new HashSet<ModKey>(named) { seed.ModKey };
+            if (index.ResolveWinner(seed) is { } w) home.Add(ModKey.FromFileName(w.WinnerPlugin));
+            return home;
+        }
         foreach (var s in seeds) if (seenRec.Add(s)) frontier.Add((s, "seed", null));
-        int pastDepth = 0;
+        // Links past walk.depth not followed; a key a follow field reaches later is entered and leaves this count.
+        var pastDepthKeys = new HashSet<FormKey>();
+        // Each walk.follow path that named a field on some record entered; one that never did is said.
+        var followMatched = new bool[values.Follow?.Count ?? 0];
+        HashSet<FormKey>? FollowedLinks(IMajorRecordGetter body)
+        {
+            if (values.Follow is not { } paths || DeletedRecordRule.HasNoLiveBody(body)) return null;
+            var keys = new HashSet<FormKey>();
+            for (int i = 0; i < paths.Count; i++)
+            {
+                var (got, miss) = ReadEngine.CollectLinksAt(body, paths[i]);
+                if (got is not null || miss == ReadEngine.AbsentNote) followMatched[i] = true;
+                if (got is not null) keys.UnionWith(got);
+            }
+            return keys;
+        }
         var boundaries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var inferCache = AssetWalkEdges.EmptyCache();
         IAssetLinkCache? voiceCache = null;
@@ -296,8 +317,9 @@ internal sealed partial class AssetLayers
             foreach (var (fk, pulledBy, homeIn, entry, note) in steps)
             {
                 if (entry is not { } hit) { notes.Add(note!); continue; }
+                // A seed read through 'winner' walks into its own plugin and the plugin its winning copy is in.
                 var home = homeIn ?? (string.Equals(hit.Arm.Spelling, SourcePoles.Winner, StringComparison.OrdinalIgnoreCase)
-                    ? new HashSet<ModKey>(named) { fk.ModKey } : named);
+                    ? WinnerHome(fk) : named);
                 var body = hit.Body;
                 var type = RecordNaming.StripOverlay(body.GetType().Name);
                 var label = body.EditorID is { Length: > 0 } edid ? $"{type} {edid} [{FormIdToken.Of(fk)}]" : $"{type} [{FormIdToken.Of(fk)}]";
@@ -320,6 +342,8 @@ internal sealed partial class AssetLayers
                 // said, and one whose links cannot be read is said and not followed.
                 if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add($"{label}: its links were read leniently — {RecordReads.LenientNoteBody(fk, lenient)}");
                 if (unread is not null) notes.Add($"{label}: its links could not be read, so the walk does not go past it — {unread}");
+                // The links under walk.follow's fields, followed past walk.depth; none off a record whose links were not read.
+                var followed = unread is null ? FollowedLinks(body) : null;
                 var outgoing = edges[fk] = new List<FormKey>();
                 foreach (var link in links)
                 {
@@ -330,7 +354,7 @@ internal sealed partial class AssetLayers
                     // Recorded at walk.depth too, so a link back to an entered record closes its loop; one to a record
                     // never entered closes none.
                     outgoing.Add(link);
-                    if (depth >= maxDepth) { if (seenRec.Add(link)) pastDepth++; continue; }
+                    if (depth >= maxDepth && followed?.Contains(link) != true) { if (!seenRec.Contains(link)) pastDepthKeys.Add(link); continue; }
                     if (seenRec.Add(link)) next.Add((link, label, home));
                 }
             }
@@ -342,8 +366,14 @@ internal sealed partial class AssetLayers
             }
             frontier = next;
         }
+        int pastDepth = pastDepthKeys.Count(k => !seenRec.Contains(k));
         if (pastDepth > 0)
-            notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth={maxDepth} form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc).");
+            notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own or winning plugin when 'winner' read it, sit more than walk.depth={maxDepth} form-link hops from a seed"
+                      + (values.Follow is null ? "" : " off the walk.follow fields")
+                      + " and were not entered; raise walk.depth, or name the link fields to follow past it in walk.follow, to walk them (an NPC among them is then a boundary unless walk.through names Npc).");
+        for (int i = 0; i < followMatched.Length; i++)
+            if (!followMatched[i])
+                notes.Add($"walk.follow '{string.Join(".", values.Follow![i])}' names no link field on any record the walk entered, so it followed nothing; check its spelling against the record type's fields.");
         if (stopped > 0)
             notes.Add($"{stopped} reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links).");
         if (values.Through is not null || values.Edges is not null)

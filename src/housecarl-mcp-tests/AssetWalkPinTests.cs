@@ -116,7 +116,7 @@ public sealed class AssetWalkPinTests : IClassFixture<AssetWalkPinWorld>
     readonly AssetWalkPinWorld _w;
     public AssetWalkPinTests(AssetWalkPinWorld w) => _w = w;
 
-    AssetWalkData Walk(params string[] seeds) => _w.Svc.AssetWalk(Array.Empty<string>(), seeds.Select(s => _w.Keys[s]).ToList(), null, null);
+    AssetWalkData Walk(params string[] seeds) => _w.Svc.AssetWalk(Array.Empty<string>(), seeds.Select(s => _w.Keys[s]).ToList(), null, null, values: WalkGrammar.Values.Defaults(3));
 
     static AssetWalkNode Node(AssetWalkData d, string path)
         => d.Nodes.Single(n => string.Equals(n.Path, path, StringComparison.OrdinalIgnoreCase));

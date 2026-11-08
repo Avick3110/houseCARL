@@ -108,7 +108,7 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     AssetWalkData Walk() => Walk(_npcs);
 
     AssetWalkData Walk(IReadOnlyList<FormKey> seeds, WalkGrammar.Values? values = null)
-        => _svc.AssetWalk(Array.Empty<string>(), seeds, new[] { SourcePoles.Winner }, null, values: values);
+        => _svc.AssetWalk(Array.Empty<string>(), seeds, new[] { SourcePoles.Winner }, null, values: values ?? WalkGrammar.Values.Defaults(3));
 
     /// <summary>NPC group walks of a second walk over <paramref name="seeds"/>, the first paying the walk's one-time reads.</summary>
     int NpcReads(IReadOnlyList<FormKey> seeds, WalkGrammar.Values? values = null) => GroupReads(seeds, "Npcs", values);

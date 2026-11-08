@@ -45,7 +45,7 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
 
     // ---- the asset walk ----
 
-    AssetWalkData Asset(string plugin) => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[plugin]["List"] }, null, null);
+    AssetWalkData Asset(string plugin) => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[plugin]["List"] }, null, null, values: WalkGrammar.Values.Defaults(3));
 
     static List<string> Paths(AssetWalkData d) => d.Nodes.Select(n => n.Path).ToList();
 

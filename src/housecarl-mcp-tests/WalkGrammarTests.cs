@@ -130,17 +130,36 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
                   .ToArray();
     }
 
+    /// <summary>walk.follow on the shared grammar (DECISIONS 2026-11-08 (14)): an empty list and a blank path are
+    /// refused in one sentence on both walks; the records walk refuses '*' beside another path and still reads one '*'
+    /// as every link; the asset walk refuses any path holding '*' and takes a string as a list of one.</summary>
+    [Fact]
+    public void FollowIsAListOnBothWalks()
+    {
+        const string Empty = "error: walk.follow is empty — name the link fields to follow (e.g. [\"HeadParts\", \"WornArmor\"]), or omit it.";
+        Assert.StartsWith(Empty + "\n", RecordsWalk("{\"follow\": []}"));
+        Assert.Equal(Empty, AssetWalk("{\"follow\": []}", format: null));
+        Assert.StartsWith("error: walk.follow ' ' is not a usable field path.\n", RecordsWalk("{\"follow\": [\"Template\", \" \"]}"));
+        Assert.Equal("error: walk.follow ' ' is not a usable field path.", AssetWalk("{\"follow\": [\"Template\", \" \"]}", format: null));
+        Assert.StartsWith("error: walk.follow '*' follows every link, so it takes no other path beside it — pass \"*\" alone, or name the paths.\n",
+                          RecordsWalk("{\"follow\": [\"*\", \"Template\"]}"));
+        Assert.Equal(RecordsWalk("{\"follow\": \"*\"}"), RecordsWalk("{\"follow\": [\"*\"]}"));
+        Assert.StartsWith("error: walk.follow '*parent' — on the asset walk follow names the link fields followed past walk.depth",
+                          AssetWalk("{\"follow\": [\"*parent\"]}", format: null));
+        Assert.Equal(AssetWalk("{\"follow\": [\"Items\"]}"), AssetWalk("{\"follow\": \"Items\"}"));
+    }
+
     /// <summary>walk.depth=1 enters the seed's first hop only, and the note names the value and says to raise it.</summary>
     [Fact]
     public void AssetWalkDepthOneStopsAtHopOne()
-        => Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
+        => Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own or winning plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth, or name the link fields to follow past it in walk.follow, to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
                         Notes(AssetWalk("{\"depth\": 1}", records: new[] { Id("HcDoorChain2") }, countsOnly: true)));
 
     /// <summary>walk.max_nodes counts every record entered, seeds included, one budget across both seeds.</summary>
     [Fact]
     public void AssetWalkMaxNodesIsOneBudgetCountingSeeds()
     {
-        var json = AssetWalk("{\"max_nodes\": 3}", records: new[] { Id("HcDoorChain0"), Id("HcDoorChain3") }, countsOnly: true);
+        var json = AssetWalk("{\"max_nodes\": 3, \"depth\": 3}", records: new[] { Id("HcDoorChain0"), Id("HcDoorChain3") }, countsOnly: true);
         // Two seeds and Chain1 are entered; Chain4, the next, is the fourth.
         Assert.Equal(new[] { "the walk stopped entering records at walk.max_nodes=3 (every record entered counts, seeds included); raise walk.max_nodes to walk further." },
                      Notes(json));
@@ -267,7 +286,6 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     /// <summary>The records walk's shaping values are refused by name on the asset walk, never dropped.</summary>
     [Theory]
     [InlineData("{\"seed_paths\": [\"HeadParts\"]}", "error: walk.seed_paths is a records-walk value")]
-    [InlineData("{\"follow\": \"Template\"}", "error: walk.follow is a records-walk value")]
     [InlineData("{\"direction\": \"forward\"}", "error: walk.direction is a records-walk value")]
     public void AssetWalkRefusesTheRecordsWalksShapingValues(string walk, string lead)
         => Assert.StartsWith(lead, AssetWalk(walk, format: null));
@@ -282,7 +300,8 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     {
         const string unused = ReadSentences.WalkValuesWithoutRecordSeed;
         Assert.Contains(unused, Notes(AssetWalk("{\"through\": [\"HeadPart\"]}", records: Array.Empty<string>(), formids: new[] { Id("HcDoorA1") })));
-        Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"depth\": 1}"), format: "json")));
+        Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"depth\": 2}"), format: "json")));
+        Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"follow\": [\"Items\"]}"), format: "json")));
         Assert.DoesNotContain(unused, Notes(AssetWalk("true", records: Array.Empty<string>(), formids: new[] { Id("HcDoorA1") })));
         Assert.DoesNotContain(unused, Notes(AssetWalk("{\"depth\": 1}")));
         // through's edge kinds choose the rows of a path-only walk too, so they are not unused (#1278).

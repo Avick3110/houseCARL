@@ -24,7 +24,7 @@ public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorl
                                new WalkScope(fk => fk.ModKey == AssetWalkPinWorld.A), Array.Empty<WalkExclusion>());
     });
 
-    AssetWalkData Asset() => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[Seed] }, null, null);
+    AssetWalkData Asset() => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[Seed] }, null, null, values: WalkGrammar.Values.Defaults(3));
 
     /// <summary>The head parts the asset walk entered, in its order: each one's own mesh is a listed node it pulls.</summary>
     List<string> AssetOrder(AssetWalkData d)
@@ -85,7 +85,7 @@ public sealed class CopyAssetWalkAgreementTests : IClassFixture<AssetWalkPinWorl
         });
         Assert.Equal("UnreadLinks", copy.Refusal?.Kind.ToString());   // named by text, so this case builds against the code before #1316
         Assert.Equal(new[] { list, perk }, copy.Refusal!.Chain);
-        var asset = _u.Svc.AssetWalk(Array.Empty<string>(), new[] { list }, null, null);
+        var asset = _u.Svc.AssetWalk(Array.Empty<string>(), new[] { list }, null, null, values: WalkGrammar.Values.Defaults(3));
         Assert.Contains(asset.Nodes, n => n.Path == UnreadLinksWorld.RecoveredNif);
         Assert.Contains(asset.Notes, n => n.Contains(FormIdToken.Of(perk)) && n.Contains("read leniently"));
     }

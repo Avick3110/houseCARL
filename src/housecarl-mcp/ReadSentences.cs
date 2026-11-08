@@ -225,7 +225,7 @@ internal static class ReadSentences
     /// through's edge kinds choose the rows of any walk, so they are not among them.</summary>
     [MustState("records=", "not used", "walk=true")]
     internal const string WalkValuesWithoutRecordSeed =
-        "walk={…}'s depth, max_nodes, exclusions and through's record types shape the walk from records= seeds, and this call has no " +
+        "walk={…}'s depth, max_nodes, follow, exclusions and through's record types shape the walk from records= seeds, and this call has no " +
         "records= seed that is a FormID, so they were not used — seed the records with records=, or pass walk=true.";
 
     // ---- a count table does not page ----------------------------------------------------------------

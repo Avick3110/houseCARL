@@ -224,7 +224,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ThroughNamingNpcEntersAReachedNpc()
     {
-        var d = Walk(records: ActorQuest, walk: "{\"through\": [\"Npc\", \"HeadPart\"]}");
+        var d = Walk(records: ActorQuest, walk: "{\"depth\": 3, \"through\": [\"Npc\", \"HeadPart\"]}");
         Assert.Equal("script", Node(d, AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript)).Edge);
         Assert.Equal("listed", Node(d, AssetWalkWorld.HairNif).Edge);
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "facegen");
@@ -236,7 +236,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ThroughNamingNpcAloneLeavesEveryOtherTypeOut()
     {
-        var d = Walk(records: ActorQuest, walk: "{\"through\": [\"Npc\"]}");
+        var d = Walk(records: ActorQuest, walk: "{\"depth\": 3, \"through\": [\"Npc\"]}");
         Assert.Equal("script", Node(d, AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript)).Edge);
         Assert.DoesNotContain(d.Nodes, n => string.Equals(n.Path, AssetWalkWorld.HairNif, StringComparison.OrdinalIgnoreCase));
         Assert.Contains(d.Notes, n => n.StartsWith("left out, not in walk.through: ") && n.Contains("HeadPart"));
@@ -269,7 +269,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ALeveledNpcIsEnteredAndItsNpcsAreBoundaries()
     {
-        var d = Walk(records: new[] { "HcWalkLeveled" });
+        var d = Walk(records: new[] { "HcWalkLeveled" }, walk: "{\"depth\": 3}");
         Assert.Contains(AssetLayers.NpcBoundaryNote(2), d.Notes);
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "script");
     }

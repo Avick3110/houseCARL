@@ -105,7 +105,7 @@ public static class AssetTools
                      "source_provider= shipping any node, the node list is followed by those nodes as a housecarl_place assets= " +
                      "array (counts_only=: their count only; none ships: no such line, and the count reads from_source=0). " +
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
-                     "through 'winner', its own plugin; links into other plugins are counted as boundaries. An NPC the walk reaches " +
+                     "through 'winner', its own plugin and the plugin its winning copy is in; links into other plugins are counted as boundaries. An NPC the walk reaches " +
                      "past a seed (a quest alias's actor, a location's unique actor, a race's chargen preset, a script property, a template) is a " +
                      "boundary too, not entered (no files, no links), and counted in a note: seed it with records= to walk it, or name Npc " +
                      "in walk.through beside every other record type to keep, since through's record types enter only those types " +
@@ -119,11 +119,15 @@ public static class AssetTools
                      "listed (the header, standing counts and place set still cover every row shown, not just the window, the notes the whole walk, and a paged " +
                      "answer ends with the [accounting] line); to_file= writes every node to the file and lists " +
                      "none (the header, notes, counts, place set and the file it wrote still print); counts_only= returns counts per edge and per standing, no nodes. Not with links=.\n\n" +
-                     "walk=true walks at the defaults; walk={depth, max_nodes, through, exclusions} takes the records " +
+                     "walk=true walks at the defaults; walk={depth, max_nodes, follow, through, exclusions} takes the records " +
                      "walk's values under the same names and refusals, except that through also takes edge kinds, and " +
                      "a through entry that is neither is refused naming both, and an exclusions entry that is an edge kind is refused " +
-                     "pointing at through: depth (default 3) is the form-link hops from a " +
-                     "seed record whose records are entered; max_nodes (default 2000) counts every record entered, seeds " +
+                     "pointing at through: depth (default 1: what the seed lists) is the form-link hops from a " +
+                     "seed record whose records are entered, every record past it a counted stop; follow is a link field or a list of them " +
+                     "(e.g. [\"HeadParts\", \"WornArmor\", \"Armature\"]) whose links are followed past depth from every record entered, to the end, " +
+                     "so an NPC's outfit armour addons or his head parts' texture sets come through at depth 1; a follow field no entered " +
+                     "record carries is a note. Which fields make up a seed kind's parts (an NPC's look and outfit, an armour) is the " +
+                     "mutagen-reference skill's walk bundles; max_nodes (default 2000) counts every record entered, seeds " +
                      "included, one budget shared by every seed, with no upper bound (the file bound is asset_status's own); " +
                      "through takes record types and edge kinds: its record types enter only records of those types and count " +
                      "the rest per type; its edge kinds (listed, script, seq, inferred, fragment, facegen, voice, lip, texture, " +
@@ -132,7 +136,7 @@ public static class AssetTools
                      "to see the meshes too), and the header count, standing counts and place set follow the rows shown; exclusions " +
                      "([{match, severity}]) keeps a 'stop' type as a boundary, not entered (no files, no links), and fails " +
                      "the call on a 'refuse' type. Seeds are never judged. A cap note names the value to raise. " +
-                     "seed_paths, follow and direction are the records walk's and are refused here.")]
+                     "seed_paths and direction are the records walk's and are refused here, and so is a follow path holding '*'.")]
             JsonElement? walk = null,
         [Description("Optional, with walk= (true or a walk object). Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
             ListArg? records = null,
@@ -389,7 +393,7 @@ public static class AssetTools
         // Walk values move only the walk from records= seeds; with none they are said unused. The defaults are walk=true's.
         // through's edge kinds choose the rows of a path-only walk too, so they are not counted here.
         if (keys.Count == 0 && (values.Depth != WalkGrammar.AssetDefaultDepth || values.MaxNodes != WalkGrammar.DefaultMaxNodes
-                                || values.Through is not null || values.Exclusions.Count > 0))
+                                || values.Through is not null || values.Exclusions.Count > 0 || values.Follow is not null))
             w = w with { Notes = w.Notes.Prepend(ReadSentences.WalkValuesWithoutRecordSeed).ToList() };
         // counts_only= refuses offset= and to_file= at the front door, so the window is limit= alone, capping the tables.
         if (countsOnly) return ToolAnswer.Served(AssetWalkWire.RenderCounts(w, selectorNotes, cap, json, window.Limit));
