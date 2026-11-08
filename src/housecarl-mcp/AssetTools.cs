@@ -97,7 +97,7 @@ public static class AssetTools
                      "per file: the paths a record lists, its implicit files (a seed NPC's FaceGen head and tint, or its " +
                      "Traits template root's, each member of a leveled template marked one of N; .pex scripts, fragment " +
                      ".pex files, a start-game-enabled quest's Seq\\<plugin>.seq; a dialogue line's voice .fuz, or the " +
-                     ".xwm/.wav and .lip it ships as, for a line that is a seed or that a form link reaches; no line is found off the NPC that speaks it), then the links each file names (a mesh's textures, SMP XML and " +
+                     ".xwm/.wav and .lip it ships as, for a line that is a seed, a seeded topic's line, or one a form link reaches; no line is found off the NPC that speaks it), then the links each file names (a mesh's textures, SMP XML and " +
                      "BODYTRI, a script's parent .pex), recursively. Each node is marked from-source (source_provider= " +
                      "ships it), elsewhere (another provider wins it, named), present, or absent; keyed nodes sit at a " +
                      "FormID-named path, so a renumbering copy carries them rather than placing them. A formids= " +
@@ -133,8 +133,9 @@ public static class AssetTools
                      "walk's values under the same names and refusals, except that through also takes edge kinds, and " +
                      "a through entry that is neither is refused naming both, and an exclusions entry that is an edge kind is refused " +
                      "pointing at through: follow replaces the part fields with the field paths it names, as one string or a " +
-                     "list (e.g. [\"HeadParts\", \"WornArmor\"]), read on every record from the seed on, with no child records; " +
-                     "\"*\" follows every form link; depth (default 16, a safety cap) is the hops from a " +
+                     "list (e.g. [\"HeadParts\", \"WornArmor\"]; a list also takes [\"@<absolute path>\"], a file of one path per line), " +
+                     "read on every record from the seed on, with no child records, a path no entered record has the field of " +
+                     "said in a note (field names are case-sensitive); \"*\" follows every form link and the child records; depth (default 16, a safety cap) is the hops from a " +
                      "seed record whose records are entered; max_nodes (default 2000) counts every record entered, seeds " +
                      "included, one budget shared by every seed, with no upper bound (the file bound is asset_status's own); " +
                      "through takes record types and edge kinds: its record types enter only records of those types and count " +
@@ -144,7 +145,8 @@ public static class AssetTools
                      "to see the meshes too), and the header count, standing counts and place set follow the rows shown; exclusions " +
                      "([{match, severity}]) keeps a 'stop' type as a boundary, not entered (no files, no links), and fails " +
                      "the call on a 'refuse' type. Seeds are never judged. A cap note names the value to raise. " +
-                     "seed_paths and direction are the records walk's and are refused here, as is a follow path with '*parent'.")]
+                     "seed_paths and direction are the records walk's and are refused here, as is a follow path with '*parent' " +
+                     "at any segment, or \"*\" beside other paths.")]
             JsonElement? walk = null,
         [Description("Optional, with walk= (true or a walk object). Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
             ListArg? records = null,
