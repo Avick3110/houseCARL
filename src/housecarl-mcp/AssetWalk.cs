@@ -151,8 +151,9 @@ internal sealed partial class AssetLayers
         finally { foreach (var o in overlays) { try { o.Dispose(); } catch { /* releasing the off-order overlays */ } } }
 
         if (filesCut)
-            notes.Add($"the walk stopped at {cap} files (the asset_status path bound); what it reached so far is listed"
-                      + (values.Edges is null ? "." : ", the rows of walk.through's edge kinds shown and the rest counted on the left-out line."));
+            notes.Add($"the walk stopped at {cap} files (the asset_status path bound); "
+                      + (values.Edges is null ? "what it reached so far is listed."
+                         : "of what it reached so far, the rows of walk.through's edge kinds are listed and the rest counted on the left-out line."));
         // The walk is whole; through's edge kinds choose only the rows shown, so every lane reads the same set.
         if (values.Edges is { } edges)
         {
