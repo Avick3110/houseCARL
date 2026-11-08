@@ -213,7 +213,7 @@ internal sealed partial class AssetLayers
     /// for a seed read through 'winner', its own plugin, each contributing the paths it lists and its implicit files; a
     /// seed NPC its FaceGen too. <paramref name="leftOut"/> gets the type of each record walk.through left out, and
     /// <paramref name="leftOutAt"/> the index of the note that counts them. Returns the record cycles over the links it
-    /// followed.</summary>
+    /// recorded: every home link out of an entered record, one out of a record at walk.depth too.</summary>
     RecordCycles WalkRecords(AssetResolver.AssetView view, string? source, LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session, SourceChain chain, IReadOnlyList<FormKey> seeds, List<IDisposable> overlays, FileSink addFile,
                              List<string> notes, WalkGrammar.Values values, List<string> leftOut, ref int leftOutAt, ref bool truncated)
     {
@@ -221,7 +221,7 @@ internal sealed partial class AssetLayers
         // What walk.exclusions kept as boundaries.
         int stopped = 0;
         var seenRec = new HashSet<FormKey>();
-        // The followed links, entered record to linked record, and each entered record's EditorID, for the cycles.
+        // Every home link out of an entered record, one at walk.depth too though not followed, and each entered record's EditorID, for the cycles.
         var edges = new Dictionary<FormKey, List<FormKey>>();
         var editorIds = new Dictionary<FormKey, string?>();
         // The NPCs entered past depth 0 whose face no seed's FaceGen gave, which get none.
@@ -357,7 +357,7 @@ internal sealed partial class AssetLayers
         if (facelessNpcs > 0)
             notes.Add($"{facelessNpcs} NPC(s) the walk reached past a seed were entered without their FaceGen (only a seed NPC's face is listed); seed an NPC with records= to list its FaceGen.");
 
-        // Every loop over the followed links, capped as the records walk caps its search (one cap, the shared budget's).
+        // Every loop over the recorded links, capped as the records walk caps its search (one cap, the shared budget's).
         var loops = RecordReads.CycleLines(edges, k => editorIds.GetValueOrDefault(k), out var cyclesCapped);
         return new RecordCycles(loops, cyclesCapped);
     }
