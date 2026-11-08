@@ -519,18 +519,25 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         [(WalkParts.AnyType, "Model.AlternateTextures")] = ("HcShapeThrone", "Keyword", "TextureSet", 1),
     };
 
+    public static IEnumerable<object[]> PartRowKeys() => PartRows.Keys.Select(k => new object[] { k.Type, k.Path });
+
     /// <summary>Every walk-parts.json entry is followed at runtime: its seed's field reaches the records it names, which
-    /// a walk.through without their type counts on the left-out line. An entry with no row here fails, so each entry
-    /// has a row that fails when the entry is dropped.</summary>
+    /// a walk.through without their type counts on the left-out line. The rows are this table's, so a dropped entry
+    /// fails its row.</summary>
     [Theory]
-    [MemberData(nameof(WalkPartsTests.Entries), MemberType = typeof(WalkPartsTests))]
+    [MemberData(nameof(PartRowKeys))]
     public void EachPartFieldIsFollowed(string type, string path)
     {
-        Assert.True(PartRows.TryGetValue((type, path), out var r), $"walk-parts.json's {type} entry {path} has no row in PartRows");
+        var r = PartRows[(type, path)];
         var through = r.Through.StartsWith('"') ? r.Through : $"\"{r.Through}\"";
         var line = Assert.Single(Walk(r.Seed, Values($"{{\"through\": [{through}]}}")).Notes, n => n.StartsWith("left out, not in walk.through: "));
         Assert.Matches($@"[:,] {r.Count} {r.Reached}(,|$)", line);
     }
+
+    /// <summary>The table holds a row for every walk-parts.json entry and no other, so an entry added has a row too.</summary>
+    [Fact]
+    public void EachPartFieldHasARow()
+        => Assert.Equal(PartRows.Keys.Select(k => $"{k.Type}:{k.Path}").Order(), WalkParts.ByType.SelectMany(kv => kv.Value.Select(p => $"{kv.Key}:{p}")).Order());
 
     /// <summary>Two cells both plugins touch read the base plugin's copies of both in one pass for their child unions:
     /// the two-cell walk reads no group more often than the one-cell walk.</summary>
