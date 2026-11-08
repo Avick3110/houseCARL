@@ -343,7 +343,7 @@ internal sealed partial class AssetLayers
             frontier = next;
         }
         if (pastDepth > 0)
-            notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth={maxDepth} form-link hops from a seed and were not entered; raise walk.depth to walk them.");
+            notes.Add($"{pastDepth} record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth={maxDepth} form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc).");
         if (stopped > 0)
             notes.Add($"{stopped} reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links).");
         if (values.Through is not null || values.Edges is not null)

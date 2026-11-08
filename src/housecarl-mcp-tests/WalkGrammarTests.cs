@@ -133,7 +133,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     /// <summary>walk.depth=1 enters the seed's first hop only, and the note names the value and says to raise it.</summary>
     [Fact]
     public void AssetWalkDepthOneStopsAtHopOne()
-        => Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth to walk them." },
+        => Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
                         Notes(AssetWalk("{\"depth\": 1}", records: new[] { Id("HcDoorChain2") }, countsOnly: true)));
 
     /// <summary>walk.max_nodes counts every record entered, seeds included, one budget across both seeds.</summary>
