@@ -170,14 +170,13 @@ public sealed class AssetWalkPinTests : IClassFixture<AssetWalkPinWorld>
         Assert.Equal(AssetWalkPinWorld.FxNif, n.PulledBy, ignoreCase: true);
     }
 
-    /// <summary>Two seeds read through the winner, one in each plugin, both linking B's X: A's two links are boundaries
-    /// into B, counted per link, and X is entered through B's seed, whose home B is, so X's own link to Y is walked and
-    /// is no third boundary.</summary>
+    /// <summary>A seed's part fields are followed into any plugin, with no seed-plugin rule: A's list names B's X, whose
+    /// extra part Y, in B too, is entered and lists its mesh, and no link is a plugin boundary.</summary>
     [Fact]
-    public void EachSeedsHomeIsItsOwnPlugin()
+    public void ASeedsPartsAreFollowedIntoAnyPlugin()
     {
-        var d = Walk("HcPinSeedA", "HcPinSeedB");
-        Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkPinWorld.B.FileName + " ×2."));
+        var d = Walk("HcPinSeedA");
         Assert.Contains("HcPinY", Node(d, AssetWalkPinWorld.YNif).PulledBy);
+        Assert.DoesNotContain(d.Notes, n => n.Contains("boundaries, not walked"));
     }
 }

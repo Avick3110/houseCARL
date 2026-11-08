@@ -164,6 +164,7 @@ public sealed class AssetWalkWorld : IDisposable
         var vq = mod.Quests.AddNew("HcWalkVoiceQuest");
         var topic = mod.DialogTopics.AddNew("HcWalkTopic");
         topic.Quest.SetTo(vq);
+        Keys["HcWalkTopic"] = topic.FormKey;
         DialogResponses Line(string key, bool spoken = true)
         {
             var info = new DialogResponses(mod.GetNextFormKey(), SkyrimRelease.SkyrimSE);
@@ -243,6 +244,8 @@ public sealed class AssetWalkWorld : IDisposable
         ovHair.Model = new Model { File = OvHairNif };
         var ovNpc = beast2.DeepCopy();
         ovNpc.HeadParts.Add(ovHair);
+        // A head part the override does not hold: the walk reads it off the load order and says so.
+        ovNpc.HeadParts.Add(hair);
         ovNpc.Voice.SetTo(otherVoice);
         ov.Npcs.Add(ovNpc);
         ov.BeginWrite.ToPath(Path.Combine(overrideMod, OverridePlugin)).WithLoadOrder(new ISkyrimModGetter[] { other, mod, ov })

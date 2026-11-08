@@ -45,7 +45,7 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
 
     // ---- the asset walk ----
 
-    AssetWalkData Asset(string plugin) => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[plugin]["List"] }, null, null);
+    AssetWalkData Asset(string plugin) => _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[plugin]["List"] }, null, null, values: Walks.EveryLink());
 
     static List<string> Paths(AssetWalkData d) => d.Nodes.Select(n => n.Path).ToList();
 
@@ -71,10 +71,12 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         => NamesOnce(_w.Id(L, "Perk"), Asset(L).Notes.Single(n => n.Contains("its links were read leniently")));
 
     /// <summary>Mutagen hands over the master's spell link before the refused effect throws, and the lenient re-read
-    /// starts over: the boundary counts the one link the perk holds, not that link twice.</summary>
+    /// starts over: the default walk, which follows no perk field, counts the perk's two links (the static and the
+    /// spell) once each on the links-not-followed note, not the spell twice.</summary>
     [Fact]
-    public void TheAssetWalkCountsALenientPerksBoundaryOncePerLink()
-        => Assert.Contains(Asset(L).Notes, n => n.Contains(UnreadLinksWorld.BaseMaster + " ×1."));
+    public void TheAssetWalkCountsALenientPerksLinksOncePerLink()
+        => Assert.Contains(_w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[L]["List"] }, null, null).Notes,
+                           n => n.Contains("sit outside the part fields") && n.Contains(" 2 on Perk"));
 
     [Fact]
     public void TheAssetWalkGoesPastADeletedThrowingRecordFollowingNothing()

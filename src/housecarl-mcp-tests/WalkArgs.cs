@@ -17,6 +17,11 @@ internal static class Walks
         return doc.RootElement.Clone();
     }
 
+    /// <summary>The asset walk's defaults with walk.follow "*": every form link, for the pins of the walk's loop and
+    /// door, which reach records through links no part field holds.</summary>
+    public static WalkGrammar.Values EveryLink(int depth = WalkGrammar.AssetDefaultDepth)
+        => WalkGrammar.Values.Defaults(depth) with { Follow = new[] { "*" } };
+
     /// <summary>One {match, severity} per 'Type:severity' entry; null for null.</summary>
     public static RecordsTools.RecordsWalkExclusion[]? Excl(params string[]? specs)
         => specs?.Select(s => s.Split(':', 2))

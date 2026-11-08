@@ -133,7 +133,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     /// <summary>walk.depth=1 enters the seed's first hop only, and the note names the value and says to raise it.</summary>
     [Fact]
     public void AssetWalkDepthOneStopsAtHopOne()
-        => Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
+        => Assert.Equal(new[] { "1 record(s) sit more than walk.depth=1 hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
                         Notes(AssetWalk("{\"depth\": 1}", records: new[] { Id("HcDoorChain2") }, countsOnly: true)));
 
     /// <summary>walk.max_nodes counts every record entered, seeds included, one budget across both seeds.</summary>
@@ -147,11 +147,12 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Contains("\"truncated\":true", json.Replace(" ", ""));
     }
 
-    /// <summary>walk.through enters only the listed types and counts the rest per type; the seed NPC is still entered.</summary>
+    /// <summary>walk.through enters only the listed types and counts the rest per type; the seed NPC is still entered.
+    /// Under walk.follow "*", which reaches the race and voice type.</summary>
     [Fact]
     public void AssetWalkThroughLeavesOutOtherTypesAndCountsThem()
     {
-        var json = AssetWalk("{\"through\": [\"HeadPart\", \"TextureSet\"]}");
+        var json = AssetWalk("{\"follow\": \"*\", \"through\": [\"HeadPart\", \"TextureSet\"]}");
         Assert.Contains("left out, not in walk.through: 1 Race, 1 VoiceType", Notes(json));
         var nodes = Nodes(json);
         Assert.Contains(nodes, n => n.Edge == "facegen" && n.PulledBy.StartsWith("Npc HcDoorA1 ", StringComparison.Ordinal));
@@ -159,8 +160,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     }
 
     /// <summary>through's edge kinds count the rows they hide on the record types' one line, in its place (#1278): before
-    /// the plugin boundaries' note, as with the types alone, and every other note the same; read through the seed's own
-    /// plugin, so A's records are boundaries.</summary>
+    /// the links-not-followed note, as with the types alone, and every other note the same.</summary>
     [Fact]
     public void AssetWalkEdgeKindsCountOnTheOneLeftOutLine()
     {
@@ -168,25 +168,26 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         var types = Run("{\"through\": [\"Npc\"]}");
         var both = Run("{\"through\": [\"Npc\", \"facegen\"]}");
         int at = Array.FindIndex(types, n => n.StartsWith("left out, not in walk.through: "));
-        Assert.True(at >= 0 && at < Array.FindIndex(types, n => n.StartsWith("form links into other plugins")), string.Join("\n", types));
+        Assert.True(at >= 0 && at < Array.FindIndex(types, n => n.Contains("sit outside the part fields")), string.Join("\n", types));
         Assert.Equal(at, Array.FindIndex(both, n => n.StartsWith("left out, not in walk.through: ")));
         Assert.Equal(types.Where((_, i) => i != at), both.Where((_, i) => i != at));
     }
 
-    /// <summary>A stop exclusion keeps the race out, counted as a boundary; a refuse fails the call in the walks' words.</summary>
+    /// <summary>A stop exclusion keeps the race out, counted as a boundary; a refuse fails the call in the walks' words.
+    /// Under walk.follow "*", which reaches the race.</summary>
     [Fact]
     public void AssetWalkExclusionsStopAndRefuse()
     {
-        var stop = AssetWalk("{\"exclusions\": [{\"match\": \"Race\", \"severity\": \"stop\"}]}");
+        var stop = AssetWalk("{\"follow\": \"*\", \"exclusions\": [{\"match\": \"Race\", \"severity\": \"stop\"}]}");
         Assert.Contains("1 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links).", Notes(stop));
         Assert.DoesNotContain(Nodes(stop), n => n.PulledBy.StartsWith("Race ", StringComparison.Ordinal));
 
-        var refuse = AssetWalk("{\"exclusions\": [{\"match\": \"RACE\", \"severity\": \"refuse\"}]}", format: null);
+        var refuse = AssetWalk("{\"follow\": \"*\", \"exclusions\": [{\"match\": \"RACE\", \"severity\": \"refuse\"}]}", format: null);
         Assert.StartsWith("error: the walk reached a Race (", refuse);
         Assert.EndsWith("a node class this call excludes with severity 'refuse'. Nothing is returned for this call.", refuse);
     }
 
-    const string PastDepthOne = "sit more than walk.depth=1 form-link hops";
+    const string PastDepthOne = "sit more than walk.depth=1 hops";
 
     /// <summary>A type walk.through leaves out is not entered: its own links are not followed past it.</summary>
     [Fact]
@@ -267,7 +268,6 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     /// <summary>The records walk's shaping values are refused by name on the asset walk, never dropped.</summary>
     [Theory]
     [InlineData("{\"seed_paths\": [\"HeadParts\"]}", "error: walk.seed_paths is a records-walk value")]
-    [InlineData("{\"follow\": \"Template\"}", "error: walk.follow is a records-walk value")]
     [InlineData("{\"direction\": \"forward\"}", "error: walk.direction is a records-walk value")]
     public void AssetWalkRefusesTheRecordsWalksShapingValues(string walk, string lead)
         => Assert.StartsWith(lead, AssetWalk(walk, format: null));

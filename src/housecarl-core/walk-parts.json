@@ -1,0 +1,14 @@
+{
+  "Npc": ["HeadParts", "HairColor", "HeadTexture", "WornArmor", "DefaultOutfit", "SleepingOutfit", "FarAwayModel"],
+  "HeadPart": ["ExtraParts", "TextureSet", "Color"],
+  "Armor": ["Armature", "TemplateArmor", "WorldModel"],
+  "ArmorAddon": ["SkinTexture", "TextureSwapList", "WorldModel", "FirstPersonModel", "ArtObject"],
+  "Outfit": ["Items"],
+  "LeveledItem": ["Entries"],
+  "FormList": ["Items"],
+  "Weapon": ["FirstPersonModel", "Template"],
+  "PlacedObject": ["Base"],
+  "PlacedNpc": ["Base"],
+  "DialogResponses": ["ResponseData"],
+  "*": ["Model.AlternateTextures"]
+}

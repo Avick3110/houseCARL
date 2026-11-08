@@ -39,6 +39,9 @@
          fieldmap guard (every path walked with the real write engine; every valueMap target parsed against
          the real leaf enum). -->
     <EmbeddedResource Include="skypatcher-fieldmap.json" />
+    <!-- The asset walk's part fields (walk=true's default follow): hand-listed domain data, each field checked to
+         exist on its type by WalkPartsTests. -->
+    <EmbeddedResource Include="walk-parts.json" />
   </ItemGroup>
 
 </Project>

@@ -469,7 +469,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         ComparisonMeter meter, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
         => _reads.TreeBatch(formids, reference, fields, demand, out referenceArm, out epochCoversAll, out refusal, out epoch, meter, overlayWarnings);
     internal IReadOnlyList<RecordReads.WalkSeedResult> WalkForwardBatch(
-        IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
+        IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, IReadOnlyList<string>? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct = default,
         bool wantCycles = false, IReadOnlySet<string>? through = null, IDictionary<FormKey, string>? leftOut = null)
