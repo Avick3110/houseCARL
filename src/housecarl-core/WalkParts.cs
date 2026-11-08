@@ -30,9 +30,9 @@ public static class WalkParts
 
     /// <summary>The links under each of <paramref name="paths"/> on <paramref name="record"/>, each once in path order,
     /// into <paramref name="into"/>. A path whose first field the record's type does not have, or whose value is
-    /// absent, gives none; a path that cannot be read is added to <paramref name="unread"/> with why. A deleted record
-    /// links to nothing.</summary>
-    public static void Links(IMajorRecordGetter record, IReadOnlyList<string> paths, List<FormKey> into, List<string> unread)
+    /// absent, gives none; a path that cannot be read is added to <paramref name="unread"/> with why. A path whose first
+    /// field the type has is added to <paramref name="found"/>. A deleted record links to nothing.</summary>
+    public static void Links(IMajorRecordGetter record, IReadOnlyList<string> paths, List<FormKey> into, List<string> unread, ISet<string>? found = null)
     {
         into.Clear();
         if (DeletedRecordRule.HasNoLiveBody(record)) return;
@@ -41,8 +41,9 @@ public static class WalkParts
         {
             var segs = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (segs.Length == 0) continue;
-            // Asked once per type and path, so a type without the field costs no diagnosis per record.
-            if (!_has.GetOrAdd((record.GetType(), segs[0]), static k => WriteEngine.ResolveProperty(k.Item1, k.Item2) is not null)) continue;
+            // Asked once per type and field, its index dropped, so a type without the field costs no diagnosis per record.
+            if (!_has.GetOrAdd((record.GetType(), segs[0].Split('[')[0]), static k => WriteEngine.ResolveProperty(k.Item1, k.Item2) is not null)) continue;
+            found?.Add(path);
             var (links, note) = ReadEngine.CollectLinksAt(record, segs);
             if (links is null)
             {
