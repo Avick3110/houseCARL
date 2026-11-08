@@ -398,8 +398,8 @@ internal sealed partial class AssetLayers
         if (followFound is not null)
             foreach (var p in follow!.Where(p => !followFound.Contains(p)))
                 notes.Add(followWrong!.TryGetValue(p, out var why)
-                    ? $"walk.follow '{p}' followed nothing: no record the walk entered reads it (a deleted one links to nothing) — {why}"
-                    : $"walk.follow '{p}' followed nothing: the walk entered no record that is not deleted, and a deleted record links to nothing.");
+                    ? $"walk.follow '{p}' followed nothing: no record the walk entered reads it — {why}"
+                    : $"walk.follow '{p}' followed nothing: it names no field, or the walk entered no record that is not deleted (a deleted record links to nothing).");
         if (npcBoundaries > 0) notes.Add(NpcBoundaryNote(npcBoundaries));
 
         // Every loop over the recorded links, capped as the records walk caps its search (one cap, the shared budget's).

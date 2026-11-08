@@ -432,8 +432,10 @@ by occurrence, since the walk enters those children and counts them on their own
 default: one path or a list, read on every record from the seed on (the asset walk has no `seed_paths`), with no child
 records; a named path no entered record reads, a field none has at any segment (a typo, or the wrong case: field
 names are case-sensitive) or one holding no links, is a note naming it with the read engine's no-field or no-links
-note, near-name included, from the first record that refused it; when every record entered is deleted, the note
-says that instead, since a deleted record links to nothing and marks no path read (`WalkParts.Links`). The default's part fields are skipped silently
+note, near-name included, from the first record that refused it; a path no live record refused (one with no field, such as `.`, or one
+where the walk entered no record that is not deleted: every record entered deleted, or none entered) is a note saying
+it names no field or met no live record, since a deleted record links to nothing and marks no path read
+(`WalkParts.Links`). The default's part fields are skipped silently
 where a type lacks them or they hold no links. `*` is every form link through the one link door below, which is the old reach
 without the plugin rule, plus the child records, so it is a superset of the default except at a cell, topic or
 worldspace whose links cannot be read, which under `*` enters none of its child records (a known limit); `*` beside named paths, and a
@@ -766,9 +768,9 @@ provided either; the generic lane does not, because it legitimately answers for 
   `*` keeps a cell's children (`FollowEveryLinkKeepsTheCellsPlacedBases`); a `walk.follow` path no record has, one
   wrong past its first field, an indexed path, `*` beside names and a `*parent` climb (`AFollowPathNoRecordHasIsSaidByName`,
   `AFollowPathWrongPastItsFirstFieldIsSaidByName`, `AnIndexedFollowPathFollowsThatElement`,
-  `FollowRefusesEveryLinkBesideNamesAndAnyParentClimb`); a path only deleted records were entered for, and a named
-  path read past a record whose links cannot be read (`UnreadLinksWalkTests.AFollowPathOnlyADeletedRecordHoldsIsSaidAsDeleted`,
-  `ANamedFollowReadsItsFieldPastARecordWhoseLinksCannotBeRead`); two cells' unions
+  `FollowRefusesEveryLinkBesideNamesAndAnyParentClimb`); a path only deleted records were entered for, a path with no field,
+  and a named path read past a record whose links cannot be read (`UnreadLinksWalkTests.AFollowPathOnlyADeletedRecordHoldsIsSaidAsDeleted`,
+  `AFollowPathWithNoFieldIsSaidAsNamingNone`, `ANamedFollowReadsItsFieldPastARecordWhoseLinksCannotBeRead`); two cells' unions
   read in one pass (`TwoCellsReadTheirUnionsInOnePass`); a miss in every source and the order is a note
   (`AReachedRecordInNoSourceNorTheOrderIsSaid`).
 - *One FaceGen answer per NPC*: `NpcFaceDoorTests` — a plain NPC is its own pair on every lane and the check
