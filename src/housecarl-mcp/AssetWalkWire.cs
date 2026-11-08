@@ -204,7 +204,7 @@ static class AssetWalkWire
         // The record cycles, only when the walk found any, so a walk with none is the document it always was. At a cap
         // they are measured as their held-back entry alone and take the room the nodes leave, below.
         string Held(int count) => $"[{count} more cycle(s) held back at max_chars — "
-                                  + (spill?.Spill is not null ? "every cycle is in the results file]" : "raise max_chars, or to_file= for the complete walk]");
+                                  + (spill?.Spill is not null ? "every cycle the search found is in the results file]" : "raise max_chars, or to_file= for the complete walk]");
         bool boundCycles = cap > 0 && d.Cycles.Count > 0;
         if (d.Cycles.Count > 0)
         {
