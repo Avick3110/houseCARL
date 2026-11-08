@@ -29,10 +29,13 @@ public static class WalkParts
     static readonly ConcurrentDictionary<(Type, string), bool> _has = new();
 
     /// <summary>The links under each of <paramref name="paths"/> on <paramref name="record"/>, each once in path order,
-    /// into <paramref name="into"/>. A path whose first field the record's type does not have, or whose value is
-    /// absent, gives none; a path that cannot be read is added to <paramref name="unread"/> with why. A path whose first
-    /// field the type has is added to <paramref name="found"/>. A deleted record links to nothing.</summary>
-    public static void Links(IMajorRecordGetter record, IReadOnlyList<string> paths, List<FormKey> into, List<string> unread, ISet<string>? found = null)
+    /// into <paramref name="into"/>. A path naming a field the record lacks at any segment, or one holding no links, or
+    /// whose value is absent, gives none; a path that cannot be read is added to <paramref name="unread"/> with why. A
+    /// path the record reads, a fault or an absent value included, is added to <paramref name="found"/>; one it lacks
+    /// or that holds no links is added to <paramref name="wrong"/> with the read engine's note, once per path. A deleted
+    /// record links to nothing and marks no path.</summary>
+    public static void Links(IMajorRecordGetter record, IReadOnlyList<string> paths, List<FormKey> into, List<string> unread,
+                             ISet<string>? found = null, IDictionary<string, string>? wrong = null)
     {
         into.Clear();
         if (DeletedRecordRule.HasNoLiveBody(record)) return;
@@ -42,17 +45,25 @@ public static class WalkParts
             var segs = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (segs.Length == 0) continue;
             // Asked once per type and first segment, so a type without the field costs no diagnosis per record.
-            if (!_has.GetOrAdd((record.GetType(), segs[0]), static k => HasField(k.Item1, k.Item2))) continue;
-            found?.Add(path);
+            if (!_has.GetOrAdd((record.GetType(), segs[0]), static k => HasField(k.Item1, k.Item2)))
+            {
+                if (wrong is not null && !wrong.ContainsKey(path)) wrong[path] = ReadEngine.CollectLinksAt(record, segs).Note!;
+                continue;
+            }
             var (links, note) = ReadEngine.CollectLinksAt(record, segs);
             if (links is null)
             {
-                // Absent, no such field, or not a link-bearing field: no links, not a fault.
-                if (note is not null && !ReadEngine.IsAbsentNote(note) && !ReadEngine.IsNoSuchFieldNote(note)
-                    && !note.StartsWith(ReadEngine.NoLinksPrefix, StringComparison.Ordinal))
-                    unread.Add($"{path} {note}");
+                // No such field, or not a link-bearing field: a wrong path, not a fault.
+                if (ReadEngine.IsNoSuchFieldNote(note) || note!.StartsWith(ReadEngine.NoLinksPrefix, StringComparison.Ordinal))
+                {
+                    wrong?.TryAdd(path, note!);
+                    continue;
+                }
+                found?.Add(path);
+                if (!ReadEngine.IsAbsentNote(note)) unread.Add($"{path} {note}");
                 continue;
             }
+            found?.Add(path);
             foreach (var k in links)
                 if (seen.Add(k)) into.Add(k);
         }

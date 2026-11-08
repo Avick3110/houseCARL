@@ -430,8 +430,11 @@ a keyword) is not walked, and one note counts them per holding type, naming `wal
 count is its own links: the links its own child records hold, which Mutagen hands over as the parent's, are taken off
 by occurrence, since the walk enters those children and counts them on their own types. `walk.follow` replaces the
 default: one path or a list, read on every record from the seed on (the asset walk has no `seed_paths`), with no child
-records; a named path no entered record's type has the first field of (a typo, or the wrong case: field names are
-case-sensitive) is a note naming it. `*` is every form link through the one link door below, which is the old reach
+records; a named path no entered record reads, a field none has at any segment (a typo, or the wrong case: field
+names are case-sensitive) or one holding no links, is a note naming it with the read engine's no-field or no-links
+note, near-name included, from the first record that refused it; when every record entered is deleted, the note
+says that instead, since a deleted record links to nothing and marks no path read (`WalkParts.Links`). The default's part fields are skipped silently
+where a type lacks them or they hold no links. `*` is every form link through the one link door below, which is the old reach
 without the plugin rule, plus the child records, so it is a superset of the default except at a cell, topic or
 worldspace whose links cannot be read, which under `*` enters none of its child records (a known limit); `*` beside named paths, and a
 `*parent` climb at any segment, are refused. A
