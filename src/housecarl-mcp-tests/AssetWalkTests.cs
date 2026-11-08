@@ -560,6 +560,39 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains($"the cycle search stopped at {RecordReads.WalkCycleCap} loops — more loops are there than are counted.", many.Notes);
         Assert.Empty(Walk(records: new[] { "HcWalkHero" }).Cycles);
     }
+
+    /// <summary>The json walk's cycles are bounded by max_chars (#1278, r1 #1): the 201-self-loop list at a small cap,
+    /// inline, paged and to_file=, stays within the cap, its cycles ending in one entry counting the loops held back,
+    /// cycles_capped still said, and the spilled or to_file= file lists all 200.</summary>
+    [Fact]
+    public void AJsonWalksCyclesStayWithinMaxChars()
+    {
+        const int cap = 4000;
+        var seed = new[] { _w.Id("HcWalkSelves") };
+        static int FileCycles(string file)
+        {
+            using var manifest = JsonDocument.Parse(File.ReadAllLines(file)[0]);
+            return manifest.RootElement.GetProperty("notes").EnumerateArray().Count(n => n.GetString()!.StartsWith("walk cycle: "));
+        }
+        void Bounded(string json, string inFile)
+        {
+            Assert.True(json.Length <= cap, json);
+            using var doc = JsonDocument.Parse(json);
+            var r = doc.RootElement;
+            Assert.True(r.GetProperty("cycles_capped").GetBoolean());
+            var cycles = r.GetProperty("cycles").EnumerateArray().Select(c => c.GetString()!).ToList();
+            var held = cycles[^1];
+            Assert.Equal($"[{RecordReads.WalkCycleCap - (cycles.Count - 1)} more cycle(s) held back at max_chars — every cycle is in the results file]", held);
+            Assert.True(cycles.Count > 1, json);
+            Assert.Equal(RecordReads.WalkCycleCap, FileCycles(inFile));
+        }
+        var inline = AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On, format: "json", max_chars: cap);
+        Bounded(inline, JsonDocument.Parse(inline).RootElement.GetProperty("spilled").GetProperty("path").GetString()!);
+        var paged = AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On, format: "json", max_chars: cap, limit: 1);
+        Bounded(paged, JsonDocument.Parse(paged).RootElement.GetProperty("spilled").GetProperty("path").GetString()!);
+        var file = Path.Combine(_w.Root, "selves-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        Bounded(AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On, format: "json", max_chars: cap, to_file: file), file);
+    }
     /// <summary>A disabled donor shipping a line as .xwm + .lip with nothing active: both from the source and in the
     /// place set. An active .fuz beside a donor .xwm: both listed.</summary>
     [Fact]
