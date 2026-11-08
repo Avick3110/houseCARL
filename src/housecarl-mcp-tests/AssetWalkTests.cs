@@ -206,7 +206,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     static readonly string[] ActorQuest = { "HcWalkActorQuest" };
-    const string OneBoundary ="1 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records= to walk it, or name Npc in walk.through beside every other record type to keep, since a set walk.through enters only the types it names.";
+    const string OneBoundary = "1 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records= to walk it, or name Npc in walk.through beside every other record type to keep, since a set walk.through enters only the types it names.";
 
     /// <summary>A reached NPC is a boundary (#1371; DECISIONS 2026-11-08 (11), B): the quest's alias reaches the hero,
     /// which lists no script, has its hair not entered and spends no walk.max_nodes, and one note counts it.</summary>
