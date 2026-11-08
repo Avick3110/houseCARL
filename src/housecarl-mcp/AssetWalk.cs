@@ -396,7 +396,7 @@ internal sealed partial class AssetLayers
         if (notFollowed.Count > 0) notes.Add(NotFollowedNote(notFollowed, follow is null));
         if (followFound is not null)
             foreach (var p in follow!.Where(p => !followFound.Contains(p)))
-                notes.Add($"walk.follow '{p}' names a field no record the walk entered has, so it followed nothing; field names are case-sensitive (e.g. \"HeadParts\").");
+                notes.Add($"walk.follow '{p}' names a field no record the walk entered has, but for a deleted one, which links to nothing, so it followed nothing; field names are case-sensitive (e.g. \"HeadParts\").");
         if (npcBoundaries > 0) notes.Add(NpcBoundaryNote(npcBoundaries));
 
         // Every loop over the recorded links, capped as the records walk caps its search (one cap, the shared budget's).
