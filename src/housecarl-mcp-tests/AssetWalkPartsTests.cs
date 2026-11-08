@@ -150,6 +150,49 @@ public sealed class AssetWalkPartsWorld : IDisposable
             m.Cells.Records.Add(block);
         }
         AddCell(b, cell);
+
+        // One seed per part field (walk-parts.json), each field naming a record of its own, for EachPartFieldIsFollowed.
+        var partsNpc = Keyed(b.Npcs.AddNew("HcPartsNpc"));
+        partsNpc.HeadParts.Add(eyes);
+        partsNpc.HairColor.SetTo(Keyed(b.Colors.AddNew("HcPartsColor1")));
+        partsNpc.HeadTexture.SetTo(Keyed(b.TextureSets.AddNew("HcPartsTex1")));
+        partsNpc.WornArmor.SetTo(Armour(b, "HcPartsArmor1", null));
+        partsNpc.DefaultOutfit.SetTo(Keyed(b.Outfits.AddNew("HcPartsOutfit1")));
+        partsNpc.SleepingOutfit.SetTo(Keyed(b.Outfits.AddNew("HcPartsOutfit2")));
+        partsNpc.FarAwayModel.SetTo(Armour(b, "HcPartsArmor2", null));
+        var partsHead = Keyed(b.HeadParts.AddNew("HcPartsHead"));
+        partsHead.ExtraParts.Add(Keyed(b.HeadParts.AddNew("HcPartsHead2")));
+        partsHead.TextureSet.SetTo(Keyed(b.TextureSets.AddNew("HcPartsTex2")));
+        partsHead.Color.SetTo(Keyed(b.Colors.AddNew("HcPartsColor2")));
+        Model AltModel(string texEdid) => new Model
+        {
+            File = "hcshape\\alt.nif",
+            AlternateTextures = new() { new AlternateTexture { Name = "Alt", NewTexture = Keyed(b.TextureSets.AddNew(texEdid)).ToLink(), Index = 0 } },
+        };
+        var partsArmor = Armour(b, "HcPartsArmor", null, Addon(b, "HcPartsAddon2", "hcshape\\addon2.nif"));
+        partsArmor.TemplateArmor.SetTo(Armour(b, "HcPartsArmor3", null));
+        partsArmor.WorldModel = new GenderedItem<ArmorModel?>(new ArmorModel { Model = AltModel("HcPartsTex3") }, null);
+        var partsAddon = Keyed(b.ArmorAddons.AddNew("HcPartsAddon"));
+        partsAddon.SkinTexture = new GenderedItem<IFormLinkNullableGetter<ITextureSetGetter>>(new FormLinkNullable<ITextureSetGetter>(Keyed(b.TextureSets.AddNew("HcPartsTex4")).FormKey), new FormLinkNullable<ITextureSetGetter>());
+        partsAddon.TextureSwapList = new GenderedItem<IFormLinkNullableGetter<IFormListGetter>>(new FormLinkNullable<IFormListGetter>(Keyed(b.FormLists.AddNew("HcPartsSwap")).FormKey), new FormLinkNullable<IFormListGetter>());
+        partsAddon.WorldModel = new GenderedItem<Model?>(AltModel("HcPartsTex5"), null);
+        partsAddon.FirstPersonModel = new GenderedItem<Model?>(AltModel("HcPartsTex6"), null);
+        partsAddon.ArtObject.SetTo(Keyed(b.ArtObjects.AddNew("HcPartsArt")));
+        Keyed(b.FormLists.AddNew("HcPartsList")).Items.Add(Keyed(b.Statics.AddNew("HcPartsStatic")).FormKey);
+        var partsWeapon = Keyed(b.Weapons.AddNew("HcPartsWeapon"));
+        partsWeapon.FirstPersonModel.SetTo(Keyed(b.Statics.AddNew("HcPartsStatic2")));
+        partsWeapon.Template.SetTo(Keyed(b.Weapons.AddNew("HcPartsWeapon2")));
+        var partsTopic = Keyed(b.DialogTopics.AddNew("HcPartsTopic"));
+        DialogResponses Line(string edid)
+        {
+            var info = new DialogResponses(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = edid };
+            partsTopic.Responses.Add(info);
+            Keys[edid] = info.FormKey;
+            return info;
+        }
+        var spoken = Line("HcPartsLine1");
+        Line("HcPartsLine2").ResponseData.SetTo(spoken);
+
         b.BeginWrite.ToPath(_mo2.InMod("ShapeBase", Base)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         // The appearance merge: hair and head it defines, on its override of the NPC.
@@ -431,6 +474,52 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         Assert.StartsWith(Mixed, RecordsTools.Records(_w.Svc, formids: new[] { FormIdToken.Of(_w.Keys["HcShapeNpc"]) },
                                                        walk: new() { follow = new[] { "*", "Template" } }, limit: 0));
         Assert.StartsWith("error: walk.follow '*parent' climbs", WalkGrammar.ReadAssetWalk(_w.Svc.Types, Walks.Of("{\"follow\": \"Template.*parent\"}"), out _));
+    }
+
+    /// <summary>Per walk-parts.json entry: the seed whose field names records of its own, the walk.through that leaves
+    /// them out, and the type and count the left-out line gives when the walk follows the field.</summary>
+    static readonly Dictionary<(string Type, string Path), (string Seed, string Through, string Reached, int Count)> PartRows = new()
+    {
+        [("Npc", "HeadParts")] = ("HcPartsNpc", "Keyword", "HeadPart", 1),
+        [("Npc", "HairColor")] = ("HcPartsNpc", "Keyword", "ColorRecord", 1),
+        [("Npc", "HeadTexture")] = ("HcPartsNpc", "Keyword", "TextureSet", 1),
+        [("Npc", "WornArmor")] = ("HcPartsNpc", "Keyword", "Armor", 2),
+        [("Npc", "DefaultOutfit")] = ("HcPartsNpc", "Keyword", "Outfit", 2),
+        [("Npc", "SleepingOutfit")] = ("HcPartsNpc", "Keyword", "Outfit", 2),
+        [("Npc", "FarAwayModel")] = ("HcPartsNpc", "Keyword", "Armor", 2),
+        [("HeadPart", "ExtraParts")] = ("HcPartsHead", "Keyword", "HeadPart", 1),
+        [("HeadPart", "TextureSet")] = ("HcPartsHead", "Keyword", "TextureSet", 1),
+        [("HeadPart", "Color")] = ("HcPartsHead", "Keyword", "ColorRecord", 1),
+        [("Armor", "Armature")] = ("HcPartsArmor", "Keyword", "ArmorAddon", 1),
+        [("Armor", "TemplateArmor")] = ("HcPartsArmor", "Keyword", "Armor", 1),
+        [("Armor", "WorldModel")] = ("HcPartsArmor", "Keyword", "TextureSet", 1),
+        [("ArmorAddon", "SkinTexture")] = ("HcPartsAddon", "Keyword", "TextureSet", 3),
+        [("ArmorAddon", "TextureSwapList")] = ("HcPartsAddon", "Keyword", "FormList", 1),
+        [("ArmorAddon", "WorldModel")] = ("HcPartsAddon", "Keyword", "TextureSet", 3),
+        [("ArmorAddon", "FirstPersonModel")] = ("HcPartsAddon", "Keyword", "TextureSet", 3),
+        [("ArmorAddon", "ArtObject")] = ("HcPartsAddon", "Keyword", "ArtObject", 1),
+        [("Outfit", "Items")] = ("HcShapeOutfit", "Keyword", "LeveledItem", 1),
+        [("LeveledItem", "Entries")] = ("HcShapeClothesList", "Keyword", "Armor", 1),
+        [("FormList", "Items")] = ("HcPartsList", "Keyword", "Static", 1),
+        [("Weapon", "FirstPersonModel")] = ("HcPartsWeapon", "Keyword", "Static", 1),
+        [("Weapon", "Template")] = ("HcPartsWeapon", "Keyword", "Weapon", 1),
+        [("PlacedObject", "Base")] = ("HcShapeCell", "\"PlacedObject\", \"PlacedNpc\"", "Static", 2),
+        [("PlacedNpc", "Base")] = ("HcShapeCell", "\"PlacedObject\", \"PlacedNpc\"", "Npc", 1),
+        [("DialogResponses", "ResponseData")] = ("HcPartsLine2", "Keyword", "DialogResponses", 1),
+        [(WalkParts.AnyType, "Model.AlternateTextures")] = ("HcShapeThrone", "Keyword", "TextureSet", 1),
+    };
+
+    /// <summary>Every walk-parts.json entry is followed at runtime: its seed's field reaches the records it names, which
+    /// a walk.through without their type counts on the left-out line. An entry with no row here fails, so each entry
+    /// has a row that fails when the entry is dropped.</summary>
+    [Theory]
+    [MemberData(nameof(WalkPartsTests.Entries), MemberType = typeof(WalkPartsTests))]
+    public void EachPartFieldIsFollowed(string type, string path)
+    {
+        Assert.True(PartRows.TryGetValue((type, path), out var r), $"walk-parts.json's {type} entry {path} has no row in PartRows");
+        var through = r.Through.StartsWith('"') ? r.Through : $"\"{r.Through}\"";
+        var line = Assert.Single(Walk(r.Seed, Values($"{{\"through\": [{through}]}}")).Notes, n => n.StartsWith("left out, not in walk.through: "));
+        Assert.Matches($@"[:,] {r.Count} {r.Reached}(,|$)", line);
     }
 
     WalkGrammar.Values Values(string walk)
