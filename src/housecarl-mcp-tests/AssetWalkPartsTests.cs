@@ -198,6 +198,15 @@ public sealed class AssetWalkPartsWorld : IDisposable
         var spoken = Line("HcPartsLine1");
         Line("HcPartsLine2").ResponseData.SetTo(spoken);
 
+        // A chain of 18 form lists, each list's item the next, one hop past the default depth.
+        FormList? nextList = null;
+        for (int i = 17; i >= 0; i--)
+        {
+            var fl = Keyed(b.FormLists.AddNew($"HcShapeChain{i}"));
+            if (nextList is not null) fl.Items.Add(nextList.FormKey);
+            nextList = fl;
+        }
+
         // A list whose one item is in no plugin, for the miss note.
         Keyed(b.FormLists.AddNew("HcShapeDangling")).Items.Add(new FormKey(Base, 0xABC));
         b.BeginWrite.ToPath(_mo2.InMod("ShapeBase", Base)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -558,6 +567,12 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         Assert.NotEmpty(one);
         Assert.Equal(one, two);
     }
+
+    /// <summary>The default walk enters 16 hops: down a chain of 18 lists it enters the 17th and counts the 18th past its depth.</summary>
+    [Fact]
+    public void TheDefaultWalkEntersSixteenHops()
+        => Assert.Contains("1 record(s) sit more than walk.depth=16 hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc).",
+                           Walk("HcShapeChain0").Notes);
 
     /// <summary>A reached record no from_source arm holds and the load order does not hold either is said, naming both.</summary>
     [Fact]
