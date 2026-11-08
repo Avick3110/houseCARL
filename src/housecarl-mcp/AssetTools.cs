@@ -113,7 +113,7 @@ public static class AssetTools
                      "(not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file " +
                      "lists every loop found, the search stopping at 200 loops and saying so. The " +
                      "walk always runs whole (through's edge kinds choose only the rows shown, below): limit= and offset= window only the nodes " +
-                     "listed (the header, notes, standing counts and place set still cover every row shown, not just the window, and a paged " +
+                     "listed (the header, standing counts and place set still cover every row shown, not just the window, the notes the whole walk, and a paged " +
                      "answer ends with the [accounting] line); to_file= writes every node to the file and lists " +
                      "none (the header, notes, counts, place set and the file it wrote still print); counts_only= returns counts per edge and per standing, no nodes. Not with links=.\n\n" +
                      "walk=true walks at the defaults; walk={depth, max_nodes, through, exclusions} takes the records " +
