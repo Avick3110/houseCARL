@@ -52,7 +52,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     {
         Assert.Equal("error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or omit it to walk every type.",
                      RecordsWalk("{\"through\": []}"));
-        Assert.Equal("error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or the edge kinds whose rows to show (e.g. [\"texture\", \"script\"]), or omit it to walk every type.",
+        Assert.Equal("error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or the edge kinds whose rows to show (e.g. [\"texture\", \"script\"]), or omit it to walk every type but an NPC reached past a seed, kept as a boundary.",
                      AssetWalk("{\"through\": []}", format: null));
         const string Voice = "{\"exclusions\": [{\"match\": \"voice\", \"severity\": \"stop\"}]}";
         Assert.Equal("error: walk.exclusions 'voice' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').",

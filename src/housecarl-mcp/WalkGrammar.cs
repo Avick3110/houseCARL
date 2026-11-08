@@ -74,7 +74,8 @@ public static class WalkGrammar
         {
             if (through.Length == 0)
                 return "error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"])"
-                       + (edgeKinds ? ", or the edge kinds whose rows to show (e.g. [\"texture\", \"script\"])," : ",") + " or omit it to walk every type.";
+                       + (edgeKinds ? ", or the edge kinds whose rows to show (e.g. [\"texture\", \"script\"]), or omit it to walk every type but an NPC reached past a seed, kept as a boundary."
+                                    : ", or omit it to walk every type.");
             // One token is a record type or, on the asset walk, an edge kind; the two spellings share no name.
             foreach (var t in through)
             {
