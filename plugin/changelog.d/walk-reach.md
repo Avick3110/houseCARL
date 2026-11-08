@@ -1,0 +1,1 @@
+- **The asset walk now stops at what a seed lists (`walk.depth` default 1), enters the seed's winning plugin, and follows `walk.follow`'s link fields to the end.** Check: Addvar `013255:Skyrim.esm` with `walk={"follow": ["Items", "Armature"]}` lists his worn outfit meshes.

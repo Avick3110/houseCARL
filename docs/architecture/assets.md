@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-07
+updated: 2026-11-08
 covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/ArchiveReader.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
@@ -412,9 +412,19 @@ ceiling-spill artifact row carries the same `links` member (and the manifest's r
 in a disabled mod by name). From a record it enters form links only into records a named `from_source=` plugin
 defines (every plugin an arm names, base masters kept, which copy's bound set drops; so an override donor's own head
 parts are entered) or, for a seed read through
-`winner`, the seed's own plugin defines, to `walk.depth` hops (default 3), so a base master's records reached from a
-donor's override are boundaries; links into other plugins are counted as boundaries in a note, and records past the
-depth are counted too, so nothing is cut silently. `walk.through`'s record types and `walk.exclusions` are judged as a
+`winner`, the seed's own plugin or the plugin its winning copy is in defines (so a replacer's head parts in the NPC's
+winning plugin are entered), to `walk.depth` hops (default 1: what the seed lists), so a base master's records reached
+from a donor's override are boundaries; links into other plugins are counted as boundaries in a note, and records past
+the depth are counted too, so nothing is cut silently (DECISIONS 2026-11-08 (14)). Past `walk.depth` the walk follows
+only the links under `walk.follow`'s fields (a field or a list of them, on the grammar both walks share), read off
+every record it enters with `ReadEngine.CollectLinksAt` and followed to the end, still inside the home plugins and
+still judged at the entry door: so `["HeadParts", "ExtraParts", "TextureSet", "WornArmor", "Armature", "SkinTexture",
+"Items"]` brings an NPC's head parts' texture sets and his outfit's worn armour addons, while his race's skin, a skin
+addon's other races and a quest's chain stay counted stops. A field is followed on every record type that has it;
+one no entered record carries is a note. A record past depth on one link and on a follow field on another is entered,
+and leaves the past-depth count. Which fields make up a seed kind's parts is skill data, the mutagen-reference skill's
+`walk-bundles.md`, never a list in code (CLAUDE.md design rule 1). A path holding `*` is refused on the asset walk:
+every link is followed to `walk.depth` already, and `*parent` is the records walk's. `walk.through`'s record types and `walk.exclusions` are judged as a
 record is entered, and a malformed seed is an error node; both are walk-and-reverse.md's "One walk grammar". A record
 past a seed whose read body is an NPC (a quest alias's actor, a location's unique actor, a race's chargen preset, a
 script property, a template) is a boundary: not entered, so it lists no files, follows no links and spends no
@@ -715,7 +725,11 @@ provided either; the generic lane does not, because it legitimately answers for 
   alias, spending no `max_nodes` (`ANpcReachedThroughAnAliasIsABoundary`), as a seed's template, the seed's face
   unchanged (`ASeedsTemplateIsABoundaryAndItsFaceIsUnchanged`), as a leveled list's entry, the list entered
   (`ALeveledNpcIsEnteredAndItsNpcsAreBoundaries`), and closing no loop (`ALoopThroughAReachedNpcIsNotReported`);
-  `walk.through` naming `Npc` enters it (`ThroughNamingNpcEntersAReachedNpc`) and, alone, leaves every other reached
+  `AssetWalkFollowTests` — the default walk stops at what the seed lists; walk.follow follows a list of links, one
+  link and a gendered pair past depth, and an outfit's addon three hops out, a mention staying a counted stop; a
+  follow field no record carries is a note; a record past depth on one link is entered through a follow field on
+  another; the seed's winning plugin is home (`TheSeedsWinningPluginIsHome`); the records walk's follow list follows
+  each path; `walk.through` naming `Npc` enters it (`ThroughNamingNpcEntersAReachedNpc`) and, alone, leaves every other reached
   type out (`ThroughNamingNpcAloneLeavesEveryOtherTypeOut`), and a `walk.through` without `Npc` or
   an exclusion on `Npc` is unchanged (`ThroughWithoutNpcAndAStopOnNpcAreUnchanged`). `AssetWalkDoorTests` — each depth
   reads each (plugin, group) once; no line is found off an NPC, with no reverse index and no topic or cell group read

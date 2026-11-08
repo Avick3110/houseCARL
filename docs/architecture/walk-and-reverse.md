@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-07
+updated: 2026-11-08
 covers: [src/housecarl-core/ClosureWalk.cs, src/housecarl-core/SourceChain.cs, src/housecarl-core/ReverseReferenceIndex.cs, src/housecarl-mcp/WalkGrammar.cs]
 ---
 # Walk and reverse
@@ -87,9 +87,15 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   exclusion type once at its first entry, so `[{Global, stop}, {GlobalFloat, refuse}]` stops at every global and
   copy's `ClosureWalk` dictionary never sees a duplicate.
 - The records walk keeps its spellings and defaults (depth 16, max_nodes 2,000). The asset walk takes
-  `walk=true` (its defaults) or `walk={depth, max_nodes, through, exclusions}` (`ReadAssetWalk`), depth 3, one
-  shared budget with no ceiling, counting every record entered, seeds included; `seed_paths`, `follow` and
-  `direction` are refused by name. Copy takes `ParseExclusions` alone as `exclusions=[{match, severity}]`;
+  `walk=true` (its defaults) or `walk={depth, max_nodes, follow, through, exclusions}` (`ReadAssetWalk`), depth 1, one
+  shared budget with no ceiling, counting every record entered, seeds included; `seed_paths` and `direction` are
+  refused by name.
+- `walk.follow` is one field path or a list of them on both walks (`WalkFollow`, bound from a JSON string or array and
+  published as both). `FollowPaths` splits each path and refuses an empty list, a blank path, and `*` beside another
+  path in one sentence for both walks. The records walk reads a single path exactly as before (blank or `*` is every
+  link, `Template` the chain report) and a list as each path's links at every later hop, the union in path order; a
+  reverse walk takes a list of one, and more is its existing follow refusal. The asset walk refuses any path holding
+  `*` and follows the paths past `walk.depth` (assets.md, Walking the links). Copy takes `ParseExclusions` alone as `exclusions=[{match, severity}]`;
   `exclude_types=` is refused naming the new spelling, and a bare type no longer defaults to refuse.
 - The asset walk judges `through`'s record types and the exclusions where it enters a record, on the read body's
   type, so the type is the same whichever source arm read it. A stop is not entered (no files, no links) and is counted
@@ -114,7 +120,8 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
 - `WalkGrammarTests` — the shared refusal cases against both walks, the per-seed ceiling, the asset walk's depth,
   budget, through and exclusions, its refusal of the records walk's shaping values, and a malformed seed's row on the
   asset, reverse and forward walks; `through`'s token refusals on both walks (`ThroughRefusesATokenNamingWhatItTakes`)
-  and every edge kind as a token (`ThroughTakesEveryEdgeKindTheWalkEmits`). `WalkBadSeedReadingFormTests` — a malformed seed's row on the carrier reading
+  and every edge kind as a token (`ThroughTakesEveryEdgeKindTheWalkEmits`); walk.follow's refusals on both walks and a string read as a list of one
+  (`FollowIsAListOnBothWalks`). `WalkBadSeedReadingFormTests` — a malformed seed's row on the carrier reading
   form, alone and beside a good seed. `CopyWireParseTests` — copy's exclusions: signature, base type, first match,
   unknown type, the retired `exclude_types=`, and the same patch byte for byte as the old spelling's core input.
 
