@@ -165,7 +165,7 @@ internal sealed partial class AssetLayers
         }
         if (cycles is { Loops.Count: > 0 } c)
         {
-            notes.Add($"{c.Loops.Count} record cycle(s) found (recorded, not an error): one per link that closes a loop back to a record the walk entered, a lower bound, since a loop closing past walk.depth or walk.max_nodes is not seen; each loop is listed in the format=json walk answer (not counts_only=) and in a to_file= or spilled file.");
+            notes.Add($"{c.Loops.Count} record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, or in a plugin the walk does not enter) is not seen; each loop is listed in the format=json walk answer (not counts_only=) and in a to_file= or spilled file.");
             if (c.Capped) notes.Add($"the cycle search stopped at {RecordReads.WalkCycleCap} loops — more loops are there than are counted.");
         }
         return Done(nodes, notes, truncated, cycles: cycles);
