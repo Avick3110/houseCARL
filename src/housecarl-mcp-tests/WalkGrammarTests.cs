@@ -159,14 +159,17 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     }
 
     /// <summary>through's edge kinds count the rows they hide on the record types' one line, in its place (#1278): before
-    /// the reached NPCs' FaceGen note, as with the types alone, and every other note the same.</summary>
+    /// the plugin boundaries' note, as with the types alone, and every other note the same; read through the seed's own
+    /// plugin, so A's records are boundaries.</summary>
     [Fact]
     public void AssetWalkEdgeKindsCountOnTheOneLeftOutLine()
     {
-        var types = Notes(AssetWalk("{\"through\": [\"Npc\"]}", records: new[] { Id("HcDoorSeed") }, countsOnly: true));
-        var both = Notes(AssetWalk("{\"through\": [\"Npc\", \"facegen\"]}", records: new[] { Id("HcDoorSeed") }, countsOnly: true));
+        string[] Run(string walk) => Notes(AssetTools.AssetStatus(_w.Svc, records: new[] { Id("HcDoorSeed") }, walk: Walks.Of(walk),
+                                                                  from_source: new[] { BothPlugins[1] }, format: "json", counts_only: true, max_chars: 400_000));
+        var types = Run("{\"through\": [\"Npc\"]}");
+        var both = Run("{\"through\": [\"Npc\", \"facegen\"]}");
         int at = Array.FindIndex(types, n => n.StartsWith("left out, not in walk.through: "));
-        Assert.True(at >= 0 && at < Array.FindIndex(types, n => n.Contains("without their FaceGen")), string.Join("\n", types));
+        Assert.True(at >= 0 && at < Array.FindIndex(types, n => n.StartsWith("form links into other plugins")), string.Join("\n", types));
         Assert.Equal(at, Array.FindIndex(both, n => n.StartsWith("left out, not in walk.through: ")));
         Assert.Equal(types.Where((_, i) => i != at), both.Where((_, i) => i != at));
     }

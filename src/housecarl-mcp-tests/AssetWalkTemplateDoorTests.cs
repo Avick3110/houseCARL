@@ -150,19 +150,20 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     /// <summary>A Traits chain is read no further than FaceRoots' cap, so a chain of 100 reads as many NPC walks as one
     /// of 70, both past it: the count is set by the cap and the walk's depths, not by how the hops are grouped into
     /// rounds, which ATemplateSharedByManyNpcsIsReadOncePerHop and ANestedTemplateChainIsReadToItsLastHop pin. Only the
-    /// seed's chain is read for a face (#1278): the NPCs the walk enters past it have no faces' round.</summary>
+    /// seed's chain is read for a face (#1278), and the walk reads the seed's depth and its template's, a reached NPC
+    /// it keeps as a boundary and does not go past (#1371).</summary>
     [Fact]
     public void ATemplateChainIsReadNoFurtherThanTheCap()
     {
-        Assert.Equal(NpcFace.TemplateChainCap - 1 + (WalkGrammar.AssetDefaultDepth + 1), NpcReads(new[] { _chains[0] }));
+        Assert.Equal(NpcFace.TemplateChainCap - 1 + 2, NpcReads(new[] { _chains[0] }));
         Assert.Equal(NpcReads(new[] { _chains[1] }), NpcReads(new[] { _chains[0] }));
     }
 
     /// <summary>A chain three hops deep is read a round per hop to its leveled list's members, not the members one at a
-    /// time when FaceRoots asks: the seed, the middle NPC's round, the members' round, and the walk entering the middle
-    /// NPC and then the members.</summary>
+    /// time when FaceRoots asks: the seed, the middle NPC's round, the members' round, and the walk reading the middle
+    /// NPC, a boundary it does not go past (#1371).</summary>
     [Fact]
-    public void ANestedTemplateChainIsReadToItsLastHop() => Assert.Equal(5, NpcReads(new[] { _nested }));
+    public void ANestedTemplateChainIsReadToItsLastHop() => Assert.Equal(4, NpcReads(new[] { _nested }));
 
     /// <summary>Pins the faces' round reading the entered NPCs' own races: two plain NPCs on two races read both races in
     /// that one round, then once more when the walk enters them, not each in a round of its own when FaceGenOf asks.</summary>
@@ -171,9 +172,9 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
 
     /// <summary>Pins the faces' round reading each template root's race: two NPCs on one race, templated on two roots on
     /// two more, read their own race with the roots, then both roots' races in one round, then the walk enters their own
-    /// race and, a depth later, the roots' races.</summary>
+    /// race; the roots are boundaries, so the walk reads no race past them (#1371).</summary>
     [Fact]
-    public void ATemplateRootsRaceIsReadInTheFacesRound() => Assert.Equal(4, GroupReads(_rooted, "Races"));
+    public void ATemplateRootsRaceIsReadInTheFacesRound() => Assert.Equal(3, GroupReads(_rooted, "Races"));
 
     /// <summary>An NPC past the record cap is not entered, so its template is not read: the walk reads the seeds' NPC
     /// group once.</summary>

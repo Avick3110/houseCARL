@@ -126,20 +126,24 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     /// <summary>The five NPCs and their four lines, in that order.</summary>
     static readonly string[] NpcsAndLines = { "HcDoorA1", "HcDoorA2", "HcDoorA3", "HcDoorB1", "HcDoorB2", "HcDoorLineA1", "HcDoorLineA3", "HcDoorLineA2", "HcDoorLineB1" };
 
+    /// <summary>The walk's defaults with walk.through naming the seed list's reached types, so its NPCs are entered (#1371).</summary>
+    static readonly WalkGrammar.Values EnterNpcs = WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth)
+        with { Through = new(StringComparer.OrdinalIgnoreCase) { "Npc", "Race", "VoiceType" } };
+
     AssetWalkData Walk(string seed, IReadOnlyList<string>? fromSource = null) => Walk(new[] { seed }, fromSource);
 
-    AssetWalkData Walk(IReadOnlyList<string> seeds, IReadOnlyList<string>? fromSource = null, LoadOrderService? svc = null)
-        => (svc ?? _w.Svc).AssetWalk(Array.Empty<string>(), seeds.Select(s => _w.Keys[s]).ToList(), fromSource ?? BothPlugins, null);
+    AssetWalkData Walk(IReadOnlyList<string> seeds, IReadOnlyList<string>? fromSource = null, LoadOrderService? svc = null, WalkGrammar.Values? values = null)
+        => (svc ?? _w.Svc).AssetWalk(Array.Empty<string>(), seeds.Select(s => _w.Keys[s]).ToList(), fromSource ?? BothPlugins, null, values: values);
 
-    (AssetWalkData Data, Dictionary<(string Plugin, string Group), int> Reads, long Seeks) Measured(string seed, IReadOnlyList<string>? fromSource = null)
-        => Measured(new[] { seed }, fromSource);
+    (AssetWalkData Data, Dictionary<(string Plugin, string Group), int> Reads, long Seeks) Measured(string seed, IReadOnlyList<string>? fromSource = null, WalkGrammar.Values? values = null)
+        => Measured(new[] { seed }, fromSource, values);
 
-    (AssetWalkData Data, Dictionary<(string Plugin, string Group), int> Reads, long Seeks) Measured(IReadOnlyList<string> seed, IReadOnlyList<string>? fromSource = null)
+    (AssetWalkData Data, Dictionary<(string Plugin, string Group), int> Reads, long Seeks) Measured(IReadOnlyList<string> seed, IReadOnlyList<string>? fromSource = null, WalkGrammar.Values? values = null)
     {
-        var walk = Walk(seed, fromSource);   // the voice cache's own reads, paid once
+        var walk = Walk(seed, fromSource, values: values);   // the voice cache's own reads, paid once
         var before = new Dictionary<(string Plugin, string Group), int>(_w.Svc.Counters.GroupReads);
         var seeks = _w.Svc.Counters.BodySeeks;
-        walk = Walk(seed, fromSource);
+        walk = Walk(seed, fromSource, values: values);
         var reads = _w.Svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
                                               .ToDictionary(kv => kv.Key, kv => kv.Value - before.GetValueOrDefault(kv.Key));
         return (walk, reads, _w.Svc.Counters.BodySeeks - seeks);
@@ -147,13 +151,14 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
 
     /// <summary>The seed list's five NPCs sit in two plugins' NPC groups and reach a race and two voice types: each
     /// (plugin, group) is read once per depth, the race once, when the walk reaches it, since a reached NPC has no
-    /// faces' round (#1278); the same with the plugins named by their paths.</summary>
+    /// faces' round (#1278); the same with the plugins named by their paths. walk.through names Npc, so the walk
+    /// enters them (#1371).</summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void EachDepthReadsEachGroupOnce(bool byPath)
     {
-        var (_, reads, _) = Measured("HcDoorSeed", byPath ? new[] { _w.PathA, _w.PathB } : null);
+        var (_, reads, _) = Measured("HcDoorSeed", byPath ? new[] { _w.PathA, _w.PathB } : null, EnterNpcs);
         string a = BothPlugins[0], b = BothPlugins[1];
         Assert.Equal(1, reads[(b, "FormLists")]);
         Assert.Equal(1, reads[(a, "Npcs")]);
@@ -163,12 +168,13 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Equal(1, reads[(a, "Races")]);
     }
 
-    /// <summary>Read through 'winner', the seed list enters its own plugin's two NPCs, read in one pass of its NPC group.</summary>
+    /// <summary>Read through 'winner', the seed list reaches its own plugin's two NPCs, read in one pass of its NPC group
+    /// and kept as boundaries (#1371).</summary>
     [Fact]
     public void AWinnerWalkReadsTheGroupOnce()
     {
         var (data, reads, _) = Measured("HcDoorSeed", new[] { SourcePoles.Winner });
-        Assert.Contains(data.Notes, n => n.StartsWith("2 NPC(s) the walk reached past a seed were entered without their FaceGen"));
+        Assert.Contains(data.Notes, n => n.StartsWith("2 NPC(s) the walk reached past a seed were kept as boundaries"));
         Assert.Equal(1, reads[(BothPlugins[1], "Npcs")]);
     }
 
@@ -181,13 +187,14 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     }
 
     /// <summary>No line is found off an NPC (#1278, V4): the seed list's NPCs have four lines in two plugins, and the walk
-    /// builds no reverse-reference index, reads no topic and no cell group, and lists no voice node.</summary>
+    /// builds no reverse-reference index, reads no topic and no cell group, and lists no voice node, the NPCs entered as
+    /// walk.through names Npc (#1371).</summary>
     [Fact]
     public void NoLineIsFoundOffAnNpc()
     {
         using var svc = _w.OpenFresh();
         var before = new Dictionary<(string Plugin, string Group), int>(svc.Counters.GroupReads);
-        var d = Walk(new[] { "HcDoorSeed" }, svc: svc);
+        var d = Walk(new[] { "HcDoorSeed" }, svc: svc, values: EnterNpcs);
         Assert.Null(svc.CaptureView().ReverseIndex);
         var read = svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key)).Select(kv => kv.Key.Group).ToList();
         Assert.Contains("Npcs", read);
@@ -206,14 +213,25 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Equal(0, seeks);
     }
 
-    /// <summary>FaceGen is a seed NPC's only (#1278, F2): the seed is a list, its five NPCs are entered with no FaceGen
-    /// node, and one note counts them and says to seed them.</summary>
+    /// <summary>A reached NPC is a boundary (#1371): the seed is a list, its five NPCs are not entered, so no row, and
+    /// one note counts them and says to seed them or name Npc in walk.through.</summary>
     [Fact]
-    public void AReachedNpcHasNoFaceGen()
+    public void AReachedNpcIsABoundary()
     {
         var d = Walk("HcDoorSeed");
+        Assert.Empty(d.Nodes);
+        Assert.Contains("5 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.", d.Notes);
+    }
+
+    /// <summary>FaceGen is a seed NPC's only (#1278, F2): walk.through naming Npc enters the list's five NPCs with no
+    /// FaceGen node, and no note counts them: the boundary note is for NPCs not entered, and the note counting entered
+    /// NPCs without their FaceGen is gone (#1371).</summary>
+    [Fact]
+    public void AnNpcThroughEntersHasNoFaceGen()
+    {
+        var d = Walk(new[] { "HcDoorSeed" }, values: EnterNpcs);
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "facegen");
-        Assert.Contains("5 NPC(s) the walk reached past a seed were entered without their FaceGen (only a seed NPC's face is listed); seed an NPC with records= to list its FaceGen.", d.Notes);
+        Assert.DoesNotContain(d.Notes, n => n.Contains("NPC(s) the walk reached past a seed"));
     }
 
     /// <summary>Pins what the door does not change: the nodes in walk order, their edges and who pulled them, and the
@@ -280,16 +298,14 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Single(d.Notes, n => n.StartsWith("the walk stopped entering records"));
     }
     /// <summary>The record cap stops part-way through a later depth (#1278, r1 #11): at three records the seed list and
-    /// its first two NPCs are entered, so two NPCs are counted faceless, and the walk says where it stopped; pins
+    /// its first two NPCs are entered, walk.through naming Npc (#1371), and the walk says where it stopped; pins
     /// behaviour the reviewed head already had.</summary>
     [Fact]
     public void TheCapStopsPartWayThroughALaterDepth()
     {
-        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcDoorSeed"] }, BothPlugins, null,
-                                 values: WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { MaxNodes = 3 });
+        var d = Walk(new[] { "HcDoorSeed" }, values: EnterNpcs with { MaxNodes = 3 });
         Assert.True(d.Truncated);
         Assert.Contains("the walk stopped entering records at walk.max_nodes=3 (every record entered counts, seeds included); raise walk.max_nodes to walk further.", d.Notes);
-        Assert.Contains(d.Notes, n => n.StartsWith("2 NPC(s) the walk reached past a seed were entered without their FaceGen"));
     }
 
     /// <summary>A json counts_only walk stopped by the record cap, with no nodes and one note, so max_chars cuts no list

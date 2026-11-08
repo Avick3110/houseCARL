@@ -95,8 +95,7 @@ public static class AssetTools
             bool links = false,
         [Description("Optional. Walk from the selected paths and records= to every file they reach, returning one node " +
                      "per file: the paths a record lists, its implicit files (a seed NPC's FaceGen head and tint, or its " +
-                     "Traits template root's, each member of a leveled template marked one of N; an NPC the walk reaches past a seed, " +
-                     "not in a seed's template chain, gets no FaceGen and is counted in a note, so seed it to list its face; .pex scripts, fragment " +
+                     "Traits template root's, each member of a leveled template marked one of N; .pex scripts, fragment " +
                      ".pex files, a start-game-enabled quest's Seq\\<plugin>.seq; a dialogue line's voice .fuz, or the " +
                      ".xwm/.wav and .lip it ships as, for a line that is a seed or that a form link reaches; no line is found off the NPC that speaks it), then the links each file names (a mesh's textures, SMP XML and " +
                      "BODYTRI, a script's parent .pex), recursively. Each node is marked from-source (source_provider= " +
@@ -106,10 +105,13 @@ public static class AssetTools
                      "source_provider= shipping any node, the node list is followed by those nodes as a housecarl_place assets= " +
                      "array (counts_only=: their count only; none ships: no such line, and the count reads from_source=0). " +
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
-                     "through 'winner', its own plugin; links into other plugins are counted as boundaries. A loop of records the " +
+                     "through 'winner', its own plugin; links into other plugins are counted as boundaries. An NPC the walk reaches " +
+                     "past a seed (a quest alias's, a location's unique actor, a race's preset, a script property's, a template) is a " +
+                     "boundary too, not entered (no files, no links), and counted in a note: seed it with records=, or name Npc in " +
+                     "walk.through, to walk it (entered so, it gets no FaceGen). A loop of records the " +
                      "walk enters is counted in a note (recorded, not an error), a lower bound: one per link the search finds closing " +
                      "a loop, none for a loop met again through a record already searched, and none for a loop through a record " +
-                     "not entered (past walk.depth or walk.max_nodes, or in another plugin); the format=json walk answer " +
+                     "not entered (past walk.depth or walk.max_nodes, a reached NPC, or in another plugin); the format=json walk answer " +
                      "(not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file " +
                      "lists every loop found, the search stopping at 200 loops and saying so. The " +
                      "walk always runs whole (through's edge kinds choose only the rows shown, below): limit= and offset= window only the nodes " +

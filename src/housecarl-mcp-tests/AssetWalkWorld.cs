@@ -20,6 +20,8 @@ namespace HousecarlMcpTests;
 /// <item><c>HcWalkTemplated</c> (Traits) → <c>HcWalkMid</c> (Traits) → <c>HcWalkHero</c>; <c>HcWalkLeveled</c>
 ///   (Traits) → a leveled list of <c>HcWalkHero</c> and <c>HcWalkBeast2</c>.</item>
 /// <item><c>HcWalkSge</c>, a start-game-enabled quest whose <c>Seq\HcWalk.seq</c> is absent; <c>HcWalkPlain</c>, not.</item>
+/// <item><c>HcWalkActorQuest</c>, whose alias's unique actor is <c>HcWalkHero</c>; <c>HcWalkNpcLoop</c>, a list naming
+///   <c>HcWalkLoopNpc</c>, whose script property names the list back.</item>
 /// <item><c>Cape</c>, an enabled mod with <see cref="CapeNif"/> naming <see cref="CapeXml"/>, which it also ships.</item>
 /// </list></summary>
 public sealed class AssetWalkWorld : IDisposable
@@ -45,6 +47,7 @@ public sealed class AssetWalkWorld : IDisposable
     public const string FaceTex = @"textures\hcwalk\face_d.dds";
     public const string FaceXml = @"SKSE\Plugins\hdtSkinnedMeshConfigs\hcwalk\face.xml";
     public const string AliasScript = "HcWalkAliasScript";
+    public const string LoopNpcScript = "HcWalkLoopNpcScript";
     public const string OtherPlugin = "HcWalkOther.esp";
     public const string OffPlugin = "HcWalkOffSpeaker.esp";
     public const string OverridePlugin = "HcWalkOverride.esp";
@@ -213,6 +216,19 @@ public sealed class AssetWalkWorld : IDisposable
         var pair = mod.FormLists.AddNew("HcWalkPair");
         foreach (var to in new[] { hero.FormKey, aliased.FormKey }) pair.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(to));
         Keys["HcWalkPair"] = pair.FormKey;
+        // A quest whose alias names the hero as its unique actor, so the hero is reached past the seed (#1371).
+        var actorQuest = mod.Quests.AddNew("HcWalkActorQuest");
+        actorQuest.Aliases.Add(new QuestAlias { Name = "HcWalkActor", UniqueActor = hero.ToNullableLink() });
+        Keys["HcWalkActorQuest"] = actorQuest.FormKey;
+        // A list naming an NPC whose script property names the list back: a loop through a reached NPC.
+        var npcLoop = mod.FormLists.AddNew("HcWalkNpcLoop");
+        var loopNpc = Add("HcWalkLoopNpc", race);
+        loopNpc.VirtualMachineAdapter = new VirtualMachineAdapter
+        {
+            Scripts = { new ScriptEntry { Name = LoopNpcScript, Properties = { new ScriptObjectProperty { Name = "List", Object = npcLoop.ToLink<ISkyrimMajorRecordGetter>() } } } },
+        };
+        npcLoop.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(loopNpc.FormKey));
+        Keys["HcWalkNpcLoop"] = npcLoop.FormKey;
 
         var other = new SkyrimMod(ModKey.FromFileName(OtherPlugin), SkyrimRelease.SkyrimSE);
         var otherVoice = other.VoiceTypes.AddNew("HcWalkOtherVoice");
