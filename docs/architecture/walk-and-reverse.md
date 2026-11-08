@@ -28,10 +28,10 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   the key-at-a-time walk's.
 - Copy's walk (`ClosureWalk.Run`) and the asset walk (`AssetWalk.WalkRecords`) are two loops on purpose: copy
   decides each key when it dequeues it and refuses at any cap, miss or fault, so it never writes a partial closure;
-  the asset walk decides each link as it follows it, by the seed's own home, and notes what it left and goes on,
-  except at a 'refuse' exclusion, which fails the call. What
-  they share is code: the chain and its `FetchMany`, and `SourceChain.NamedPlugins`, the plugins the arms name (copy
-  drops base masters from it, the asset walk keeps them). The few answers they must give alike over one graph both
+  the asset walk follows each link it reads into any plugin, reading a reached record no arm holds off the load order,
+  and notes what it left and goes on, except at a 'refuse' exclusion, which fails the call. What they share is code:
+  the chain and its `FetchMany`. Copy alone bounds its walk by `SourceChain.NamedPlugins`, the plugins the arms name
+  (dropping base masters); the asset walk applies no plugin bound. The few answers they must give alike over one graph both
   reach whole (the records entered and their breadth-first order, one read per depth, a null link skipped) are
   `CopyAssetWalkAgreementTests`. Where they part is a record whose links read only leniently, or not at all: the
   asset walk follows the lenient links and notes it, or notes the record and follows nothing; copy refuses there
@@ -129,7 +129,7 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   — one batch per depth, reaching what the key-at-a-time walk reaches.
 - `CopyEndToEndTests` — the closure copy's own caps and reached order, end to end; the contract is in
   `docs/architecture/write-path.md`.
-- `SourceChainNamedPluginsTests` — the arms' plugins: `winner` and a spelling with no plugin extension give none (a bare
+- `SourceChainNamedPluginsTests` — the arms' plugins copy bounds by: `winner` and a spelling with no plugin extension give none (a bare
   `.esp` would give `ModKey.Null`, see `SourceChain.NamedPlugins`), a base master and an off-order file arm are returned. `CopyAssetWalkAgreementTests` — copy's walk and the asset walk enter
   one graph in the same order, read each depth's group once and skip a null link;
   `ALenientLinkSetIsWalkedWithANoteByOneAndRefusedByTheOther` — where they part at a lenient perk.
