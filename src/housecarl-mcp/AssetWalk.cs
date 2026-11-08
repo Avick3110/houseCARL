@@ -217,7 +217,7 @@ internal sealed partial class AssetLayers
     /// <summary>The record half: every seed and every record it reaches, each contributing the paths it lists and its
     /// implicit files; a seed NPC its FaceGen too; a reached NPC is a boundary unless walk.through names Npc. By default
     /// a record is left by the links in its part fields (<see cref="WalkParts"/>) and by its child records, read across
-    /// every plugin that touches it; walk.follow names the fields instead ("*" every form link). A reached record no
+    /// every plugin that touches it; walk.follow names the fields instead ("*" every form link, children too). A reached record no
     /// from_source arm holds is read off the load order, and its rows say so. <paramref name="leftOut"/> gets the type of
     /// each record walk.through left out, and <paramref name="leftOutAt"/> the index of the note that counts them.
     /// Returns the record cycles over the links it followed, one out of a record at walk.depth too.</summary>
@@ -225,7 +225,7 @@ internal sealed partial class AssetLayers
                              List<string> notes, WalkGrammar.Values values, List<string> leftOut, ref int leftOutAt, ref bool truncated)
     {
         int maxDepth = values.Depth, maxRecords = values.MaxNodes;
-        // null: the part fields and children; else the named fields, or every form link when it holds "*".
+        // null: the part fields and children; else the named fields, or every form link and children when it holds "*".
         var follow = values.Follow;
         bool everyLink = WalkGrammar.FollowsEveryLink(follow);
         // What walk.exclusions kept as boundaries.
@@ -312,7 +312,7 @@ internal sealed partial class AssetLayers
             // Only the seed NPCs have their template chains read, for their FaceGen.
             if (depth == 0) members.Templates(steps.Select(s => s.Body).OfType<INpcGetter>());
             // The child unions of this depth's cells and topics, read together across their plugins.
-            var children = follow is null ? ChildUnions(index, session, steps.Where(s => s.Body is not null).Select(s => (s.Key, s.Body!, s.Arm))) : null;
+            var children = follow is null || everyLink ? ChildUnions(index, session, steps.Where(s => s.Body is not null).Select(s => (s.Key, s.Body!, s.Arm))) : null;
             var next = new List<(FormKey Key, string PulledBy)>();
             foreach (var (fk, pulledBy, entry, arm, note) in steps)
             {
@@ -341,6 +341,8 @@ internal sealed partial class AssetLayers
                     // said, and one whose links cannot be read is said and not followed.
                     if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add(LenientNote(label, fk, lenient));
                     if (unread is not null) notes.Add($"{label}: its links could not be read, so the walk does not go past it — {unread}");
+                    // Every link holds a child's links, not the child, so its children are entered as the default enters them.
+                    if (unread is null) ChildrenOf(body, children!.GetValueOrDefault(fk), label, links, notes);
                 }
                 else
                 {
