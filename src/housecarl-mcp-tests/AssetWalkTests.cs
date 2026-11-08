@@ -648,7 +648,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
             Assert.True(r.GetProperty("cycles_capped").GetBoolean());
             var cycles = r.GetProperty("cycles").EnumerateArray().Select(c => c.GetString()!).ToList();
             var held = cycles[^1];
-            Assert.Equal($"[{RecordReads.WalkCycleCap - (cycles.Count - 1)} more cycle(s) held back at max_chars — every cycle is in the results file]", held);
+            Assert.Equal($"[{RecordReads.WalkCycleCap - (cycles.Count - 1)} more cycle(s) held back at max_chars — every cycle the search found is in the results file]", held);
             Assert.True(cycles.Count > 1, json);
             Assert.Equal(RecordReads.WalkCycleCap, FileCycles(inFile));
         }
