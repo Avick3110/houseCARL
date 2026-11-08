@@ -86,10 +86,16 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   refuses an edge kind by name and any other non-type in its words as before (#1278). `through` and `exclusions` expand to display names (a polymorphic base to its arms), each
   exclusion type once at its first entry, so `[{Global, stop}, {GlobalFloat, refuse}]` stops at every global and
   copy's `ClosureWalk` dictionary never sees a duplicate.
+- `follow` is read by `ReadFollow` on both walks: one path as a string, read as it always was (trimmed, a blank one
+  the default), or a list of paths through the list door, each trimmed, an empty list or path refused; any other JSON
+  shape (`WalkFollow`, whose converter keeps the shape it got) is refused in one sentence. The records walk follows
+  each listed path's links together at every later hop, each key once in path order; a list holding `*` is every
+  link, and one path is the chain it always was (`Template` keeps its inheritance report only when it is the one path).
 - The records walk keeps its spellings and defaults (depth 16, max_nodes 2,000). The asset walk takes
-  `walk=true` (its defaults) or `walk={depth, max_nodes, through, exclusions}` (`ReadAssetWalk`), depth 3, one
-  shared budget with no ceiling, counting every record entered, seeds included; `seed_paths`, `follow` and
-  `direction` are refused by name. Copy takes `ParseExclusions` alone as `exclusions=[{match, severity}]`;
+  `walk=true` (its defaults) or `walk={follow, depth, max_nodes, through, exclusions}` (`ReadAssetWalk`), depth 16 (a
+  safety cap), one shared budget with no ceiling, counting every record entered, seeds included; its default follow is
+  the shipped part fields and child records (assets.md, Walking the links), and a `follow` path with `*parent` is
+  refused (it walks forward only); `seed_paths` and `direction` are refused by name. Copy takes `ParseExclusions` alone as `exclusions=[{match, severity}]`;
   `exclude_types=` is refused naming the new spelling, and a bare type no longer defaults to refuse.
 - The asset walk judges `through`'s record types and the exclusions where it enters a record, on the read body's
   type, so the type is the same whichever source arm read it. A stop is not entered (no files, no links) and is counted

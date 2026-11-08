@@ -1,0 +1,1 @@
+- **The asset walk follows only what a record is made of (head parts, skin, outfit, armour addons, a cell's placed objects), into any plugin; `walk.follow` names other fields.** Check: `records=["013255:Skyrim.esm"] walk=true` lists Addvar's `Dune.nif` and `outfitm_1.nif`, and no race or quest files.
