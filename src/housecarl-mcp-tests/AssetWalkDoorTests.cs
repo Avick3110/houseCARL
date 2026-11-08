@@ -430,3 +430,86 @@ public sealed class AssetWalkDoorFaultTests : IDisposable
         Assert.DoesNotContain(notes, n => n.Contains("in none of the sources consulted"));
     }
 }
+
+/// <summary>A master whose group breaks after the index build, under a plugin that overrides its cell and lists its
+/// static: the load order's read of a record no from_source arm holds, and the child union's read of the master's
+/// cell, each fault and become a note naming the record, and the walk goes on.</summary>
+[Trait("tier", "integration")]
+public sealed class AssetWalkOrderFaultTests : IDisposable
+{
+    readonly ScratchMo2 _mo2 = new("hc-walk-order-fault-");
+    readonly ModKey _master = new("HcWofMaster", ModType.Master), _plugin = ModKey.FromFileName("HcWofPlugin.esp");
+    readonly FormKey _list, _static, _cell;
+    readonly string _masterPath;
+
+    public AssetWalkOrderFaultTests()
+    {
+        var m = new SkyrimMod(_master, SkyrimRelease.SkyrimSE);
+        var stat = m.Statics.AddNew("HcWofStatic");
+        var cell = new Cell(m.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcWofCell", Flags = Cell.Flag.IsInteriorCell };
+        var placed = new PlacedObject(m.GetNextFormKey(), SkyrimRelease.SkyrimSE);
+        placed.Base.SetTo(stat.FormKey);
+        cell.Temporary.Add(placed);
+        static void AddCell(SkyrimMod mod, Cell c)
+        {
+            var block = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
+            var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+            sub.Cells.Add(c);
+            block.SubBlocks.Add(sub);
+            mod.Cells.Records.Add(block);
+        }
+        AddCell(m, cell);
+        _masterPath = _mo2.InMod("WofMaster", _master);
+        m.BeginWrite.ToPath(_masterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        var p = new SkyrimMod(_plugin, SkyrimRelease.SkyrimSE);
+        var list = p.FormLists.AddNew("HcWofList");
+        list.Items.Add(stat.FormKey);
+        var cellOv = new Cell(cell.FormKey, SkyrimRelease.SkyrimSE) { EditorID = "HcWofCell", Flags = Cell.Flag.IsInteriorCell };
+        AddCell(p, cellOv);
+        p.BeginWrite.ToPath(_mo2.InMod("WofPlugin", _plugin)).WithLoadOrder(new ISkyrimModGetter[] { m, p }).Write();
+        (_list, _static, _cell) = (list.FormKey, stat.FormKey, cell.FormKey);
+        var names = _master.FileName + "\r\n" + _plugin.FileName + "\r\n";
+        _mo2.Profile(names, "*" + _master.FileName + "\r\n*" + _plugin.FileName + "\r\n", "+WofPlugin\r\n+WofMaster\r\n");
+    }
+
+    public void Dispose() => _mo2.Delete();
+
+    /// <summary>0xFF over the first header inside the master's <paramref name="group"/> group, the file's size and write time kept.</summary>
+    void BreakGroup(string group)
+    {
+        var mtime = File.GetLastWriteTimeUtc(_masterPath);
+        var bytes = File.ReadAllBytes(_masterPath);
+        int at = -1;
+        var sig = System.Text.Encoding.ASCII.GetBytes(group);
+        for (int i = 0; i + 12 <= bytes.Length && at < 0; i++)
+            if (bytes.AsSpan(i, 4).SequenceEqual("GRUP"u8) && bytes.AsSpan(i + 8, 4).SequenceEqual(sig)) at = i;
+        Assert.True(at >= 0, $"the master has no {group} group");
+        bytes.AsSpan(at + 24, 24).Fill(0xFF);
+        File.WriteAllBytes(_masterPath, bytes);
+        File.SetLastWriteTimeUtc(_masterPath, mtime);
+    }
+
+    [Fact]
+    public void ALoadOrderReadThatFaultsIsANote()
+    {
+        using var svc = _mo2.Open();
+        var fromSource = new[] { _plugin.FileName.String };
+        Assert.DoesNotContain(svc.AssetWalk(Array.Empty<string>(), new[] { _list }, fromSource, null).Notes, n => n.Contains("could not read it"));
+        BreakGroup("STAT");
+        var d = svc.AssetWalk(Array.Empty<string>(), new[] { _list }, fromSource, null);
+        Assert.Null(d.Refusal);
+        Assert.Contains(d.Notes, n => n.StartsWith($"record {FormIdToken.Of(_static)} (pulled by FormList HcWofList [{FormIdToken.Of(_list)}]): the load order has it but could not read it — "));
+    }
+
+    [Fact]
+    public void AChildUnionPluginThatCannotBeReadIsANote()
+    {
+        using var svc = _mo2.Open();
+        Assert.DoesNotContain(svc.AssetWalk(Array.Empty<string>(), new[] { _cell }, null, null).Notes, n => n.Contains("could not be read"));
+        BreakGroup("CELL");
+        var d = svc.AssetWalk(Array.Empty<string>(), new[] { _cell }, null, null);
+        Assert.Null(d.Refusal);
+        Assert.Contains(d.Notes, n => n.Contains($"children in {_master.FileName} could not be read, so the walk does not enter them."));
+    }
+}
