@@ -1,0 +1,1 @@
+- **An `asset_status` walk from one NPC no longer lists every nearby NPC's voice and face: FaceGen is the seed NPCs' only, voice the seeded or reached lines', `walk.through` takes edge kinds (`["texture", "script"]`) to choose the rows, and record loops are counted.** Check: walk `013255:Skyrim.esm`, no voice rows.
