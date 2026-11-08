@@ -532,7 +532,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     /// <summary>through names a record type and an edge kind together (#1278, r1 #8): the rows are the texture rows of
-    /// the walk the type alone gives, and the one left-out line counts the type, then the hidden rows by edge.</summary>
+    /// the walk the type alone gives, and the one left-out line counts the type, then the hidden rows by edge; pins behaviour the reviewed head already had.</summary>
     [Fact]
     public void ATypeAndAnEdgeKindShareTheLeftOutLine()
     {
@@ -548,7 +548,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     /// <summary>An error row is a row of its edge (#1278, r1 #16): the duplicate mesh's one bad-string row shows under a
-    /// through naming its edge and is counted under one naming the other.</summary>
+    /// through naming its edge and is counted under one naming the other; pins behaviour the reviewed head already had.</summary>
     [Fact]
     public void AnErrorRowFollowsItsEdge()
     {
@@ -564,7 +564,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     /// <summary>Records a depth past the seeds enters give their rows in the order a queue would enter them (#1278, r1
-    /// #10): the list's hero, then its quest, each script row in that order.</summary>
+    /// #10): the list's hero, then its quest, each script row in that order; pins behaviour the reviewed head already had.</summary>
     [Fact]
     public void ALaterDepthGivesItsRowsInQueueOrder()
     {

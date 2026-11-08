@@ -280,7 +280,8 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Single(d.Notes, n => n.StartsWith("the walk stopped entering records"));
     }
     /// <summary>The record cap stops part-way through a later depth (#1278, r1 #11): at three records the seed list and
-    /// its first two NPCs are entered, so two NPCs are counted faceless, and the walk says where it stopped.</summary>
+    /// its first two NPCs are entered, so two NPCs are counted faceless, and the walk says where it stopped; pins
+    /// behaviour the reviewed head already had.</summary>
     [Fact]
     public void TheCapStopsPartWayThroughALaterDepth()
     {
