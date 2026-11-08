@@ -35,6 +35,8 @@ public static class WalkGrammar
         if (read.Error is not null) return read.Error;
         var tokens = read.Tokens!.Select(t => t.Trim()).ToArray();
         if (tokens.Length == 0 || tokens.Any(t => t.Length == 0)) return $"error: walk.follow is an empty list or holds an empty path — {Shape}.";
+        if (tokens.Length > 1 && FollowsEveryLink(tokens))
+            return "error: walk.follow holds \"*\" beside other paths — \"*\" already follows every form link, so pass it alone, or drop it and name the fields.";
         paths = tokens;
         return null;
     }
@@ -147,7 +149,7 @@ public static class WalkGrammar
         if (w.seed_paths is not null)
             return "error: walk.seed_paths is a records-walk value — the asset walk starts from every link on its seed records; drop it, and seed the records you mean with records=.";
         if (ReadFollow(w.follow, out var follow) is { } followErr) return followErr;
-        if (follow is not null && follow.Any(p => p.StartsWith("*parent", StringComparison.OrdinalIgnoreCase)))
+        if (follow is not null && follow.Any(p => p.Split('.').Any(s => s.Trim().StartsWith("*parent", StringComparison.OrdinalIgnoreCase))))
             return "error: walk.follow '*parent' climbs to a containing record, and the asset walk walks forward only — seed the containing record with records= instead.";
         if (w.direction is not null)
             return $"error: walk.direction is a records-walk value — the asset walk walks forward only; what points at a record is {ToolNames.Records} walk={{\"direction\": \"reverse\"}}.";

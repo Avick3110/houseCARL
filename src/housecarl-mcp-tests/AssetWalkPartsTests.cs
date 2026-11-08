@@ -401,6 +401,38 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         Assert.StartsWith("error: walk.follow '*parent' climbs", Refused("{\"follow\": [\"*parent\"]}"));
     }
 
+    /// <summary>A walk.follow path no entered record has the field of is said by name, a typo or the wrong case alike;
+    /// a path some record has is not.</summary>
+    [Fact]
+    public void AFollowPathNoRecordHasIsSaidByName()
+    {
+        var d = Walk("HcShapeNpc", Values("{\"follow\": [\"HeadPartz\", \"wornArmor\", \"HeadParts\"]}"));
+        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'HeadPartz' names a field no record the walk entered has"));
+        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'wornArmor' names a field no record the walk entered has"));
+        Assert.DoesNotContain(d.Notes, n => n.StartsWith("walk.follow 'HeadParts' "));
+    }
+
+    /// <summary>An indexed first segment follows that element: HeadParts[0] is the base eyes, not the merge's hair.</summary>
+    [Fact]
+    public void AnIndexedFollowPathFollowsThatElement()
+    {
+        var d = Walk("HcShapeNpc", Values("{\"follow\": [\"HeadParts[0]\"]}"));
+        Assert.True(Has(d, AssetWalkPartsWorld.EyesNif), Paths(d));
+        Assert.False(Has(d, AssetWalkPartsWorld.HairNif), Paths(d));
+        Assert.DoesNotContain(d.Notes, n => n.StartsWith("walk.follow 'HeadParts[0]'"));
+    }
+
+    /// <summary>"*" beside named paths is refused on both walks, and a '*parent' climb is refused at any segment.</summary>
+    [Fact]
+    public void FollowRefusesEveryLinkBesideNamesAndAnyParentClimb()
+    {
+        const string Mixed = "error: walk.follow holds \"*\" beside other paths";
+        Assert.StartsWith(Mixed, WalkGrammar.ReadAssetWalk(_w.Svc.Types, Walks.Of("{\"follow\": [\"*\", \"Template\"]}"), out _));
+        Assert.StartsWith(Mixed, RecordsTools.Records(_w.Svc, formids: new[] { FormIdToken.Of(_w.Keys["HcShapeNpc"]) },
+                                                       walk: new() { follow = new[] { "*", "Template" } }, limit: 0));
+        Assert.StartsWith("error: walk.follow '*parent' climbs", WalkGrammar.ReadAssetWalk(_w.Svc.Types, Walks.Of("{\"follow\": \"Template.*parent\"}"), out _));
+    }
+
     WalkGrammar.Values Values(string walk)
     {
         Assert.Null(WalkGrammar.ReadAssetWalk(_w.Svc.Types, Walks.Of(walk), out var v));
