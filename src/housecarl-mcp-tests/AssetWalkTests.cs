@@ -627,6 +627,23 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.DoesNotContain(d.Notes, n => n.Contains("walk.depth=1"));
     }
 
+    /// <summary>A looped json walk listing no node whose whole document is exactly max_chars comes back inline (#1278,
+    /// r2 #18): every loop, no held-back entry, no spill.</summary>
+    [Fact]
+    public void AJsonWalkExactlyAtMaxCharsKeepsEveryLoop()
+    {
+        var loop = $"{_w.Id("HcWalkLoopA")} (HcWalkLoopA) -> {_w.Id("HcWalkLoopB")} (HcWalkLoopB) -> {_w.Id("HcWalkLoopA")} (HcWalkLoopA)";
+        var seed = new[] { _w.Id("HcWalkLoopA") };
+        var whole = AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On, format: "json");
+        using (var doc = JsonDocument.Parse(whole))
+            Assert.Empty(doc.RootElement.GetProperty("nodes").EnumerateArray());
+        var exact = AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On, format: "json", max_chars: whole.Length);
+        Assert.Equal(whole, exact);
+        using var at = JsonDocument.Parse(exact);
+        Assert.Equal(new[] { loop }, at.RootElement.GetProperty("cycles").EnumerateArray().Select(c => c.GetString()));
+        Assert.False(at.RootElement.TryGetProperty("spilled", out _));
+    }
+
     /// <summary>The json walk's cycles are bounded by max_chars (#1278, r1 #1): the 201-self-loop list at a small cap,
     /// inline, paged and to_file=, stays within the cap, its cycles ending in one entry counting the loops held back,
     /// cycles_capped still said, and the spilled or to_file= file lists all 200.</summary>
