@@ -153,6 +153,18 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.Contains(d.Notes, n => n.Contains(_w.Id(C, "Perk")) && n.Contains("its links could not be read whole, so the walk follows only its fields walk.follow names"));
     }
 
+    /// <summary>The default walk still reads a part field on a line whose whole link read faults: Gate's ResponseData
+    /// enters Reply, whose ResponseData names Gate back, so the loop is reported. Pins as-built behaviour
+    /// (DECISIONS 2026-11-08 (23), call A2).</summary>
+    [Fact]
+    public void TheDefaultWalkReadsAPartFieldPastARecordWhoseLinksCannotBeRead()
+    {
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[C]["Gate"] }, null, null);
+        Assert.Null(d.Refusal);
+        Assert.Contains(d.Notes, n => n.Contains(_w.Id(C, "Gate")) && n.Contains("its links could not be read whole, so the walk follows only its part fields"));
+        Assert.Contains(d.Cycles, c => c.Contains("HcIsoCorruptGate") && c.Contains("HcIsoCorruptReply"));
+    }
+
     // ---- copy ----
 
     string Copy(string plugin, string stem, string[]? exclude = null)
