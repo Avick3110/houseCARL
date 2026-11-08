@@ -124,22 +124,24 @@ internal sealed partial class RecordReads
         /// <summary>This seed's cycles, each stated as its loop of records — the last hop closes it.</summary>
         IReadOnlyList<string> CyclesFound()
         {
-            var found = GraphCycles.Find(Edges, WalkCycleCap, out var capped);
-            CyclesCapped = capped;
-            if (found.Count == 0) return Array.Empty<string>();
             var editorIds = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
             {
                 [FormIdToken.Of(Key)] = EditorId,
             };
             foreach (var n in Nodes) editorIds[n.Key] = n.EditorId;
-            string Label(FormKey k)
-            {
-                var token = FormIdToken.Of(k);
-                var editorId = editorIds.TryGetValue(token, out var e) ? e : null;
-                return $"{token} ({editorId ?? "<no editorid>"})";
-            }
-            return found.Select(path => string.Join(" -> ", path.Select(Label)) + " -> " + Label(path[0])).ToList();
+            var lines = CycleLines(Edges, k => editorIds.TryGetValue(FormIdToken.Of(k), out var e) ? e : null, out var capped);
+            CyclesCapped = capped;
+            return lines;
         }
+    }
+
+    /// <summary>The loops over a walk's recorded <paramref name="edges"/>, each stated as its records in order, the last
+    /// hop closing back to the first, searched to <see cref="WalkCycleCap"/>; the one wording every walk's cycles use.</summary>
+    internal static IReadOnlyList<string> CycleLines(IReadOnlyDictionary<FormKey, List<FormKey>> edges, Func<FormKey, string?> editorId, out bool capped)
+    {
+        var found = GraphCycles.Find(edges, WalkCycleCap, out capped);
+        string Label(FormKey k) => $"{FormIdToken.Of(k)} ({editorId(k) ?? "<no editorid>"})";
+        return found.Select(path => string.Join(" -> ", path.Select(Label)) + " -> " + Label(path[0])).ToList();
     }
 
     /// <summary>The forward walk over the winner link graph, per seed off ONE captured build.</summary>
