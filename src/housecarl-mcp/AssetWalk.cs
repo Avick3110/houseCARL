@@ -250,6 +250,7 @@ internal sealed partial class AssetLayers
         // One buffer for every entered record's followed links, one for its whole link set, cleared by each read.
         var links = new List<FormKey>();
         var allLinks = new HashSet<FormKey>();
+        var linkBuffer = new List<FormKey>();
         var unreadParts = new List<string>();
 
         // True when walk.exclusions or walk.through keeps the record out: a stop is a boundary, a type outside through
@@ -347,9 +348,8 @@ internal sealed partial class AssetLayers
                     WalkParts.Links(body, follow ?? WalkParts.For(type), links, unreadParts);
                     foreach (var u in unreadParts) notes.Add($"{label}: the links under {u} could not be read, so the walk does not follow them");
                     if (follow is null) ChildrenOf(body, children!.GetValueOrDefault(fk), label, links, notes);
-                    // The rest of its form links, counted per type; the link door's own faults are said by a walk that follows them.
-                    allLinks.Clear();
-                    RecordLinks.Collect(body, allLinks);
+                    // The rest of its own form links, counted per type; the link door's own faults are said by a walk that follows them.
+                    OwnLinks(body, follow is null, allLinks, linkBuffer);
                     allLinks.Remove(fk);
                     allLinks.Remove(FormKey.Null);
                     allLinks.ExceptWith(links);
@@ -392,6 +392,29 @@ internal sealed partial class AssetLayers
         // Every loop over the recorded links, capped as the records walk caps its search (one cap, the shared budget's).
         var loops = RecordReads.CycleLines(edges, k => editorIds.GetValueOrDefault(k), out var cyclesCapped);
         return new RecordCycles(loops, cyclesCapped);
+    }
+
+    /// <summary>The form links <paramref name="body"/> holds, into <paramref name="into"/>, which is cleared first; when
+    /// <paramref name="ownOnly"/>, less those its own child records hold, which the walk enters and counts itself.</summary>
+    static void OwnLinks(IMajorRecordGetter body, bool ownOnly, HashSet<FormKey> into, List<FormKey> buffer)
+    {
+        into.Clear();
+        RecordLinks.Collect(body, into);
+        var fields = OwnedChildContent.Fields(body);
+        if (!ownOnly || fields.Count == 0 || body is not IMajorRecordGetterEnumerable nested) return;
+        // Mutagen's walk of a parent hands over each child's links in turn, so a link stays the body's own only while it
+        // occurs more often in the body's walk than in its children's.
+        RecordLinks.List(body, buffer, out _);
+        var count = new Dictionary<FormKey, int>();
+        foreach (var k in buffer) count[k] = count.GetValueOrDefault(k) + 1;
+        var direct = new HashSet<FormKey>();
+        foreach (var f in fields.Keys) direct.UnionWith(OwnedChildUnion.ChildKeys(body, f) ?? (IReadOnlyList<FormKey>)Array.Empty<FormKey>());
+        foreach (var child in nested.EnumerateMajorRecords())
+        {
+            if (!direct.Remove(child.FormKey) || child is not IFormLinkContainerGetter links) continue;
+            foreach (var l in links.EnumerateFormLinks()) count[l.FormKey] = count.GetValueOrDefault(l.FormKey) - 1;
+        }
+        foreach (var (k, n) in count) if (n <= 0) into.Remove(k);
     }
 
     /// <summary>The note counting, per holding type, the form links the walk's follow rule left unwalked.</summary>

@@ -523,6 +523,15 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
             Assert.Equal("voice", Node(d, _w.Voice(line, VoiceFile.Fuz)).Edge);
     }
 
+    /// <summary>A topic seed's count on the links-not-followed note is its own links, its quest alone: its lines'
+    /// speakers and conditions are theirs, counted on DialogResponses.</summary>
+    [Fact]
+    public void ATopicSeedCountsOnlyItsOwnLinksNotFollowed()
+    {
+        var note = Assert.Single(Walk(records: new[] { "HcWalkTopic" }).Notes, n => n.Contains("were not walked"));
+        Assert.Matches(@"[:,] 1 on DialogTopic\b", note);
+    }
+
     /// <summary>The tool's description says the quest job's two calls and the override subset's outfit stop, one
     /// sentence each, so a caller needs no value from outside it.</summary>
     [Fact]
