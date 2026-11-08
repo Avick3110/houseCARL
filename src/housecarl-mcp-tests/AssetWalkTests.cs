@@ -561,6 +561,17 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Empty(Walk(records: new[] { "HcWalkHero" }).Cycles);
     }
 
+    /// <summary>A loop closed by a link out of a record at walk.depth is counted (#1278, r1 #2): at depth 1 the list
+    /// pair is one loop, and the link back to a record already entered is not counted past depth.</summary>
+    [Fact]
+    public void ALoopClosedAtTheDepthCapIsCounted()
+    {
+        var loop = $"{_w.Id("HcWalkLoopA")} (HcWalkLoopA) -> {_w.Id("HcWalkLoopB")} (HcWalkLoopB) -> {_w.Id("HcWalkLoopA")} (HcWalkLoopA)";
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkLoopA"] }, null, null, values: Values("{\"depth\": 1}"));
+        Assert.Equal(new[] { loop }, d.Cycles);
+        Assert.DoesNotContain(d.Notes, n => n.Contains("walk.depth=1"));
+    }
+
     /// <summary>The json walk's cycles are bounded by max_chars (#1278, r1 #1): the 201-self-loop list at a small cap,
     /// inline, paged and to_file=, stays within the cap, its cycles ending in one entry counting the loops held back,
     /// cycles_capped still said, and the spilled or to_file= file lists all 200.</summary>

@@ -323,8 +323,10 @@ internal sealed partial class AssetLayers
                     // A self-link is a loop of one, recorded as the records walk records it, and walks nowhere new.
                     if (link == fk) { outgoing.Add(link); continue; }
                     if (!home.Contains(link.ModKey)) { boundaries[link.ModKey.FileName] = boundaries.GetValueOrDefault(link.ModKey.FileName) + 1; continue; }
-                    if (depth >= maxDepth) { if (seenRec.Add(link)) pastDepth++; continue; }
+                    // Recorded at walk.depth too, so a link back to an entered record closes its loop; one to a record
+                    // never entered closes none.
                     outgoing.Add(link);
+                    if (depth >= maxDepth) { if (seenRec.Add(link)) pastDepth++; continue; }
                     if (seenRec.Add(link)) next.Add((link, label, home));
                 }
             }
