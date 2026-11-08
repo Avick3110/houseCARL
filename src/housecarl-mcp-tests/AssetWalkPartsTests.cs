@@ -150,6 +150,11 @@ public sealed class AssetWalkPartsWorld : IDisposable
             m.Cells.Records.Add(block);
         }
         AddCell(b, cell);
+        // A second cell both plugins touch, so a walk of the two reads the base plugin's copies together.
+        var cell2 = new Cell(b.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcShapeCell2", Flags = Cell.Flag.IsInteriorCell };
+        Keys["HcShapeCell2"] = cell2.FormKey;
+        cell2.Temporary.Add(Place(b, chair));
+        AddCell(b, cell2);
 
         // One seed per part field (walk-parts.json), each field naming a record of its own, for EachPartFieldIsFollowed.
         var partsNpc = Keyed(b.Npcs.AddNew("HcPartsNpc"));
@@ -218,6 +223,9 @@ public sealed class AssetWalkPartsWorld : IDisposable
         cellOv.Music.SetTo(music);
         cellOv.Temporary.Add(Place(l, lamp));
         AddCell(l, cellOv);
+        var cell2Ov = new Cell(cell2.FormKey, SkyrimRelease.SkyrimSE) { EditorID = "HcShapeCell2", Flags = Cell.Flag.IsInteriorCell };
+        cell2Ov.Temporary.Add(Place(l, lamp));
+        AddCell(l, cell2Ov);
         l.BeginWrite.ToPath(_mo2.InMod("ShapeLooks", Looks)).WithLoadOrder(new ISkyrimModGetter[] { b, l }).Write();
 
         // The meshes that name textures: the hair's normal map and the cuirass's plate.
@@ -520,6 +528,26 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         var through = r.Through.StartsWith('"') ? r.Through : $"\"{r.Through}\"";
         var line = Assert.Single(Walk(r.Seed, Values($"{{\"through\": [{through}]}}")).Notes, n => n.StartsWith("left out, not in walk.through: "));
         Assert.Matches($@"[:,] {r.Count} {r.Reached}(,|$)", line);
+    }
+
+    /// <summary>Two cells both plugins touch read the base plugin's copies of both in one pass for their child unions:
+    /// the two-cell walk reads no group more often than the one-cell walk.</summary>
+    [Fact]
+    public void TwoCellsReadTheirUnionsInOnePass()
+    {
+        Dictionary<(string Plugin, string Group), int> Reads(params string[] seeds)
+        {
+            var keys = seeds.Select(s => _w.Keys[s]).ToList();
+            _w.Svc.AssetWalk(Array.Empty<string>(), keys, null, null);
+            var before = new Dictionary<(string, string), int>(_w.Svc.Counters.GroupReads);
+            _w.Svc.AssetWalk(Array.Empty<string>(), keys, null, null);
+            return _w.Svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
+                                              .ToDictionary(kv => kv.Key, kv => kv.Value - before.GetValueOrDefault(kv.Key));
+        }
+        var one = Reads("HcShapeCell");
+        var two = Reads("HcShapeCell", "HcShapeCell2");
+        Assert.NotEmpty(one);
+        Assert.Equal(one, two);
     }
 
     WalkGrammar.Values Values(string walk)
