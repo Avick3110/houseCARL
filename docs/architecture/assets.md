@@ -424,7 +424,8 @@ and leaves every other reached record out (#1371; DECISIONS 2026-11-08 (11)). Th
 `walk.through` are judged, so a stop or refuse on `Npc` is unchanged, a `walk.through` without `Npc` still leaves them
 out on the left-out line (one count, one place), and an edge-kind-only `walk.through` enters none. A seed's FaceGen
 still reads its template chain through the face door, which needs no NPC entered. It reads a record's form links only through the one link door (`RecordLinks`,
-docs/architecture/read-engine.md): a deleted record is entered and follows none of them, with no note; a perk whose
+docs/architecture/read-engine.md): a deleted record is entered and follows none of them, with no note, except a
+deleted NPC past a seed, a boundary as any reached NPC since the rule tests only the read body's type; a perk whose
 links read only leniently is followed on what the lenient read recovered, with a note; a record whose links cannot be
 read is a note, and the walk does not go past it (#1316). Each record contributes:
 
