@@ -310,6 +310,8 @@ internal sealed partial class AssetLayers
             members.Know(steps.Select(s => s.Body).Where(b => b is INpcGetter or ILeveledNpcGetter or IRaceGetter)!);
             // Only the seed NPCs have their template chains read, for their FaceGen.
             if (depth == 0) members.Templates(steps.Select(s => s.Body).OfType<INpcGetter>());
+            // The child unions of this depth's cells and topics, read together across their plugins.
+            var children = follow is null ? ChildUnions(index, session, steps.Where(s => s.Body is not null).Select(s => (s.Key, s.Body!, s.Arm))) : null;
             var next = new List<(FormKey Key, string PulledBy)>();
             foreach (var (fk, pulledBy, entry, arm, note) in steps)
             {
@@ -344,7 +346,7 @@ internal sealed partial class AssetLayers
                     unreadParts.Clear();
                     WalkParts.Links(body, follow ?? WalkParts.For(type), links, unreadParts);
                     foreach (var u in unreadParts) notes.Add($"{label}: the links under {u} could not be read, so the walk does not follow them");
-                    if (follow is null) ChildrenOf(index, session, fk, body, arm, label, links, notes);
+                    if (follow is null) ChildrenOf(body, children!.GetValueOrDefault(fk), label, links, notes);
                     // The rest of its form links, counted per type; the link door's own faults are said by a walk that follows them.
                     RecordLinks.List(body, allLinks, out _);
                     var kept = links.ToHashSet();
@@ -395,10 +397,29 @@ internal sealed partial class AssetLayers
            + string.Join(", ", perType.OrderByDescending(t => t.Value).ThenBy(t => t.Key, StringComparer.Ordinal).Select(t => $"{t.Value} on {t.Key}"))
            + "; walk.follow names the fields to follow, and walk={\"follow\": \"*\"} follows every form link.";
 
+    /// <summary>The child-bearing records among one depth's entered records, each with the union of its children across
+    /// every plugin that touches it, read together (null: one toucher); the plugin a body came from is its subject, so
+    /// the union reuses it, and an off-order file is no toucher.</summary>
+    static Dictionary<FormKey, IReadOnlyDictionary<string, ChildUnion>?> ChildUnions(LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session,
+                                                                                    IEnumerable<(FormKey Key, IMajorRecordGetter Body, SourceArm? Arm)> entered)
+    {
+        var items = new List<(FormKey, string, IMajorRecordGetter, IReadOnlyDictionary<string, OwnedChildShape>)>();
+        foreach (var (fk, body, arm) in entered)
+        {
+            var fields = OwnedChildContent.Fields(body);
+            if (fields.Count == 0) continue;
+            var plugin = arm is null || SourcePoles.IsWinner(arm.Spelling) ? index.ResolveWinner(fk)?.WinnerPlugin : Path.GetFileName(arm.Spelling);
+            items.Add((fk, plugin ?? "", body, fields));
+        }
+        var unions = OwnedChildUnion.ComputeMany(index, session, items);
+        var byKey = new Dictionary<FormKey, IReadOnlyDictionary<string, ChildUnion>?>();
+        for (int i = 0; i < items.Count; i++) byKey[items[i].Item1] = unions[i];
+        return byKey;
+    }
+
     /// <summary>Adds the child records of <paramref name="body"/> (a cell's placed references, a topic's lines, a
     /// worldspace's cells) to <paramref name="into"/>: its own, then those of every other plugin that touches it.</summary>
-    static void ChildrenOf(LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session, FormKey fk, IMajorRecordGetter body,
-                           SourceArm? arm, string label, List<FormKey> into, List<string> notes)
+    static void ChildrenOf(IMajorRecordGetter body, IReadOnlyDictionary<string, ChildUnion>? unions, string label, List<FormKey> into, List<string> notes)
     {
         var fields = OwnedChildContent.Fields(body);
         if (fields.Count == 0) return;
@@ -406,9 +427,7 @@ internal sealed partial class AssetLayers
         foreach (var f in fields.Keys)
             foreach (var k in OwnedChildUnion.ChildKeys(body, f) ?? (IReadOnlyList<FormKey>)Array.Empty<FormKey>())
                 if (have.Add(k)) into.Add(k);
-        // The plugin whose body this is, so the union reuses it; an off-order file is no toucher, and its own children are in already.
-        var plugin = arm is null || SourcePoles.IsWinner(arm.Spelling) ? index.ResolveWinner(fk)?.WinnerPlugin : Path.GetFileName(arm.Spelling);
-        if (plugin is null || OwnedChildUnion.Compute(index, session, fk, plugin, body, fields) is not { } unions) return;
+        if (unions is null) return;
         foreach (var u in unions.Values)
         {
             foreach (var k in u.Members)
