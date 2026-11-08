@@ -255,6 +255,18 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
                      d.Notes);
     }
 
+    /// <summary>A link out of a record at walk.depth to a record never entered closes no loop and is still counted past
+    /// depth (#1278, r1 #2); pins behaviour the reviewed head already had.</summary>
+    [Fact]
+    public void ALinkPastTheDepthCapClosesNoLoop()
+    {
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcDoorChain0"] }, BothPlugins, null,
+                                 values: WalkGrammar.Values.Defaults(1));
+        Assert.Empty(d.Cycles);
+        Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth to walk them." },
+                     d.Notes);
+    }
+
     /// <summary>Pins the record cap and its note: at two records the first two of five seed NPCs are entered, in queue
     /// order, and the walk says where it stopped, once: nothing past the cap is entered at a later depth.</summary>
     [Fact]
