@@ -41,8 +41,8 @@ public static class WalkParts
         {
             var segs = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (segs.Length == 0) continue;
-            // Asked once per type and field, its index dropped, so a type without the field costs no diagnosis per record.
-            if (!_has.GetOrAdd((record.GetType(), segs[0].Split('[')[0]), static k => WriteEngine.ResolveProperty(k.Item1, k.Item2) is not null)) continue;
+            // Asked once per type and first segment, so a type without the field costs no diagnosis per record.
+            if (!_has.GetOrAdd((record.GetType(), segs[0]), static k => HasField(k.Item1, k.Item2))) continue;
             found?.Add(path);
             var (links, note) = ReadEngine.CollectLinksAt(record, segs);
             if (links is null)
@@ -56,5 +56,15 @@ public static class WalkParts
             foreach (var k in links)
                 if (seen.Add(k)) into.Add(k);
         }
+    }
+
+    /// <summary>Whether <paramref name="type"/> has the field the path parser reads off <paramref name="segment"/>; a
+    /// malformed segment answers true, so the link read gives its note.</summary>
+    static bool HasField(Type type, string segment)
+    {
+        string name;
+        try { name = WriteEngine.ParseSegment(segment).name; }
+        catch (InvalidOperationException) { return true; }
+        return WriteEngine.ResolveProperty(type, name) is not null;
     }
 }
