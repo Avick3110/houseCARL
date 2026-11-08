@@ -104,25 +104,37 @@ public static class AssetTools
                      "seed, or a root, with no FaceGen pair is a note with the reason, not a node. With " +
                      "source_provider= shipping any node, the node list is followed by those nodes as a housecarl_place assets= " +
                      "array (counts_only=: their count only; none ships: no such line, and the count reads from_source=0). " +
-                     "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
-                     "through 'winner', its own plugin; links into other plugins are counted as boundaries. An NPC the walk reaches " +
-                     "past a seed (a quest alias's actor, a location's unique actor, a race's chargen preset, a script property, a template) is a " +
-                     "boundary too, not entered (no files, no links), and counted in a note: seed it with records= to walk it, or name Npc " +
+                     "From a record the walk follows the links in its part fields, into any plugin: an NPC's head parts, hair " +
+                     "colour, face texture, skin (WornArmor), outfits and far-away model; a head part's extra parts, texture set and " +
+                     "colour; an armour's addons, template and world model; an addon's skin texture, swap list, models and art " +
+                     "object; an outfit's, form list's or leveled list's items; a weapon's 1st-person model and template; a placed " +
+                     "reference's base; a dialogue line's shared response data; any model's alternate textures. It enters a " +
+                     "record's child records too (a cell's placed references, a topic's lines), read across every plugin that " +
+                     "touches it. Every other form link (a race, a quest alias, a script property, a sound, a keyword) is not " +
+                     "walked, and one note counts them per record type. A reached record no from_source= plugin holds is read off " +
+                     "the load order, and its rows say so in pulled_by. A quest's dialogue and voice are two calls: " +
+                     ToolNames.Records + " types=[\"DialogTopic\", \"Scene\"] references=[<the quest>], then this walk with " +
+                     "those records and the quest as records=. An override subset that keeps the winner's outfits drops them with " +
+                     "walk={\"exclusions\": [{\"match\": \"Outfit\", \"severity\": \"stop\"}]}. An NPC the walk reaches " +
+                     "past a seed (a placed NPC's base; under walk.follow, a quest alias's actor, a race's chargen preset, a script property, a template) is a " +
+                     "boundary, not entered (no files, no links), and counted in a note: seed it with records= to walk it, or name Npc " +
                      "in walk.through beside every other record type to keep, since through's record types enter only those types " +
                      "(entered so, it gets no FaceGen). A loop of records the " +
                      "walk enters is counted in a note (recorded, not an error), a lower bound: one per link the search finds closing " +
                      "a loop, none for a loop met again through a record already searched, and none for a loop through a record " +
-                     "not entered (past walk.depth or walk.max_nodes, a reached NPC, or in another plugin); the format=json walk answer " +
+                     "not entered (past walk.depth or walk.max_nodes, a reached NPC, or past a link the walk does not follow); the format=json walk answer " +
                      "(not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file " +
                      "lists every loop found, the search stopping at 200 loops and saying so. The " +
                      "walk always runs whole (through's edge kinds choose only the rows shown, below): limit= and offset= window only the nodes " +
                      "listed (the header, standing counts and place set still cover every row shown, not just the window, the notes the whole walk, and a paged " +
                      "answer ends with the [accounting] line); to_file= writes every node to the file and lists " +
                      "none (the header, notes, counts, place set and the file it wrote still print); counts_only= returns counts per edge and per standing, no nodes. Not with links=.\n\n" +
-                     "walk=true walks at the defaults; walk={depth, max_nodes, through, exclusions} takes the records " +
+                     "walk=true walks at the defaults; walk={follow, depth, max_nodes, through, exclusions} takes the records " +
                      "walk's values under the same names and refusals, except that through also takes edge kinds, and " +
                      "a through entry that is neither is refused naming both, and an exclusions entry that is an edge kind is refused " +
-                     "pointing at through: depth (default 3) is the form-link hops from a " +
+                     "pointing at through: follow replaces the part fields with the field paths it names, as one string or a " +
+                     "list (e.g. [\"HeadParts\", \"WornArmor\"]), read on every record from the seed on, with no child records; " +
+                     "\"*\" follows every form link; depth (default 16, a safety cap) is the hops from a " +
                      "seed record whose records are entered; max_nodes (default 2000) counts every record entered, seeds " +
                      "included, one budget shared by every seed, with no upper bound (the file bound is asset_status's own); " +
                      "through takes record types and edge kinds: its record types enter only records of those types and count " +
@@ -132,7 +144,7 @@ public static class AssetTools
                      "to see the meshes too), and the header count, standing counts and place set follow the rows shown; exclusions " +
                      "([{match, severity}]) keeps a 'stop' type as a boundary, not entered (no files, no links), and fails " +
                      "the call on a 'refuse' type. Seeds are never judged. A cap note names the value to raise. " +
-                     "seed_paths, follow and direction are the records walk's and are refused here.")]
+                     "seed_paths and direction are the records walk's and are refused here, as is a follow path with '*parent'.")]
             JsonElement? walk = null,
         [Description("Optional, with walk= (true or a walk object). Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
             ListArg? records = null,
@@ -389,7 +401,7 @@ public static class AssetTools
         // Walk values move only the walk from records= seeds; with none they are said unused. The defaults are walk=true's.
         // through's edge kinds choose the rows of a path-only walk too, so they are not counted here.
         if (keys.Count == 0 && (values.Depth != WalkGrammar.AssetDefaultDepth || values.MaxNodes != WalkGrammar.DefaultMaxNodes
-                                || values.Through is not null || values.Exclusions.Count > 0))
+                                || values.Through is not null || values.Exclusions.Count > 0 || values.Follow is not null))
             w = w with { Notes = w.Notes.Prepend(ReadSentences.WalkValuesWithoutRecordSeed).ToList() };
         // counts_only= refuses offset= and to_file= at the front door, so the window is limit= alone, capping the tables.
         if (countsOnly) return ToolAnswer.Served(AssetWalkWire.RenderCounts(w, selectorNotes, cap, json, window.Limit));

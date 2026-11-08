@@ -206,6 +206,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     static readonly string[] ActorQuest = { "HcWalkActorQuest" };
+
+    /// <summary>walk.follow "*": every form link, the reach the NPC-boundary pins below need (an alias, a template, a
+    /// script property), none of them a part field.</summary>
+    const string EveryLink = "{\"follow\": \"*\"}";
     const string OneBoundary = "1 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records= to walk it, or name Npc in walk.through beside every other record type to keep, since a set walk.through enters only the types it names.";
 
     /// <summary>A reached NPC is a boundary (#1371; DECISIONS 2026-11-08 (11), B): the quest's alias reaches the hero,
@@ -213,7 +217,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ANpcReachedThroughAnAliasIsABoundary()
     {
-        var d = Walk(records: ActorQuest, walk: "{\"max_nodes\": 1}");
+        var d = Walk(records: ActorQuest, walk: "{\"follow\": \"*\", \"max_nodes\": 1}");
         Assert.Empty(d.Nodes);
         Assert.False(d.Truncated);
         Assert.Equal(new[] { OneBoundary }, d.Notes);
@@ -224,7 +228,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ThroughNamingNpcEntersAReachedNpc()
     {
-        var d = Walk(records: ActorQuest, walk: "{\"through\": [\"Npc\", \"HeadPart\"]}");
+        var d = Walk(records: ActorQuest, walk: "{\"follow\": \"*\", \"through\": [\"Npc\", \"HeadPart\"]}");
         Assert.Equal("script", Node(d, AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript)).Edge);
         Assert.Equal("listed", Node(d, AssetWalkWorld.HairNif).Edge);
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "facegen");
@@ -236,7 +240,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ThroughNamingNpcAloneLeavesEveryOtherTypeOut()
     {
-        var d = Walk(records: ActorQuest, walk: "{\"through\": [\"Npc\"]}");
+        var d = Walk(records: ActorQuest, walk: "{\"follow\": \"*\", \"through\": [\"Npc\"]}");
         Assert.Equal("script", Node(d, AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript)).Edge);
         Assert.DoesNotContain(d.Nodes, n => string.Equals(n.Path, AssetWalkWorld.HairNif, StringComparison.OrdinalIgnoreCase));
         Assert.Contains(d.Notes, n => n.StartsWith("left out, not in walk.through: ") && n.Contains("HeadPart"));
@@ -247,10 +251,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ThroughWithoutNpcAndAStopOnNpcAreUnchanged()
     {
-        Assert.Equal(new[] { "left out, not in walk.through: 1 Npc" }, Walk(records: ActorQuest, walk: "{\"through\": [\"HeadPart\"]}").Notes);
+        Assert.Equal(new[] { "left out, not in walk.through: 1 Npc" }, Walk(records: ActorQuest, walk: "{\"follow\": \"*\", \"through\": [\"HeadPart\"]}").Notes);
         Assert.Equal(new[] { "1 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links)." },
-                     Walk(records: ActorQuest, walk: "{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}]}").Notes);
-        Assert.NotNull(Walk(records: ActorQuest, walk: "{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"refuse\"}]}").Refusal);
+                     Walk(records: ActorQuest, walk: "{\"follow\": \"*\", \"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}]}").Notes);
+        Assert.NotNull(Walk(records: ActorQuest, walk: "{\"follow\": \"*\", \"exclusions\": [{\"match\": \"Npc\", \"severity\": \"refuse\"}]}").Refusal);
     }
 
     /// <summary>A seed's template chain is a boundary too (#1371) and the seed's face is unchanged: HcWalkTemplated's
@@ -258,7 +262,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ASeedsTemplateIsABoundaryAndItsFaceIsUnchanged()
     {
-        var d = Walk(records: new[] { "HcWalkTemplated" });
+        var d = Walk(records: new[] { "HcWalkTemplated" }, walk: EveryLink);
         Assert.Equal(2, d.Nodes.Count(n => n.Edge == "facegen" && n.PulledBy.Contains("HcWalkTemplated")));
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "script");
         Assert.Contains(OneBoundary, d.Notes);
@@ -269,7 +273,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ALeveledNpcIsEnteredAndItsNpcsAreBoundaries()
     {
-        var d = Walk(records: new[] { "HcWalkLeveled" });
+        var d = Walk(records: new[] { "HcWalkLeveled" }, walk: EveryLink);
         Assert.Contains(AssetLayers.NpcBoundaryNote(2), d.Notes);
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "script");
     }
@@ -280,10 +284,10 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     public void ALoopThroughAReachedNpcIsNotReported()
     {
         var seed = new[] { "HcWalkNpcLoop" };
-        var d = Walk(records: seed);
+        var d = Walk(records: seed, walk: EveryLink);
         Assert.Empty(d.Cycles);
         Assert.Empty(d.Nodes);
-        var entered = Walk(records: seed, walk: "{\"through\": [\"Npc\", \"FormList\"]}");
+        var entered = Walk(records: seed, walk: "{\"follow\": \"*\", \"through\": [\"Npc\", \"FormList\"]}");
         Assert.Single(entered.Cycles);
         Assert.Equal("script", Node(entered, AssetWalkEdges.ScriptPex(AssetWalkWorld.LoopNpcScript)).Edge);
     }
@@ -354,7 +358,8 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     /// <summary>An override donor read through from_source= enters the head part its own plugin defines, by the
-    /// master's FormKey, and walks on to its mesh's texture; a link into a third plugin stays a counted boundary.</summary>
+    /// master's FormKey, and walks on to its mesh's texture; its voice type, in a third plugin and no part field, is
+    /// counted on the links-not-followed note.</summary>
     [Fact]
     public void AnOverrideDonorsOwnRecordsAreEntered()
     {
@@ -363,20 +368,25 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(WalkStanding.FromSource, Node(d, AssetWalkWorld.OvHairNif).Standing);
         Assert.Contains("HcWalkOvHair", Node(d, AssetWalkWorld.OvHairNif).PulledBy);
         Assert.Equal(AssetWalkWorld.OvHairNif, Node(d, AssetWalkWorld.OvHairTex).PulledBy, ignoreCase: true);
-        Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkWorld.OtherPlugin + " ×1"));
+        Assert.Contains(d.Notes, n => n.Contains("sit outside the part fields and were not walked") && n.Contains(" on Npc"));
     }
 
-    /// <summary>A seed in a base master read through a from_source donor: the master's linked records are boundaries,
-    /// the donor's head part is entered. The same seed read through the winner enters its own plugin.</summary>
+    /// <summary>A reached record no from_source arm holds is read off the load order and its rows say so: the donor's
+    /// override names the base plugin's hair, which the donor does not hold. The donor's own head part and a walk whose
+    /// list ends in 'winner' carry no such words; nothing is a plugin boundary any more.</summary>
     [Fact]
-    public void ABaseMasterSeedReadThroughADonorKeepsItsPluginAsABoundary()
+    public void AReachedRecordNoSourceHoldsIsReadFromTheOrderAndSaysSo()
     {
+        const string Said = "(read from the load order: no from_source plugin has it)";
         var d = Walk(records: new[] { "HcWalkBeast2" }, fromSource: new[] { AssetWalkWorld.OverridePlugin });
-        Assert.Contains(d.Notes, n => n.Contains("boundaries") && n.Contains(AssetWalkWorld.Plugin + " ×"));
-        Assert.Contains("HcWalkOvHair", Node(d, AssetWalkWorld.OvHairNif).PulledBy);
+        var hair = Node(d, AssetWalkWorld.HairNif);
+        Assert.Contains("HcWalkHair", hair.PulledBy);
+        Assert.EndsWith(Said, hair.PulledBy);
+        Assert.DoesNotContain(Said, Node(d, AssetWalkWorld.OvHairNif).PulledBy);
+        Assert.DoesNotContain(d.Notes, n => n.Contains("boundaries, not walked"));
 
-        var w = Walk(records: new[] { "HcWalkBeast2" });
-        Assert.DoesNotContain(w.Notes, n => n.Contains(AssetWalkWorld.Plugin + " ×"));
+        var w = Walk(records: new[] { "HcWalkBeast2" }, fromSource: new[] { AssetWalkWorld.OverridePlugin, SourcePoles.Winner });
+        Assert.DoesNotContain(Said, Node(w, AssetWalkWorld.HairNif).PulledBy);
     }
 
     /// <summary>An NPC read through a from_source plugin that does not hold its race still gets its FaceGen pair, the
@@ -503,6 +513,27 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.True(fuz.Keyed);
     }
 
+    /// <summary>A topic seed enters its lines, its child records, and voices them: the quest job's second call, which
+    /// seeds the topics records references= finds; main entered no line of a seeded topic.</summary>
+    [Fact]
+    public void ATopicSeedVoicesItsLines()
+    {
+        var d = Walk(records: new[] { "HcWalkTopic" });
+        foreach (var line in new[] { "HcWalkLineSpeaker", "HcWalkLineCond" })
+            Assert.Equal("voice", Node(d, _w.Voice(line, VoiceFile.Fuz)).Edge);
+    }
+
+    /// <summary>The tool's description says the quest job's two calls and the override subset's outfit stop, one
+    /// sentence each, so a caller needs no value from outside it.</summary>
+    [Fact]
+    public void TheWalkDescriptionNamesTheQuestCallsAndTheOutfitStop()
+    {
+        var walk = typeof(AssetTools).GetMethod(nameof(AssetTools.AssetStatus))!.GetParameters().Single(p => p.Name == "walk");
+        var text = walk.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false).Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        Assert.Contains("A quest's dialogue and voice are two calls: " + ToolNames.Records + " types=[\"DialogTopic\", \"Scene\"] references=[<the quest>], then this walk", text);
+        Assert.Contains("An override subset that keeps the winner's outfits drops them with walk={\"exclusions\": [{\"match\": \"Outfit\", \"severity\": \"stop\"}]}.", text);
+    }
+
     /// <summary>No line is found off an NPC (#1278, V4): an NPC seed whose lines name it as Speaker and in a GetIsID
     /// lists no voice node and no line, with no through and with one leaving lines out, and at a record cap of one.</summary>
     [Fact]
@@ -611,8 +642,8 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ATypeAndAnEdgeKindShareTheLeftOutLine()
     {
-        var typed = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkHero"] }, null, null, values: Values("{\"through\": [\"HeadPart\"]}"));
-        var both = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkHero"] }, null, null, values: Values("{\"through\": [\"HeadPart\", \"texture\"]}"));
+        var typed = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkHero"] }, null, null, values: Values("{\"follow\": \"*\", \"through\": [\"HeadPart\"]}"));
+        var both = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkHero"] }, null, null, values: Values("{\"follow\": \"*\", \"through\": [\"HeadPart\", \"texture\"]}"));
         Assert.Equal(typed.Nodes.Where(n => n.Edge == "texture").Select(n => n.Path), both.Nodes.Select(n => n.Path));
         var typesLine = Assert.Single(typed.Notes, n => n.StartsWith("left out, not in walk.through: "));
         Assert.NotEqual("left out, not in walk.through: none", typesLine);
@@ -670,7 +701,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     public void ALoopOfRecordsIsCountedAndListed()
     {
         var loop = $"{_w.Id("HcWalkLoopA")} (HcWalkLoopA) -> {_w.Id("HcWalkLoopB")} (HcWalkLoopB) -> {_w.Id("HcWalkLoopA")} (HcWalkLoopA)";
-        const string Count = "1 record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, a reached NPC kept as a boundary, or in a plugin the walk does not enter) is not seen; the format=json walk answer (not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file lists every loop found.";
+        const string Count = "1 record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, a reached NPC kept as a boundary, or past a link the walk does not follow) is not seen; the format=json walk answer (not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file lists every loop found.";
         var seed = new[] { _w.Id("HcWalkLoopA") };
         var text = AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On);
         Assert.Contains(Count, text);

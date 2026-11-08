@@ -127,13 +127,13 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     static readonly string[] NpcsAndLines = { "HcDoorA1", "HcDoorA2", "HcDoorA3", "HcDoorB1", "HcDoorB2", "HcDoorLineA1", "HcDoorLineA3", "HcDoorLineA2", "HcDoorLineB1" };
 
     /// <summary>The walk's defaults with walk.through naming the seed list's reached types, so its NPCs are entered (#1371).</summary>
-    static readonly WalkGrammar.Values EnterNpcs = WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth)
+    static readonly WalkGrammar.Values EnterNpcs = Walks.EveryLink()
         with { Through = new(StringComparer.OrdinalIgnoreCase) { "Npc", "Race", "VoiceType" } };
 
     AssetWalkData Walk(string seed, IReadOnlyList<string>? fromSource = null) => Walk(new[] { seed }, fromSource);
 
     AssetWalkData Walk(IReadOnlyList<string> seeds, IReadOnlyList<string>? fromSource = null, LoadOrderService? svc = null, WalkGrammar.Values? values = null)
-        => (svc ?? _w.Svc).AssetWalk(Array.Empty<string>(), seeds.Select(s => _w.Keys[s]).ToList(), fromSource ?? BothPlugins, null, values: values);
+        => (svc ?? _w.Svc).AssetWalk(Array.Empty<string>(), seeds.Select(s => _w.Keys[s]).ToList(), fromSource ?? BothPlugins, null, values: values ?? Walks.EveryLink());
 
     (AssetWalkData Data, Dictionary<(string Plugin, string Group), int> Reads, long Seeks) Measured(string seed, IReadOnlyList<string>? fromSource = null, WalkGrammar.Values? values = null)
         => Measured(new[] { seed }, fromSource, values);
@@ -179,13 +179,14 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Equal(new Dictionary<(string, string), int> { [(b, "FormLists")] = 1, [(a, "Npcs")] = 1, [(b, "Npcs")] = 1 }, reads);
     }
 
-    /// <summary>Read through 'winner', the seed list reaches its own plugin's two NPCs, read in one pass of its NPC group
-    /// and kept as boundaries (#1371).</summary>
+    /// <summary>Read through 'winner', the seed list reaches all five NPCs, its own plugin's and the other's, each NPC
+    /// group read in one pass and the NPCs kept as boundaries (#1371).</summary>
     [Fact]
     public void AWinnerWalkReadsTheGroupOnce()
     {
         var (data, reads, _) = Measured("HcDoorSeed", new[] { SourcePoles.Winner });
-        Assert.Contains(data.Notes, n => n.StartsWith("2 NPC(s) the walk reached past a seed were kept as boundaries"));
+        Assert.Contains(AssetLayers.NpcBoundaryNote(5), data.Notes);
+        Assert.Equal(1, reads[(BothPlugins[0], "Npcs")]);
         Assert.Equal(1, reads[(BothPlugins[1], "Npcs")]);
     }
 
@@ -278,8 +279,8 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     [Fact]
     public void TheWalkStillStopsThreeHopsOut()
     {
-        var d = Walk("HcDoorChain0");
-        Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=3 form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
+        var d = Walk(new[] { "HcDoorChain0" }, values: Walks.EveryLink(3));
+        Assert.Equal(new[] { "1 record(s) sit more than walk.depth=3 hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
                      d.Notes);
     }
 
@@ -289,9 +290,9 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     public void ALinkPastTheDepthCapClosesNoLoop()
     {
         var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcDoorChain0"] }, BothPlugins, null,
-                                 values: WalkGrammar.Values.Defaults(1));
+                                 values: Walks.EveryLink(1));
         Assert.Empty(d.Cycles);
-        Assert.Equal(new[] { "1 record(s) of a from_source plugin, or of a seed's own plugin when 'winner' read it, sit more than walk.depth=1 form-link hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
+        Assert.Equal(new[] { "1 record(s) sit more than walk.depth=1 hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc)." },
                      d.Notes);
     }
 
@@ -301,7 +302,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     public void TheCapStopsAtTheSameRecord()
     {
         var d = _w.Svc.AssetWalk(Array.Empty<string>(), NpcsAndLines.Take(5).Select(s => _w.Keys[s]).ToList(), BothPlugins, null,
-                                 values: WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { MaxNodes = 2 });
+                                 values: Walks.EveryLink() with { MaxNodes = 2 });
         Assert.True(d.Truncated);
         Assert.Equal(new[] { "HcDoorA1", "HcDoorA2" }, d.Nodes.Where(n => n.Edge == "facegen").Select(n => n.PulledBy.Split(' ')[1]).Distinct());
         Assert.Equal("the walk stopped entering records at walk.max_nodes=2 (every record entered counts, seeds included); raise walk.max_nodes to walk further.", d.Notes[0]);
@@ -323,7 +324,7 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
     [Fact]
     public void ABoundedCountsWalkStoppedByTheRecordCapSaysTruncated()
     {
-        string Counts(int max) => AssetTools.AssetStatus(_w.Svc, records: new[] { FormIdToken.Of(_w.Keys["HcDoorChain0"]) }, walk: Walks.Of("{\"max_nodes\": 1}"),
+        string Counts(int max) => AssetTools.AssetStatus(_w.Svc, records: new[] { FormIdToken.Of(_w.Keys["HcDoorChain0"]) }, walk: Walks.Of("{\"follow\": \"*\", \"max_nodes\": 1}"),
                                                          from_source: BothPlugins, counts_only: true, format: "json", max_chars: max);
         var whole = Counts(400_000);
         using var doc = System.Text.Json.JsonDocument.Parse(Counts(whole.Length - 1));

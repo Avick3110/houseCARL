@@ -146,7 +146,7 @@ internal sealed partial class RecordReads
 
     /// <summary>The forward walk over the winner link graph, per seed off ONE captured build.</summary>
     public IReadOnlyList<WalkSeedResult> WalkForwardBatch(
-        IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
+        IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, IReadOnlyList<string>? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct,
         bool wantCycles, IReadOnlySet<string>? through = null, IDictionary<FormKey, string>? leftOut = null)
@@ -165,14 +165,20 @@ internal sealed partial class RecordReads
         }
         using var session = resolver.OpenSession();
 
-        string[]? followSegs = null;
-        bool closure = string.IsNullOrWhiteSpace(follow) || follow!.Trim() == "*";
+        // Each followed path's segments; null for the closure, a list holding "*" included.
+        List<string[]>? followSegs = null;
+        bool closure = follow is null || follow.All(string.IsNullOrWhiteSpace) || follow.Any(p => p.Trim() == "*");
         if (!closure)
         {
-            followSegs = follow!.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (followSegs.Length == 0) { refusal = $"walk.follow '{follow}' is not a usable field path."; return Array.Empty<WalkSeedResult>(); }
+            followSegs = new();
+            foreach (var path in follow!)
+            {
+                var segs = path.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (segs.Length == 0) { refusal = $"walk.follow '{path}' is not a usable field path."; return Array.Empty<WalkSeedResult>(); }
+                followSegs.Add(segs);
+            }
         }
-        bool templateFollow = followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
+        bool templateFollow = followSegs is [{ Length: 1 } only] && only[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
 
         var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
         IMajorRecordGetter? Fetch(FormKey k)
@@ -280,6 +286,18 @@ internal sealed partial class RecordReads
             note = n;
             return links ?? new List<FormKey>();
         }
+        // The followed paths' links together, each once in path order; one path reads as LinksOf does.
+        List<FormKey> FollowedLinks(IMajorRecordGetter body, out string? note)
+        {
+            if (followSegs is not { Count: > 1 }) return LinksOf(body, followSegs?[0], out note);
+            note = null;
+            var seen = new HashSet<FormKey>();
+            var all = new List<FormKey>();
+            foreach (var segs in followSegs)
+                foreach (var k in LinksOf(body, segs, out _))
+                    if (seen.Add(k)) all.Add(k);
+            return all;
+        }
 
         // What each reached key yielded, by value, so a key two seeds both reach is READ once per call.
         var nodeFacts = seeds.Count > 1 ? new Dictionary<FormKey, WalkNodeFact>() : null;
@@ -310,7 +328,7 @@ internal sealed partial class RecordReads
             if (body is not null && !atCap && !NotEntered(fact.Type) && fact.Unscannable is null)
                 try
                 {
-                    fact.Links = LinksOf(body, followSegs, out var linkNote);
+                    fact.Links = FollowedLinks(body, out var linkNote);
                     if (followSegs is null) fact.Lenient = linkNote;
                 }
                 catch (Exception ex) when (RecordParseFault.Is(ex)) { fact.Unscannable = WalkFaultOf(ex); }

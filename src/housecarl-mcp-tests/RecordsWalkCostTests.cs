@@ -531,7 +531,7 @@ public sealed class RecordsWalkCostTests
         cts.Cancel();
 
         Assert.Throws<OperationCanceledException>(() =>
-            Svc.WalkForwardBatch(Seeds(), new[] { "Template" }, "Template", 16, 2000,
+            Svc.WalkForwardBatch(Seeds(), new[] { "Template" }, new[] { "Template" }, 16, 2000,
                                  Array.Empty<(string, bool)>(), null, out _, out _, cts.Token));
     }
 
@@ -546,7 +546,7 @@ public sealed class RecordsWalkCostTests
         var exclusions = new CancelOnFirstRead(cts);
 
         Assert.Throws<OperationCanceledException>(() =>
-            Svc.WalkForwardBatch(Seeds(), new[] { "Template" }, "Template", 16, 2000,
+            Svc.WalkForwardBatch(Seeds(), new[] { "Template" }, new[] { "Template" }, 16, 2000,
                                  exclusions, null, out _, out _, cts.Token));
         Assert.True(exclusions.WasRead, "the walk never reached a node, so the hop loop is not what stopped it.");
     }

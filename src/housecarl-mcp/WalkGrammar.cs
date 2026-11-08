@@ -14,8 +14,33 @@ public static class WalkGrammar
     /// <summary>The records walk's hop limit when walk.depth is unset.</summary>
     internal const int RecordsDefaultDepth = 16;
 
-    /// <summary>The asset walk's hop limit when walk.depth is unset: NPC → head part → its extra part's texture set.</summary>
-    internal const int AssetDefaultDepth = 3;
+    /// <summary>The asset walk's hop limit when walk.depth is unset: a safety cap, since it follows part fields only.</summary>
+    internal const int AssetDefaultDepth = RecordsDefaultDepth;
+
+    /// <summary>walk.follow: unset (null paths, the walk's default), one path as a string, or a list of paths through
+    /// the list door; or the one refusal. Both walks read it here.</summary>
+    internal static string? ReadFollow(WalkFollow? follow, out string[]? paths)
+    {
+        paths = null;
+        if (follow is null) return null;
+        const string Shape = "walk.follow takes one field path as a string (e.g. \"Template\"), \"*\" for every link, or a list of field paths (e.g. [\"HeadParts\", \"WornArmor\"])";
+        if (follow.Paths is not { } raw) return $"error: {Shape}; got {follow.Bad}.";
+        // One path as a string reads as it always has: trimmed, and a blank one is the default.
+        if (follow.Single)
+        {
+            paths = string.IsNullOrWhiteSpace(raw[0]) ? null : new[] { raw[0].Trim() };
+            return null;
+        }
+        var read = ListDoor.ReadItems(raw, "walk.follow", ListKind.Name, "walk={{\"follow\": [{0}]}}");
+        if (read.Error is not null) return read.Error;
+        var tokens = read.Tokens!.Select(t => t.Trim()).ToArray();
+        if (tokens.Length == 0 || tokens.Any(t => t.Length == 0)) return $"error: walk.follow is an empty list or holds an empty path — {Shape}.";
+        paths = tokens;
+        return null;
+    }
+
+    /// <summary>Whether a follow list holds the every-link token.</summary>
+    internal static bool FollowsEveryLink(IReadOnlyList<string>? paths) => paths?.Contains("*") == true;
 
     /// <summary>How a walk reads max_nodes: per seed (bounded by <see cref="RecordsTools.RecordsWalk.Ceiling"/>) or one
     /// budget shared by every seed (no ceiling).</summary>
@@ -27,6 +52,9 @@ public static class WalkGrammar
     {
         /// <summary>The asset walk's edge kinds walk.through names, whose rows it shows (null when it names none).</summary>
         public HashSet<WalkEdgeKind>? Edges { get; init; }
+
+        /// <summary>The asset walk's walk.follow paths ("*" every link); null for its default, the shipped part fields and child records.</summary>
+        public IReadOnlyList<string>? Follow { get; init; }
 
         /// <summary>A walk's defaults, as walk=true or an empty walk object reads.</summary>
         public static Values Defaults(int depth) => new(depth, DefaultMaxNodes, null, new());
@@ -109,7 +137,7 @@ public static class WalkGrammar
         values = null;
         if (walk is not { } el || el.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined or JsonValueKind.False) return null;
         if (el.ValueKind == JsonValueKind.True) { values = Values.Defaults(AssetDefaultDepth); return null; }
-        const string Shape = "walk=true, or walk={\"depth\": 3, \"max_nodes\": 2000, \"through\": [\"HeadPart\"], \"exclusions\": [{\"match\": \"Race\", \"severity\": \"stop\"}]} with any of those members";
+        const string Shape = "walk=true, or walk={\"follow\": [\"HeadParts\"], \"depth\": 16, \"max_nodes\": 2000, \"through\": [\"HeadPart\"], \"exclusions\": [{\"match\": \"Race\", \"severity\": \"stop\"}]} with any of those members";
         if (el.ValueKind != JsonValueKind.Object)
             return $"error: walk= takes {Shape}; got a {el.ValueKind.ToString().ToLowerInvariant()}.";
         RecordsTools.RecordsWalk w;
@@ -118,14 +146,15 @@ public static class WalkGrammar
         // The records walk's own shaping values, each refused by name rather than dropped.
         if (w.seed_paths is not null)
             return "error: walk.seed_paths is a records-walk value — the asset walk starts from every link on its seed records; drop it, and seed the records you mean with records=.";
-        if (w.follow is not null)
-            return "error: walk.follow is a records-walk value — the asset walk follows every form link; narrow it with walk.through or walk.exclusions instead.";
+        if (ReadFollow(w.follow, out var follow) is { } followErr) return followErr;
+        if (follow is not null && follow.Any(p => p.StartsWith("*parent", StringComparison.OrdinalIgnoreCase)))
+            return "error: walk.follow '*parent' climbs to a containing record, and the asset walk walks forward only — seed the containing record with records= instead.";
         if (w.direction is not null)
             return $"error: walk.direction is a records-walk value — the asset walk walks forward only; what points at a record is {ToolNames.Records} walk={{\"direction\": \"reverse\"}}.";
         var throughIn = ListDoor.ReadItems(w.through, "walk.through", ListKind.Name, "walk={{\"through\": [{0}]}}");
         if (throughIn.Error is not null) return throughIn.Error;
         if (Parse(types, w.depth, w.max_nodes, throughIn.Tokens, w.exclusions, AssetDefaultDepth, Budget.Shared, out var v, edgeKinds: true) is { } err) return err;
-        values = v;
+        values = v with { Follow = follow };
         return null;
     }
 
@@ -168,5 +197,51 @@ public static class WalkGrammar
     {
         try { return new(raw, parse(raw), null); }
         catch (Exception ex) { return new(raw, null, $"bad FormID '{raw}': {ex.Message}"); }
+    }
+}
+
+/// <summary>walk.follow as sent: one path as a string or a list of paths, each kept as typed; any other JSON shape is
+/// kept as <see cref="Bad"/> so <see cref="WalkGrammar.ReadFollow"/> refuses it in its own words.</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(WalkFollowConverter))]
+public sealed class WalkFollow
+{
+    /// <summary>The paths, or null when the value was neither a string nor a list of strings.</summary>
+    public string[]? Paths { get; init; }
+
+    /// <summary>Sent as one string, not a list.</summary>
+    internal bool Single { get; init; }
+
+    /// <summary>What was sent instead, for the refusal.</summary>
+    internal string? Bad { get; init; }
+
+    /// <summary>A C# caller passes one path as a string.</summary>
+    public static implicit operator WalkFollow?(string? path) => path is null ? null : new WalkFollow { Paths = new[] { path }, Single = true };
+
+    /// <summary>A C# caller passes a list of paths as an array.</summary>
+    public static implicit operator WalkFollow?(string[]? paths) => paths is null ? null : new WalkFollow { Paths = paths };
+}
+
+/// <summary>Reads walk.follow's string or list, and writes it back in the shape it came in.</summary>
+public sealed class WalkFollowConverter : System.Text.Json.Serialization.JsonConverter<WalkFollow>
+{
+    public override WalkFollow? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var el = doc.RootElement;
+        return el.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => new WalkFollow { Paths = new[] { el.GetString()! }, Single = true },
+            JsonValueKind.Array when el.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String)
+                => new WalkFollow { Paths = el.EnumerateArray().Select(e => e.GetString()!).ToArray() },
+            JsonValueKind.Array => new WalkFollow { Bad = "a list holding a non-string" },
+            var k => new WalkFollow { Bad = "a " + k.ToString().ToLowerInvariant() },
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, WalkFollow value, JsonSerializerOptions options)
+    {
+        if (value.Single && value.Paths is { Length: 1 } one) writer.WriteStringValue(one[0]);
+        else JsonSerializer.Serialize(writer, value.Paths ?? Array.Empty<string>(), options);
     }
 }

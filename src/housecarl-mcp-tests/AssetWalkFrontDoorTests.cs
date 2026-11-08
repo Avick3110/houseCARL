@@ -231,8 +231,8 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(row, Many(offset: 2, counts: true));
     }
 
-    /// <summary>F1-b: a json counts_only walk whose thirty not-found notes pass max_chars stays inside it and says how many
-    /// notes it cut; at a cap it fits, the document is the uncapped one.</summary>
+    /// <summary>F1-b: a json counts_only walk whose thirty not-found notes and the hero's links-not-followed note pass
+    /// max_chars stays inside it and says how many notes it cut; at a cap it fits, the document is the uncapped one.</summary>
     [Fact]
     public void AJsonCountsOnlyWalkKeepsToMaxChars()
     {
@@ -260,7 +260,7 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.False(r.TryGetProperty("max_chars_overrun", out _));
         int notes = r.GetProperty("notes").GetArrayLength(), omitted = r.GetProperty("notes_omitted").GetInt32();
         Assert.True(omitted > 0, cut);
-        Assert.Equal(30, notes + omitted);
+        Assert.Equal(31, notes + omitted);
     }
 
     /// <summary>F2-b: a json counts_only walk cut by max_chars says truncated, whether its notes or its axis rows were cut;

@@ -58,8 +58,8 @@ public static partial class RecordsTools
         [Description("Link fields that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]; '*parent' climbs to the record that contains the seed (a REFR to its CELL). Forward only. Omit for every link on the seed." + ListText.Names)]
         public string[]? seed_paths { get; set; }
 
-        [Description("The link path followed at every later hop. \"*\" (default) follows every link; a named path follows one chain, e.g. \"Template\" or \"*parent\". A reverse walk takes \"*\" (every link) or \"Effects[].BaseEffect\" (the MGEF carrier walk, one hop, with each carrier's magnitude, area and duration; types= narrows the carriers); under project.form='chain' only the carrier walk renders, so name it.")]
-        public string? follow { get; set; }
+        [Description("The link path followed at every later hop, or a list of paths, whose links are followed together. \"*\" (default) follows every link; a named path follows one chain, e.g. \"Template\" or \"*parent\"; a list follows each path's links, e.g. [\"HeadParts\", \"WornArmor\"]. A reverse walk takes \"*\" (every link) or \"Effects[].BaseEffect\" (the MGEF carrier walk, one hop, with each carrier's magnitude, area and duration; types= narrows the carriers); under project.form='chain' only the carrier walk renders, so name it.")]
+        public WalkFollow? follow { get; set; }
 
         [Description("'forward' (default): what the seeds point at. 'reverse': what points at them, at any depth, with no bounding scope; the every-link reverse walk reads the reverse-reference index, built once on first use at the cost of one whole-order link walk, reported in the response. Which NPCs carry an item: formids=[the item], walk={\"direction\": \"reverse\", \"through\": [\"LeveledItem\", \"Outfit\"], \"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}], \"max_nodes\": 50000}.")]
         public string? direction { get; set; }
@@ -350,6 +350,12 @@ public static partial class RecordsTools
                 return ToolAnswer.Refusal(json, "error: versus='previous_provider' is subject-relative and pairs with the 'delta' form (one subject, one reference below it) — a tree diffs EVERY provider against ONE reference pole. Use form='delta', or a named/winner versus= on the tree.");
         }
         // ---- walk= (the traversal construct) ----
+        string[]? followPaths = null;
+        if (walk is not null && WalkGrammar.ReadFollow(walk.follow, out followPaths) is { } followErr)
+            return ToolAnswer.Refusal(json, followErr);
+        // One path, as the walks that take one read it (null for a list or unset), and the follow as the answer says it.
+        string? follow1 = followPaths is { Length: 1 } ? followPaths[0] : null;
+        string? followShown = followPaths is null ? null : string.Join(", ", followPaths);
         string walkDirection = "forward";
         int walkDepth = WalkGrammar.RecordsDefaultDepth, walkMaxNodes = WalkGrammar.DefaultMaxNodes;
         bool walkDepthAsked = false;
@@ -363,7 +369,7 @@ public static partial class RecordsTools
             if (!string.IsNullOrEmpty(dir)) walkDirection = dir!;
             // The forward and carrier walks read max_nodes per seed; docs/architecture/records-tool-front.md.
             bool perSeedBudget = walkDirection == "forward"
-                              || string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
+                              || string.Equals(follow1, CarrierFollow, StringComparison.OrdinalIgnoreCase);
             if (WalkGrammar.Parse(svc.Types, walk.depth, walk.max_nodes, walk.through, walk.exclusions, WalkGrammar.RecordsDefaultDepth,
                                   perSeedBudget ? WalkGrammar.Budget.PerSeed : WalkGrammar.Budget.Shared, out var wv) is { } wvErr)
                 return ToolAnswer.Refusal(json, wvErr);
@@ -375,12 +381,12 @@ public static partial class RecordsTools
                 if (walk.seed_paths is { Length: > 0 })
                     return ToolAnswer.Refusal(json, "error: walk.seed_paths shapes a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop it (walk.follow stays: it names the edges this walk crosses).");
                 if ((walk.exclusions is { Length: > 0 } || walkThrough is not null)
-                    && string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase))
+                    && string.Equals(follow1, CarrierFollow, StringComparison.OrdinalIgnoreCase))
                     return ToolAnswer.Refusal(json, $"error: walk.exclusions/through shape a walk that expands, and the typed MGEF carrier walk (walk.follow=\"{CarrierFollow}\") stops at hop 1 — narrow its carrier types with types= instead.");
-                var revFollow = walk.follow?.Trim();
+                var revFollow = followShown;
                 if (!string.IsNullOrEmpty(revFollow) && revFollow != "*"
                     && !string.Equals(revFollow, CarrierFollow, StringComparison.OrdinalIgnoreCase))
-                    return ToolAnswer.Refusal(json, $"error: walk.follow='{walk.follow}' on a reverse walk — the reverse edges come from the reverse-reference index, which holds every link and no per-path breakdown, so the two follows it can serve are \"*\" (every link, the transitive walk) and \"{CarrierFollow}\" (the typed MGEF carriers). To narrow the transitive walk's reach by path, walk with to_file= and re-enter the artifact on a where= over the field.");
+                    return ToolAnswer.Refusal(json, $"error: walk.follow='{followShown}' on a reverse walk — the reverse edges come from the reverse-reference index, which holds every link and no per-path breakdown, so the two follows it can serve are \"*\" (every link, the transitive walk) and \"{CarrierFollow}\" (the typed MGEF carriers). To narrow the transitive walk's reach by path, walk with to_file= and re-enter the artifact on a where= over the field.");
             }
             if (references is { Length: > 0 })
                 return ToolAnswer.Refusal(json, "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.");
@@ -424,9 +430,9 @@ public static partial class RecordsTools
         bool reverseWalk = walk is not null && walkDirection == "reverse";
         // walk.follow tells the two reverse walks apart and the FORM only picks the view; under 'chain' the follow
         // is said outright. Contract in docs/architecture/records-tool-front.md.
-        bool followAsked = !string.IsNullOrWhiteSpace(walk?.follow);
+        bool followAsked = followPaths is not null;
         bool reverseCarrier = reverseWalk
-            && string.Equals(walk!.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
+            && string.Equals(follow1, CarrierFollow, StringComparison.OrdinalIgnoreCase);
         if (reverseWalk && form == "chain" && !followAsked)
             return ToolAnswer.Refusal(json, $"error: no default follow implies a walk, so a reverse 'chain' call names the edges it crosses — walk.follow=\"{CarrierFollow}\" is the typed MGEF carrier walk, which chain renders, and walk.follow=\"*\" is every link, which chain cannot render because the transitive walk expands one shared frontier and has no per-seed path to draw (read that one with summary/fields/rows/everything/aggregate).");
         if (reverseWalk && form == "chain" && !reverseCarrier)
@@ -815,7 +821,7 @@ public static partial class RecordsTools
                 {
                     new("formids", echoSrc ?? $"{ids.Length} inline seed(s)"),
                     new("form", form),
-                    new("walk", $"{walkDirection}{(walk!.follow is { } f ? $" follow={f}" : "")} depth={walkDepth}"),
+                    new("walk", $"{walkDirection}{(followShown is { } f ? $" follow={f}" : "")} depth={walkDepth}"),
                 };
                 if (walk.seed_paths is { Length: > 0 }) e.Add(new("seed_paths", string.Join(", ", walk.seed_paths)));
                 return e;
@@ -1009,7 +1015,7 @@ public static partial class RecordsTools
             // Forward: one engine batch, one captured build; chain renders it and every other form consumes the
             // reached set, seeds included, through the normal lanes.
             var fwdLeftOut = new Dictionary<FormKey, string>();
-            var rows = svc.WalkForwardBatch(ids, walk!.seed_paths, walk.follow, walkDepth, walkMaxNodes,
+            var rows = svc.WalkForwardBatch(ids, walk!.seed_paths, followPaths, walkDepth, walkMaxNodes,
                                             walkExclusions, demand, out var wRefusal, out var wEpoch, ct,
                                             wantCycles: form == "chain", through: walkThrough, leftOut: fwdLeftOut);
             if (wRefusal is not null)
@@ -1034,7 +1040,7 @@ public static partial class RecordsTools
                     headerLine += $"\n[!] {cutSeeds} seed(s) stopped at walk.depth ({walkDepth}) or walk.max_nodes ({walkMaxNodes}) — a loop closing past the cut is not visible, so this cycle count is not proof of none; raise the cap to finish the walk.";
                 if (cappedCycles > 0)
                     headerLine += $"\n[!] {cappedCycles} seed(s) reached the {RecordReads.WalkCycleCap}-cycle search cap — more loops are there than are counted.";
-                envelope.Add(new("walk", $"forward{(walk.follow is { } f2 ? $" follow={f2}" : " (closure)")} depth={walkDepth}"));
+                envelope.Add(new("walk", $"forward{(followShown is { } f2 ? $" follow={f2}" : " (closure)")} depth={walkDepth}"));
                 if (counts_only)
                     return ToolAnswer.Served(json
                         ? JsonWire.RenderNamedCounts(Env(null), new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs), KvI("cycles", cycles), KvI("truncated_seeds", cutSeeds) }, wEpoch, max_chars)
@@ -1093,7 +1099,7 @@ public static partial class RecordsTools
                                        counts_only) is { } walkTooBig)
                 return ToolAnswer.Refusal(json, walkTooBig, wEpoch);
 
-            envelope.Add(new("walk", $"forward{(walk.follow is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {fwdReached} record(s) the walk reached (seeds included{(fwdChainErrs > 0 ? $"; {fwdChainErrs} seed error(s), listed via form='chain'" : "")})"));
+            envelope.Add(new("walk", $"forward{(followShown is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {fwdReached} record(s) the walk reached (seeds included{(fwdChainErrs > 0 ? $"; {fwdChainErrs} seed error(s), listed via form='chain'" : "")})"));
             headerLine += $"\nwalk: selection = {fwdReached} reached record(s) (seeds included)";
             expectEpoch = wEpoch?.Epoch;
             formids = combined.ToArray();
