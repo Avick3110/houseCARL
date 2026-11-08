@@ -94,7 +94,9 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
 - The asset walk judges `through`'s record types and the exclusions where it enters a record, on the read body's
   type, so the type is the same whichever source arm read it. A stop is not entered (no files, no links) and is counted
   in a note; a type outside `through` is not entered and is counted per type in the records walk's "left out, not in
-  walk.through:" line, which on the asset walk also counts, per edge, the rows `through`'s edge kinds did not show; a refuse fails the call in `WalkExclusionMatch.RefuseSentence`'s words. Seeds are never judged.
+  walk.through:" line, which on the asset walk also counts, per edge, the rows `through`'s edge kinds did not show; a refuse fails the call in `WalkExclusionMatch.RefuseSentence`'s words. Seeds are never judged. At the same door,
+  after that judging, a reached NPC is a counted boundary when `through` names no record type (assets.md, Walking the
+  links; #1371).
   Its depth and budget notes name `walk.depth=` / `walk.max_nodes=` and say to raise them.
 - `ParseSeed` turns one seed token into its key or `bad FormID '<token>': <why>`; the records walk's rows carry those
   words alone, and the asset walk's error node adds ` Expected 'XXXXXX:Plugin.esp'.` after them. Each walk carries a malformed seed
