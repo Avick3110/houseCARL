@@ -122,6 +122,19 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.DoesNotContain(d.Notes, n => n.Contains(UnreadLinksWorld.BaseMaster));
     }
 
+    /// <summary>A named walk.follow still reads the field it names on a perk whose whole link read faults, so it enters
+    /// the static that field holds, and the note says it followed only the named fields. Pins as-built behaviour
+    /// (DECISIONS 2026-11-08 (23), call A2).</summary>
+    [Fact]
+    public void ANamedFollowReadsItsFieldPastARecordWhoseLinksCannotBeRead()
+    {
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[C]["List"] }, null, null,
+                                 values: WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { Follow = new[] { "Items", "NextPerk" } });
+        Assert.Null(d.Refusal);
+        Assert.Equal(new[] { UnreadLinksWorld.BeforeNif, UnreadLinksWorld.AfterNif, UnreadLinksWorld.RecoveredNif }, Paths(d));
+        Assert.Contains(d.Notes, n => n.Contains(_w.Id(C, "Perk")) && n.Contains("its links could not be read whole, so the walk follows only its fields walk.follow names"));
+    }
+
     // ---- copy ----
 
     string Copy(string plugin, string stem, string[]? exclude = null)

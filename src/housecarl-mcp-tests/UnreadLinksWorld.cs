@@ -21,7 +21,8 @@ namespace HousecarlMcpTests;
 ///   (<see cref="ProbeBytes.MakeEpftFunctionMismatch"/>), so its links read only leniently.</item>
 /// <item><see cref="Dead"/>: the perk is DELETED and its EPFT corrupt (<see cref="ProbeBytes.CorruptEpftBytes"/>), so
 ///   its links throw, as ARR's deleted package overrides do.</item>
-/// <item><see cref="Corrupt"/>: the EPFT is corrupt on a live perk, so its links throw and nothing is recovered.</item>
+/// <item><see cref="Corrupt"/>: the EPFT is corrupt on a live perk, so its links throw and nothing is recovered; its
+///   NextPerk names the static and still reads on its own.</item>
 /// </list>
 /// Built fresh per test class; copy writes its patch folder under mods, which a test then looks for.</summary>
 public sealed class UnreadLinksWorld : IDisposable
@@ -92,6 +93,8 @@ public sealed class UnreadLinksWorld : IDisposable
                 Conditions = { new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = isId } },
             });
             perk.Effects.Add(refused);
+            // Corrupt's perk also names the static as its next perk, a field that reads while the whole link walk throws.
+            if (plugin == Corrupt) perk.NextPerk.SetTo(stat.FormKey);
             var after = Part(tag + "After", AfterNif);
 
             var list = mod.FormLists.AddNew();
@@ -139,6 +142,7 @@ public sealed class UnreadLinksWorld : IDisposable
             Assert.Equal(plugin == Dead, bad.IsDeleted);
             Assert.ThrowsAny<Exception>(() => ((IFormLinkContainerGetter)bad).EnumerateFormLinks().Count());
             Assert.Equal(plugin == Lenient, PerkEffectDecode.ReadLinks(bad) is not null);
+            if (plugin == Corrupt) Assert.Equal(stat.FormKey, bad.NextPerk.FormKey);
             if (gone is not null)
             {
                 var g = ov.FormLists.First(l => l.FormKey == gone.FormKey);
