@@ -594,7 +594,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     public void ALoopOfRecordsIsCountedAndListed()
     {
         var loop = $"{_w.Id("HcWalkLoopA")} (HcWalkLoopA) -> {_w.Id("HcWalkLoopB")} (HcWalkLoopB) -> {_w.Id("HcWalkLoopA")} (HcWalkLoopA)";
-        const string Count = "1 record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, or in a plugin the walk does not enter) is not seen; each loop is listed in the format=json walk answer (not counts_only=) and in a to_file= or spilled file.";
+        const string Count = "1 record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, or in a plugin the walk does not enter) is not seen; the format=json walk answer (not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file lists every loop found.";
         var seed = new[] { _w.Id("HcWalkLoopA") };
         var text = AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On);
         Assert.Contains(Count, text);
