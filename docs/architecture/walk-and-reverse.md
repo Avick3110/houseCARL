@@ -34,7 +34,9 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   (dropping base masters); the asset walk applies no plugin bound. The few answers they must give alike over one graph both
   reach whole (the records entered and their breadth-first order, one read per depth, a null link skipped) are
   `CopyAssetWalkAgreementTests`. Where they part is a record whose links read only leniently, or not at all: the
-  asset walk follows the lenient links and notes it, or notes the record and follows nothing; copy refuses there
+  asset walk notes it either way, and under `walk.follow` `*` follows the lenient links, or does not go past an
+  unread record; on its default and a named `walk.follow` it follows only the part (or named) fields, read one by one
+  past a fault, and counts a lenient read's other links, or none of a fault's (assets.md, Walking the links); copy refuses there
   (`WalkRefusalKind.UnreadLinks`, with the pull chain), because it could not duplicate that record. A deleted record
   links to nothing in both (#1316).
 - Walk provenance is per node: each reached node records which arm produced its body and the full
