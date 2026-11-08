@@ -91,10 +91,14 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         => Assert.Contains(_w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[L]["List"] }, null, null).Notes,
                            n => n.Contains("sit outside the part fields") && n.Contains(" 2 on Perk"));
 
-    [Fact]
-    public void TheAssetWalkGoesPastADeletedThrowingRecordFollowingNothing()
+    /// <summary>On every follow rule the deleted perk links to nothing; the default and named walks pin unchanged behaviour.</summary>
+    [Theory]
+    [InlineData("*")]
+    [InlineData(null)]
+    [InlineData("Items")]
+    public void TheAssetWalkGoesPastADeletedThrowingRecordFollowingNothing(string? follow)
     {
-        var d = Asset(D);
+        var d = Asset(D, follow);
         Assert.Null(d.Refusal);
         Assert.Equal(new[] { UnreadLinksWorld.BeforeNif, UnreadLinksWorld.AfterNif }, Paths(d));
         Assert.DoesNotContain(d.Nodes, n => n.Standing == WalkStanding.Error);
