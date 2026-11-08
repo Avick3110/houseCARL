@@ -252,8 +252,9 @@ internal sealed partial class AssetLayers
         var allLinks = new HashSet<FormKey>();
         var linkBuffer = new List<FormKey>();
         var unreadParts = new List<string>();
-        // The named walk.follow paths some entered record has the first field of; the rest are said at the end.
+        // The named walk.follow paths some entered record reads, and why each other one could not be; the rest are said at the end.
         var followFound = follow is not null && !everyLink ? new HashSet<string>(StringComparer.Ordinal) : null;
+        var followWrong = followFound is null ? null : new Dictionary<string, string>(StringComparer.Ordinal);
 
         // True when walk.exclusions or walk.through keeps the record out: a stop is a boundary, a type outside through
         // is left out, neither entered; a refuse ends the call. Unset, no record is judged.
@@ -349,7 +350,7 @@ internal sealed partial class AssetLayers
                 else
                 {
                     unreadParts.Clear();
-                    WalkParts.Links(body, follow ?? WalkParts.For(type), links, unreadParts, followFound);
+                    WalkParts.Links(body, follow ?? WalkParts.For(type), links, unreadParts, followFound, followWrong);
                     foreach (var u in unreadParts) notes.Add($"{label}: the links under {u} could not be read, so the walk does not follow them");
                     if (follow is null) ChildrenOf(body, children!.GetValueOrDefault(fk), label, links, notes);
                     // The rest of its own form links, counted per type, read through the link door, which says a lenient read
@@ -396,7 +397,9 @@ internal sealed partial class AssetLayers
         if (notFollowed.Count > 0) notes.Add(NotFollowedNote(notFollowed, follow is null));
         if (followFound is not null)
             foreach (var p in follow!.Where(p => !followFound.Contains(p)))
-                notes.Add($"walk.follow '{p}' names a field no record the walk entered has, but for a deleted one, which links to nothing, so it followed nothing; field names are case-sensitive (e.g. \"HeadParts\").");
+                notes.Add(followWrong!.TryGetValue(p, out var why)
+                    ? $"walk.follow '{p}' followed nothing: no record the walk entered reads it (a deleted one links to nothing) — {why}"
+                    : $"walk.follow '{p}' followed nothing: the walk entered no record that is not deleted, and a deleted record links to nothing.");
         if (npcBoundaries > 0) notes.Add(NpcBoundaryNote(npcBoundaries));
 
         // Every loop over the recorded links, capped as the records walk caps its search (one cap, the shared budget's).

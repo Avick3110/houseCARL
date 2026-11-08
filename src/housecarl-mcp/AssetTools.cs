@@ -134,8 +134,8 @@ public static class AssetTools
                      "a through entry that is neither is refused naming both, and an exclusions entry that is an edge kind is refused " +
                      "pointing at through: follow replaces the part fields with the field paths it names, as one string or a " +
                      "list (e.g. [\"HeadParts\", \"WornArmor\"]; a list also takes [\"@<absolute path>\"], a file of one path per line), " +
-                     "read on every record from the seed on, with no child records, a path no entered record has the field of " +
-                     "said in a note (field names are case-sensitive); \"*\" follows every form link and the child records; depth (default 16, a safety cap) is the hops from a " +
+                     "read on every record from the seed on, with no child records, a path no entered record reads (a field it lacks at any " +
+                     "segment, or one holding no links) said in a note (field names are case-sensitive); \"*\" follows every form link and the child records; depth (default 16, a safety cap) is the hops from a " +
                      "seed record whose records are entered; max_nodes (default 2000) counts every record entered, seeds " +
                      "included, one budget shared by every seed, with no upper bound (the file bound is asset_status's own); " +
                      "through takes record types and edge kinds: its record types enter only records of those types and count " +

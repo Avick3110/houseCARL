@@ -122,6 +122,17 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.DoesNotContain(d.Notes, n => n.Contains(UnreadLinksWorld.BaseMaster));
     }
 
+    /// <summary>A walk.follow path read on a deleted record only is said as that, not as a typo: the deleted list's
+    /// Items still read, but a deleted record links to nothing.</summary>
+    [Fact]
+    public void AFollowPathOnlyADeletedRecordHoldsIsSaidAsDeleted()
+    {
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[D]["GoneList"] }, null, null,
+                                 values: WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { Follow = new[] { "Items" } });
+        Assert.Empty(d.Nodes);
+        Assert.Contains("walk.follow 'Items' followed nothing: the walk entered no record that is not deleted, and a deleted record links to nothing.", d.Notes);
+    }
+
     /// <summary>A named walk.follow still reads the field it names on a perk whose whole link read faults, so it enters
     /// the static that field holds, and the note says it followed only the named fields. Pins as-built behaviour
     /// (DECISIONS 2026-11-08 (23), call A2).</summary>

@@ -463,14 +463,27 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         Assert.StartsWith("error: walk.follow '*parent' climbs", Refused("{\"follow\": [\"*parent\"]}"));
     }
 
-    /// <summary>A walk.follow path no entered record has the field of is said by name, a typo or the wrong case alike;
-    /// a path some record has is not.</summary>
+    /// <summary>A walk.follow path no entered record has the field of is said by name, a typo or the wrong case alike,
+    /// with the read engine's near-name; a path some record has is not.</summary>
     [Fact]
     public void AFollowPathNoRecordHasIsSaidByName()
     {
-        var d = Walk("HcShapeNpc", Values("{\"follow\": [\"HeadPartz\", \"wornArmor\", \"HeadParts\"]}"));
-        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'HeadPartz' names a field no record the walk entered has"));
-        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'wornArmor' names a field no record the walk entered has"));
+        var d = Walk("HcShapeNpc", Values("{\"follow\": [\"HeadPartz\", \"wornArmor\", \"headparts\", \"HeadParts\"]}"));
+        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'HeadPartz' followed nothing: no record the walk entered reads it"));
+        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'wornArmor' followed nothing") && n.Contains("did you mean 'WornArmor'?"));
+        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'headparts' followed nothing") && n.Contains("did you mean 'HeadParts'?"));
+        Assert.DoesNotContain(d.Notes, n => n.Contains("e.g. \"HeadParts\""));
+        Assert.DoesNotContain(d.Notes, n => n.StartsWith("walk.follow 'HeadParts' "));
+    }
+
+    /// <summary>A walk.follow path whose first field resolves but which cannot be used past it, a later segment no
+    /// record has or a field holding no links, is said by name with the read engine's reason.</summary>
+    [Fact]
+    public void AFollowPathWrongPastItsFirstFieldIsSaidByName()
+    {
+        var d = Walk("HcShapeNpc", Values("{\"follow\": [\"HeadParts.ExtraPartz\", \"EditorID\", \"HeadParts\"]}"));
+        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'HeadParts.ExtraPartz' followed nothing") && n.Contains("(no field 'ExtraPartz'"));
+        Assert.Contains(d.Notes, n => n.StartsWith("walk.follow 'EditorID' followed nothing") && n.Contains(ReadEngine.NoLinksPrefix));
         Assert.DoesNotContain(d.Notes, n => n.StartsWith("walk.follow 'HeadParts' "));
     }
 
