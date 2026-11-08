@@ -213,6 +213,21 @@ public sealed class AssetWalkWorld : IDisposable
         adapter.Aliases.Add(alias);
         aliased.VirtualMachineAdapter = adapter;
         Keys["HcWalkAliased"] = aliased.FormKey;
+        // Two lists naming each other, a loop of two, and a list naming 201 lists that each name themselves.
+        var loopA = mod.FormLists.AddNew("HcWalkLoopA");
+        var loopB = mod.FormLists.AddNew("HcWalkLoopB");
+        loopA.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(loopB.FormKey));
+        loopB.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(loopA.FormKey));
+        Keys["HcWalkLoopA"] = loopA.FormKey;
+        Keys["HcWalkLoopB"] = loopB.FormKey;
+        var selves = mod.FormLists.AddNew("HcWalkSelves");
+        for (int i = 0; i < 201; i++)
+        {
+            var self = mod.FormLists.AddNew($"HcWalkSelf{i:D3}");
+            self.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(self.FormKey));
+            selves.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(self.FormKey));
+        }
+        Keys["HcWalkSelves"] = selves.FormKey;
 
         var other = new SkyrimMod(ModKey.FromFileName(OtherPlugin), SkyrimRelease.SkyrimSE);
         var otherVoice = other.VoiceTypes.AddNew("HcWalkOtherVoice");
