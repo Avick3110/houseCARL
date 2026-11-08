@@ -198,6 +198,8 @@ public sealed class AssetWalkPartsWorld : IDisposable
         var spoken = Line("HcPartsLine1");
         Line("HcPartsLine2").ResponseData.SetTo(spoken);
 
+        // A list whose one item is in no plugin, for the miss note.
+        Keyed(b.FormLists.AddNew("HcShapeDangling")).Items.Add(new FormKey(Base, 0xABC));
         b.BeginWrite.ToPath(_mo2.InMod("ShapeBase", Base)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         // The appearance merge: hair and head it defines, on its override of the NPC.
@@ -548,6 +550,15 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         var two = Reads("HcShapeCell", "HcShapeCell2");
         Assert.NotEmpty(one);
         Assert.Equal(one, two);
+    }
+
+    /// <summary>A reached record no from_source arm holds and the load order does not hold either is said, naming both.</summary>
+    [Fact]
+    public void AReachedRecordInNoSourceNorTheOrderIsSaid()
+    {
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcShapeDangling"] }, new[] { AssetWalkPartsWorld.Base.FileName.String }, null);
+        Assert.Contains(d.Notes, n => n.StartsWith($"record {FormIdToken.Of(new FormKey(AssetWalkPartsWorld.Base, 0xABC))} (pulled by FormList HcShapeDangling")
+                                      && n.EndsWith(", nor the load order."));
     }
 
     WalkGrammar.Values Values(string walk)
