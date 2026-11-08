@@ -437,8 +437,9 @@ where the walk entered no record that is not deleted: every record entered delet
 it names no field or met no live record, since a deleted record links to nothing and marks no path read
 (`WalkParts.Links`). The default's part fields are skipped silently
 where a type lacks them or they hold no links. `*` is every form link through the one link door below, which is the old reach
-without the plugin rule, plus the child records, so it is a superset of the default except at a cell, topic or
-worldspace whose links cannot be read, which under `*` enters none of its child records (a known limit); `*` beside named paths, and a
+without the plugin rule, plus the child records, so it is a superset of the default except at a record whose links cannot be
+read whole: `*` does not go past it, so it follows none of its part fields and enters none of a cell's, topic's or
+worldspace's child records, where the default reads its part fields one by one and enters its children (a known limit); `*` beside named paths, and a
 `*parent` climb at any segment, are refused. A
 record reached past a seed that no `from_source=` arm holds is read off the load order's winner, a round per depth,
 and its label, and so every row it pulls, ends "(read from the load order: no from_source plugin has it)"; a seed no
