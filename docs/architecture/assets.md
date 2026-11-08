@@ -418,8 +418,9 @@ depth are counted too, so nothing is cut silently. `walk.through`'s record types
 record is entered, and a malformed seed is an error node; both are walk-and-reverse.md's "One walk grammar". A record
 past a seed whose read body is an NPC (a quest alias's actor, a location's unique actor, a race's chargen preset, a
 script property, a template) is a boundary: not entered, so it lists no files, follows no links and spends no
-`walk.max_nodes`, and one note counts those NPCs and says to seed them or name `Npc` in `walk.through`, which enters
-them as any record (#1371; DECISIONS 2026-11-08 (11)). The rule sits at the one entry door after `walk.exclusions` and
+`walk.max_nodes`, and one note counts those NPCs and says to seed them, or to name `Npc` in `walk.through` beside
+every other record type to keep: a set `walk.through` enters only the types it names, so `Npc` alone enters the NPCs
+and leaves every other reached record out (#1371; DECISIONS 2026-11-08 (11)). The rule sits at the one entry door after `walk.exclusions` and
 `walk.through` are judged, so a stop or refuse on `Npc` is unchanged, a `walk.through` without `Npc` still leaves them
 out on the left-out line (one count, one place), and an edge-kind-only `walk.through` enters none. A seed's FaceGen
 still reads its template chain through the face door, which needs no NPC entered. It reads a record's form links only through the one link door (`RecordLinks`,
@@ -713,7 +714,8 @@ provided either; the generic lane does not, because it legitimately answers for 
   alias, spending no `max_nodes` (`ANpcReachedThroughAnAliasIsABoundary`), as a seed's template, the seed's face
   unchanged (`ASeedsTemplateIsABoundaryAndItsFaceIsUnchanged`), as a leveled list's entry, the list entered
   (`ALeveledNpcIsEnteredAndItsNpcsAreBoundaries`), and closing no loop (`ALoopThroughAReachedNpcIsNotReported`);
-  `walk.through` naming `Npc` enters it (`ThroughNamingNpcEntersAReachedNpc`), and a `walk.through` without `Npc` or
+  `walk.through` naming `Npc` enters it (`ThroughNamingNpcEntersAReachedNpc`) and, alone, leaves every other reached
+  type out (`ThroughNamingNpcAloneLeavesEveryOtherTypeOut`), and a `walk.through` without `Npc` or
   an exclusion on `Npc` is unchanged (`ThroughWithoutNpcAndAStopOnNpcAreUnchanged`). `AssetWalkDoorTests` — each depth
   reads each (plugin, group) once; no line is found off an NPC, with no reverse index and no topic or cell group read
   (`NoLineIsFoundOffAnNpc`); a reached NPC is a boundary (`AReachedNpcIsABoundary`), and one `walk.through` enters

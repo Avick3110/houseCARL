@@ -206,7 +206,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     static readonly string[] ActorQuest = { "HcWalkActorQuest" };
-    const string OneBoundary ="1 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.";
+    const string OneBoundary ="1 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records= to walk it, or name Npc in walk.through beside every other record type to keep, since a set walk.through enters only the types it names.";
 
     /// <summary>A reached NPC is a boundary (#1371; DECISIONS 2026-11-08 (11), B): the quest's alias reaches the hero,
     /// which lists no script, has its hair not entered and spends no walk.max_nodes, and one note counts it.</summary>
@@ -229,6 +229,17 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal("listed", Node(d, AssetWalkWorld.HairNif).Edge);
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "facegen");
         Assert.DoesNotContain(d.Notes, n => n.Contains("kept as boundaries, not entered (no files"));
+    }
+
+    /// <summary>walk.through naming Npc alone enters the reached hero and leaves its hair out, as the boundary note says
+    /// (#1371, r1 #1, #2): a set through enters only the types it names; pins behaviour the PR already had.</summary>
+    [Fact]
+    public void ThroughNamingNpcAloneLeavesEveryOtherTypeOut()
+    {
+        var d = Walk(records: ActorQuest, walk: "{\"through\": [\"Npc\"]}");
+        Assert.Equal("script", Node(d, AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript)).Edge);
+        Assert.DoesNotContain(d.Nodes, n => string.Equals(n.Path, AssetWalkWorld.HairNif, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(d.Notes, n => n.StartsWith("left out, not in walk.through: ") && n.Contains("HeadPart"));
     }
 
     /// <summary>A walk.through without Npc leaves the reached hero out as before, counted on the left-out line and in no
