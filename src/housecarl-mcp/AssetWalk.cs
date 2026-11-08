@@ -348,8 +348,11 @@ internal sealed partial class AssetLayers
                     WalkParts.Links(body, follow ?? WalkParts.For(type), links, unreadParts);
                     foreach (var u in unreadParts) notes.Add($"{label}: the links under {u} could not be read, so the walk does not follow them");
                     if (follow is null) ChildrenOf(body, children!.GetValueOrDefault(fk), label, links, notes);
-                    // The rest of its own form links, counted per type, read through the link door, which says a lenient read.
-                    if (OwnLinks(body, follow is null, allLinks, linkBuffer) is { } lenient) notes.Add(LenientNote(label, fk, lenient));
+                    // The rest of its own form links, counted per type, read through the link door, which says a lenient read
+                    // and a fault; a fault leaves it uncounted, its fields read on their own above.
+                    if (OwnLinks(body, follow is null, allLinks, linkBuffer, out var unreadAll) is { } lenient) notes.Add(LenientNote(label, fk, lenient));
+                    if (unreadAll is not null)
+                        notes.Add($"{label}: its links could not be read whole, so the walk follows only its {(follow is null ? "part fields" : "fields walk.follow names")} and does not count the rest — {unreadAll}");
                     allLinks.Remove(fk);
                     allLinks.Remove(FormKey.Null);
                     allLinks.ExceptWith(links);
@@ -396,16 +399,16 @@ internal sealed partial class AssetLayers
 
     /// <summary>The form links <paramref name="body"/> holds, into <paramref name="into"/>, which is cleared first; when
     /// <paramref name="ownOnly"/>, less those its own child records hold, which the walk enters and counts itself.
-    /// Answers the link door's lenient note.</summary>
-    static string? OwnLinks(IMajorRecordGetter body, bool ownOnly, HashSet<FormKey> into, List<FormKey> buffer)
+    /// Answers the link door's lenient note; <paramref name="unread"/> its parse fault, with none collected.</summary>
+    static string? OwnLinks(IMajorRecordGetter body, bool ownOnly, HashSet<FormKey> into, List<FormKey> buffer, out string? unread)
     {
         into.Clear();
-        var lenient = RecordLinks.Collect(body, into);
+        var lenient = RecordLinks.List(body, buffer, out unread);
+        into.UnionWith(buffer);
         var fields = OwnedChildContent.Fields(body);
-        if (!ownOnly || fields.Count == 0 || body is not IMajorRecordGetterEnumerable nested) return lenient;
+        if (!ownOnly || unread is not null || fields.Count == 0 || body is not IMajorRecordGetterEnumerable nested) return lenient;
         // Mutagen's walk of a parent hands over each child's links in turn, so a link stays the body's own only while it
         // occurs more often in the body's walk than in its children's.
-        RecordLinks.List(body, buffer, out _);
         var count = new Dictionary<FormKey, int>();
         foreach (var k in buffer) count[k] = count.GetValueOrDefault(k) + 1;
         var direct = new HashSet<FormKey>();

@@ -101,10 +101,15 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.DoesNotContain(d.Notes, n => n.Contains("its links"));
     }
 
-    [Fact]
-    public void TheAssetWalkNotesARecordWhoseLinksCannotBeReadAndGoesOn()
+    /// <summary>Under "*" the perk is not followed past; the default and a named walk.follow follow none of its fields
+    /// and leave its links uncounted. Each answers, with the note on the perk.</summary>
+    [Theory]
+    [InlineData("*")]
+    [InlineData(null)]
+    [InlineData("Items")]
+    public void TheAssetWalkNotesARecordWhoseLinksCannotBeReadAndGoesOn(string? follow)
     {
-        var d = Asset(C);
+        var d = Asset(C, follow);
         Assert.Null(d.Refusal);
         Assert.Equal(new[] { UnreadLinksWorld.BeforeNif, UnreadLinksWorld.AfterNif }, Paths(d));
         Assert.Contains(d.Notes, n => n.Contains(_w.Id(C, "Perk")) && n.Contains("its links could not be read"));
