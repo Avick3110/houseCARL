@@ -147,7 +147,7 @@ public static class WalkGrammar
         catch (JsonException ex) { return $"error: walk= could not be read as a walk object — {Guard.Flatten(ex.Message)} Pass {Shape}."; }
         // The records walk's own shaping values, each refused by name rather than dropped.
         if (w.seed_paths is not null)
-            return "error: walk.seed_paths is a records-walk value — the asset walk starts from every link on its seed records; drop it, and seed the records you mean with records=.";
+            return "error: walk.seed_paths is a records-walk value — the asset walk follows its seed records' part fields and child records, and walk.follow names other fields; drop it, and seed the records you mean with records=.";
         if (ReadFollow(w.follow, out var follow) is { } followErr) return followErr;
         if (follow is not null && follow.Any(p => p.Split('.').Any(s => s.Trim().StartsWith("*parent", StringComparison.OrdinalIgnoreCase))))
             return "error: walk.follow '*parent' climbs to a containing record, and the asset walk walks forward only — seed the containing record with records= instead.";
