@@ -107,8 +107,9 @@ public static class AssetTools
                      "array (counts_only=: their count only; none ships: no such line, and the count reads from_source=0). " +
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
                      "through 'winner', its own plugin; links into other plugins are counted as boundaries. A loop of records the " +
-                     "walk follows is counted in a note (recorded, not an error), one per link closing it, a lower bound (a loop " +
-                     "closing past walk.depth or walk.max_nodes is not seen); each loop is listed in the format=json walk answer " +
+                     "walk enters is counted in a note (recorded, not an error), a lower bound: one per link the search finds closing " +
+                     "a loop, none for a loop met again through a record already searched, and none for a loop through a record " +
+                     "not entered (past walk.depth or walk.max_nodes, or in another plugin); each loop is listed in the format=json walk answer " +
                      "(not counts_only=) and in a to_file= or spilled file, the search stopping at 200 loops and saying so. The " +
                      "walk always runs whole (through's edge kinds choose only the rows shown, below): limit= and offset= window only the nodes " +
                      "listed (the header, notes, standing counts and place set still cover every row shown, not just the window, and a paged " +

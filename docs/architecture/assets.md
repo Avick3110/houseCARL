@@ -454,8 +454,10 @@ is read as a set of one. Every member read is kept by key for the whole walk.
 Each followed form link (inside the home plugins, a record's link to itself too, and a link out of a record at
 `walk.depth`) is recorded, and after the walk `GraphCycles.Find` reports the loops over the records entered, capped at
 `RecordReads.WalkCycleCap` (200), the records walk's per-seed cap, here once for the shared budget (#1278; DECISIONS
-2026-11-08 (3), C2). A link to a record never entered closes no loop. The count is one per link closing a loop and a
-lower bound: a loop through a record past `walk.depth` or past `walk.max_nodes` is not seen. The text answer counts
+2026-11-08 (3), C2). A link to a record never entered closes no loop. The count is a lower bound on the loops: one per
+back edge the search finds, and an edge into a record it already finished is skipped, so a loop met again through one
+is not counted; a loop through a record not entered (past `walk.depth`, past `walk.max_nodes`, or in a plugin outside
+the home plugins, whose links are boundaries) is not seen. The text answer counts
 them in one note ("recorded, not an error") and, at the cap, says so in a second; the json walk answer (not
 `counts_only=`) lists each loop under `cycles` (`cycles_capped` at the cap) and a spilled or `to_file=` file carries
 each as a `walk cycle:` manifest note. A walk with no loop has neither member. At `max_chars` the json `cycles` take
