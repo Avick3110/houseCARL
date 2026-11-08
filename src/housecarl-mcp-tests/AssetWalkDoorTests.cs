@@ -279,6 +279,18 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Equal("the walk stopped entering records at walk.max_nodes=2 (every record entered counts, seeds included); raise walk.max_nodes to walk further.", d.Notes[0]);
         Assert.Single(d.Notes, n => n.StartsWith("the walk stopped entering records"));
     }
+    /// <summary>The record cap stops part-way through a later depth (#1278, r1 #11): at three records the seed list and
+    /// its first two NPCs are entered, so two NPCs are counted faceless, and the walk says where it stopped.</summary>
+    [Fact]
+    public void TheCapStopsPartWayThroughALaterDepth()
+    {
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcDoorSeed"] }, BothPlugins, null,
+                                 values: WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { MaxNodes = 3 });
+        Assert.True(d.Truncated);
+        Assert.Contains("the walk stopped entering records at walk.max_nodes=3 (every record entered counts, seeds included); raise walk.max_nodes to walk further.", d.Notes);
+        Assert.Contains(d.Notes, n => n.StartsWith("2 NPC(s) the walk reached past a seed were entered without their FaceGen"));
+    }
+
     /// <summary>A json counts_only walk stopped by the record cap, with no nodes and one note, so max_chars cuts no list
     /// and stops no axis, still says truncated once bounded, and writes it before its overrun notice.</summary>
     [Fact]

@@ -502,8 +502,8 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     /// <summary>An edge kind changes no read (#1278): with and without through=[texture], the walk reads the same
-    /// groups and bodies, reaches the same files (the rows shown plus the rows counted), and writes the same notes but
-    /// the left-out line.</summary>
+    /// groups and bodies, reaches the same files per edge (the rows shown plus the rows counted, a script's parent among
+    /// them), and writes the same notes but the left-out line.</summary>
     [Fact]
     public void AnEdgeKindLeavesTheWalkWhole()
     {
@@ -511,7 +511,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         {
             var before = new Dictionary<(string, string), int>(_w.Svc.Counters.GroupReads);
             var seeks = _w.Svc.Counters.BodySeeks;
-            var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkHero"] }, null, AssetWalkWorld.DonorMod, values: values);
+            var d = _w.Svc.AssetWalk(new[] { AssetWalkWorld.ChildPex }, new[] { _w.Keys["HcWalkHero"] }, null, AssetWalkWorld.DonorMod, values: values);
             var reads = _w.Svc.Counters.GroupReads.Where(kv => kv.Value != before.GetValueOrDefault(kv.Key))
                                                  .ToDictionary(kv => kv.Key, kv => kv.Value - before.GetValueOrDefault(kv.Key));
             return (d, reads, _w.Svc.Counters.BodySeeks - seeks);
@@ -523,8 +523,54 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(whole.Seeks, narrowed.Seeks);
         var leftOut = Assert.Single(narrowed.Data.Notes, n => n.StartsWith("left out, not in walk.through: "));
         Assert.Equal(whole.Data.Notes, narrowed.Data.Notes.Where(n => n != leftOut));
-        int counted = leftOut["left out, not in walk.through: ".Length..].Split(", ").Sum(p => int.Parse(p.Split(' ')[0]));
-        Assert.Equal(whole.Data.Nodes.Count, narrowed.Data.Nodes.Count + counted);
+        var byEdge = narrowed.Data.Nodes.GroupBy(n => n.Edge).ToDictionary(g => g.Key, g => g.Count());
+        foreach (var part in leftOut["left out, not in walk.through: ".Length..].Split(", ").Select(p => p.Split(' ')))
+            byEdge[part[1]] = byEdge.GetValueOrDefault(part[1]) + int.Parse(part[0]);
+        Assert.Contains(whole.Data.Nodes, n => n.Edge == "parent" && n.Path.Equals(AssetWalkWorld.ParentPex, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(whole.Data.Nodes.GroupBy(n => n.Edge).OrderBy(g => g.Key).Select(g => (g.Key, g.Count())),
+                     byEdge.OrderBy(kv => kv.Key).Select(kv => (kv.Key, kv.Value)));
+    }
+
+    /// <summary>through names a record type and an edge kind together (#1278, r1 #8): the rows are the texture rows of
+    /// the walk the type alone gives, and the one left-out line counts the type, then the hidden rows by edge.</summary>
+    [Fact]
+    public void ATypeAndAnEdgeKindShareTheLeftOutLine()
+    {
+        var typed = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkHero"] }, null, null, values: Values("{\"through\": [\"HeadPart\"]}"));
+        var both = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkHero"] }, null, null, values: Values("{\"through\": [\"HeadPart\", \"texture\"]}"));
+        Assert.Equal(typed.Nodes.Where(n => n.Edge == "texture").Select(n => n.Path), both.Nodes.Select(n => n.Path));
+        var typesLine = Assert.Single(typed.Notes, n => n.StartsWith("left out, not in walk.through: "));
+        Assert.NotEqual("left out, not in walk.through: none", typesLine);
+        var hidden = typed.Nodes.Where(n => n.Edge != "texture").GroupBy(n => n.Edge)
+                          .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.Ordinal)
+                          .Select(g => $"{g.Count()} {g.Key} row{(g.Count() == 1 ? "" : "s")}");
+        Assert.Contains(typesLine + ", " + string.Join(", ", hidden), both.Notes);
+    }
+
+    /// <summary>An error row is a row of its edge (#1278, r1 #16): the duplicate mesh's one bad-string row shows under a
+    /// through naming its edge and is counted under one naming the other.</summary>
+    [Fact]
+    public void AnErrorRowFollowsItsEdge()
+    {
+        AssetWalkData Run(string? walk) => _w.Svc.AssetWalk(new[] { AssetWalkWorld.DupNif }, Array.Empty<Mutagen.Bethesda.Plugins.FormKey>(), null, null,
+                                                            values: walk is null ? null : Values(walk));
+        var edge = Assert.Single(Run(null).Nodes, n => n.Standing == WalkStanding.Error).Edge;
+        var other = edge == "smp" ? "texture" : "smp";
+        var shown = Run($"{{\"through\": [\"{edge}\"]}}");
+        Assert.Equal(new[] { WalkStanding.Present, WalkStanding.Error }, shown.Nodes.Select(n => n.Standing));
+        var hidden = Run($"{{\"through\": [\"{other}\"]}}");
+        Assert.Equal(new[] { "seed" }, hidden.Nodes.Select(n => n.Edge));
+        Assert.Contains($"left out, not in walk.through: 1 {edge} row", hidden.Notes);
+    }
+
+    /// <summary>Records a depth past the seeds enters give their rows in the order a queue would enter them (#1278, r1
+    /// #10): the list's hero, then its quest, each script row in that order.</summary>
+    [Fact]
+    public void ALaterDepthGivesItsRowsInQueueOrder()
+    {
+        var d = Walk(records: new[] { "HcWalkPair" });
+        Assert.Equal(new[] { AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript), AssetWalkEdges.ScriptPex(AssetWalkWorld.AliasScript) },
+                     d.Nodes.Where(n => n.Edge == "script").Select(n => n.Path), StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>On a path-only walk an edge kind chooses the rows too (#1278): the cape seed with
