@@ -432,7 +432,8 @@ by occurrence, since the walk enters those children and counts them on their own
 default: one path or a list, read on every record from the seed on (the asset walk has no `seed_paths`), with no child
 records; a named path no entered record's type has the first field of (a typo, or the wrong case: field names are
 case-sensitive) is a note naming it. `*` is every form link through the one link door below, which is the old reach
-without the plugin rule, plus the child records, so it is a superset of the default; `*` beside named paths, and a
+without the plugin rule, plus the child records, so it is a superset of the default except at a cell, topic or
+worldspace whose links cannot be read, which under `*` enters none of its child records (a known limit); `*` beside named paths, and a
 `*parent` climb at any segment, are refused. A
 record reached past a seed that no `from_source=` arm holds is read off the load order's winner, a round per depth,
 and its label, and so every row it pulls, ends "(read from the load order: no from_source plugin has it)"; a seed no
