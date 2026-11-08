@@ -1,0 +1,1 @@
+- **`asset_status walk=true` no longer enters an NPC it reaches past a seed (an alias's actor, a location's unique actor, a race preset, a template): no files, no links, one note counting them; name `Npc` in `walk.through` to walk them.** Check: an NPC seed's walk lists no other NPC's scripts.
