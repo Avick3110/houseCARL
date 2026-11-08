@@ -94,10 +94,11 @@ public static class AssetTools
                      "with a walk (walk=true or a walk object), which already follows these files as nodes.")]
             bool links = false,
         [Description("Optional. Walk from the selected paths and records= to every file they reach, returning one node " +
-                     "per file: the paths a record lists, its implicit files (an NPC's FaceGen head and tint, or its " +
-                     "Traits template root's, each member of a leveled template marked one of N; .pex scripts, fragment " +
+                     "per file: the paths a record lists, its implicit files (a seed NPC's FaceGen head and tint, or its " +
+                     "Traits template root's, each member of a leveled template marked one of N; an NPC the walk reaches past a seed " +
+                     "gets no FaceGen and is counted in a note, so seed it to list its face; .pex scripts, fragment " +
                      ".pex files, a start-game-enabled quest's Seq\\<plugin>.seq; a dialogue line's voice .fuz, or the " +
-                     ".xwm/.wav and .lip it ships as; the lines an NPC speaks, as their Speaker or by a GetIsID on the Subject (not a line tied to it through a quest alias), in the active order or a from_source= plugin outside it, by their voice), then the links each file names (a mesh's textures, SMP XML and " +
+                     ".xwm/.wav and .lip it ships as, for a line that is a seed or that a form link reaches; no line is found off the NPC that speaks it), then the links each file names (a mesh's textures, SMP XML and " +
                      "BODYTRI, a script's parent .pex), recursively. Each node is marked from-source (source_provider= " +
                      "ships it), elsewhere (another provider wins it, named), present, or absent; keyed nodes sit at a " +
                      "FormID-named path, so a renumbering copy carries them rather than placing them. A formids= " +
@@ -105,9 +106,10 @@ public static class AssetTools
                      "source_provider= shipping any node, the node list is followed by those nodes as a housecarl_place assets= " +
                      "array (counts_only=: their count only; none ships: no such line, and the count reads from_source=0). " +
                      "Records are entered through form links only inside the from_source= plugins and, for a seed read " +
-                     "through 'winner', its own plugin; links into other plugins are counted as boundaries. A walk that " +
-                     "enters any NPC builds the active order's reverse-reference index, once its records are walked, to find its lines, which takes " +
-                     "time on a large order. The walk always runs whole: limit= and offset= window only the nodes " +
+                     "through 'winner', its own plugin; links into other plugins are counted as boundaries. A loop of records the " +
+                     "walk follows is counted in a note (recorded, not an error) and each loop listed in format=json and a to_file= " +
+                     "file, the search stopping at 200 loops and saying so. The walk always runs whole (through's edge kinds choose " +
+                     "only the rows shown, below): limit= and offset= window only the nodes " +
                      "listed (the header, notes, standing counts and place set still cover every node, and a paged " +
                      "answer ends with the [accounting] line); to_file= writes every node to the file and lists " +
                      "none (the header, notes, counts, place set and the file it wrote still print); counts_only= returns counts per edge and per standing, no nodes. Not with links=.\n\n" +
@@ -115,11 +117,13 @@ public static class AssetTools
                      "walk's values under the same names and refusals: depth (default 3) is the form-link hops from a " +
                      "seed record whose records are entered; max_nodes (default 2000) counts every record entered, seeds " +
                      "included, one budget shared by every seed, with no upper bound (the file bound is asset_status's own); " +
-                     "through (record types) enters only records of those types and counts the rest per type; exclusions " +
+                     "through takes record types and edge kinds: its record types enter only records of those types and count " +
+                     "the rest per type; its edge kinds (listed, script, seq, inferred, fragment, facegen, voice, lip, texture, " +
+                     "smp, bodytri, parent) show only the seed rows and the rows reached by those edges, on any walk, and count the " +
+                     "rest per edge, while the walk itself still runs whole (a texture row names its mesh in pulled_by; add listed " +
+                     "to see the meshes too); exclusions " +
                      "([{match, severity}]) keeps a 'stop' type as a boundary, not entered (no files, no links), and fails " +
                      "the call on a 'refuse' type. Seeds are never judged. A cap note names the value to raise. " +
-                     "An entered NPC's dialogue lines and their voice files are found off the NPC, not entered: " +
-                     "through, exclusions and max_nodes do not judge or count them. " +
                      "seed_paths, follow and direction are the records walk's and are refused here.")]
             JsonElement? walk = null,
         [Description("Optional, with walk= (true or a walk object). Record FormIDs ('XXXXXX:Plugin.esp') the walk starts from." + ListText.FormIds)]
@@ -375,6 +379,7 @@ public static class AssetTools
         if (from_source is { Length: > 0 } && keys.Count == 0 && seeds.Count == 0)
             w = w with { Notes = w.Notes.Prepend(ReadSentences.FromSourceWithoutRecordSeed).ToList() };
         // Walk values move only the walk from records= seeds; with none they are said unused. The defaults are walk=true's.
+        // through's edge kinds choose the rows of a path-only walk too, so they are not counted here.
         if (keys.Count == 0 && (values.Depth != WalkGrammar.AssetDefaultDepth || values.MaxNodes != WalkGrammar.DefaultMaxNodes
                                 || values.Through is not null || values.Exclusions.Count > 0))
             w = w with { Notes = w.Notes.Prepend(ReadSentences.WalkValuesWithoutRecordSeed).ToList() };

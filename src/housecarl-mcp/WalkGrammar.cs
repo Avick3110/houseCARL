@@ -22,9 +22,12 @@ public static class WalkGrammar
     internal enum Budget { PerSeed, Shared }
 
     /// <summary>A walk's typed values: hops, the node budget, the types walk.through expands (display names, null when
-    /// unset), and the exclusions (display names, each type once, first match wins).</summary>
+    /// it names none), and the exclusions (display names, each type once, first match wins).</summary>
     public sealed record Values(int Depth, int MaxNodes, HashSet<string>? Through, List<(string Match, bool Refuse)> Exclusions)
     {
+        /// <summary>The asset walk's edge kinds walk.through names, whose rows it shows (null when it names none).</summary>
+        public HashSet<WalkEdgeKind>? Edges { get; init; }
+
         /// <summary>A walk's defaults, as walk=true or an empty walk object reads.</summary>
         public static Values Defaults(int depth) => new(depth, DefaultMaxNodes, null, new());
     }
@@ -32,20 +35,22 @@ public static class WalkGrammar
     /// <summary>A refuse exclusion reached: the walk ends and the call returns nothing.</summary>
     internal sealed class WalkRefused(string message) : Exception(message);
 
-    /// <summary>The line counting, per type, the records walk.through left out; "none" when it left none out.</summary>
-    internal static string LeftOutLine(IEnumerable<string> leftOutTypes)
+    /// <summary>The line counting, per type, the records walk.through left out, then, per edge kind, the asset walk's
+    /// rows it did not show; "none" when it left none out.</summary>
+    internal static string LeftOutLine(IEnumerable<string> leftOutTypes, IEnumerable<string>? hiddenEdges = null)
     {
-        var counts = leftOutTypes.GroupBy(t => t, StringComparer.Ordinal)
-                                 .Select(g => (Type: g.Key, Count: g.Count()))
-                                 .OrderByDescending(g => g.Count).ThenBy(g => g.Type, StringComparer.Ordinal)
-                                 .Select(g => $"{g.Count} {g.Type}").ToList();
+        static IEnumerable<(string Key, int Count)> Counted(IEnumerable<string> keys)
+            => keys.GroupBy(t => t, StringComparer.Ordinal).Select(g => (g.Key, Count: g.Count()))
+                   .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal);
+        var counts = Counted(leftOutTypes).Select(g => $"{g.Count} {g.Key}")
+            .Concat(Counted(hiddenEdges ?? Array.Empty<string>()).Select(g => $"{g.Count} {g.Key} row{(g.Count == 1 ? "" : "s")}")).ToList();
         return "left out, not in walk.through: " + (counts.Count == 0 ? "none" : string.Join(", ", counts));
     }
 
     /// <summary>The walk values, or the one refusal (values null). <paramref name="through"/> has been read through the list door.</summary>
     internal static string? Parse(TypeLookup types, int? depth, int? maxNodes, string[]? through,
                                   IReadOnlyList<RecordsTools.RecordsWalkExclusion>? exclusions,
-                                  int defaultDepth, Budget budget, out Values values)
+                                  int defaultDepth, Budget budget, out Values values, bool edgeKinds = false)
     {
         values = null!;
         int d = defaultDepth, n = DefaultMaxNodes;
@@ -64,20 +69,34 @@ public static class WalkGrammar
         }
         if (ParseExclusions(types, exclusions, "walk.exclusions", out var ex) is { } exErr) return exErr;
         HashSet<string>? thr = null;
+        HashSet<WalkEdgeKind>? edges = null;
         if (through is not null)
         {
             if (through.Length == 0)
                 return "error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or omit it to walk every type.";
-            thr = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // One token is a record type or, on the asset walk, an edge kind; the two spellings share no name.
             foreach (var t in through)
             {
-                if (types.DisplayNames(new[] { t ?? "" }) is not { } names) return NotAType("walk.through", t ?? "");
-                thr.UnionWith(names);
+                var token = t ?? "";
+                if (types.DisplayNames(new[] { token }) is { } names) { (thr ??= new(StringComparer.OrdinalIgnoreCase)).UnionWith(names); continue; }
+                var kind = WalkEdgeKinds.Parse(token);
+                if (!edgeKinds)
+                    return kind is { } k && k != WalkEdgeKind.Seed
+                        ? $"error: walk.through '{token}' is an asset walk edge kind — the records walk follows form links only, so its through takes record types (e.g. 'Npc', 'LVLI'); name the file edge kinds on {ToolNames.AssetStatus} walk=."
+                        : NotAType("walk.through", token);
+                if (kind == WalkEdgeKind.Seed)
+                    return "error: walk.through 'seed' — the seed rows are always shown; name the edge kinds whose rows to show beside them (e.g. [\"texture\", \"script\"]).";
+                if (kind is not { } edge)
+                    return $"error: walk.through '{token}' is neither a record type nor an edge kind — pass a catalog name (e.g. 'Npc', 'LeveledItem'), a signature (e.g. 'NPC_', 'LVLI'), or an edge kind: {EdgeKindList}.";
+                (edges ??= new()).Add(edge);
             }
         }
-        values = new(d, n, thr, ex);
+        values = new(d, n, thr, ex) { Edges = edges };
         return null;
     }
+
+    /// <summary>The edge kinds walk.through takes on the asset walk, as one comma list.</summary>
+    internal static string EdgeKindList => string.Join(", ", WalkEdgeKinds.FileKinds.Select(k => k.Token()));
 
     static readonly JsonSerializerOptions WalkJson = new(JsonSerializerDefaults.Web);
 
@@ -103,7 +122,7 @@ public static class WalkGrammar
             return $"error: walk.direction is a records-walk value — the asset walk walks forward only; what points at a record is {ToolNames.Records} walk={{\"direction\": \"reverse\"}}.";
         var throughIn = ListDoor.ReadItems(w.through, "walk.through", ListKind.Name, "walk={{\"through\": [{0}]}}");
         if (throughIn.Error is not null) return throughIn.Error;
-        if (Parse(types, w.depth, w.max_nodes, throughIn.Tokens, w.exclusions, AssetDefaultDepth, Budget.Shared, out var v) is { } err) return err;
+        if (Parse(types, w.depth, w.max_nodes, throughIn.Tokens, w.exclusions, AssetDefaultDepth, Budget.Shared, out var v, edgeKinds: true) is { } err) return err;
         values = v;
         return null;
     }

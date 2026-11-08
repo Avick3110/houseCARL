@@ -34,7 +34,6 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         { "{\"depth\": 0}", "error: walk.depth=0 — depth must be >= 1 (hops from the seed)." },
         { "{\"max_nodes\": 0}", "error: walk.max_nodes=0 — the node budget must be >= 1." },
         { "{\"through\": []}", "error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or omit it to walk every type." },
-        { "{\"through\": [\"TextureSets\"]}", "error: walk.through 'TextureSets' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI')." },
         { "{\"exclusions\": [{\"match\": \"TextureSets\", \"severity\": \"stop\"}]}", "error: walk.exclusions 'TextureSets' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI')." },
         { "{\"exclusions\": [{\"match\": \" \", \"severity\": \"stop\"}]}", "error: a walk.exclusions entry needs match= — the record type name a read reports (e.g. 'Race')." },
         { "{\"exclusions\": [{\"match\": \"Race\", \"severity\": \"skip\"}]}", "error: walk.exclusions 'Race': severity='skip' — use 'stop' (prune, record the boundary) or 'refuse' (the whole walk fails loud)." },
@@ -46,6 +45,43 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
 
     [Theory, MemberData(nameof(SharedRefusals))]
     public void TheAssetWalkRefusesAWalkValueInTheRecordsWalksWords(string walk, string sentence) => Assert.Equal(sentence, AssetWalk(walk, format: null));
+
+    /// <summary>walk.through's tokens: the records walk refuses a token that is no type in its words on main, and an edge
+    /// kind by name; the asset walk refuses a token that is neither kind of value naming both, and 'seed', which is always
+    /// shown (#1278).</summary>
+    [Fact]
+    public void ThroughRefusesATokenNamingWhatItTakes()
+    {
+        Assert.Equal("error: walk.through 'TextureSets' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').",
+                     RecordsWalk("{\"through\": [\"TextureSets\"]}"));
+        Assert.Equal("error: walk.through 'seed' is not a record type — pass a catalog name (e.g. 'Npc', 'LeveledItem') or a signature (e.g. 'NPC_', 'LVLI').",
+                     RecordsWalk("{\"through\": [\"seed\"]}"));
+        Assert.Equal($"error: walk.through 'Texture' is an asset walk edge kind — the records walk follows form links only, so its through takes record types (e.g. 'Npc', 'LVLI'); name the file edge kinds on {ToolNames.AssetStatus} walk=.",
+                     RecordsWalk("{\"through\": [\"Npc\", \"Texture\"]}"));
+        Assert.Equal("error: walk.through 'TextureSets' is neither a record type nor an edge kind — pass a catalog name (e.g. 'Npc', 'LeveledItem'), a signature (e.g. 'NPC_', 'LVLI'), or an edge kind: listed, script, seq, inferred, fragment, facegen, voice, lip, texture, smp, bodytri, parent.",
+                     AssetWalk("{\"through\": [\"TextureSets\"]}", format: null));
+        Assert.Equal("error: walk.through 'seed' — the seed rows are always shown; name the edge kinds whose rows to show beside them (e.g. [\"texture\", \"script\"]).",
+                     AssetWalk("{\"through\": [\"texture\", \"SEED\"]}", format: null));
+    }
+
+    /// <summary>One home for the edge kinds (#1278): every kind but seed is a through token, each spelled as the walk
+    /// writes it, a mesh link's kind is the same token links= writes, and the tool text names every one.</summary>
+    [Fact]
+    public void ThroughTakesEveryEdgeKindTheWalkEmits()
+    {
+        var tokens = Enum.GetValues<WalkEdgeKind>().Where(k => k != WalkEdgeKind.Seed).Select(k => k.Token()).ToList();
+        Assert.Equal(tokens, WalkGrammar.EdgeKindList.Split(", "));
+        foreach (var token in tokens)
+        {
+            Assert.Null(WalkGrammar.ReadAssetWalk(_w.Svc.Types, Walks.Of($"{{\"through\": [\"{token}\"]}}"), out var v));
+            Assert.Equal(token, Assert.Single(v!.Edges!).Token());
+            Assert.Null(v.Through);
+        }
+        foreach (var kind in Enum.GetValues<NifLinkKind>()) Assert.Equal(kind.Token(), kind.Edge().Token());
+        var text = typeof(AssetTools).GetMethod(nameof(AssetTools.AssetStatus))!.GetParameters().Single(p => p.Name == "walk")
+                                     .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false).Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+        Assert.Contains("(" + WalkGrammar.EdgeKindList + ")", text);
+    }
 
     /// <summary>The per-seed ceiling is the forward walk's; the asset walk's budget is shared, so it takes the value.</summary>
     [Fact]
@@ -103,6 +139,19 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         var nodes = Nodes(json);
         Assert.Contains(nodes, n => n.Edge == "facegen" && n.PulledBy.StartsWith("Npc HcDoorA1 ", StringComparison.Ordinal));
         Assert.DoesNotContain(nodes, n => n.PulledBy.StartsWith("Race ", StringComparison.Ordinal) || n.PulledBy.StartsWith("VoiceType ", StringComparison.Ordinal));
+    }
+
+    /// <summary>through's edge kinds count the rows they hide on the record types' one line, in its place (#1278): before
+    /// the reached NPCs' FaceGen note, as with the types alone, and every other note the same.</summary>
+    [Fact]
+    public void AssetWalkEdgeKindsCountOnTheOneLeftOutLine()
+    {
+        var types = Notes(AssetWalk("{\"through\": [\"Npc\"]}", records: new[] { Id("HcDoorSeed") }, countsOnly: true));
+        var both = Notes(AssetWalk("{\"through\": [\"Npc\", \"facegen\"]}", records: new[] { Id("HcDoorSeed") }, countsOnly: true));
+        int at = Array.FindIndex(types, n => n.StartsWith("left out, not in walk.through: "));
+        Assert.True(at >= 0 && at < Array.FindIndex(types, n => n.Contains("without their FaceGen")), string.Join("\n", types));
+        Assert.Equal(at, Array.FindIndex(both, n => n.StartsWith("left out, not in walk.through: ")));
+        Assert.Equal(types.Where((_, i) => i != at), both.Where((_, i) => i != at));
     }
 
     /// <summary>A stop exclusion keeps the race out, counted as a boundary; a refuse fails the call in the walks' words.</summary>
@@ -217,6 +266,8 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"depth\": 1}"), format: "json")));
         Assert.DoesNotContain(unused, Notes(AssetWalk("true", records: Array.Empty<string>(), formids: new[] { Id("HcDoorA1") })));
         Assert.DoesNotContain(unused, Notes(AssetWalk("{\"depth\": 1}")));
+        // through's edge kinds choose the rows of a path-only walk too, so they are not unused (#1278).
+        Assert.DoesNotContain(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"through\": [\"texture\"]}"), format: "json")));
     }
 
     /// <summary>from_source= with only a bad records= seed reads nothing through it, and says so.</summary>

@@ -127,7 +127,7 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
     [Fact]
     public void ATemplateSharedByManyNpcsIsReadOncePerHop()
     {
-        Walk();   // the reverse index and the voice cache's own reads, paid once
+        Walk();   // the walk's one-time reads, paid once
         var before = new Dictionary<(string Plugin, string Group), int>(_svc.Counters.GroupReads);
         var seeks = _svc.Counters.BodySeeks;
         var walk = Walk();
@@ -149,11 +149,12 @@ public sealed class AssetWalkTemplateDoorTests : IDisposable
 
     /// <summary>A Traits chain is read no further than FaceRoots' cap, so a chain of 100 reads as many NPC walks as one
     /// of 70, both past it: the count is set by the cap and the walk's depths, not by how the hops are grouped into
-    /// rounds, which ATemplateSharedByManyNpcsIsReadOncePerHop and ANestedTemplateChainIsReadToItsLastHop pin.</summary>
+    /// rounds, which ATemplateSharedByManyNpcsIsReadOncePerHop and ANestedTemplateChainIsReadToItsLastHop pin. Only the
+    /// seed's chain is read for a face (#1278): the NPCs the walk enters past it have no faces' round.</summary>
     [Fact]
     public void ATemplateChainIsReadNoFurtherThanTheCap()
     {
-        Assert.Equal(NpcFace.TemplateChainCap - 1 + WalkGrammar.AssetDefaultDepth + (WalkGrammar.AssetDefaultDepth + 1), NpcReads(new[] { _chains[0] }));
+        Assert.Equal(NpcFace.TemplateChainCap - 1 + (WalkGrammar.AssetDefaultDepth + 1), NpcReads(new[] { _chains[0] }));
         Assert.Equal(NpcReads(new[] { _chains[1] }), NpcReads(new[] { _chains[0] }));
     }
 

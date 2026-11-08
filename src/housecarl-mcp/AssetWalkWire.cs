@@ -49,6 +49,7 @@ static class AssetWalkWire
             + $"{ToolNames.Place} assets= with source_provider set to the walk's source. A keyed row sits at a FormID-named path.",
         };
         notes.AddRange(d.Notes.Select(n => "walk note: " + n));
+        notes.AddRange(Loops(d).Select(c => "walk cycle: " + c));
         if (noEpochBecause is not null)
             notes.Add("'epoch' is EMPTY: the load order could not be read for a fingerprint when this was written — " + noEpochBecause);
         var query = new List<KeyValuePair<string, string>> { new("walk", "true") };
@@ -62,6 +63,9 @@ static class AssetWalkWire
                                           excludedPlugins: order?.ExcludedPlugins);
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason) { EpochUnavailable = noEpochBecause }, null);
     }
+
+    /// <summary>The walk's record cycles, each its loop of records.</summary>
+    static IReadOnlyList<string> Loops(AssetWalkData d) => d.Cycles ?? Array.Empty<string>();
 
     static string StandingToken(WalkStanding s) => s switch
     {
@@ -200,6 +204,12 @@ static class AssetWalkWire
     {
         var nodes = listed.Select(n => JsonSerializer.Serialize(NodeDoc(n))).ToList();
         var doc = Head(d, selectorNotes);
+        // The record cycles, only when the walk found any, so a walk with none is the document it always was.
+        if (Loops(d).Count > 0)
+        {
+            doc["cycles"] = Loops(d);
+            if (d.CyclesCapped) doc["cycles_capped"] = true;
+        }
         doc["nodes"] = null;
         doc["place_set"] = PlaceSet(d).Select(p => new Dictionary<string, string> { ["path"] = p }).ToList();
         // A paged walk carries the row lane's accounting; at defaults the document is the one it always was.
