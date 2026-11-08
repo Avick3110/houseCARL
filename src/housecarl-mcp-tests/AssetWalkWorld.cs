@@ -59,6 +59,10 @@ public sealed class AssetWalkWorld : IDisposable
     /// <summary>A script whose bytes are no .pex, so its parent class cannot be read (bug 7).</summary>
     public const string BadPex = @"scripts\hcwalkbadpex.pex";
 
+    /// <summary>A script the Cape mod ships whose parent class, <see cref="ParentPex"/>, ships nowhere.</summary>
+    public const string ChildPex = @"scripts\hcwalkchild.pex";
+    public const string ParentPex = @"scripts\hcwalkparent.pex";
+
     /// <summary>Sixty textures only the donor ships: a place set whose array alone passes a small max_chars.</summary>
     public static readonly string[] ManyTex = Enumerable.Range(0, 60).Select(i => $@"textures\hcwalk\many\t{i:D2}.dds").ToArray();
 
@@ -205,6 +209,10 @@ public sealed class AssetWalkWorld : IDisposable
             selves.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(self.FormKey));
         }
         Keys["HcWalkSelves"] = selves.FormKey;
+        // A list naming two records with scripts of their own, entered at depth 1 in list order.
+        var pair = mod.FormLists.AddNew("HcWalkPair");
+        foreach (var to in new[] { hero.FormKey, aliased.FormKey }) pair.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(to));
+        Keys["HcWalkPair"] = pair.FormKey;
 
         var other = new SkyrimMod(ModKey.FromFileName(OtherPlugin), SkyrimRelease.SkyrimSE);
         var otherVoice = other.VoiceTypes.AddNew("HcWalkOtherVoice");
@@ -264,6 +272,8 @@ public sealed class AssetWalkWorld : IDisposable
         Write(cape, @"textures\hcwalk\cape.dds", new byte[] { 1 });
         Write(cape, DupNif, Mesh(new[] { DupBad }, DupBad));
         Write(cape, BadPex, new byte[] { 1, 2, 3 });
+        Directory.CreateDirectory(Path.Combine(cape, "scripts"));
+        PexWriter.WritePex(Path.Combine(cape, ChildPex), "HcWalkChild", "HcWalkParent");
 
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + OtherPlugin + "\r\n" + Plugin + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*" + OtherPlugin + "\r\n*" + Plugin + "\r\n");
