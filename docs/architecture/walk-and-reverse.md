@@ -78,7 +78,10 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   `exclusions` plus the asking walk's default depth and budget reading, and returns typed `Values` or one refusal:
   depth below 1; max_nodes below 1, or above `RecordsWalk.Ceiling` on a per-seed reading only (forward, carrier); an
   empty `through`; a `through` or `exclusions` entry naming no type; a blank `match`; a severity that is missing or
-  not stop/refuse. `through` and `exclusions` expand to display names (a polymorphic base to its arms), each
+  not stop/refuse. On the asset walk (`edgeKinds`), a `through` token is a record type or one of the file edge kinds
+  (`WalkEdgeKind`, assets.md "Walking the links"), carried apart in `Values.Through` and `Values.Edges`; one that is
+  neither is refused naming both kinds of value, and `seed` is refused (seed rows are always shown). The records walk
+  refuses an edge kind by name and any other non-type in its words as before (#1278). `through` and `exclusions` expand to display names (a polymorphic base to its arms), each
   exclusion type once at its first entry, so `[{Global, stop}, {GlobalFloat, refuse}]` stops at every global and
   copy's `ClosureWalk` dictionary never sees a duplicate.
 - The records walk keeps its spellings and defaults (depth 16, max_nodes 2,000). The asset walk takes
@@ -86,10 +89,10 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
   shared budget with no ceiling, counting every record entered, seeds included; `seed_paths`, `follow` and
   `direction` are refused by name. Copy takes `ParseExclusions` alone as `exclusions=[{match, severity}]`;
   `exclude_types=` is refused naming the new spelling, and a bare type no longer defaults to refuse.
-- The asset walk judges `through` and the exclusions where it enters a record, on the read body's type, so the
-  type is the same whichever source arm read it. A stop is not entered (no files, no links) and is counted in a note;
-  a type outside `through` is not entered and is counted per type in the records walk's "left out, not in
-  walk.through:" line; a refuse fails the call in `WalkExclusionMatch.RefuseSentence`'s words. Seeds are never judged.
+- The asset walk judges `through`'s record types and the exclusions where it enters a record, on the read body's
+  type, so the type is the same whichever source arm read it. A stop is not entered (no files, no links) and is counted
+  in a note; a type outside `through` is not entered and is counted per type in the records walk's "left out, not in
+  walk.through:" line, which on the asset walk also counts, per edge, the rows `through`'s edge kinds did not show; a refuse fails the call in `WalkExclusionMatch.RefuseSentence`'s words. Seeds are never judged.
   Its depth and budget notes name `walk.depth=` / `walk.max_nodes=` and say to raise them.
 - `ParseSeed` turns one seed token into its key or `bad FormID '<token>': <why>`; the records walk's rows carry those
   words alone, and the asset walk's error node adds ` Expected 'XXXXXX:Plugin.esp'.` after them. Each walk carries a malformed seed
@@ -106,7 +109,8 @@ are `docs/architecture/select-and-walk.md`. The walk reads a record's links only
 
 - `WalkGrammarTests` — the shared refusal cases against both walks, the per-seed ceiling, the asset walk's depth,
   budget, through and exclusions, its refusal of the records walk's shaping values, and a malformed seed's row on the
-  asset, reverse and forward walks. `WalkBadSeedReadingFormTests` — a malformed seed's row on the carrier reading
+  asset, reverse and forward walks; `through`'s token refusals on both walks (`ThroughRefusesATokenNamingWhatItTakes`)
+  and every edge kind as a token (`ThroughTakesEveryEdgeKindTheWalkEmits`). `WalkBadSeedReadingFormTests` — a malformed seed's row on the carrier reading
   form, alone and beside a good seed. `CopyWireParseTests` — copy's exclusions: signature, base type, first match,
   unknown type, the retired `exclude_types=`, and the same patch byte for byte as the old spelling's core input.
 
