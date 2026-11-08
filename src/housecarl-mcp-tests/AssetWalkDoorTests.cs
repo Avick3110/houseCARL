@@ -168,6 +168,17 @@ public sealed class AssetWalkDoorTests : IClassFixture<AssetWalkDoorWorld>
         Assert.Equal(1, reads[(a, "Races")]);
     }
 
+    /// <summary>The default walk reads the seed list's reached NPCs once per plugin's NPC group, at the depth it reaches
+    /// them, and keeps them as boundaries, so nothing past them is read (#1371, r1 #14).</summary>
+    [Fact]
+    public void ADefaultWalkReadsItsBoundaryNpcsOnce()
+    {
+        var (data, reads, _) = Measured("HcDoorSeed");
+        string a = BothPlugins[0], b = BothPlugins[1];
+        Assert.Contains(AssetLayers.NpcBoundaryNote(5), data.Notes);
+        Assert.Equal(new Dictionary<(string, string), int> { [(b, "FormLists")] = 1, [(a, "Npcs")] = 1, [(b, "Npcs")] = 1 }, reads);
+    }
+
     /// <summary>Read through 'winner', the seed list reaches its own plugin's two NPCs, read in one pass of its NPC group
     /// and kept as boundaries (#1371).</summary>
     [Fact]
