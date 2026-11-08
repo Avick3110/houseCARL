@@ -250,10 +250,10 @@ public static class ReadEngine
     /// about the record rather than a fault, so the conflict diff still compares it.</summary>
     public const string NoFieldPrefix = "(no field ";
 
-    /// <summary>Is this note the no-such-field answer, as opposed to a read fault?</summary>
     /// <summary>How a link read of a field that holds no links starts.</summary>
     public const string NoLinksPrefix = "(no links:";
 
+    /// <summary>Is this note the no-such-field answer, as opposed to a read fault?</summary>
     public static bool IsNoSuchFieldNote(string? note) =>
         note is not null && note.StartsWith(NoFieldPrefix, StringComparison.Ordinal);
 
