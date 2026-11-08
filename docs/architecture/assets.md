@@ -763,9 +763,12 @@ provided either; the generic lane does not, because it legitimately answers for 
   (`ASeedsPartsAreFollowedIntoAnyPlugin`); a `.pex`'s parent is `ArchiveReadOnceTests`'. `AssetWalkPartsTests` — each
   forward job's rows and noise; each `walk-parts.json` entry followed (`EachPartFieldIsFollowed`); a cell's and a
   topic's own links counted (`TheCellCountsOnlyItsOwnLinksNotFollowed`, `AssetWalkTests.ATopicSeedCountsOnlyItsOwnLinksNotFollowed`);
-  `*` keeps a cell's children (`FollowEveryLinkKeepsTheCellsPlacedBases`); a `walk.follow` path no record has, an
-  indexed path, `*` beside names and a `*parent` climb (`AFollowPathNoRecordHasIsSaidByName`,
-  `AnIndexedFollowPathFollowsThatElement`, `FollowRefusesEveryLinkBesideNamesAndAnyParentClimb`); two cells' unions
+  `*` keeps a cell's children (`FollowEveryLinkKeepsTheCellsPlacedBases`); a `walk.follow` path no record has, one
+  wrong past its first field, an indexed path, `*` beside names and a `*parent` climb (`AFollowPathNoRecordHasIsSaidByName`,
+  `AFollowPathWrongPastItsFirstFieldIsSaidByName`, `AnIndexedFollowPathFollowsThatElement`,
+  `FollowRefusesEveryLinkBesideNamesAndAnyParentClimb`); a path only deleted records were entered for, and a named
+  path read past a record whose links cannot be read (`UnreadLinksWalkTests.AFollowPathOnlyADeletedRecordHoldsIsSaidAsDeleted`,
+  `ANamedFollowReadsItsFieldPastARecordWhoseLinksCannotBeRead`); two cells' unions
   read in one pass (`TwoCellsReadTheirUnionsInOnePass`); a miss in every source and the order is a note
   (`AReachedRecordInNoSourceNorTheOrderIsSaid`).
 - *One FaceGen answer per NPC*: `NpcFaceDoorTests` — a plain NPC is its own pair on every lane and the check
