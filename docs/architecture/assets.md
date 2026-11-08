@@ -451,8 +451,8 @@ seed NPCs' Traits template chains (none past the record cap), one round per hop 
 cap, each round with its NPCs' races (`MemberReads.Templates`). A voice's speaker answers from the walk's read, else
 is read as a set of one. Every member read is kept by key for the whole walk.
 
-Each followed form link (inside the home plugins, a record's link to itself too, and a link out of a record at
-`walk.depth`) is recorded, and after the walk `GraphCycles.Find` reports the loops over the records entered, capped at
+Each form link out of an entered record (inside the home plugins, a record's link to itself too, and a link out of a
+record at `walk.depth`, which is not followed) is recorded, and after the walk `GraphCycles.Find` reports the loops over the records entered, capped at
 `RecordReads.WalkCycleCap` (200), the records walk's per-seed cap, here once for the shared budget (#1278; DECISIONS
 2026-11-08 (3), C2). A link to a record never entered closes no loop. The count is a lower bound on the loops: one per
 back edge the search finds, and an edge into a record it already finished is skipped, so a loop met again through one
