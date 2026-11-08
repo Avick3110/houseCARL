@@ -167,10 +167,10 @@ public static class WalkGrammar
         IReadOnlyList<string[]>? follow = null;
         if (w.follow is not null)
         {
-            if (FollowPaths(w.follow, out var paths) is { } fErr) return fErr;
             // Every link is followed to walk.depth already, and containment is the records walk's.
             if (w.follow.Paths.FirstOrDefault(p => p.Contains('*')) is { } star)
                 return $"error: walk.follow '{star}' — on the asset walk follow names the link fields followed past walk.depth (e.g. [\"HeadParts\", \"WornArmor\", \"Armature\"]); every link is already followed to walk.depth, and '*parent' is the records walk's.";
+            if (FollowPaths(w.follow, out var paths) is { } fErr) return fErr;
             follow = paths;
         }
         if (w.direction is not null)

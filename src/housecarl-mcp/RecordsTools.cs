@@ -353,6 +353,7 @@ public static partial class RecordsTools
         // ---- walk= (the traversal construct) ----
         // walk.follow as one string: a single path as sent, a list joined; the forward walk reads the list itself.
         string? walkFollow = walk?.follow?.ToString();
+        bool carrierFollow = string.Equals(walkFollow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
         string walkDirection = "forward";
         int walkDepth = WalkGrammar.RecordsDefaultDepth, walkMaxNodes = WalkGrammar.DefaultMaxNodes;
         bool walkDepthAsked = false;
@@ -366,7 +367,7 @@ public static partial class RecordsTools
             if (!string.IsNullOrEmpty(dir)) walkDirection = dir!;
             // The forward and carrier walks read max_nodes per seed; docs/architecture/records-tool-front.md.
             bool perSeedBudget = walkDirection == "forward"
-                              || string.Equals(walkFollow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
+                              || carrierFollow;
             if (WalkGrammar.Parse(svc.Types, walk.depth, walk.max_nodes, walk.through, walk.exclusions, WalkGrammar.RecordsDefaultDepth,
                                   perSeedBudget ? WalkGrammar.Budget.PerSeed : WalkGrammar.Budget.Shared, out var wv) is { } wvErr)
                 return ToolAnswer.Refusal(json, wvErr);
@@ -378,7 +379,7 @@ public static partial class RecordsTools
                 if (walk.seed_paths is { Length: > 0 })
                     return ToolAnswer.Refusal(json, "error: walk.seed_paths shapes a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop it (walk.follow stays: it names the edges this walk crosses).");
                 if ((walk.exclusions is { Length: > 0 } || walkThrough is not null)
-                    && string.Equals(walkFollow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase))
+                    && carrierFollow)
                     return ToolAnswer.Refusal(json, $"error: walk.exclusions/through shape a walk that expands, and the typed MGEF carrier walk (walk.follow=\"{CarrierFollow}\") stops at hop 1 — narrow its carrier types with types= instead.");
                 var revFollow = walkFollow?.Trim();
                 if (!string.IsNullOrEmpty(revFollow) && revFollow != "*"
@@ -429,7 +430,7 @@ public static partial class RecordsTools
         // is said outright. Contract in docs/architecture/records-tool-front.md.
         bool followAsked = !string.IsNullOrWhiteSpace(walkFollow);
         bool reverseCarrier = reverseWalk
-            && string.Equals(walkFollow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
+            && carrierFollow;
         if (reverseWalk && form == "chain" && !followAsked)
             return ToolAnswer.Refusal(json, $"error: no default follow implies a walk, so a reverse 'chain' call names the edges it crosses — walk.follow=\"{CarrierFollow}\" is the typed MGEF carrier walk, which chain renders, and walk.follow=\"*\" is every link, which chain cannot render because the transitive walk expands one shared frontier and has no per-seed path to draw (read that one with summary/fields/rows/everything/aggregate).");
         if (reverseWalk && form == "chain" && !reverseCarrier)

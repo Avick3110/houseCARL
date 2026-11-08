@@ -252,7 +252,7 @@ internal sealed partial class AssetLayers
             for (int i = 0; i < paths.Count; i++)
             {
                 var (got, miss) = ReadEngine.CollectLinksAt(body, paths[i]);
-                if (got is not null || miss == ReadEngine.AbsentNote) followMatched[i] = true;
+                if (got is not null || ReadEngine.IsAbsentNote(miss)) followMatched[i] = true;
                 if (got is not null) keys.UnionWith(got);
             }
             return keys;
@@ -342,8 +342,8 @@ internal sealed partial class AssetLayers
                 // said, and one whose links cannot be read is said and not followed.
                 if (RecordLinks.List(body, links, out var unread) is { } lenient) notes.Add($"{label}: its links were read leniently — {RecordReads.LenientNoteBody(fk, lenient)}");
                 if (unread is not null) notes.Add($"{label}: its links could not be read, so the walk does not go past it — {unread}");
-                // The links under walk.follow's fields, followed past walk.depth; only links the door listed are, so a deleted or unread record follows none.
-                var followed = FollowedLinks(body);
+                // The links under walk.follow's fields, followed past walk.depth; only links the door listed are, so a deleted or unread record follows none; read short of depth only to say a field no record carries.
+                var followed = depth >= maxDepth || followMatched.Contains(false) ? FollowedLinks(body) : null;
                 var outgoing = edges[fk] = new List<FormKey>();
                 foreach (var link in links)
                 {
@@ -354,7 +354,7 @@ internal sealed partial class AssetLayers
                     // Recorded at walk.depth too, so a link back to an entered record closes its loop; one to a record
                     // never entered closes none.
                     outgoing.Add(link);
-                    if (depth >= maxDepth && followed?.Contains(link) != true) { if (!seenRec.Contains(link)) pastDepthKeys.Add(link); continue; }
+                    if (depth >= maxDepth && followed?.Contains(link) != true) { pastDepthKeys.Add(link); continue; }
                     if (seenRec.Add(link)) next.Add((link, label, home));
                 }
             }
