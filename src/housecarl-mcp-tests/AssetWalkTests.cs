@@ -204,13 +204,78 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(errors, e => e.Contains("loops") && e.Contains(FormIdToken.Of(a.FormKey)) && e.Contains(FormIdToken.Of(b.FormKey)));
     }
 
-    /// <summary>A seed's template chain is not counted faceless (#1278, r1 #7): the Traits chain's HcWalkMid and
-    /// HcWalkHero, and the leveled template's members, whose face is the seed's, already listed, are in no note.</summary>
+    const string OneBoundary = "1 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.";
+
+    /// <summary>A reached NPC is a boundary (#1371; DECISIONS 2026-11-08 (11), B): the quest's alias reaches the hero,
+    /// which lists no script, has its hair not entered and spends no walk.max_nodes, and one note counts it.</summary>
     [Fact]
-    public void ASeedsTemplateChainIsNotCountedFaceless()
+    public void ANpcReachedThroughAnAliasIsABoundary()
     {
-        foreach (var seed in new[] { "HcWalkTemplated", "HcWalkLeveled" })
-            Assert.DoesNotContain(Walk(records: new[] { seed }).Notes, n => n.Contains("entered without their FaceGen"));
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null, values: Values("{\"max_nodes\": 1}"));
+        Assert.Empty(d.Nodes);
+        Assert.False(d.Truncated);
+        Assert.Equal(new[] { OneBoundary }, d.Notes);
+    }
+
+    /// <summary>walk.through naming Npc enters the reached hero as any record (#1371): its script, its hair's mesh and
+    /// the mesh's links are back, with no boundary note and no FaceGen.</summary>
+    [Fact]
+    public void ThroughNamingNpcEntersAReachedNpc()
+    {
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null, values: Values("{\"through\": [\"Npc\", \"HeadPart\"]}"));
+        Assert.Equal("script", Node(d, AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript)).Edge);
+        Assert.Equal("listed", Node(d, AssetWalkWorld.HairNif).Edge);
+        Assert.DoesNotContain(d.Nodes, n => n.Edge == "facegen");
+        Assert.DoesNotContain(d.Notes, n => n.Contains("kept as boundaries, not entered (no files"));
+    }
+
+    /// <summary>A walk.through without Npc leaves the reached hero out as before, counted on the left-out line and in no
+    /// boundary note; a stop exclusion on Npc counts it as stopped; pins behaviour main already had.</summary>
+    [Fact]
+    public void ThroughWithoutNpcAndAStopOnNpcAreUnchanged()
+    {
+        var through = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null, values: Values("{\"through\": [\"HeadPart\"]}"));
+        Assert.Equal(new[] { "left out, not in walk.through: 1 Npc" }, through.Notes);
+        var stop = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null,
+                                    values: Values("{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"stop\"}]}"));
+        Assert.Equal(new[] { "1 reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links)." }, stop.Notes);
+        Assert.NotNull(_w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkActorQuest"] }, null, null,
+                                        values: Values("{\"exclusions\": [{\"match\": \"Npc\", \"severity\": \"refuse\"}]}")).Refusal);
+    }
+
+    /// <summary>A seed's template chain is a boundary too (#1371) and the seed's face is unchanged: HcWalkTemplated's
+    /// HcWalkMid is counted, HcWalkHero past it is never reached, so its script is not listed, and the root's pair is.</summary>
+    [Fact]
+    public void ASeedsTemplateIsABoundaryAndItsFaceIsUnchanged()
+    {
+        var d = Walk(records: new[] { "HcWalkTemplated" });
+        Assert.Equal(2, d.Nodes.Count(n => n.Edge == "facegen" && n.PulledBy.Contains("HcWalkTemplated")));
+        Assert.DoesNotContain(d.Nodes, n => n.Edge == "script");
+        Assert.Contains(OneBoundary, d.Notes);
+    }
+
+    /// <summary>A leveled NPC list is entered as any record and its NPC entries are boundaries (#1371): HcWalkLeveled's
+    /// template list is entered, so its two members are reached and counted, and the hero's script is not listed.</summary>
+    [Fact]
+    public void ALeveledNpcIsEnteredAndItsNpcsAreBoundaries()
+    {
+        var d = Walk(records: new[] { "HcWalkLeveled" });
+        Assert.Contains("2 NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.", d.Notes);
+        Assert.DoesNotContain(d.Nodes, n => n.Edge == "script");
+    }
+
+    /// <summary>A loop through a reached NPC is not reported (#1371), as any loop through a record not entered: the list
+    /// and its NPC, whose script names the list back, give no cycle and no script row unless walk.through names Npc.</summary>
+    [Fact]
+    public void ALoopThroughAReachedNpcIsNotReported()
+    {
+        var seed = new[] { _w.Keys["HcWalkNpcLoop"] };
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), seed, null, null);
+        Assert.Empty(d.Cycles);
+        Assert.Empty(d.Nodes);
+        var entered = _w.Svc.AssetWalk(Array.Empty<string>(), seed, null, null, values: Values("{\"through\": [\"Npc\", \"FormList\"]}"));
+        Assert.Single(entered.Cycles);
+        Assert.Equal("script", Node(entered, AssetWalkEdges.ScriptPex(AssetWalkWorld.LoopNpcScript)).Edge);
     }
 
     /// <summary>A leveled template nesting another reaches both members' roots, each one of 2; a template list with an
@@ -564,11 +629,12 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     }
 
     /// <summary>Records a depth past the seeds enters give their rows in the order a queue would enter them (#1278, r1
-    /// #10): the list's hero, then its quest, each script row in that order; pins behaviour the reviewed head already had.</summary>
+    /// #10): the list's hero, entered as walk.through names Npc (#1371), then its quest, each script row in that order;
+    /// pins behaviour the reviewed head already had.</summary>
     [Fact]
     public void ALaterDepthGivesItsRowsInQueueOrder()
     {
-        var d = Walk(records: new[] { "HcWalkPair" });
+        var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys["HcWalkPair"] }, null, null, values: Values("{\"through\": [\"Npc\", \"Quest\"]}"));
         Assert.Equal(new[] { AssetWalkEdges.ScriptPex(AssetWalkWorld.OwnScript), AssetWalkEdges.ScriptPex(AssetWalkWorld.AliasScript) },
                      d.Nodes.Where(n => n.Edge == "script").Select(n => n.Path), StringComparer.OrdinalIgnoreCase);
     }
@@ -594,7 +660,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     public void ALoopOfRecordsIsCountedAndListed()
     {
         var loop = $"{_w.Id("HcWalkLoopA")} (HcWalkLoopA) -> {_w.Id("HcWalkLoopB")} (HcWalkLoopB) -> {_w.Id("HcWalkLoopA")} (HcWalkLoopA)";
-        const string Count = "1 record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, or in a plugin the walk does not enter) is not seen; the format=json walk answer (not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file lists every loop found.";
+        const string Count = "1 record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, a reached NPC kept as a boundary, or in a plugin the walk does not enter) is not seen; the format=json walk answer (not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file lists every loop found.";
         var seed = new[] { _w.Id("HcWalkLoopA") };
         var text = AssetTools.AssetStatus(_w.Svc, records: seed, walk: Walks.On);
         Assert.Contains(Count, text);

@@ -166,7 +166,7 @@ internal sealed partial class AssetLayers
         }
         if (cycles is { Loops.Count: > 0 } c)
         {
-            notes.Add($"{c.Loops.Count} record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, or in a plugin the walk does not enter) is not seen; the format=json walk answer (not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file lists every loop found.");
+            notes.Add($"{c.Loops.Count} record cycle(s) found (recorded, not an error): a lower bound, one per link the search finds closing a loop; a loop met again through a record already searched is not counted, and one through a record not entered (past walk.depth or walk.max_nodes, a reached NPC kept as a boundary, or in a plugin the walk does not enter) is not seen; the format=json walk answer (not counts_only=) lists the loops that fit max_chars and counts the rest, and a to_file= or spilled file lists every loop found.");
             if (c.Capped) notes.Add($"the cycle search stopped at {RecordReads.WalkCycleCap} loops — more loops are there than are counted.");
         }
         return Done(nodes, notes, truncated, cycles: cycles);
@@ -212,7 +212,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>The record half: every seed and every record its form links reach inside the from_source plugins and,
     /// for a seed read through 'winner', its own plugin, each contributing the paths it lists and its implicit files; a
-    /// seed NPC its FaceGen too. <paramref name="leftOut"/> gets the type of each record walk.through left out, and
+    /// seed NPC its FaceGen too; a reached NPC is a boundary unless walk.through names Npc. <paramref name="leftOut"/> gets the type of each record walk.through left out, and
     /// <paramref name="leftOutAt"/> the index of the note that counts them. Returns the record cycles over the links it
     /// recorded: every home link out of an entered record, one out of a record at walk.depth too.</summary>
     RecordCycles WalkRecords(AssetResolver.AssetView view, string? source, LoadOrderResolver.IndexView index, LoadOrderResolver.OverlaySession session, SourceChain chain, IReadOnlyList<FormKey> seeds, List<IDisposable> overlays, FileSink addFile,
@@ -225,8 +225,8 @@ internal sealed partial class AssetLayers
         // Every home link out of an entered record, one at walk.depth too though not followed, and each entered record's EditorID, for the cycles.
         var edges = new Dictionary<FormKey, List<FormKey>>();
         var editorIds = new Dictionary<FormKey, string?>();
-        // The NPCs entered past depth 0 whose face no seed's FaceGen gave, which get none.
-        int facelessNpcs = 0;
+        // The NPCs reached past depth 0 kept as boundaries, walk.through not naming Npc.
+        int npcBoundaries = 0;
         var frontier = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
         // The plugins the from_source arms name, base masters kept, plus a 'winner' seed's own plugin (assets.md, Walking the links).
         var named = new HashSet<ModKey>(chain.NamedPlugins());
@@ -260,9 +260,7 @@ internal sealed partial class AssetLayers
         // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
         var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
         IMajorRecordGetter? Fetch(FormKey fk) => members.Get(fk);
-        // What a seed's face asked for: its template chain's NPCs, whose face is the seed's, already listed.
-        var faceChain = new HashSet<FormKey>();
-        var faces = new NpcFace(fk => { faceChain.Add(fk); return Fetch(fk); }, UnsetFor(chain.Arms.Select(a => a.Spelling), RecordSourcesUnset));
+        var faces = new NpcFace(Fetch, UnsetFor(chain.Arms.Select(a => a.Spelling), RecordSourcesUnset));
 
         // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
         for (int depth = 0; frontier.Count > 0; depth++)
@@ -283,6 +281,8 @@ internal sealed partial class AssetLayers
                                                            string.Join(", ", chain.Arms.Select(a => a.Where)) + "."));
                 // A reached record is judged on the type its read body reports; a seed never is.
                 else if (depth > 0 && judging && Judged(got.Hit.Body, fk, pulledBy)) continue;
+                // A reached NPC is a boundary, its files and links its own record's, unless walk.through names Npc (#1371).
+                else if (depth > 0 && values.Through is null && got.Hit.Body is INpcGetter) { npcBoundaries++; continue; }
                 else if (++entered > maxRecords) { capped = true; break; }
                 else steps.Add((fk, pulledBy, homeIn, got.Hit, null));
             }
@@ -306,13 +306,8 @@ internal sealed partial class AssetLayers
                 catch (Exception ex) { notes.Add($"{label}: its inferred links were not read — {ex.Message}"); }
                 foreach (var e in AssetWalkEdges.Fragments(body)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note);
 
-                // A seed NPC's face; a reached NPC outside every seed's template chain is counted, so a modder seeds the
-                // ones whose face they want.
-                if (body is INpcGetter npc)
-                {
-                    if (depth == 0) FaceGenOf(npc, label, faces, addFile, notes);
-                    else if (!faceChain.Contains(fk)) facelessNpcs++;
-                }
+                // Only a seed NPC's face is listed.
+                if (depth == 0 && body is INpcGetter npc) FaceGenOf(npc, label, faces, addFile, notes);
                 // A line the walk entered, a seed or reached forward, is voiced; no line is found off an NPC.
                 if (body is IDialogResponsesGetter info)
                     VoiceOf(view, source, info, label, Voice(), Fetch, addFile, notes);
@@ -355,8 +350,8 @@ internal sealed partial class AssetLayers
         if (boundaries.Count > 0)
             notes.Add("form links into other plugins were kept as boundaries, not walked (their files are that plugin's): " +
                       string.Join(", ", boundaries.OrderByDescending(b => b.Value).Select(b => $"{b.Key} ×{b.Value}")) + ".");
-        if (facelessNpcs > 0)
-            notes.Add($"{facelessNpcs} NPC(s) the walk reached past a seed were entered without their FaceGen (only a seed NPC's face is listed); seed an NPC with records= to list its FaceGen.");
+        if (npcBoundaries > 0)
+            notes.Add($"{npcBoundaries} NPC(s) the walk reached past a seed were kept as boundaries, not entered (no files, no links); seed one with records=, or name Npc in walk.through, to walk them.");
 
         // Every loop over the recorded links, capped as the records walk caps its search (one cap, the shared budget's).
         var loops = RecordReads.CycleLines(edges, k => editorIds.GetValueOrDefault(k), out var cyclesCapped);

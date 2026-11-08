@@ -415,7 +415,14 @@ parts are entered) or, for a seed read through
 `winner`, the seed's own plugin defines, to `walk.depth` hops (default 3), so a base master's records reached from a
 donor's override are boundaries; links into other plugins are counted as boundaries in a note, and records past the
 depth are counted too, so nothing is cut silently. `walk.through`'s record types and `walk.exclusions` are judged as a
-record is entered, and a malformed seed is an error node; both are walk-and-reverse.md's "One walk grammar". It reads a record's form links only through the one link door (`RecordLinks`,
+record is entered, and a malformed seed is an error node; both are walk-and-reverse.md's "One walk grammar". A record
+past a seed whose read body is an NPC (a quest alias's actor, a location's unique actor, a race's chargen preset, a
+script property, a template) is a boundary: not entered, so it lists no files, follows no links and spends no
+`walk.max_nodes`, and one note counts those NPCs and says to seed them or name `Npc` in `walk.through`, which enters
+them as any record (#1371; DECISIONS 2026-11-08 (11)). The rule sits at the one entry door after `walk.exclusions` and
+`walk.through` are judged, so a stop or refuse on `Npc` is unchanged, a `walk.through` without `Npc` still leaves them
+out on the left-out line (one count, one place), and an edge-kind-only `walk.through` enters none. A seed's FaceGen
+still reads its template chain through the face door, which needs no NPC entered. It reads a record's form links only through the one link door (`RecordLinks`,
 docs/architecture/read-engine.md): a deleted record is entered and follows none of them, with no note; a perk whose
 links read only leniently is followed on what the lenient read recovered, with a note; a record whose links cannot be
 read is a note, and the walk does not go past it (#1316). Each record contributes:
@@ -430,9 +437,8 @@ read is a note, and the walk does not go past it (#1316). Each record contribute
   off, else the first NPC down the Template chain with it off, every member of a leveled-list template (nested
   lists included) marked one of N; a loop or an unresolved link is a note naming the chain, and the other members
   keep their pairs. A root Mutagen names no pair for is a note with the door's reason. The race and the template
-  members are read through the record sources, then the active order. An NPC the walk enters past a seed gets no
-  FaceGen: one note counts those NPCs and says to seed them (#1278; DECISIONS 2026-11-07 (26), F2), leaving out any
-  NPC a seed's face door asked for (its template chain and leveled-template members), whose face is the seed's;
+  members are read through the record sources, then the active order. Only a seed NPC's face is listed (#1278;
+  DECISIONS 2026-11-07 (26), F2): a reached NPC is a boundary (below), and one `walk.through` enters gets no FaceGen;
 - on a dialogue line the walk enters (a seed, or one a form link reaches, such as shared response data), the `.fuz` paths Mutagen resolves over the whole order (built once, when a line is reached), or
   the same-stem `.xwm` / `.wav` and `.lip` the line ships as when no `.fuz` does (shipped by the order or by
   `source_provider=`, so a disabled donor's format counts); both listed, with no claim on which
@@ -456,7 +462,8 @@ record at `walk.depth`, which is not followed) is recorded, and after the walk `
 `RecordReads.WalkCycleCap` (200), the records walk's per-seed cap, here once for the shared budget (#1278; DECISIONS
 2026-11-08 (3), C2). A link to a record never entered closes no loop. The count is a lower bound on the loops: one per
 back edge the search finds, and an edge into a record it already finished is skipped, so a loop met again through one
-is not counted; a loop through a record not entered (past `walk.depth`, past `walk.max_nodes`, or in a plugin outside
+is not counted; a loop through a record not entered (past `walk.depth`, past `walk.max_nodes`, a reached NPC kept as a
+boundary, or in a plugin outside
 the home plugins, whose links are boundaries) is not seen. The text answer counts
 them in one note ("recorded, not an error") and, at the cap, says so in a second; the json walk answer (not
 `counts_only=`) lists each loop under `cycles` (`cycles_capped` at the cap) and a spilled or `to_file=` file carries
@@ -702,10 +709,15 @@ provided either; the generic lane does not, because it legitimately answers for 
   (`AnEdgeKindShowsItsRowsAndCountsTheRest`), reads what the whole walk reads (`AnEdgeKindLeavesTheWalkWhole`) and
   chooses a path-only walk's rows (`AnEdgeKindChoosesAPathOnlyWalksRows`); a loop of records is counted, listed in json
   and the file, and capped (`ALoopOfRecordsIsCountedAndListed`), closed at the depth cap (`ALoopClosedAtTheDepthCapIsCounted`)
-  and bounded in json by `max_chars` (`AJsonWalksCyclesStayWithinMaxChars`); a seed's template chain is not counted
-  faceless (`ASeedsTemplateChainIsNotCountedFaceless`). `AssetWalkDoorTests` — each depth
+  and bounded in json by `max_chars` (`AJsonWalksCyclesStayWithinMaxChars`); a reached NPC is a boundary: through an
+  alias, spending no `max_nodes` (`ANpcReachedThroughAnAliasIsABoundary`), as a seed's template, the seed's face
+  unchanged (`ASeedsTemplateIsABoundaryAndItsFaceIsUnchanged`), as a leveled list's entry, the list entered
+  (`ALeveledNpcIsEnteredAndItsNpcsAreBoundaries`), and closing no loop (`ALoopThroughAReachedNpcIsNotReported`);
+  `walk.through` naming `Npc` enters it (`ThroughNamingNpcEntersAReachedNpc`), and a `walk.through` without `Npc` or
+  an exclusion on `Npc` is unchanged (`ThroughWithoutNpcAndAStopOnNpcAreUnchanged`). `AssetWalkDoorTests` — each depth
   reads each (plugin, group) once; no line is found off an NPC, with no reverse index and no topic or cell group read
-  (`NoLineIsFoundOffAnNpc`); a reached NPC has no FaceGen and is counted (`AReachedNpcHasNoFaceGen`); the nodes, edges and notes are a queue's
+  (`NoLineIsFoundOffAnNpc`); a reached NPC is a boundary (`AReachedNpcIsABoundary`), and one `walk.through` enters
+  has no FaceGen and no note (`AnNpcThroughEntersHasNoFaceGen`); the nodes, edges and notes are a queue's
   (`TheAnswerIsTheOneAQueueGave`); a seed's template member and a line's speaker come from the walk's read, with no
   single-key read in the walk (`NoRecordIsReadOnItsOwn`);
   `AssetWalkTemplateDoorTests.ATemplateSharedByManyNpcsIsReadOncePerHop` — a template six NPCs share is read once
