@@ -312,6 +312,15 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         Assert.DoesNotContain(d.Nodes, n => n.Edge == "facegen");
     }
 
+    /// <summary>The cell's count on the links-not-followed note is its own links outside a part field, its music alone:
+    /// the lamp ref's Base, which its child the walk enters holds, is not counted on the cell.</summary>
+    [Fact]
+    public void TheCellCountsOnlyItsOwnLinksNotFollowed()
+    {
+        var note = Assert.Single(Walk("HcShapeCell").Notes, n => n.Contains("were not walked"));
+        Assert.Matches(@"[:,] 1 on Cell\b", note);
+    }
+
     /// <summary>walk.follow as a list follows only the named fields: the NPC's HeadParts and WornArmor give his hair,
     /// eyes and skin but no outfit, and no child record is entered.</summary>
     [Fact]
