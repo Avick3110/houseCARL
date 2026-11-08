@@ -223,7 +223,7 @@ internal sealed partial class AssetLayers
         // The followed links, entered record to linked record, and each entered record's EditorID, for the cycles.
         var edges = new Dictionary<FormKey, List<FormKey>>();
         var editorIds = new Dictionary<FormKey, string?>();
-        // The NPCs entered past depth 0, which get no FaceGen.
+        // The NPCs entered past depth 0 whose face no seed's FaceGen gave, which get none.
         int facelessNpcs = 0;
         var frontier = new List<(FormKey Key, string PulledBy, IReadOnlySet<ModKey>? Home)>();
         // The plugins the from_source arms name, base masters kept, plus a 'winner' seed's own plugin (assets.md, Walking the links).
@@ -258,7 +258,9 @@ internal sealed partial class AssetLayers
         // Only these types are kept, so no cell or worldspace body holds its group's bytes past its depth.
         var members = new MemberReads(chain, keys => BodyGather.Winners(index, session, keys));
         IMajorRecordGetter? Fetch(FormKey fk) => members.Get(fk);
-        var faces = new NpcFace(Fetch, UnsetFor(chain.Arms.Select(a => a.Spelling), RecordSourcesUnset));
+        // What a seed's face asked for: its template chain's NPCs, whose face is the seed's, already listed.
+        var faceChain = new HashSet<FormKey>();
+        var faces = new NpcFace(fk => { faceChain.Add(fk); return Fetch(fk); }, UnsetFor(chain.Arms.Select(a => a.Spelling), RecordSourcesUnset));
 
         // Breadth-first by depth, each depth's records read at once through the door: the order a queue would enter them.
         for (int depth = 0; frontier.Count > 0; depth++)
@@ -302,11 +304,12 @@ internal sealed partial class AssetLayers
                 catch (Exception ex) { notes.Add($"{label}: its inferred links were not read — {ex.Message}"); }
                 foreach (var e in AssetWalkEdges.Fragments(body)) addFile(e.Path, e.Edge, label, e.Keyed, e.Note);
 
-                // A seed NPC's face; a reached NPC is counted, so a modder seeds the ones whose face they want.
+                // A seed NPC's face; a reached NPC outside every seed's template chain is counted, so a modder seeds the
+                // ones whose face they want.
                 if (body is INpcGetter npc)
                 {
                     if (depth == 0) FaceGenOf(npc, label, faces, addFile, notes);
-                    else facelessNpcs++;
+                    else if (!faceChain.Contains(fk)) facelessNpcs++;
                 }
                 // A line the walk entered, a seed or reached forward, is voiced; no line is found off an NPC.
                 if (body is IDialogResponsesGetter info)

@@ -95,8 +95,8 @@ public static class AssetTools
             bool links = false,
         [Description("Optional. Walk from the selected paths and records= to every file they reach, returning one node " +
                      "per file: the paths a record lists, its implicit files (a seed NPC's FaceGen head and tint, or its " +
-                     "Traits template root's, each member of a leveled template marked one of N; an NPC the walk reaches past a seed " +
-                     "gets no FaceGen and is counted in a note, so seed it to list its face; .pex scripts, fragment " +
+                     "Traits template root's, each member of a leveled template marked one of N; an NPC the walk reaches past a seed, " +
+                     "not in a seed's template chain, gets no FaceGen and is counted in a note, so seed it to list its face; .pex scripts, fragment " +
                      ".pex files, a start-game-enabled quest's Seq\\<plugin>.seq; a dialogue line's voice .fuz, or the " +
                      ".xwm/.wav and .lip it ships as, for a line that is a seed or that a form link reaches; no line is found off the NPC that speaks it), then the links each file names (a mesh's textures, SMP XML and " +
                      "BODYTRI, a script's parent .pex), recursively. Each node is marked from-source (source_provider= " +
