@@ -27,6 +27,11 @@ internal sealed class SchemaValuesAttribute(SchemaVocabulary vocabulary) : Attri
     public SchemaVocabulary Vocabulary { get; } = vocabulary;
 }
 
+/// <summary>The member binds a string or a list of strings through its own converter, which the generator publishes
+/// as an unconstrained shape — published as that union, null kept.</summary>
+[AttributeUsage(AttributeTargets.Property)]
+internal sealed class SchemaStringOrListAttribute : Attribute { }
+
 /// <summary>The third publication pass: <c>required</c> and <c>enum</c> inside a parameter, derived from the marked
 /// members and the verb tables; contract in <c>docs/architecture/tool-schema-publication.md</c>.</summary>
 internal static class NestedSchemaConstraints
@@ -106,6 +111,12 @@ internal static class NestedSchemaConstraints
                 required.Add(wire);
                 // Ordered before the enum stamp so both read the same type.
                 changed |= DropNull(member);
+            }
+            if (property.GetCustomAttribute<SchemaStringOrListAttribute>() is not null)
+            {
+                member["type"] = new JsonArray("string", "array", "null");
+                member["items"] = new JsonObject { ["type"] = "string" };
+                changed = true;
             }
             if (property.GetCustomAttribute<SchemaValuesAttribute>() is { } values)
             {

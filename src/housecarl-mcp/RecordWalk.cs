@@ -146,7 +146,7 @@ internal sealed partial class RecordReads
 
     /// <summary>The forward walk over the winner link graph, per seed off ONE captured build.</summary>
     public IReadOnlyList<WalkSeedResult> WalkForwardBatch(
-        IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
+        IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, WalkFollow? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct,
         bool wantCycles, IReadOnlySet<string>? through = null, IDictionary<FormKey, string>? leftOut = null)
@@ -165,14 +165,15 @@ internal sealed partial class RecordReads
         }
         using var session = resolver.OpenSession();
 
-        string[]? followSegs = null;
-        bool closure = string.IsNullOrWhiteSpace(follow) || follow!.Trim() == "*";
+        // One path reads as it always has (blank or "*" is every link); a list is each path at every hop.
+        IReadOnlyList<string[]>? followSegs = null;
+        bool closure = follow is null || (follow.Paths is [var one] && (string.IsNullOrWhiteSpace(one) || one.Trim() == "*"));
         if (!closure)
         {
-            followSegs = follow!.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (followSegs.Length == 0) { refusal = $"walk.follow '{follow}' is not a usable field path."; return Array.Empty<WalkSeedResult>(); }
+            if (WalkGrammar.FollowPaths(follow!, out var paths) is { } fErr) { refusal = fErr["error: ".Length..]; return Array.Empty<WalkSeedResult>(); }
+            followSegs = paths;
         }
-        bool templateFollow = followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
+        bool templateFollow = followSegs is [[var only]] && only.Equals("Template", StringComparison.OrdinalIgnoreCase);
 
         var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
         IMajorRecordGetter? Fetch(FormKey k)
@@ -236,7 +237,23 @@ internal sealed partial class RecordReads
             bodyCache.Clear();
         }
         static string TypeOf(IMajorRecordGetter b) => RecordNaming.StripOverlay(b.GetType().Name);
-        List<FormKey> LinksOf(IMajorRecordGetter body, string[]? segs, out string? note)
+        // Every path's links, each key once in path order; the paths' notes joined.
+        List<FormKey> LinksOf(IMajorRecordGetter body, IReadOnlyList<string[]>? paths, out string? note)
+        {
+            if (paths is not [_, _, ..]) return PathLinks(body, paths?[0], out note);
+            var keys = new List<FormKey>();
+            var seenKeys = new HashSet<FormKey>();
+            var notes = new List<string>();
+            foreach (var segs in paths)
+            {
+                var got = PathLinks(body, segs, out var n);
+                foreach (var k in got) if (seenKeys.Add(k)) keys.Add(k);
+                if (n is not null) notes.Add(n);
+            }
+            note = notes.Count > 0 ? string.Join("; ", notes) : null;
+            return keys;
+        }
+        List<FormKey> PathLinks(IMajorRecordGetter body, string[]? segs, out string? note)
         {
             note = null;
             if (segs is null)
@@ -386,7 +403,7 @@ internal sealed partial class RecordReads
             List<FormKey> SeedLinks(string[]? segs, out string? note)
             {
                 note = null;
-                try { return LinksOf(seedBody, segs, out note); }
+                try { return PathLinks(seedBody, segs, out note); }
                 catch (Exception ex) when (RecordParseFault.Is(ex))
                 {
                     var fault = WalkFaultOf(ex);

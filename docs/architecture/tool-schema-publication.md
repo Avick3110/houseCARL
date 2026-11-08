@@ -119,7 +119,9 @@ So `NestedSchemaConstraints` walks each parameter's CLR type against the schema 
 and stamps what the shape declares: `required` for a member marked `[SchemaRequired]` — the ones
 the server refuses a call without — and `enum` for a member marked `[SchemaValues]`, whose values
 come from the table the gate itself validates against (`WriteVerbs.All`, and `WriteVerbs.OnCreate`
-for the surface that refuses the transplanting verb by name). The marks live on the member, not in
+for the surface that refuses the transplanting verb by name), and `["string","array","null"]` with string items for a
+member marked `[SchemaStringOrList]`, whose own converter binds either shape and which the generator would otherwise
+publish unconstrained (`walk.follow`). The marks live on the member, not in
 a path list, because a shape is reached from several parameters — `compose` from four — and the
 recursion bound expands some of them twice.
 
