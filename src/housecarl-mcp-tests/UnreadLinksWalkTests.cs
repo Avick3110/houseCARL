@@ -130,8 +130,14 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         var d = _w.Svc.AssetWalk(Array.Empty<string>(), new[] { _w.Keys[D]["GoneList"] }, null, null,
                                  values: WalkGrammar.Values.Defaults(WalkGrammar.AssetDefaultDepth) with { Follow = new[] { "Items" } });
         Assert.Empty(d.Nodes);
-        Assert.Contains("walk.follow 'Items' followed nothing: the walk entered no record that is not deleted, and a deleted record links to nothing.", d.Notes);
+        Assert.Contains("walk.follow 'Items' followed nothing: it names no field, or the walk entered no record that is not deleted (a deleted record links to nothing).", d.Notes);
     }
+
+    /// <summary>A follow path with no field, on live records, gets the same note, not a typo's.</summary>
+    [Fact]
+    public void AFollowPathWithNoFieldIsSaidAsNamingNone()
+        => Assert.Contains("walk.follow '.' followed nothing: it names no field, or the walk entered no record that is not deleted (a deleted record links to nothing).",
+                           Asset(C, ".").Notes);
 
     /// <summary>A named walk.follow still reads the field it names on a perk whose whole link read faults, so it enters
     /// the static that field holds, and the note says it followed only the named fields. Pins as-built behaviour
