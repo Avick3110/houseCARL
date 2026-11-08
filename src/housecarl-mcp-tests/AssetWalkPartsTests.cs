@@ -30,7 +30,7 @@ public sealed class AssetWalkPartsWorld : IDisposable
                         BodyNif = @"meshes\hcshape\body_1.nif", FirstBodyNif = @"meshes\hcshape\1stbody_1.nif", HandsNif = @"meshes\hcshape\hands_1.nif",
                         FeetNif = @"meshes\hcshape\feet_1.nif", OutfitNif = @"meshes\hcshape\outfit_1.nif", OutfitGround = @"meshes\hcshape\outfitgo.nif",
                         BootsNif = @"meshes\hcshape\boots_1.nif",
-                        RaceSkinNif = @"meshes\hcshape\raceskin_1.nif", RingNif = @"meshes\hcshape\ring.nif",
+                        RaceSkinNif = @"meshes\hcshape\raceskin_1.nif", RaceSkeleton = @"meshes\hcshape\skeleton.nif", RingNif = @"meshes\hcshape\ring.nif",
                         QuestScript = "HcShapeQuestScript", NpcScript = "HcShapeNpcScript",
                         CuirassGround = @"meshes\hcshape\cuirassgnd.nif", CuirassGroundF = @"meshes\hcshape\f\cuirassgnd.nif",
                         CuirassNif = @"meshes\hcshape\cuirass_1.nif", CuirassNifF = @"meshes\hcshape\f\cuirass_1.nif",
@@ -64,6 +64,7 @@ public sealed class AssetWalkPartsWorld : IDisposable
         // The NPC's race, with a skin of its own: reached only through the NPC's Race link, which is no part field.
         var race = Keyed(b.Races.AddNew("HcShapeRace"));
         race.Flags = Race.Flag.Playable | Race.Flag.FaceGenHead;
+        race.SkeletalModel = new GenderedItem<SimpleModel?>(new SimpleModel { File = Rel(RaceSkeleton) }, null);
         race.Skin.SetTo(Armour(b, "HcShapeRaceSkin", null, Addon(b, "HcShapeRaceSkinAA", Rel(RaceSkinNif))));
         var eyes = Keyed(b.HeadParts.AddNew("HcShapeEyes"));
         eyes.Model = new Model { File = Rel(EyesNif) };
@@ -238,9 +239,10 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         Assert.Equal(2, d.Nodes.Count(n => n.Edge == "facegen"));
     }
 
-    /// <summary>The NPC look job's noise, which main listed: his race's skin, the ring in his inventory, and the script
-    /// of the quest his script property names.</summary>
+    /// <summary>The NPC look job's noise, which main listed: his race's skeleton and skin, the ring in his inventory,
+    /// and the script of the quest his script property names.</summary>
     [Theory]
+    [InlineData(AssetWalkPartsWorld.RaceSkeleton)]
     [InlineData(AssetWalkPartsWorld.RaceSkinNif)]
     [InlineData(AssetWalkPartsWorld.RingNif)]
     [InlineData(@"scripts\" + AssetWalkPartsWorld.QuestScript + ".pex")]
@@ -267,9 +269,12 @@ public sealed class AssetWalkPartsTests : IClassFixture<AssetWalkPartsWorld>
         Assert.True(Has(d, path), path + " missing from:\n" + Paths(d));
     }
 
-    /// <summary>The armour job's noise, which main listed: the skin of the race the addon names.</summary>
-    [Fact]
-    public void TheArmourWalkListsNoRaceSkin() => Assert.False(Has(Walk("HcShapeCuirass"), AssetWalkPartsWorld.RaceSkinNif));
+    /// <summary>The armour job's noise: the files of the race the addon names, its skeleton, which main listed, and its
+    /// skin, past main's depth.</summary>
+    [Theory]
+    [InlineData(AssetWalkPartsWorld.RaceSkeleton)]
+    [InlineData(AssetWalkPartsWorld.RaceSkinNif)]
+    public void TheArmourWalkListsNoneOfItsRacesFiles(string path) => Assert.False(Has(Walk("HcShapeCuirass"), path), path);
 
     /// <summary>The weapon job's must rows (main gave them too) and its noise, the pick-up sound main listed.</summary>
     [Theory]
