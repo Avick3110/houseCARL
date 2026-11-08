@@ -204,6 +204,15 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(errors, e => e.Contains("loops") && e.Contains(FormIdToken.Of(a.FormKey)) && e.Contains(FormIdToken.Of(b.FormKey)));
     }
 
+    /// <summary>A seed's template chain is not counted faceless (#1278, r1 #7): the Traits chain's HcWalkMid and
+    /// HcWalkHero, and the leveled template's members, whose face is the seed's, already listed, are in no note.</summary>
+    [Fact]
+    public void ASeedsTemplateChainIsNotCountedFaceless()
+    {
+        foreach (var seed in new[] { "HcWalkTemplated", "HcWalkLeveled" })
+            Assert.DoesNotContain(Walk(records: new[] { seed }).Notes, n => n.Contains("entered without their FaceGen"));
+    }
+
     /// <summary>A leveled template nesting another reaches both members' roots, each one of 2; a template list with an
     /// entry that resolves to nothing keeps its good members' pairs and names the bad entry; a template that resolves
     /// to nothing is a note naming the chain.</summary>
