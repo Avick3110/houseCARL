@@ -67,13 +67,14 @@ public static class WalkGrammar
                 return $"error: walk.max_nodes={wn} — the node budget's hard upper bound is {RecordsTools.RecordsWalk.Ceiling}; pass that or less, which is above the whole closure a single seed reaches on a large order.";
             n = wn;
         }
-        if (ParseExclusions(types, exclusions, "walk.exclusions", out var ex) is { } exErr) return exErr;
+        if (ParseExclusions(types, exclusions, "walk.exclusions", out var ex, edgeKinds) is { } exErr) return exErr;
         HashSet<string>? thr = null;
         HashSet<WalkEdgeKind>? edges = null;
         if (through is not null)
         {
             if (through.Length == 0)
-                return "error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"]), or omit it to walk every type.";
+                return "error: walk.through is empty — name the record types the walk expands through (e.g. [\"LeveledItem\", \"Outfit\"])"
+                       + (edgeKinds ? ", or the edge kinds whose rows to show (e.g. [\"texture\", \"script\"])," : ",") + " or omit it to walk every type.";
             // One token is a record type or, on the asset walk, an edge kind; the two spellings share no name.
             foreach (var t in through)
             {
@@ -128,9 +129,10 @@ public static class WalkGrammar
     }
 
     /// <summary>The exclusions alone, as copy takes them under <paramref name="field"/>: each entry's type expanded to
-    /// the display names a read reports, each name once at its first entry; or the one refusal.</summary>
+    /// the display names a read reports, each name once at its first entry; or the one refusal. On the asset walk
+    /// (<paramref name="edgeKinds"/>) an edge kind is refused by name, pointing at walk.through.</summary>
     internal static string? ParseExclusions(TypeLookup types, IReadOnlyList<RecordsTools.RecordsWalkExclusion>? entries,
-                                            string field, out List<(string Match, bool Refuse)> exclusions)
+                                            string field, out List<(string Match, bool Refuse)> exclusions, bool edgeKinds = false)
     {
         exclusions = new();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -142,7 +144,10 @@ public static class WalkGrammar
             if (sev is not ("stop" or "refuse"))
                 return $"error: {field} '{x.match}': severity='{x.severity}' — use 'stop' (prune, record the boundary) or 'refuse' (the whole walk fails loud).";
             // A name or a signature, matched as the type name a read reports.
-            if (types.DisplayNames(new[] { x.match! }) is not { } names) return NotAType(field, x.match!);
+            if (types.DisplayNames(new[] { x.match! }) is not { } names)
+                return edgeKinds && WalkEdgeKinds.Parse(x.match!) is { } k && k != WalkEdgeKind.Seed
+                    ? $"error: {field} '{x.match}' is an edge kind — exclusions take record types; name the edge kinds whose rows to show in walk.through (e.g. [\"texture\", \"script\"])."
+                    : NotAType(field, x.match!);
             foreach (var name in names)
                 if (seen.Add(name)) exclusions.Add((name, sev == "refuse"));
         }
