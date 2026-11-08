@@ -105,8 +105,9 @@ public sealed class UnreadLinksWalkTests : IClassFixture<UnreadLinksFixture>
         Assert.DoesNotContain(d.Notes, n => n.Contains("its links"));
     }
 
-    /// <summary>Under "*" the perk is not followed past; the default and a named walk.follow follow none of its fields
-    /// and leave its links uncounted. Each answers, with the note on the perk.</summary>
+    /// <summary>Under "*" the perk is not followed past; the default (a perk has no part field) and walk.follow "Items"
+    /// (a field a perk lacks) follow none of its fields, though its NextPerk reads (the named Fact below), and leave
+    /// its links uncounted. Each answers, with the note on the perk.</summary>
     [Theory]
     [InlineData("*")]
     [InlineData(null)]
