@@ -111,14 +111,15 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
         Assert.Equal(3, chosen.Notes.Count);
     }
 
-    /// <summary>The selection lists nothing beyond what asset_status's call lists today: over a fresh world each, the
-    /// selection alone takes exactly the listings a whole asset_status call takes for the same input, and run again
-    /// over the same view it takes none.</summary>
+    /// <summary>The selection lists nothing beyond what asset_status's call lists today: over a fresh world each, a
+    /// capture and a selection take exactly the listings an asset_status call takes for the same input when its window
+    /// is past the end (so it resolves no row: the same span, capture and selection), and run again over the same view
+    /// the selection takes none.</summary>
     [Fact]
     public void TheSelectionListsNoMoreThanAssetStatusDoes()
     {
         using var statusWorld = new AssetSelectWorld();
-        statusWorld.Svc.AssetStatus(Paths, Under, seeds: Seeds());
+        var status = statusWorld.Svc.AssetStatus(Paths, Under, limit: 1, offset: int.MaxValue, seeds: Seeds());
         var statusListed = ((ILoadOrderHost)statusWorld.Svc).Assets.WarmListingCount;
 
         using var selectWorld = new AssetSelectWorld();
@@ -126,12 +127,14 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
         var resolver = ((ILoadOrderHost)selectWorld.Svc).Assets;
         var atCapture = resolver.WarmListingCount;
         var first = FileSelection.Select(capture, Paths, Under, null, null);
-        var selectListed = resolver.WarmListingCount - atCapture;
+        var selectListed = resolver.WarmListingCount;
         var again = FileSelection.Select(capture, Paths, Under, null, null);
 
-        Assert.True(selectListed > 0, "the under= folders are listed through the view");
+        Assert.Empty(status.Results);
+        Assert.Equal(first.Entries.Count, status.Total);
+        Assert.True(selectListed > atCapture, "the under= folders are listed through the view");
         Assert.Equal(statusListed, selectListed);
-        Assert.Equal(atCapture + selectListed, resolver.WarmListingCount);
+        Assert.Equal(selectListed, resolver.WarmListingCount);
         Assert.Equal(first.Entries, again.Entries);
         Assert.Equal(first.Notes, again.Notes);
     }

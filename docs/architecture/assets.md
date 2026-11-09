@@ -716,8 +716,9 @@ provided either; the generic lane does not, because it legitimately answers for 
   (wins, shadowed by the named winner, not provided) on the text, json and artifact lanes; the census's
   `provides / wins / shadowed` line and the shadowed-layers table, with a layer's own archive copy not shadowing it.
 - *Selecting a set of paths*: `FileSelectionTests` — a second caller of `FileSelection.Select` gets `asset_status`'s
-  entries and notes for one input with every selector kind (`ASecondCallerSelectsWhatAssetStatusSelects`); it takes
-  exactly the listings a whole `asset_status` call takes and none on a rerun over the same view
+  entries and notes for one input with every selector kind (`ASecondCallerSelectsWhatAssetStatusSelects`); a capture
+  and a selection take exactly the listings an `asset_status` call whose window resolves no row takes, and the selection
+  takes none on a rerun over the same view
   (`TheSelectionListsNoMoreThanAssetStatusDoes`); an unticked mod on disk, its archive and a separator are refused with
   the one unknown-provider sentence, word for word (`AProviderTheOrderDoesNotLoadIsRefusedWithTheOneSentence`).
 - *Selecting a set of paths*: `BsaFilterTests` — `bsa_list` and `bsa_extract` `under=` keep an exact path, a `**` glob,
