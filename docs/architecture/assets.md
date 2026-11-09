@@ -286,8 +286,11 @@ The selectors together (explicit paths, `under=`, `formids=` pairs, `provider=`)
 `FileSelection.Select` (#1318): given the capture `AssetLayers.CaptureForSelection` took (the call's view, the
 `formids=` seeds it was taken for, and their face answers read over the pin taken with it), it returns the ordered
 entries, the selector notes and the provider refusal. Given a path bound, its `under=` or whole-provider enumeration
-stops once the selection would cross it and returns `StoppedAt`, the least count the selection is known to have;
-explicit paths and `formids=` rows are never cut, they only leave that enumeration less room. The refusal that words
+stops once its matches fill what the rows before them leave of the bound, plus one, and it returns `StoppedAt`: one
+past the bound, or the selected count when that is more. Those matches count paths already selected (an overlapping
+`under=` selector, or an explicit path inside an `under=` folder), so after dedup the selection can hold fewer than
+`StoppedAt`, even no more than the bound. Explicit paths and `formids=` rows are never cut; they only leave that
+enumeration less room. The refusal that words
 the stop is the caller's: `asset_status`'s advice names its own parameters (`under=`, `asset_paths=`, `formids=`,
 `to_file=`, `counts_only=`, `limit=`, `offset=`). It captures nothing and reads only through the view it is handed,
 so a tool that calls it selects the same files with the same notes and the same refusal as `asset_status`.
