@@ -288,10 +288,11 @@ The selectors together (explicit paths, `under=`, `formids=` pairs, `provider=`)
 entries, the selector notes and the provider refusal. Given a path bound, its `under=` or whole-provider enumeration
 stops once the selection would cross it and returns `StoppedAt`, the least count the selection is known to have;
 explicit paths and `formids=` rows are never cut, they only leave that enumeration less room. The refusal that words
-the stop is the caller's: `asset_status`'s names its own parameters (`to_file=`, `counts_only=`, `limit=`). It captures nothing and reads only
-through the view it is handed, so a tool that calls it selects the same files with the same notes and the same
-refusal as `asset_status`. `asset_status` keeps the capture, the window, the declared-cost refusal and the resolve; the
-walk takes its seeds from `asset_status`'s rows, so it selects through the same component.
+the stop is the caller's: `asset_status`'s advice names its own parameters (`under=`, `asset_paths=`, `formids=`,
+`to_file=`, `counts_only=`, `limit=`, `offset=`). It captures nothing and reads only through the view it is handed,
+so a tool that calls it selects the same files with the same notes and the same refusal as `asset_status`.
+`asset_status` keeps the capture, the window, the declared-cost refusal and the resolve; the walk takes its seeds from
+`asset_status`'s rows, so it selects through the same component.
 
 The `counts_only=` census has two layer tables: the layers that **win** paths and the layers that ship a copy another
 layer wins over (**shadowed**), each layer counted once per path, so a mod's loose copy beside its own archive's copy
