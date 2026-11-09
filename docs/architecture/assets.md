@@ -728,7 +728,11 @@ provided either; the generic lane does not, because it legitimately answers for 
   and a selection take exactly the listings an `asset_status` call whose window resolves no row takes, and the selection
   takes none on a rerun over the same view
   (`TheSelectionListsNoMoreThanAssetStatusDoes`); an unticked mod on disk, its archive and a separator are refused with
-  the one unknown-provider sentence, word for word (`AProviderTheOrderDoesNotLoadIsRefusedWithTheOneSentence`).
+  the one unknown-provider sentence, word for word (`AProviderTheOrderDoesNotLoadIsRefusedWithTheOneSentence`); without
+  `provider=`, the unticked mod's folder is only a miss note (`TheUntickedModsFilesAreNotSelectedWithoutAProvider`); an
+  explicit path given twice is two entries, and its folder adds only its other files
+  (`AnExplicitPathGivenTwiceIsTwoEntries`); a bound stop that dedup leaves at the bound has `StoppedAt` one past it
+  (`ABoundStopLeftAtTheBoundByDedupSaysOnePastIt`).
 - *Selecting a set of paths*: `BsaFilterTests` — `bsa_list` and `bsa_extract` `under=` keep an exact path, a `**` glob,
   a plain folder and everything beneath it but not a sibling prefix, and the union of several selectors; each selector
   that matches nothing is named, and a blank or bad one beside a usable one is noted; an extract writes only the matches
