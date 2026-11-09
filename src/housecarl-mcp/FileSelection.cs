@@ -24,8 +24,10 @@ internal static class FileSelection
 {
     /// <summary>The selection over <paramref name="capture"/>'s view: explicit paths first, never deduped; then each of
     /// its seeds' pair halves from its faces (or a row saying why it has none); then each <c>under=</c> selector's matches,
-    /// deduped, or the whole provider when no other selector is given. <paramref name="maxPaths"/> bounds the selection
-    /// (null: no bound); past it the enumeration stops and <see cref="FileSelectionResult.StoppedAt"/> is set.</summary>
+    /// deduped, or the whole provider when no other selector is given. <paramref name="maxPaths"/> (null: none) bounds
+    /// only that <c>under=</c> or whole-provider enumeration, which stops once the selection would cross it and sets
+    /// <see cref="FileSelectionResult.StoppedAt"/>; explicit and seed rows are never cut, only leave it less room. The
+    /// caller words the stop.</summary>
     internal static FileSelectionResult Select(
         SelectionCapture capture,
         IReadOnlyList<string> relPaths,
