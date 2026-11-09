@@ -1,7 +1,9 @@
 using HousecarlCore;
 using HousecarlGenerator;
 using HousecarlMcp;
+using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Skyrim;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -32,7 +34,22 @@ public sealed class UnloadedProviderWorld : IDisposable
         Directory.CreateDirectory(separator);
         File.WriteAllText(Path.Combine(separator, "meta.ini"), "[General]\r\n");
         File.AppendAllText(Path.Combine(W.ProfileDir, "modlist.txt"), "-" + UntickedMod + "\r\n+" + Separator + "\r\n");
+
+        var templated = new SkyrimMod(ModKey.FromFileName(TemplatedPlugin), SkyrimRelease.SkyrimSE);
+        var npc = new Npc(FormKey.Factory(TemplatedFormId), SkyrimRelease.SkyrimSE) { EditorID = "HcTemplatedNpc" };
+        npc.Race.SetTo(new FormKey(ModKey.FromFileName(AssetSelectWorld.PairMaster), FaceNpcPlugin.RaceId));
+        npc.Template.SetTo(FormKey.Factory(AssetSelectWorld.MatchedFormId));
+        npc.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+        templated.Npcs.Add(npc);
+        templated.BeginWrite.ToPath(Path.Combine(W.Root, "game", "Data", TemplatedPlugin)).WithNoLoadOrder().Write();
+        File.AppendAllText(Path.Combine(W.ProfileDir, "loadorder.txt"), TemplatedPlugin + "\r\n");
+        File.AppendAllText(Path.Combine(W.ProfileDir, "plugins.txt"), "*" + TemplatedPlugin + "\r\n");
     }
+
+    /// <summary>A Traits-templated NPC whose root is <see cref="AssetSelectWorld.MatchedFormId"/>, so its pair rows carry
+    /// the face door's template-root line.</summary>
+    public const string TemplatedPlugin = "HcTemplated.esp";
+    public const string TemplatedFormId = "000801:" + TemplatedPlugin;
 
     public void Dispose() => W.Dispose();
 }
@@ -90,26 +107,35 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
 
     /// <summary>A second caller of the selection gets asset_status's own entries and notes, in its order, for one input
     /// with every selector kind: explicit paths good and bad, under= folders, misses, an empty and an invalid selector,
-    /// formids= seeds that pair, fail to parse and name no record, and provider=.</summary>
+    /// formids= seeds that pair, pair through a template root, fail to parse and name no record, and provider=. Each
+    /// entry is compared whole: its error (an explicit path's own is the resolve's, which the selection leaves to the
+    /// caller) and its face line.</summary>
     [Fact]
     public void ASecondCallerSelectsWhatAssetStatusSelects()
     {
-        var status = _w.Svc.AssetStatus(Paths, Under, seeds: Seeds(), provider: " FaceBase ");
+        var seeds = Seeds().Append(new FaceGenSeed(UnloadedProviderWorld.TemplatedFormId,
+                                                   FormKey.Factory(UnloadedProviderWorld.TemplatedFormId), null)).ToArray();
+        var status = _w.Svc.AssetStatus(Paths, Under, seeds: seeds, provider: " FaceBase ");
 
-        var capture = _w.Svc.AssetArea.CaptureForSelection(Seeds(), null);
+        var capture = _w.Svc.AssetArea.CaptureForSelection(seeds, null);
         var chosen = FileSelection.Select(capture, Paths, Under, " FaceBase ", null);
 
+        static string? PathError(string p)
+        {
+            try { AssetResolver.ValidateRelPath(p.Trim()); return null; } catch (ArgumentException ex) { return ex.Message; }
+        }
         Assert.Null(chosen.Refusal);
         Assert.Null(chosen.StoppedAt);
         Assert.Equal("FaceBase", chosen.Provider);
         Assert.Equal(status.Provider, chosen.Provider);
         Assert.Equal(status.SelectorNotes, chosen.Notes);
-        Assert.Equal(status.Results.Select(r => (r.RelPath, r.FormId, r.Slot, r.PairPath)),
-                     chosen.Entries.Select(e => (e.Path.Trim(), e.FormId, e.Slot, e.PairPath)));
-        // Every kind landed: the bad seeds and bad path as their own rows, a pair, and the folder's matches.
+        Assert.Equal(status.Results.Select(r => (r.RelPath, r.FormId, r.Slot, r.PairPath, r.Error, r.FaceNote)),
+                     chosen.Entries.Select(e => (e.Path.Trim(), e.FormId, e.Slot, e.PairPath, e.Error ?? PathError(e.Path), e.FaceNote)));
+        // Every kind landed: the bad seeds and bad path as their own rows, a pair, a template root's pair, and the folder's matches.
         Assert.Contains(chosen.Entries, e => e.FormId == "nope" && e.Error is not null);
         Assert.Contains(chosen.Entries, e => e.FormId == "0F0F0F:" + AssetSelectWorld.PairMaster && e.Error is not null);
         Assert.Contains(chosen.Entries, e => e.FormId == AssetSelectWorld.SplitFormId && e.Slot == FaceGenSlot.Tint);
+        Assert.Equal(2, chosen.Entries.Count(e => e.FormId == UnloadedProviderWorld.TemplatedFormId && e.FaceNote is not null));
         Assert.Contains(status.Results, r => r.RelPath == @"..\escape.nif" && r.Error is not null);
         Assert.Contains(chosen.Entries, e => string.Equals(e.Path, _w.Rel("0003.nif"), StringComparison.OrdinalIgnoreCase));
         Assert.Equal(3, chosen.Notes.Count);
