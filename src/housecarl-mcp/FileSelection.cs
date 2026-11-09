@@ -6,9 +6,10 @@ namespace HousecarlMcp;
 /// <summary>One entry of a file selection: the path, and on a <c>formids=</c> row the NPC, the slot, the other half's path and the face door's line for a template root. <c>Error</c> answers as its own row.</summary>
 internal readonly record struct SelectedFile(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null, string? FaceNote = null);
 
-/// <summary>What a file selection reads: the call's asset capture and, when its seeds name an NPC, the face door's
-/// answers over the pin taken with it, or why the load order could not be read.</summary>
-internal sealed record SelectionCapture(AssetCapture Captured, IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? NoOrder);
+/// <summary>What a file selection reads: the call's asset capture, the <c>formids=</c> seeds it was taken for and,
+/// when they name an NPC, the face door's answers over the pin taken with it, or why the load order could not be read.</summary>
+internal sealed record SelectionCapture(AssetCapture Captured, IReadOnlyList<FaceGenSeed>? Seeds,
+                                        IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? NoOrder);
 
 /// <summary>A file selection: the entries in order, what each selector had to say, the provider every row is read
 /// against, and the refusal (a provider the order does not load) under which nothing was selected. <see cref="StoppedAt"/>
@@ -21,19 +22,18 @@ internal sealed record FileSelectionResult(IReadOnlyList<SelectedFile> Entries, 
 /// selects the same files with the same notes and the same refusal.</summary>
 internal static class FileSelection
 {
-    /// <summary>The selection over <paramref name="capture"/>'s view: explicit paths first, never deduped; then each
-    /// seed's pair halves from its faces (or a row saying why it has none); then each <c>under=</c> selector's matches,
+    /// <summary>The selection over <paramref name="capture"/>'s view: explicit paths first, never deduped; then each of
+    /// its seeds' pair halves from its faces (or a row saying why it has none); then each <c>under=</c> selector's matches,
     /// deduped, or the whole provider when no other selector is given. <paramref name="maxPaths"/> bounds the selection
     /// (null: no bound); past it the enumeration stops and <see cref="FileSelectionResult.StoppedAt"/> is set.</summary>
     internal static FileSelectionResult Select(
         SelectionCapture capture,
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under,
-        IReadOnlyList<FaceGenSeed>? seeds,
         string? provider,
         int? maxPaths)
     {
-        var (view, faces, noOrder) = (capture.Captured.View, capture.Faces, capture.NoOrder);
+        var (view, seeds, faces, noOrder) = (capture.Captured.View, capture.Seeds, capture.Faces, capture.NoOrder);
         provider = provider?.Trim() is { Length: > 0 } named ? named : null;
         // A provider the build does not have would walk nothing and read every row as not provided, so it is refused by name.
         if (provider is not null && !view.HasProvider(provider))
