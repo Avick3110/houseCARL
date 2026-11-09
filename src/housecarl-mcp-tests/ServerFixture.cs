@@ -52,11 +52,10 @@ public sealed class ServerFixture : IDisposable
     /// touching the shared one, which every other stdio test reads.</summary>
     internal ServerFixture(IReadOnlyDictionary<string, string>? environment)
     {
-        var exe = Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "bin",
-                               HarnessPaths.Configuration, HarnessPaths.TargetFramework, "housecarl-mcp.exe");
+        var exe = HarnessPaths.ServerExe;
         if (!File.Exists(exe))
             throw new InvalidOperationException(
-                $"housecarl-mcp.exe is not built at '{exe}'. Build the solution in " +
+                $"{Path.GetFileName(exe)} is not built at '{exe}'. Build the solution in " +
                 $"{HarnessPaths.Configuration} first — these tests drive the real server and cannot " +
                 "substitute anything else for it.");
 

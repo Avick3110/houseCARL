@@ -14,6 +14,10 @@ static class HarnessPaths
     /// <summary>The target framework folder — read off the same path; the server is built for the same one.</summary>
     public static string TargetFramework => BuildFolder.TargetFramework;
 
+    /// <summary>The built server's executable, named as this OS names an app host: with .exe on Windows, without elsewhere.</summary>
+    public static string ServerExe => Path.Combine(RepoRoot, "src", "housecarl-mcp", "bin", Configuration, TargetFramework,
+                                                   OperatingSystem.IsWindows() ? "housecarl-mcp.exe" : "housecarl-mcp");
+
     static readonly (string Configuration, string TargetFramework) BuildFolder = FindBuildFolder();
 
     static string FindRepoRoot()
