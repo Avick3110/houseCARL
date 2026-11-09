@@ -59,7 +59,7 @@ internal sealed partial class AssetLayers
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
         // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
         bool wholeIsResolved = wholeSelection || limit <= 0;
-        var chosen = FileSelection.Select(capture, relPaths, under, seeds, provider, wholeIsResolved ? MaxAssetPaths : null);
+        var chosen = FileSelection.Select(capture, relPaths, under, provider, wholeIsResolved ? MaxAssetPaths : null);
         if (chosen.Refusal is { } unknown)
             return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
                                        view.ReadIncomplete, warnings, profileName, Refusal: unknown);
@@ -140,23 +140,24 @@ internal sealed partial class AssetLayers
         => read.Links is not { } links ? (null, read.Error)
          : (links.Select(l => new ResolvedNifLink(l, l.DataPath is { } d ? view.Resolve(d) : null)).ToList(), null);
 
-    /// <summary>The one capture a <see cref="FileSelection"/> reads: the call's asset view and, when <paramref name="seeds"/>
-    /// name an NPC, the face door's answers over the pin taken with it, or why the load order could not be read.</summary>
+    /// <summary>The one capture a <see cref="FileSelection"/> reads: the call's asset view, <paramref name="seeds"/> as
+    /// given and, when they name an NPC, the face door's answers over the pin taken with it, or why the load order could
+    /// not be read.</summary>
     internal SelectionCapture CaptureForSelection(
         IReadOnlyList<FaceGenSeed>? seeds, FaceSources? faceSources)
     {
         // formids= reads each NPC's record, so it takes the index with the assets; a call with none reads no record.
         var npcKeys = (seeds ?? Array.Empty<FaceGenSeed>()).Where(s => s.Error is null && s.Key is not null).Select(s => s.Key!.Value).ToList();
-        if (npcKeys.Count == 0) return new SelectionCapture(_host.CaptureAssets(), null, null);   // the view is pinned and handle-free, so the body runs outside the gate
+        if (npcKeys.Count == 0) return new SelectionCapture(_host.CaptureAssets(), seeds, null, null);   // the view is pinned and handle-free, so the body runs outside the gate
         try
         {
             var (pin, assets) = _host.CapturePinAndAssets(null);
-            return new SelectionCapture(assets, Faces(pin, assets.Roots, npcKeys, faceSources), null);
+            return new SelectionCapture(assets, seeds, Faces(pin, assets.Roots, npcKeys, faceSources), null);
         }
         catch (Exception ex)
         {
             // Every formids= row says why it has no pair; the asset rows still answer off the VFS.
-            return new SelectionCapture(_host.CaptureAssets(), null, $"the load order could not be read: {ex.Message}");
+            return new SelectionCapture(_host.CaptureAssets(), seeds, null, $"the load order could not be read: {ex.Message}");
         }
     }
 
