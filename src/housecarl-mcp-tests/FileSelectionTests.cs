@@ -7,13 +7,14 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary><see cref="AssetSelectWorld"/> plus what a profile holds but does not load: a mod folder left unticked,
-/// with a loose file and its own archive, and a separator.</summary>
+/// with a loose file, its own archive and the plugin that loads it (so ticked, the archive is active), and a separator.</summary>
 public sealed class UnloadedProviderWorld : IDisposable
 {
     public AssetSelectWorld W { get; } = new();
 
     public const string UntickedMod = "HcUnticked";
     public const string UntickedArchive = "HcUnticked.bsa";
+    public const string UntickedPlugin = "HcUnticked.esp";
     public const string Separator = "Hc Extras_separator";
 
     public UnloadedProviderWorld()
@@ -24,6 +25,9 @@ public sealed class UnloadedProviderWorld : IDisposable
         File.WriteAllBytes(Path.Combine(unticked, UntickedArchive),
             BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
                 new[] { (@"meshes\hcunticked", new[] { ("y.nif", BsaBuilder.Bytes("NIF-Y", 48)) }) }));
+        FaceNpcPlugin.Write(unticked, UntickedPlugin);
+        File.AppendAllText(Path.Combine(W.ProfileDir, "loadorder.txt"), UntickedPlugin + "\r\n");
+        File.AppendAllText(Path.Combine(W.ProfileDir, "plugins.txt"), "*" + UntickedPlugin + "\r\n");
         var separator = Path.Combine(W.ModsDir, Separator);
         Directory.CreateDirectory(separator);
         File.WriteAllText(Path.Combine(separator, "meta.ini"), "[General]\r\n");
