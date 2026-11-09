@@ -141,6 +141,19 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
         Assert.Equal(3, chosen.Notes.Count);
     }
 
+    /// <summary>Explicit paths are never deduped: one given twice is two entries, in the order given, and an under=
+    /// folder holding it adds only its other files. Pins unchanged behaviour.</summary>
+    [Fact]
+    public void AnExplicitPathGivenTwiceIsTwoEntries()
+    {
+        var path = _w.Rel("0001.nif");
+        var chosen = FileSelection.Select(_w.Svc.AssetArea.CaptureForSelection(null, null),
+                                          new[] { path, path }, new[] { AssetSelectWorld.FaceGeomDir }, null, null);
+
+        Assert.Equal(new[] { path, path }, chosen.Entries.Take(2).Select(e => e.Path));
+        Assert.Equal(1 + AssetSelectWorld.FaceGeomFiles, chosen.Entries.Count);
+    }
+
     /// <summary>The selection lists nothing beyond what asset_status's call lists today: over a fresh world each, a
     /// capture and a selection take exactly the listings an asset_status call takes for the same input when its window
     /// is past the end (so it resolves no row: the same span, capture and selection), and run again over the same view
