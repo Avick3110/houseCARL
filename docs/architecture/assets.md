@@ -283,9 +283,12 @@ json row as `provider_standing` (`wins`, `shadowed`, `hidden`, `not_provided`), 
 part of what the mod provides.
 
 The selectors together (explicit paths, `under=`, `formids=` pairs, `provider=`) are one component,
-`FileSelection.Select` (#1318): given the call's captured view and, for `formids=`, the face answers
-`AssetLayers.CaptureForSelection` read over the pin taken with it, it returns the ordered entries, the selector notes
-and the provider refusal, and stops at the path bound when given one, saying so. It captures nothing and reads only
+`FileSelection.Select` (#1318): given the capture `AssetLayers.CaptureForSelection` took (the call's view, the
+`formids=` seeds it was taken for, and their face answers read over the pin taken with it), it returns the ordered
+entries, the selector notes and the provider refusal. Given a path bound, its `under=` or whole-provider enumeration
+stops once the selection would cross it and returns `StoppedAt`, the least count the selection is known to have;
+explicit paths and `formids=` rows are never cut, they only leave that enumeration less room. The refusal that words
+the stop is the caller's: `asset_status`'s names its own parameters (`to_file=`, `counts_only=`, `limit=`). It captures nothing and reads only
 through the view it is handed, so a tool that calls it selects the same files with the same notes and the same
 refusal as `asset_status`. `asset_status` keeps the capture, the window, the declared-cost refusal and the resolve; the
 walk takes its seeds from `asset_status`'s rows, so it selects through the same component.
