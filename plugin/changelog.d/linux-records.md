@@ -1,0 +1,1 @@
+- **On Linux the server now starts and serves the record reads; every other tool refuses in one sentence naming #1256.** Check by calling `housecarl_asset_status` on Linux and reading the refusal.

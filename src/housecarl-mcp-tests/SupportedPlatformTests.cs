@@ -1,161 +1,95 @@
-using System.Diagnostics;
-using System.Text;
+using System.Text.Json;
 using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The start-up refusal on a non-Windows OS (#1256). CI runs on Windows, so the OS fact is passed in rather than
-/// read; the Windows side is also covered by every stdio test, which boots the real server.
+/// The off-Windows gate (#1256): the record reads are served, every other tool and every pole that can reach a file
+/// outside the active order is refused per call. CI runs on Windows, so the OS fact is passed in rather than read.
 /// </summary>
 [Trait("tier", "unit")]
 public sealed class SupportedPlatformTests
 {
-    /// <summary>Off Windows the server says one plain sentence: what is wrong, what to try, and the issue.</summary>
+    static IDictionary<string, JsonElement> Args(string json) =>
+        JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json)!;
+
+    /// <summary>Off Windows a tool outside the served set is refused in one sentence naming the tool and the issue.</summary>
     [Fact]
-    public void ANonWindowsStartIsRefusedInOneSentence()
+    public void ANonWindowsCallToAnAssetToolIsRefusedInOneSentence()
     {
-        var said = SupportedPlatform.Refusal(isWindows: false);
+        var said = SupportedPlatform.Refusal(ToolNames.AssetStatus, null, isWindows: false);
 
         Assert.NotNull(said);
-        Assert.Contains("Windows only", said, StringComparison.Ordinal);
-        Assert.Contains("run it on a Windows PC instead", said, StringComparison.Ordinal);
+        Assert.Contains(ToolNames.AssetStatus, said, StringComparison.Ordinal);
         Assert.Contains("issues/1256", said, StringComparison.Ordinal);
         Assert.DoesNotContain('\n', said);
         Assert.EndsWith(".", said, StringComparison.Ordinal);
     }
 
-    /// <summary>On Windows nothing is refused, so the start is unchanged.</summary>
-    [Fact]
-    public void AWindowsStartIsNotRefused() =>
-        Assert.Null(SupportedPlatform.Refusal(isWindows: true));
-}
+    /// <summary>On Windows nothing is refused, whatever the tool or its poles.</summary>
+    [Theory]
+    [InlineData(ToolNames.AssetStatus, "{}")]
+    [InlineData(ToolNames.Records, """{"source": {"overlay": "skypatcher", "state": "post"}}""")]
+    public void AWindowsCallIsNotRefused(string tool, string args) =>
+        Assert.Null(SupportedPlatform.Refusal(tool, Args(args), isWindows: true));
 
-/// <summary>
-/// The real entry point, run in-process with the OS fact swapped, so dropping the gate from Program.cs fails here
-/// on Windows CI. Serial: it swaps the process-wide console streams and the OS seam.
-/// </summary>
-[Trait("tier", "unit")]
-[Collection(SerialCollection.Name)]
-public sealed class SupportedPlatformEntryTests
-{
-    /// <summary>Off Windows the start writes the sentence to <c>Console.Error</c>, nothing to <c>Console.Out</c>, and exits 1; the raw stdout and the start order are pinned by <see cref="SupportedPlatformProcessTests"/>.</summary>
-    [Fact]
-    public void TheEntryPointRefusesANonWindowsStart()
+    /// <summary>Off Windows a records read on the active order is served: no pole, the winner in any case, the provider below.</summary>
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"source": "WINNER"}""")]
+    [InlineData("""{"versus": "previous_provider"}""")]
+    [InlineData("""{"source": null, "versus": "winner"}""")]
+    public void ANonWindowsRecordsReadOnTheActiveOrderIsServed(string args) =>
+        Assert.Null(SupportedPlatform.Refusal(ToolNames.Records, Args(args), isWindows: false));
+
+    /// <summary>Off Windows a pole that names a plugin, a file pair or the overlay is refused naming that pole, in any spelling of its name.</summary>
+    [Theory]
+    [InlineData("""{"source": "Requiem.esp"}""", "source=")]
+    [InlineData("""{"Source": "Requiem.esp"}""", "source=")]
+    [InlineData("""{"versus": {"overlay": "skypatcher", "state": "post"}}""", "versus=")]
+    [InlineData("""{"versus": {"file": "X.esp", "mod": "Some Mod"}}""", "versus=")]
+    public void ANonWindowsRecordsPoleOutsideTheActiveOrderIsRefused(string args, string pole)
     {
-        var entry = ToolSurface.Assembly.EntryPoint!;
-        var (realOut, realErr, realOs) = (Console.Out, Console.Error, SupportedPlatform.IsWindows);
-        var stdout = new StringWriter();
-        var stderr = new StringWriter();
-        try
-        {
-            SupportedPlatform.IsWindows = () => false;
-            // Without the gate the server serves the runner's raw stdin and returns only at its EOF; the 30 s wait bounds that.
-            Console.SetOut(stdout);
-            Console.SetError(stderr);
-            var run = Task.Run(() => entry.Invoke(null, [Array.Empty<string>()]) switch
-            {
-                Task<int> t => t.GetAwaiter().GetResult(),
-                int code => code,
-                var other => throw new InvalidOperationException($"unexpected entry result {other}"),
-            });
-            Assert.True(run.Wait(TimeSpan.FromSeconds(30)), "the entry point did not return within 30 s");
-            Assert.Equal(1, run.Result);
-        }
-        finally
-        {
-            SupportedPlatform.IsWindows = realOs;
-            Console.SetOut(realOut);
-            Console.SetError(realErr);
-        }
+        var said = SupportedPlatform.Refusal(ToolNames.Records, Args(args), isWindows: false);
 
-        Assert.Equal(SupportedPlatform.Refusal(isWindows: false) + Environment.NewLine, stderr.ToString());
-        Assert.Empty(stdout.ToString());
+        Assert.NotNull(said);
+        Assert.StartsWith("error: " + pole, said, StringComparison.Ordinal);
+        Assert.Contains("issues/1256", said, StringComparison.Ordinal);
     }
 }
 
 /// <summary>
-/// The built exe, started as its own process with the OS fact swapped by a .NET startup hook (<see cref="StartupHook"/>,
-/// in this test assembly), so the raw stdout pipe a client reads is what is measured, not <c>Console.Out</c>.
+/// The built server, started as its own process with the OS fact swapped by a .NET startup hook (<see cref="StartupHook"/>,
+/// in this test assembly), so the gate is measured where a client meets it: on the wire.
 /// </summary>
-[Trait("tier", "unit")]
+[Trait("tier", "stdio")]
 public sealed class SupportedPlatformProcessTests
 {
-    /// <summary>Off Windows nothing reaches the raw stdout, the client's JSON-RPC channel.</summary>
+    static ServerFixture StartAsNonWindows() => new(new Dictionary<string, string>
+    {
+        ["DOTNET_STARTUP_HOOKS"] = typeof(StartupHook).Assembly.Location,
+    });
+
+    /// <summary>Off Windows the server starts and serves the record reads, and an asset tool comes back refused, not run.</summary>
     [Fact]
-    public void ANonWindowsStartWritesNothingToTheRawStdout()
+    public void ANonWindowsServerServesTheRecordReadsAndRefusesTheRest()
     {
-        var (exit, stdout, stderr) = BootAsNonWindows(new Dictionary<string, string?>());
+        using var server = StartAsNonWindows();
 
-        Assert.Equal(1, exit);
-        Assert.Equal(SupportedPlatform.Refusal(isWindows: false) + Environment.NewLine, stderr);
-        Assert.Empty(stdout);
-    }
+        var status = server.Call(ToolNames.LoadOrderStatus, "{}");
+        Assert.True(status.BodyRan, status.Describe());
 
-    /// <summary>
-    /// The refusal runs before the depth read and before the host builds: a refused depth value is never reported, and a
-    /// corrupt user config is never read, so it is not backed up.
-    /// </summary>
-    [Theory]
-    [InlineData(null)]
-    [InlineData("1")]
-    public void ANonWindowsStartIsRefusedBeforeTheDepthReadAndTheHost(string? depth)
-    {
-        var dataDir = Path.Combine(Path.GetTempPath(), "housecarl-mcp-tests-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dataDir);
-        try
-        {
-            var config = Path.Combine(dataDir, "houseCARL.user.json");
-            File.WriteAllText(config, "{ not json");
+        var winner = server.Call(ToolNames.Records, """{"formids": ["000800:Skyrim.esm"]}""");
+        Assert.True(winner.BodyRan, winner.Describe());
 
-            var (exit, stdout, stderr) = BootAsNonWindows(new Dictionary<string, string?>
-            {
-                ["HOUSECARL_DATA_DIR"] = dataDir,
-                [SchemaDepthCap.Variable] = depth,
-            });
+        var asset = server.Call(ToolNames.AssetStatus, """{"asset_paths": ["meshes/a.nif"]}""");
+        Assert.True(asset.IsError, asset.Describe());
+        Assert.False(asset.BodyRan, asset.Describe());
+        Assert.Contains("issues/1256", asset.Text, StringComparison.Ordinal);
 
-            Assert.Equal(1, exit);
-            Assert.Equal(SupportedPlatform.Refusal(isWindows: false) + Environment.NewLine, stderr);
-            Assert.Empty(stdout);
-            Assert.Equal([config], Directory.GetFiles(dataDir));
-            Assert.Equal("{ not json", File.ReadAllText(config));
-        }
-        finally
-        {
-            Directory.Delete(dataDir, recursive: true);
-        }
-    }
-
-    /// <summary>Start the real exe under the hook with this environment, feed it nothing, and collect the raw bytes it wrote.</summary>
-    internal static (int Exit, byte[] Stdout, string Stderr) BootAsNonWindows(IReadOnlyDictionary<string, string?> environment)
-    {
-        var exe = Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "bin",
-                               HarnessPaths.Configuration, HarnessPaths.TargetFramework, "housecarl-mcp.exe");
-        var psi = new ProcessStartInfo(exe)
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-        psi.Environment["DOTNET_STARTUP_HOOKS"] = typeof(StartupHook).Assembly.Location;
-        psi.Environment.Remove(SchemaDepthCap.Variable);
-        foreach (var (name, value) in environment)
-            if (value is null) psi.Environment.Remove(name); else psi.Environment[name] = value;
-
-        using var proc = Process.Start(psi)!;
-        var raw = new MemoryStream();
-        var stdout = proc.StandardOutput.BaseStream.CopyToAsync(raw);
-        var stderr = proc.StandardError.ReadToEndAsync();
-        proc.StandardInput.Close();
-        if (!proc.WaitForExit(30_000))
-        {
-            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
-            Assert.Fail("The server started as non-Windows did not exit within 30 s; it must refuse the start, not serve.");
-        }
-        stdout.GetAwaiter().GetResult();
-        return (proc.ExitCode, raw.ToArray(), stderr.GetAwaiter().GetResult());
+        var named = server.Call(ToolNames.Records, """{"formids": ["000800:Skyrim.esm"], "source": "Requiem.esp"}""");
+        Assert.True(named.IsError, named.Describe());
+        Assert.StartsWith("error: source=", named.Text, StringComparison.Ordinal);
     }
 }

@@ -38,6 +38,7 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | [`architecture/nexus.md`](architecture/nexus.md) | Keyless read-only access to the Nexus Mods v2 GraphQL API: search, mod detail, file-level update checks, MD5 identify, and the raw-query backstop. |
 | [`architecture/papyrus.md`](architecture/papyrus.md) | The compile lane: where the import path comes from and why its order is semantics, how success is decided, and the class hierarchy the decompiler reads. |
 | [`architecture/papyrus-decompile.md`](architecture/papyrus-decompile.md) | The decompile lane: the codegen patterns it reads and the decompiler's fail-loud contracts. |
+| [`architecture/platform.md`](architecture/platform.md) | What the server serves off Windows: the record reads over the active plugins, with every other call refused per call naming #1256. |
 
 ### Instance, status, config
 

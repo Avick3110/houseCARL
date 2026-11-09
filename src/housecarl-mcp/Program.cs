@@ -1,15 +1,8 @@
 using HousecarlMcp;
 using ModelContextProtocol.Protocol;
 
-// houseCARL MCP server over stdio. It reads the active load order statically from the configured MO2 instance. On
-// Windows an empty config still boots.
-
-// Windows only for now: on any other OS the server refuses here, before any tool can answer.
-if (SupportedPlatform.Refusal(SupportedPlatform.IsWindows()) is { } wrongOs)
-{
-    Console.Error.WriteLine(wrongOs);
-    return 1;
-}
+// houseCARL MCP server over stdio. It reads the active load order statically from the configured MO2 instance. An
+// empty config still boots. Off Windows only the record reads are served; SupportedPlatform refuses the rest per call.
 
 // The optional cut on the published schemas, read before the host is built; a bad value stops the start here.
 int? maxSchemaDepth;
@@ -35,6 +28,9 @@ var app = builder.Build();
 var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("houseCARL");
 if (configNote is not null)
     logger.LogWarning("houseCARL user config recovered: {Note}", configNote);   // corrupt file — backed up, never silent
+if (!SupportedPlatform.IsWindows())
+    logger.LogWarning("houseCARL off Windows: serving the record reads only; every other tool refuses per call ({Issue}).",
+                      SupportedPlatform.Issue);
 if (!svc.IsConfigured)
     logger.LogWarning(
         "houseCARL stdio server — NOT configured yet. The first tool call will ask for your MO2 instance folder (or call " + ToolNames.SetMo2Instance + " with it).");
@@ -44,7 +40,7 @@ else
         explicitMode ? "explicit configured paths" : $"MO2 instance '{instanceDir}' [{instanceSource}]");
 await app.RunAsync();
 
-return 0;   // the refusals above return 1, so the exit code is spelled on both paths
+return 0;   // the depth refusal above returns 1, so the exit code is spelled on both paths
 
 // Setup, split out of the top-level flow.
 
@@ -142,6 +138,8 @@ static void AddMcp(IServiceCollection services, int? maxSchemaDepth)
     ToolSchemas.PublishSchemas(services, maxSchemaDepth);
     // The argument-binding shim; see ToolCallShim.
     mcp.WithRequestFilters(f => f.AddCallToolFilter(ToolCallShim.LenientArguments));
+    // The off-Windows gate; see SupportedPlatform. It matches pole names in any spelling, so the order is not load-bearing.
+    mcp.WithRequestFilters(f => f.AddCallToolFilter(SupportedPlatform.OffWindowsGate));
 }
 
 // The exe's stamped version for ServerInfo.
