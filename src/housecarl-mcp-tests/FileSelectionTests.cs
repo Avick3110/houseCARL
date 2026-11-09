@@ -56,8 +56,8 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
         Assert.Equal(Refused(name), AssetTools.AssetStatus(_w.Svc, provider: name));
         Assert.Equal(Refused(name), AssetTools.AssetStatus(_w.Svc, under: new[] { @"meshes\hcunticked" }, provider: name));
 
-        var (captured, faces, noOrder) = _w.Svc.AssetArea.CaptureForSelection(null, null);
-        var chosen = FileSelection.Select(captured.View, Array.Empty<string>(), null, null, faces, noOrder, " " + name + " ", null);
+        var capture = _w.Svc.AssetArea.CaptureForSelection(null, null);
+        var chosen = FileSelection.Select(capture, Array.Empty<string>(), null, null, " " + name + " ", null);
         Assert.Equal(Refused(name), chosen.Refusal);
         Assert.Empty(chosen.Entries);
         Assert.Empty(chosen.Notes);
@@ -92,11 +92,11 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
     {
         var status = _w.Svc.AssetStatus(Paths, Under, seeds: Seeds(), provider: " FaceBase ");
 
-        var (captured, faces, noOrder) = _w.Svc.AssetArea.CaptureForSelection(Seeds(), null);
-        var chosen = FileSelection.Select(captured.View, Paths, Under, Seeds(), faces, noOrder, " FaceBase ", null);
+        var capture = _w.Svc.AssetArea.CaptureForSelection(Seeds(), null);
+        var chosen = FileSelection.Select(capture, Paths, Under, Seeds(), " FaceBase ", null);
 
         Assert.Null(chosen.Refusal);
-        Assert.False(chosen.OverBound);
+        Assert.Null(chosen.StoppedAt);
         Assert.Equal("FaceBase", chosen.Provider);
         Assert.Equal(status.Provider, chosen.Provider);
         Assert.Equal(status.SelectorNotes, chosen.Notes);
@@ -122,12 +122,12 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
         var statusListed = ((ILoadOrderHost)statusWorld.Svc).Assets.WarmListingCount;
 
         using var selectWorld = new AssetSelectWorld();
-        var (captured, faces, noOrder) = selectWorld.Svc.AssetArea.CaptureForSelection(Seeds(), null);
+        var capture = selectWorld.Svc.AssetArea.CaptureForSelection(Seeds(), null);
         var resolver = ((ILoadOrderHost)selectWorld.Svc).Assets;
         var atCapture = resolver.WarmListingCount;
-        var first = FileSelection.Select(captured.View, Paths, Under, Seeds(), faces, noOrder, null, null);
+        var first = FileSelection.Select(capture, Paths, Under, Seeds(), null, null);
         var selectListed = resolver.WarmListingCount - atCapture;
-        var again = FileSelection.Select(captured.View, Paths, Under, Seeds(), faces, noOrder, null, null);
+        var again = FileSelection.Select(capture, Paths, Under, Seeds(), null, null);
 
         Assert.True(selectListed > 0, "the under= folders are listed through the view");
         Assert.Equal(statusListed, selectListed);

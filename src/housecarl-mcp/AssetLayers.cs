@@ -54,24 +54,24 @@ internal sealed partial class AssetLayers
         bool links = false,
         FaceSources? faceSources = null)
     {
-        var (captured, faces, noOrder) = CaptureForSelection(seeds, faceSources);
+        var capture = CaptureForSelection(seeds, faceSources);
+        var captured = capture.Captured;
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
         // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
         bool wholeIsResolved = wholeSelection || limit <= 0;
-        var chosen = FileSelection.Select(view, relPaths, under, seeds, faces, noOrder, provider, wholeIsResolved ? MaxAssetPaths : null);
+        var chosen = FileSelection.Select(capture, relPaths, under, seeds, provider, wholeIsResolved ? MaxAssetPaths : null);
         if (chosen.Refusal is { } unknown)
             return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
                                        view.ReadIncomplete, warnings, profileName, Refusal: unknown);
         provider = chosen.Provider;
         var notes = chosen.Notes;
         var selected = chosen.Entries;
-        if (chosen.OverBound)
+        if (chosen.StoppedAt is { } stoppedAt)
             return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
                                        view.ReadIncomplete,
                                        warnings, profileName, notes, selected.Count, Math.Max(offset, 0),
                                        Math.Max(limit, 0),
-                                       // Dedup can leave the running count at the bound rather than past it; the walk stopping is the proof.
-                                       RenderBudget.RefuseAssetPaths(new AssetPathBound(MaxAssetPaths), Math.Max(selected.Count, MaxAssetPaths + 1),
+                                       RenderBudget.RefuseAssetPaths(new AssetPathBound(MaxAssetPaths), stoppedAt,
                                                                      wholeSelection, atLeast: true)!);
 
         var total = selected.Count;
@@ -142,21 +142,21 @@ internal sealed partial class AssetLayers
 
     /// <summary>The one capture a <see cref="FileSelection"/> reads: the call's asset view and, when <paramref name="seeds"/>
     /// name an NPC, the face door's answers over the pin taken with it, or why the load order could not be read.</summary>
-    internal (AssetCapture Captured, Dictionary<FormKey, NpcFaceAnswer>? Faces, string? NoOrder) CaptureForSelection(
+    internal SelectionCapture CaptureForSelection(
         IReadOnlyList<FaceGenSeed>? seeds, FaceSources? faceSources)
     {
         // formids= reads each NPC's record, so it takes the index with the assets; a call with none reads no record.
         var npcKeys = (seeds ?? Array.Empty<FaceGenSeed>()).Where(s => s.Error is null && s.Key is not null).Select(s => s.Key!.Value).ToList();
-        if (npcKeys.Count == 0) return (_host.CaptureAssets(), null, null);   // the view is pinned and handle-free, so the body runs outside the gate
+        if (npcKeys.Count == 0) return new SelectionCapture(_host.CaptureAssets(), null, null);   // the view is pinned and handle-free, so the body runs outside the gate
         try
         {
             var (pin, assets) = _host.CapturePinAndAssets(null);
-            return (assets, Faces(pin, assets.Roots, npcKeys, faceSources), null);
+            return new SelectionCapture(assets, Faces(pin, assets.Roots, npcKeys, faceSources), null);
         }
         catch (Exception ex)
         {
             // Every formids= row says why it has no pair; the asset rows still answer off the VFS.
-            return (_host.CaptureAssets(), null, $"the load order could not be read: {ex.Message}");
+            return new SelectionCapture(_host.CaptureAssets(), null, $"the load order could not be read: {ex.Message}");
         }
     }
 
