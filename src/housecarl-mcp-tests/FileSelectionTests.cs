@@ -154,6 +154,19 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
         Assert.Equal(1 + AssetSelectWorld.FaceGeomFiles, chosen.Entries.Count);
     }
 
+    /// <summary>A selection the bound stops after dedup has left its count at the bound still says it is over it:
+    /// <see cref="FileSelectionResult.StoppedAt"/> is one past the bound, not the count. Pins unchanged behaviour.</summary>
+    [Fact]
+    public void ABoundStopLeftAtTheBoundByDedupSaysOnePastIt()
+    {
+        const int bound = 4;
+        var chosen = FileSelection.Select(_w.Svc.AssetArea.CaptureForSelection(null, null),
+                                          new[] { _w.Rel("0001.nif") }, new[] { AssetSelectWorld.FaceGeomDir }, null, bound);
+
+        Assert.Equal(bound, chosen.Entries.Count);
+        Assert.Equal(bound + 1, chosen.StoppedAt);
+    }
+
     /// <summary>The selection lists nothing beyond what asset_status's call lists today: over a fresh world each, a
     /// capture and a selection take exactly the listings an asset_status call takes for the same input when its window
     /// is past the end (so it resolves no row: the same span, capture and selection), and run again over the same view
