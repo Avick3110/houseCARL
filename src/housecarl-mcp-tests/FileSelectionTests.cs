@@ -9,7 +9,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary><see cref="AssetSelectWorld"/> plus what a profile holds but does not load: a mod folder left unticked,
-/// with a loose file, its own archive and the plugin that loads it (so ticked, the archive is active), and a separator.</summary>
+/// with a loose file, its own archive and the plugin that loads it (so ticked, the archive is active), and a separator;
+/// plus one loaded plugin, <see cref="TemplatedPlugin"/>, with a Traits-templated NPC.</summary>
 public sealed class UnloadedProviderWorld : IDisposable
 {
     public AssetSelectWorld W { get; } = new();
