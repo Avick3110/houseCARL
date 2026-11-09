@@ -54,110 +54,18 @@ internal sealed partial class AssetLayers
         bool links = false,
         FaceSources? faceSources = null)
     {
-        // formids= reads each NPC's record, so it takes the index with the assets; a call with none reads no record.
-        var npcKeys = (seeds ?? Array.Empty<FaceGenSeed>()).Where(s => s.Error is null && s.Key is not null).Select(s => s.Key!.Value).ToList();
-        AssetCapture captured;
-        Dictionary<FormKey, NpcFaceAnswer>? faces = null;
-        string? noOrder = null;
-        if (npcKeys.Count == 0) captured = _host.CaptureAssets();   // the view is pinned and handle-free, so the body runs outside the gate
-        else
-            try
-            {
-                var (pin, assets) = _host.CapturePinAndAssets(null);
-                captured = assets;
-                faces = Faces(pin, assets.Roots, npcKeys, faceSources);
-            }
-            catch (Exception ex)
-            {
-                // Every formids= row says why it has no pair; the asset rows still answer off the VFS.
-                noOrder = $"the load order could not be read: {ex.Message}";
-                captured = _host.CaptureAssets();
-            }
+        var (captured, faces, noOrder) = CaptureForSelection(seeds, faceSources);
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
-        provider = provider?.Trim() is { Length: > 0 } named ? named : null;
-        // A provider the build does not have would walk nothing and read every row as not provided, so it is refused by name.
-        if (provider is not null && !view.HasProvider(provider))
-            return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
-                                       view.ReadIncomplete, warnings, profileName,
-                                       Refusal: $"error: provider '{provider}' is not in the active load order — name an " +
-                                                "enabled mod folder, 'overwrite', 'Data' or an active archive's filename, " +
-                                                "as a row's providers line spells it.");
-        var notes = new List<string>();
-        var selected = new List<Selection>(relPaths.Count);
-        foreach (var p in relPaths) selected.Add(new Selection(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in relPaths)
-            try { seen.Add(AssetResolver.ValidateRelPath((p ?? "").Trim())); } catch (ArgumentException) { /* a bad explicit path answers per-path below */ }
-
-        // formids=: each NPC contributes BOTH halves of every pair the face door names (its own, or each template
-        // root's), or one row per reason it has none.
-        foreach (var seed in seeds ?? Array.Empty<FaceGenSeed>())
-        {
-            if (seed.Error is not null || seed.Key is not { } fk)
-            {
-                selected.Add(new Selection(seed.Token, seed.Token, null, null, seed.Error));
-                continue;
-            }
-            if (faces?.GetValueOrDefault(fk) is not { } face)
-            {
-                selected.Add(new Selection(seed.Token, seed.Token, null, null, NpcFaceAnswer.NoPair(noOrder!)));
-                continue;
-            }
-            foreach (var why in face.Reasons()) selected.Add(new Selection(seed.Token, seed.Token, null, null, NpcFaceAnswer.NoPair(why)));
-            foreach (var root in face.Roots)
-            {
-                if (root.Reason is not null) continue;
-                var note = face.NoteFor(root);
-                selected.Add(new Selection(root.Mesh!, seed.Token, FaceGenSlot.Mesh, root.Tint, FaceNote: note));
-                selected.Add(new Selection(root.Tint!, seed.Token, FaceGenSlot.Tint, root.Mesh, FaceNote: note));
-                seen.Add(root.Mesh!);
-                seen.Add(root.Tint!);
-            }
-        }
-
         // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
         bool wholeIsResolved = wholeSelection || limit <= 0;
-        bool overBound = false;
-        // A provider with no other selector walks everything it ships: '**', narrowed to that provider.
-        bool wholeProvider = provider is not null && under is not { Count: > 0 } && relPaths.Count == 0 && seeds is not { Count: > 0 };
-        // The walk's own count of what MO2 hid in scope, never a guess from the selector's spelling.
-        string NoMatchNote(string sel, HiddenTally hidden)
-        {
-            if (wholeProvider)
-                return $"provider '{provider}' provides no file in the active load order"
-                     + (hidden.Sentence("of its paths", "of its paths") is { } all ? $" — {all}." : ".");
-            var scope = provider is null ? "the active load order" : $"provider '{provider}'";
-            var why = hidden.Sentence() is { } h
-                ? $" — {h}."
-                : " — check the spelling, or nothing enabled provides that folder.";
-            return $"under '{sel}' matched no file in {scope}{why}" + (hidden.Count > 0 ? "" : AssetGlob.BareNameHint(view, sel, provider));
-        }
-        foreach (var raw in wholeProvider ? new[] { "**" } : under ?? Array.Empty<string>())
-        {
-            if (overBound) break;
-            var sel = (raw ?? "").Trim();
-            if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
-            try
-            {
-                // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
-                int room = wholeIsResolved ? Math.Max(MaxAssetPaths - selected.Count, 0) + 1 : 0;
-                var hidden = new HiddenTally();
-                var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped, provider, hidden);
-                overBound |= stopped;
-                // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
-                if (namedOneFile)
-                    notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
-                // A selector that matched nothing is said out loud: silent, a typo would read as a clean sweep.
-                else if (matched.Count == 0)
-                    notes.Add(NoMatchNote(sel, hidden));
-                // A provider's whole census says what of it MO2 hides, which no row carries.
-                else if (wholeProvider && hidden.Sentence("of its paths", "of its paths") is { } some)
-                    notes.Add($"provider '{provider}': {some}; they are left out of this listing.");
-                foreach (var m in matched) if (seen.Add(m)) selected.Add(new Selection(m, null, null, null));
-            }
-            catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
-        }
-        if (overBound)
+        var chosen = FileSelection.Select(view, relPaths, under, seeds, faces, noOrder, provider, wholeIsResolved ? MaxAssetPaths : null);
+        if (chosen.Refusal is { } unknown)
+            return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
+                                       view.ReadIncomplete, warnings, profileName, Refusal: unknown);
+        provider = chosen.Provider;
+        var notes = chosen.Notes;
+        var selected = chosen.Entries;
+        if (chosen.OverBound)
             return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
                                        view.ReadIncomplete,
                                        warnings, profileName, notes, selected.Count, Math.Max(offset, 0),
@@ -232,8 +140,25 @@ internal sealed partial class AssetLayers
         => read.Links is not { } links ? (null, read.Error)
          : (links.Select(l => new ResolvedNifLink(l, l.DataPath is { } d ? view.Resolve(d) : null)).ToList(), null);
 
-    /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot, the other half's path and the face door's line for a template root. <c>Error</c> answers as its own row.</summary>
-    readonly record struct Selection(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null, string? FaceNote = null);
+    /// <summary>The one capture a <see cref="FileSelection"/> reads: the call's asset view and, when <paramref name="seeds"/>
+    /// name an NPC, the face door's answers over the pin taken with it, or why the load order could not be read.</summary>
+    internal (AssetCapture Captured, Dictionary<FormKey, NpcFaceAnswer>? Faces, string? NoOrder) CaptureForSelection(
+        IReadOnlyList<FaceGenSeed>? seeds, FaceSources? faceSources)
+    {
+        // formids= reads each NPC's record, so it takes the index with the assets; a call with none reads no record.
+        var npcKeys = (seeds ?? Array.Empty<FaceGenSeed>()).Where(s => s.Error is null && s.Key is not null).Select(s => s.Key!.Value).ToList();
+        if (npcKeys.Count == 0) return (_host.CaptureAssets(), null, null);   // the view is pinned and handle-free, so the body runs outside the gate
+        try
+        {
+            var (pin, assets) = _host.CapturePinAndAssets(null);
+            return (assets, Faces(pin, assets.Roots, npcKeys, faceSources), null);
+        }
+        catch (Exception ex)
+        {
+            // Every formids= row says why it has no pair; the asset rows still answer off the VFS.
+            return (_host.CaptureAssets(), null, $"the load order could not be read: {ex.Message}");
+        }
+    }
 
     /// <summary>The face door's answer for each NPC key: the records, their templates and races read through
     /// <paramref name="pin"/> a round per hop, so a whole-order list costs a few batched reads. With
