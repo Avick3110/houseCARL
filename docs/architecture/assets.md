@@ -1,6 +1,6 @@
 ---
 updated: 2026-11-08
-covers: [src/housecarl-core/WalkParts.cs, src/housecarl-core/walk-parts.json, src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/ArchiveReader.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
+covers: [src/housecarl-core/WalkParts.cs, src/housecarl-core/walk-parts.json, src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/AssetResolver.cs, src/housecarl-core/LooseListings.cs, src/housecarl-core/ArchiveReader.cs, src/housecarl-core/NifLinks.cs, src/housecarl-core/AssetWalkEdges.cs, src/housecarl-mcp/AssetWalk.cs, src/housecarl-mcp/AssetWalkWire.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetDataPath.cs, src/housecarl-core/Mo2SkipRules.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/FileSelection.cs, src/housecarl-mcp/AssetResults.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
 
@@ -281,6 +281,14 @@ nothing"), **not provided** for an explicit path it does not ship. The standing 
 json row as `provider_standing` (`wins`, `shadowed`, `hidden`, `not_provided`), and the artifact as a
 `provider_standing` column (null with no provider and on an error row; the json member is absent in both cases). A mod's `.bsa` files are themselves loose files in its folder, and MO2 maps them into Data, so they are
 part of what the mod provides.
+
+The selectors together (explicit paths, `under=`, `formids=` pairs, `provider=`) are one component,
+`FileSelection.Select` (#1318): given the call's captured view and, for `formids=`, the face answers
+`AssetLayers.CaptureForSelection` read over the pin taken with it, it returns the ordered entries, the selector notes
+and the provider refusal, and stops at the path bound when given one, saying so. It captures nothing and reads only
+through the view it is handed, so a tool that calls it selects the same files with the same notes and the same
+refusal as `asset_status`. `asset_status` keeps the capture, the window, the declared-cost refusal and the resolve; the
+walk takes its seeds from `asset_status`'s rows, so it selects through the same component.
 
 The `counts_only=` census has two layer tables: the layers that **win** paths and the layers that ship a copy another
 layer wins over (**shadowed**), each layer counted once per path, so a mod's loose copy beside its own archive's copy
@@ -707,6 +715,11 @@ provided either; the generic lane does not, because it legitimately answers for 
   each select exactly their own files; an unknown name is refused; `under=` narrows a provider; each row's standing
   (wins, shadowed by the named winner, not provided) on the text, json and artifact lanes; the census's
   `provides / wins / shadowed` line and the shadowed-layers table, with a layer's own archive copy not shadowing it.
+- *Selecting a set of paths*: `FileSelectionTests` — a second caller of `FileSelection.Select` gets `asset_status`'s
+  entries and notes for one input with every selector kind (`ASecondCallerSelectsWhatAssetStatusSelects`); it takes
+  exactly the listings a whole `asset_status` call takes and none on a rerun over the same view
+  (`TheSelectionListsNoMoreThanAssetStatusDoes`); an unticked mod on disk, its archive and a separator are refused with
+  the one unknown-provider sentence, word for word (`AProviderTheOrderDoesNotLoadIsRefusedWithTheOneSentence`).
 - *Selecting a set of paths*: `BsaFilterTests` — `bsa_list` and `bsa_extract` `under=` keep an exact path, a `**` glob,
   a plain folder and everything beneath it but not a sibling prefix, and the union of several selectors; each selector
   that matches nothing is named, and a blank or bad one beside a usable one is noted; an extract writes only the matches
@@ -800,7 +813,8 @@ provided either; the generic lane does not, because it legitimately answers for 
 `Mo2Instance.cs`); `AssetDataPath.cs` is the link-to-Data-path door; `AssetPathHint.cs` is the root-prefix hint; `VoicePath.cs` and
 `VoiceCheck.cs` are the voice paths; `AssetRenameService.cs` is the renumber carry; `BsaArchive.cs` lists, unpacks and
 packs. `src/housecarl-mcp/AssetLayers.cs` is the service lane over all of it: the class `AssetLayers`, which the head
-builds over itself and the output instance and reaches through one-line delegators, with the SkyPatcher replay in `SkyPatcherReplay.cs`.
+builds over itself and the output instance and reaches through one-line delegators, with the SkyPatcher replay in `SkyPatcherReplay.cs`
+and the shared file selection in `FileSelection.cs`.
 `ModsPathAddress.cs` refuses a raw mods
 path, and `AssetArtifact.cs` is `asset_status`'s `to_file=` artifact. `AssetResults.cs` holds the records the lanes
 return. The tool fronts here are `AssetTools.cs`, `PlaceTools.cs` and `BsaTools.cs`. The other families' fronts and
