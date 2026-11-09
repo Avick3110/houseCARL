@@ -155,8 +155,9 @@ public sealed class FileSelectionTests : IClassFixture<UnloadedProviderWorld>
         Assert.Equal(1 + AssetSelectWorld.FaceGeomFiles, chosen.Entries.Count);
     }
 
-    /// <summary>A selection the bound stops after dedup has left its count at the bound still says it is over it:
-    /// <see cref="FileSelectionResult.StoppedAt"/> is one past the bound, not the count. Pins unchanged behaviour.</summary>
+    /// <summary>A world past the bound (five unique paths, bound 4): the folder's walk counts the explicit path it already
+    /// holds and stops, so dedup leaves 4 entries, and <see cref="FileSelectionResult.StoppedAt"/> is one past the bound,
+    /// not the count. Pins unchanged behaviour.</summary>
     [Fact]
     public void ABoundStopLeftAtTheBoundByDedupSaysOnePastIt()
     {

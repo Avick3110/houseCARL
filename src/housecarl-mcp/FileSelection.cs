@@ -13,7 +13,7 @@ internal sealed record SelectionCapture(AssetCapture Captured, IReadOnlyList<Fac
 
 /// <summary>A file selection: the entries in order, what each selector had to say, the provider every row is read
 /// against, and the refusal (a provider the order does not load) under which nothing was selected. <see cref="StoppedAt"/>
-/// is set when the selection crossed the path bound and stopped there: the least path count it is known to have.</summary>
+/// is set when the path bound stopped the enumeration: the stop's count, which can exceed the deduped entries (assets.md, "Selecting a set of paths").</summary>
 internal sealed record FileSelectionResult(IReadOnlyList<SelectedFile> Entries, IReadOnlyList<string> Notes, string? Provider,
                                            string? Refusal = null, int? StoppedAt = null);
 
@@ -98,7 +98,7 @@ internal static class FileSelection
             if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
             try
             {
-                // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
+                // One past what is left of the budget; the walk counts paths already selected too, so filling it does not prove the deduped selection over. 0 = no cap.
                 int room = maxPaths is { } max ? Math.Max(max - selected.Count, 0) + 1 : 0;
                 var hidden = new HiddenTally();
                 var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped, provider, hidden);
@@ -116,7 +116,7 @@ internal static class FileSelection
             }
             catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
         }
-        // Dedup can leave the running count at the bound rather than past it; the walk stopping is the proof.
+        // The stop's count, not the deduped one: at least one past the bound, even when dedup left fewer entries.
         return new FileSelectionResult(selected, notes, provider,
                                        StoppedAt: overBound ? Math.Max(selected.Count, maxPaths!.Value + 1) : null);
     }
