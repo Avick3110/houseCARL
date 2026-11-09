@@ -217,16 +217,19 @@ public static class Mo2LoadOrder
         return lines;
     }
 
-    /// <summary>Read one profile file, naming a LOCKED file as the transient it is; only the Win32 sharing and lock violations become <see cref="ProfileUnreadableException"/>, and every other fault keeps its own error.</summary>
+    /// <summary>Read one profile file, naming a LOCKED file as the transient it is; only a sharing or lock violation becomes <see cref="ProfileUnreadableException"/>, and every other fault keeps its own error.</summary>
     static T ReadProfile<T>(string path, Func<string, T> read)
     {
         try { return read(path); }
         catch (IOException ex) when (ex is not (FileNotFoundException or DirectoryNotFoundException)
-                                     && (ex.HResult & 0xFFFF) is 32 or 33)   // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION
+                                     && IsHeld(ex.HResult, OperatingSystem.IsWindows()))
         {
             throw new ProfileUnreadableException(path, ex);
         }
     }
+
+    /// <summary>Is this IOException's HResult another process holding the file: ERROR_SHARING_VIOLATION or ERROR_LOCK_VIOLATION (32, 33) on Windows; off Windows .NET raises the same refusal with the raw EWOULDBLOCK errno, 11 on Linux.</summary>
+    internal static bool IsHeld(int hresult, bool isWindows) => isWindows ? (hresult & 0xFFFF) is 32 or 33 : hresult == 11;
 
     /// <summary>Locate every on-disk copy of a plugin filename across the WHOLE install — overwrite, every mod folder enabled, disabled or unlisted, and game Data — returning ALL hits rather than the first; <paramref name="filename"/> is reduced to a bare name.</summary>
     public static IReadOnlyList<PluginFileHit> LocatePlugin(
