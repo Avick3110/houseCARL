@@ -74,7 +74,7 @@ Every step below names the section it needs, so one section can be read on its o
    call per page and the priority table needs all of them at once: pass `to_file=<absolute .jsonl>`
    instead and the complete result goes to an artifact with only its manifest rendered inline, one row
    per file with its winner and provider chain, which you then read with your own file tools. That
-   artifact re-enters `housecarl_asset_status` as `asset_paths=["@<that file>"]` — its identity column
+   artifact re-enters `housecarl_asset_status` as `paths=["@<that file>"]` — its identity column
    is `path`, so it is not a `formids=` list for `housecarl_records`.
    Without the houseCARL server, fall back to Glob over those paths — and say you did, because the
    fallback cannot name the VFS winner. Folder layout and the `<project>` names:

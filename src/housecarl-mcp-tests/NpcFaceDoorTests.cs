@@ -484,7 +484,7 @@ public sealed class NpcFaceUnreadOrderTests : IDisposable
         Assert.Contains("no FaceGen pair — the load order could not be read", Row(svc, "000801:Missing.esp"));
 
         var file = Path.Combine(_p.Root, "paths.jsonl");
-        var text = AssetTools.AssetStatus(svc, asset_paths: new[] { @"meshes\x.nif" }, to_file: file);
+        var text = AssetTools.AssetStatus(svc, paths: new[] { @"meshes\x.nif" }, to_file: file);
         Assert.Contains("epoch: NONE", text);
         Assert.Contains("could not be read for a fingerprint", text);
         Assert.Equal("", JsonDocument.Parse(File.ReadLines(file).First()).RootElement.GetProperty("epoch").GetString());

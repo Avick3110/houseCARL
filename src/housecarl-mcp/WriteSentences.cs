@@ -316,7 +316,7 @@ internal static class WriteSentences
     [MustState("walk=true")]
     internal const string CopyAssetPathsWalk =
         "these are the files the records name, not the files those files need: " + ToolNames.AssetStatus +
-        " walk=true with these as asset_paths= (and source_provider= the mod you read from) lists what they reach in " +
+        " walk=true with these as paths= (and source_provider= the mod you read from) lists what they reach in " +
         "turn — a mesh's textures and SMP XML, a script's parent.";
 
     // ---- dry run -------------------------------------------------------------------------------------

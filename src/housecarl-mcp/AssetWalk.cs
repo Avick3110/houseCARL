@@ -69,7 +69,7 @@ internal sealed partial class AssetLayers
                    captured.ProfileName, cycles?.Loops ?? Array.Empty<string>(), cycles?.Capped == true, refusal);
 
         if (seedPaths.Count == 0 && seedRecords.Count == 0 && badSeeds.Count == 0)
-            return Done(new(), new(), false, "error: the walk has no seed — pass asset_paths=, under=, provider=, formids= or records=.");
+            return Done(new(), new(), false, "error: the walk has no seed — pass paths=, under=, provider=, formids= or records=.");
         // A source no provider and no mod folder answers to would mark every node elsewhere or absent, so it is refused by name.
         if (sourceProvider is not null && !view.HasProvider(sourceProvider)
             && !(captured.ModsRootOrNull is { } mr && Directory.Exists(LooseListings.OnDisk(mr, sourceProvider))))

@@ -267,7 +267,7 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void ADoubledAtIsTheLiteralValueOnEveryList()
     {
-        var path = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "@@textures/hcwalk/at.dds" });
+        var path = AssetTools.AssetStatus(_w.Svc, paths: new[] { "@@textures/hcwalk/at.dds" });
         Assert.DoesNotContain("not an absolute path", path);
         Assert.Contains("@textures", path);
         Assert.DoesNotContain("@@", path);
@@ -301,7 +301,7 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
         foreach (var (entry, sentence) in cases)
         {
             Assert.Contains(string.Format(sentence, "formids="), RecordsTools.Records(_w.Svc, formids: new[] { entry }));
-            Assert.Contains(string.Format(sentence, "asset_paths="), AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { entry }));
+            Assert.Contains(string.Format(sentence, "paths="), AssetTools.AssetStatus(_w.Svc, paths: new[] { entry }));
             Assert.Contains(string.Format(sentence, "types="), RecordsTools.Records(_w.Svc, types: new[] { entry }));
             Assert.Contains(string.Format(sentence, "ops="), ApplyTools.Apply(_w.Svc, ops: System.Text.Json.JsonSerializer.SerializeToElement(entry)));
         }

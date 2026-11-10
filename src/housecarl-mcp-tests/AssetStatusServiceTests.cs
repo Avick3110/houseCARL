@@ -122,13 +122,13 @@ public sealed class AssetStatusServiceTests : IDisposable
         Assert.False(d.Results[0].Hit!.Exists);
     }
 
-    // Probe: "the tool rejects an empty asset_paths list (Q3)".
+    // Probe: "the tool rejects an empty paths list (Q3)".
     [Fact]
     public void AnEmptyPathListIsRefused()
     {
         var svc = ArchivesAndALooseCopy();
 
-        Assert.Contains("empty", AssetTools.AssetStatus(svc, asset_paths: Array.Empty<string>()), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("empty", AssetTools.AssetStatus(svc, paths: Array.Empty<string>()), StringComparison.OrdinalIgnoreCase);
     }
 
     // Probe: "the asset is present under instance 1" and "after SetInstance to instance 2, the asset answer follows

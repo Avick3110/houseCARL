@@ -40,7 +40,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(@"textures\hcwalk\cape.dds", slot.Link.DataPath, ignoreCase: true);
         Assert.True(slot.Hit!.Exists);
 
-        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, links: true);
+        var text = AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, links: true);
         Assert.Contains("smp — root extra data 'HDT Skinned Mesh Physics Object'", text);
     }
 
@@ -50,7 +50,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     {
         var row = _w.Svc.AssetStatus(new[] { AssetWalkWorld.CapeNif }).Results.Single();
         Assert.Null(row.Links);
-        Assert.DoesNotContain("links (", AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }));
+        Assert.DoesNotContain("links (", AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }));
     }
 
     /// <summary>links= on the whole-selection arms: a to_file= file and a ceiling spill carry each mesh row's links, and
@@ -142,11 +142,11 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void TheJsonLanesCarryLinksAndThePlaceSet()
     {
-        using var row = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, links: true, format: "json"));
+        using var row = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, links: true, format: "json"));
         Assert.Contains(row.RootElement.GetProperty("results")[0].GetProperty("links").EnumerateArray(),
                         l => string.Equals(l.GetProperty("data_path").GetString(), AssetWalkWorld.CapeXml, StringComparison.OrdinalIgnoreCase));
 
-        using var walk = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, source_provider: "Cape", format: "json"));
+        using var walk = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, source_provider: "Cape", format: "json"));
         Assert.Equal(3, walk.RootElement.GetProperty("place_set").GetArrayLength());
     }
 
@@ -456,7 +456,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         const int cap = 2500;
         static string[] Rows(string file) => File.ReadAllLines(file).Skip(1).ToArray();
 
-        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On,
+        var text = AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, walk: Walks.On,
                                           source_provider: AssetWalkWorld.DonorMod, max_chars: cap);
         Assert.True(text.Length <= cap, text);
         var at = text.IndexOf("spilled: complete result", StringComparison.Ordinal);
@@ -467,7 +467,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(AssetWalkWorld.ManyTex.Length, Rows(file).Length);
         Assert.Contains("place set (60): the spilled file's rows", text);
 
-        var json = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On,
+        var json = AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, walk: Walks.On,
                                           source_provider: AssetWalkWorld.DonorMod, format: "json", max_chars: cap);
         Assert.True(json.Length <= cap, json);
         using var doc = JsonDocument.Parse(json);
@@ -487,14 +487,14 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
         File.WriteAllText(dir, "a file where the results folder goes");
         try
         {
-            var text = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On,
+            var text = AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, walk: Walks.On,
                                               source_provider: AssetWalkWorld.DonorMod, max_chars: cap);
             Assert.Contains("could NOT be written", text);
             Assert.DoesNotContain("Every node is in the file", text);
             Assert.DoesNotContain("spilled file", text);
             Assert.Contains("place set (60): not shown", text);
 
-            var json = AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On,
+            var json = AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, walk: Walks.On,
                                               source_provider: AssetWalkWorld.DonorMod, format: "json", max_chars: cap);
             using var doc = JsonDocument.Parse(json);
             Assert.True(doc.RootElement.TryGetProperty("spill_error", out _), json);
@@ -694,7 +694,7 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void AnEdgeKindChoosesAPathOnlyWalksRows()
     {
-        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.Of("{\"through\": [\"listed\", \"texture\"]}"), format: "json");
+        var text = AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.Of("{\"through\": [\"listed\", \"texture\"]}"), format: "json");
         using var doc = JsonDocument.Parse(text);
         var edges = doc.RootElement.GetProperty("nodes").EnumerateArray().Select(n => n.GetProperty("edge").GetString()).ToList();
         Assert.Equal(new[] { "seed", "texture" }, edges);
@@ -847,12 +847,12 @@ public sealed class AssetWalkTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void APathSeedWalksThroughTheToolFront()
     {
-        var text = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, source_provider: "Cape");
+        var text = AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, source_provider: "Cape");
         Assert.Contains("smp of " + AssetWalkWorld.CapeNif, text);
         Assert.Contains("place set (3)", text);
         // A path-only walk read no record, so it names no record source, whatever from_source= says.
         Assert.DoesNotContain("records from", text);
-        var json = AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, from_source: new[] { "winner" }, format: "json");
+        var json = AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, from_source: new[] { "winner" }, format: "json");
         Assert.Equal(JsonValueKind.Null, JsonDocument.Parse(json).RootElement.GetProperty("record_sources").ValueKind);
         Assert.Contains("records from " + AssetWalkWorld.OverridePlugin,
             AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkBeast2") }, walk: Walks.On, from_source: new[] { AssetWalkWorld.OverridePlugin }));
