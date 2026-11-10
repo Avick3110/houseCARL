@@ -18,7 +18,8 @@ public static class DecompileTools
          "an archive, with no extract step; source_provider= reads another mod's copy (a disabled mod's too). A bare " +
          "script name is refused. The .psc files land in Source\\Scripts of a new houseCARL patch-mod folder, or in the " +
          "folder out_path= names. Originals are untouched and an existing .psc is never overwritten: that script's row " +
-         "says so and the rest land. One row per script, then the [accounting] line. Needs your MO2 instance, except " +
+         "says so and the rest land. One row per script, then the [accounting] line (counts_only=: the totals and notes); " +
+         "one file on disk alone answers in one result, as before. Needs your MO2 instance, except " +
          "for files on disk with out_path=; needs no external tool.\n\n" +
          "Names, types, properties, states, events and docstrings survive; control flow is reconstructed and proven. Losses " +
          "every decompiler shares: .pex has no parameter defaults, so a '= None' default comes back only where a call in the " +
@@ -46,7 +47,8 @@ public static class DecompileTools
             string? provider = null,
         [Description("Optional. WHOSE copy of each Data path is read: a mod folder (enabled or not, its loose files then " +
                      "its archives), 'overwrite', 'Data' or an active archive's filename, instead of the winning copy, " +
-                     "e.g. to decompile a base mod's copy of a script its patch overrides. A script that provider does " +
+                     "e.g. to decompile a base mod's copy of a script its patch overrides; '" + AssetSourceChoice.WinnerToken +
+                     "' reads the winner, as omitting it does. A script that provider does " +
                      "not ship is that row's error. A file on disk is read as itself.")]
             string? source_provider = null,
         [Description("Optional. Base name for the new patch-mod folder the .psc lands in (default 'houseCARL_Scripts'); auto-suffixed if taken, so each call makes its own folder. To keep compile and decompile output together, add to one folder with into= (e.g. into='houseCARL_Scripts').")]
@@ -62,7 +64,7 @@ public static class DecompileTools
             int offset = 0,
         [Description("Optional. Return the totals and notes instead of one row per script; every script in the window is still decompiled and written.")]
             bool counts_only = false,
-        [Description("Optional. 'text' (default) | 'json' (the same rows, machine-readable, accounting in-band).")]
+        [Description("Optional. 'text' (default) | 'json' (the same rows, machine-readable, accounting in-band; with counts_only=, the totals and 'total', no accounting object).")]
             string? format = null,
         [Description("Optional. Character ceiling on the listing; rows past it are left out and counted in the " +
                      "[accounting] line, while their .psc files are still written. 0 = the server default (~40k).")]
@@ -250,8 +252,10 @@ public static class DecompileTools
     }
 
     /// <summary>One sentence saying what the class hierarchy IS when a source is missing; two could contradict each other.</summary>
-    internal static string HierarchySentence(ClassParents h, bool batch = false)
+    /// <param name="batchRead">On the many-script lane, the .pex sources this call read, as a phrase; null on the one-file lane.</param>
+    internal static string HierarchySentence(ClassParents h, string? batchRead = null)
     {
+        bool batch = batchRead is not null;
         if (h.BaselineNote is null && h.TopUpMissing is null && h.SiblingPexMissing is null) return "";
         // What a thinner hierarchy costs, said once however many sources are thin.
         const string cost = ", so the source keeps an explicit cast wherever an edge is missing (cosmetic; the source stays correct).";
@@ -269,7 +273,6 @@ public static class DecompileTools
             kept.Add("the MO2 mods-tree sources that could be read");
         }
         else kept.Add("the MO2 mods-tree sources");
-        // A many-script call reads each script, the .pex files beside a file on disk, and each parent chain off the load order.
         if (h.SiblingPexMissing is not null)
         {
             thin.Add(batch ? $"the .pex files this hierarchy reads were not all read ({h.SiblingPexMissing})"
@@ -278,8 +281,7 @@ public static class DecompileTools
             kept.Add(batch ? "what these scripts and the other .pex files that could be read declare"
                            : "what this .pex and the sibling .pex files that could be read declare");
         }
-        else kept.Add(batch ? "what these scripts, the .pex files beside a file on disk and each parent script in the load order declare"
-                            : "what this .pex and the .pex files beside it declare");
+        else kept.Add(batch ? $"what {batchRead} declare" : "what this .pex and the .pex files beside it declare");
         return $"\nnote: {string.Join(", and ", thin)} — the class hierarchy is {string.Join(" plus ", kept)}{cost}";
     }
 

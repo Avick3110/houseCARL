@@ -736,6 +736,9 @@ provided either; the generic lane does not, because it legitimately answers for 
   explicit path given twice is two entries, and its folder adds only its other files
   (`AnExplicitPathGivenTwiceIsTwoEntries`); a bound stop that dedup leaves at the bound has `StoppedAt` one past it
   (`ABoundStopLeftAtTheBoundByDedupSaysOnePastIt`).
+- *Selecting a set of paths*: `DecompileSelectionTests.AssetStatusTakesPaths` — `asset_status` takes `paths=`;
+  `DecompileSelectionTests.TheRetiredAssetPathsParameterIsRefusedInOneSentence` — `asset_paths=` is refused in one
+  sentence naming `paths=`.
 - *Selecting a set of paths*: `BsaFilterTests` — `bsa_list` and `bsa_extract` `under=` keep an exact path, a `**` glob,
   a plain folder and everything beneath it but not a sibling prefix, and the union of several selectors; each selector
   that matches nothing is named, and a blank or bad one beside a usable one is noted; an extract writes only the matches

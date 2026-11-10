@@ -68,7 +68,9 @@ The decompiler itself is [`papyrus-decompile.md`](papyrus-decompile.md).
   throw.
 - Three layered sources — the committed vanilla baseline beside the exe, loose `.psc`
   `ScriptName X extends Y` headers across the mods tree, and the input `.pex` plus its siblings.
-  First edge per child wins.
+  First edge per child wins. The many-script lane (`DecompileBatch`, papyrus-decompile.md "Selecting the
+  scripts") reads, as its third source, every script in its window, the siblings of each file on disk only, and,
+  when the call selects Data paths, each script's parent chain off the load order.
 - ALL THREE degraded modes are named in the result, one member per source: a missing or unreadable
   baseline (`ClassParents.BaselineNote`), mods-tree sources that were not all read (`TopUpMissing` —
   set both for a tree read NOTHING was read from and for a walk that lost some `.psc` files), and
@@ -77,7 +79,10 @@ The decompiler itself is [`papyrus-decompile.md`](papyrus-decompile.md).
   then the one cost sentence. `PapyrusClassParents.AddFromPexFolder` counts an unreadable sibling
   rather than swallowing it, and reports an absent folder and a listing that threw part-way as separate
   facts so a partial listing keeps its counts; the decompile lane turns the scan into the reason (the
-  service cannot know it, so it sets the member after its own sibling walk).
+  service cannot know it, so it sets the member after its own sibling walk). On the many-script lane the
+  member carries every third-source read that fell short: a sibling walk's lost files or listing, and the
+  parent scripts that would not read off the load order; the note's kept half names only the sources that
+  call read.
 - A PARTIAL read of a source NEVER disowns the edges it did add: both walks keep going past a file
   they cannot read, so the trigger is "not all read" and the "is" half credits the mods-tree sources
   and the sibling `.pex` files THAT COULD BE READ. Uniform across the two top-up sources; the baseline
