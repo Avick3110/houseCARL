@@ -326,6 +326,67 @@ public sealed class DecompileSelectionTests : IDisposable
     }
 
     [Fact]
+    public void AMaxCharsCutAdvisesNoPageOverScriptsAlreadyWritten()
+    {
+        var text = DecompileTools.DecompileScript(_svc, provider: "Arch", max_chars: 1500, out_path: _out);
+        var json = DecompileTools.DecompileScript(_svc, provider: "Arch", max_chars: 1500, format: "json",
+                                                  out_path: Path.Combine(_p.Root, "out2"));
+
+        Assert.Matches(@"\[accounting\] total=4 rendered=[0-3] .* remaining=0 ", text);
+        Assert.DoesNotContain("re-call", text);
+        Assert.DoesNotContain("offset=1", text);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.True(doc.RootElement.GetProperty("accounting").GetProperty("truncated").GetInt32() > 0, json);
+        Assert.Equal(0, doc.RootElement.GetProperty("accounting").GetProperty("remaining").GetInt32());
+        Assert.False(doc.RootElement.TryGetProperty("next_offset", out _), json);
+    }
+
+    [Fact]
+    public void TheNextPageAdviceLandsInThePatchThisWindowWrote()
+    {
+        var mods = Directory.GetDirectories(_p.Mods).ToHashSet();
+
+        var first = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1, ArchBase }, limit: 1);
+        var folder = Path.GetFileName(Assert.Single(Directory.GetDirectories(_p.Mods), d => !mods.Contains(d)));
+        Assert.Contains($"re-call with into=\"{folder}\" limit=1 offset=1 for the next page.", first);
+
+        var json = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1, ArchBase }, limit: 1, offset: 1,
+                                                  into: folder, format: "json");
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(folder, doc.RootElement.GetProperty("next_into").GetString());
+        Assert.Equal(2, doc.RootElement.GetProperty("next_offset").GetInt32());
+        Assert.Single(Directory.GetDirectories(_p.Mods), d => !mods.Contains(d));
+    }
+
+    [Fact]
+    public void TheNextPageAdviceKeepsTheLaneAsGivenWhenNothingLanded()
+    {
+        PlaceInstance.Loose(_p.Mod("Fix"), @"scripts\hcdsbroken.pex", BsaBuilder.Bytes("not a pex", 16));
+        _p.TouchModlist();
+        var absent = new[] { "scripts/hcdsnope1.pex", "scripts/hcdsnope2.pex" };
+
+        var removed = DecompileTools.DecompileScript(_svc, paths: new[] { @"scripts\hcdsbroken.pex", LooseRel }, limit: 1);
+        var into = DecompileTools.DecompileScript(_svc, paths: absent, limit: 1, into: "houseCARL_Scripts");
+        var patch = DecompileTools.DecompileScript(_svc, paths: absent, limit: 1, patch: "Mine");
+
+        Assert.Contains("re-call with limit=1 offset=1 for the next page.", removed);   // its fresh folder was removed
+        Assert.Contains("re-call with into=\"houseCARL_Scripts\" limit=1 offset=1 for the next page.", into);
+        Assert.Contains("re-call with patch=\"Mine\" limit=1 offset=1 for the next page.", patch);
+    }
+
+    [Fact]
+    public void TheNextPageAdviceUnderOutPathNamesTheSameFolder()
+    {
+        var text = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1, ArchBase }, limit: 1, out_path: _out);
+        var json = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1, ArchBase }, limit: 1, offset: 1,
+                                                  format: "json", out_path: _out);
+
+        Assert.Contains($"re-call with out_path=\"{_out}\" limit=1 offset=1 for the next page.", text);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(_out, doc.RootElement.GetProperty("next_out_path").GetString());
+    }
+
+    [Fact]
     public void NoSelectorIsRefused()
     {
         var r = DecompileTools.DecompileScript(_svc, out_path: _out);
