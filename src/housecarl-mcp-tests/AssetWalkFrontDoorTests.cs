@@ -17,7 +17,7 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
 
     /// <summary>The sixty-texture walk from the donor: every node from source, so the place set is the whole walk.</summary>
     string Many(int limit = 0, int offset = 0, string? format = null, int max = Big, string? toFile = null, bool counts = false)
-        => AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On, source_provider: AssetWalkWorld.DonorMod,
+        => AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, walk: Walks.On, source_provider: AssetWalkWorld.DonorMod,
                                   limit: limit, offset: offset, format: format, max_chars: max, to_file: toFile, counts_only: counts);
 
     static string[] Paths(JsonElement doc) => doc.GetProperty("nodes").EnumerateArray().Select(n => n.GetProperty("path").GetString()!).ToArray();
@@ -37,7 +37,7 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
     {
         foreach (var (limit, offset) in new[] { (-1, 0), (0, -1) })
         {
-            var row = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, limit: limit, offset: offset);
+            var row = (string)AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, limit: limit, offset: offset);
             Assert.StartsWith("error: limit=", row);
             Assert.Equal(row, Many(limit, offset));
         }
@@ -66,7 +66,7 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(all, paged);
 
         // A walk's note is on every page, not windowed with the nodes.
-        using var noted = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, walk: Walks.On, from_source: new[] { AssetWalkWorld.Plugin },
+        using var noted = JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, walk: Walks.On, from_source: new[] { AssetWalkWorld.Plugin },
                                                                     limit: 7, offset: 7, format: "json", max_chars: Big));
         Assert.Equal(ReadSentences.FromSourceWithoutRecordSeed, Assert.Single(noted.RootElement.GetProperty("notes").EnumerateArray()).GetString());
     }
@@ -145,10 +145,10 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
     public void LinksWithAWalkIsRefusedBeforeItRuns()
     {
         Assert.Equal(ReadSentences.WalkWithLinks, (string)AssetTools.AssetStatus(_w.Svc, walk: Walks.On, links: true));
-        Assert.Equal(ReadSentences.WalkWithLinks, (string)AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, links: true));
+        Assert.Equal(ReadSentences.WalkWithLinks, (string)AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, links: true));
         // With counts_only= too, the shared counts_only+links sentence answers first, as on the row lane.
-        Assert.Equal((string)AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, links: true, counts_only: true),
-                     (string)AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, links: true, counts_only: true));
+        Assert.Equal((string)AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, links: true, counts_only: true),
+                     (string)AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, links: true, counts_only: true));
     }
 
     /// <summary>to_file= on a walk writes every node (row_count == total) for reason to_file and renders the manifest only;
@@ -179,11 +179,11 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
 
         foreach (var (offset, counts) in new[] { (3, false), (0, true) })
         {
-            var row = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, offset: offset, counts_only: counts, to_file: File("r"));
+            var row = (string)AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, offset: offset, counts_only: counts, to_file: File("r"));
             Assert.StartsWith("error:", row);
             Assert.Equal(row, Many(offset: offset, counts: counts, toFile: File("w")));
         }
-        Assert.Equal((string)AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, to_file: "relative.jsonl"),
+        Assert.Equal((string)AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, to_file: "relative.jsonl"),
                      Many(toFile: "relative.jsonl"));
     }
 
@@ -226,7 +226,7 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
             Assert.Single(capped.RootElement.GetProperty(axis).GetProperty("rows").EnumerateArray());
         }
 
-        var row = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, counts_only: true, offset: 2);
+        var row = (string)AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, counts_only: true, offset: 2);
         Assert.StartsWith("error:", row);
         Assert.Equal(row, Many(offset: 2, counts: true));
     }
@@ -299,7 +299,7 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
     public void TheWalkFileNamesItsSeeds()
     {
         var hero = _w.Id("HcWalkHero");
-        string Seeded(string? toFile, int max) => AssetTools.AssetStatus(_w.Svc, asset_paths: AssetWalkWorld.ManyTex, records: new[] { hero }, walk: Walks.On,
+        string Seeded(string? toFile, int max) => AssetTools.AssetStatus(_w.Svc, paths: AssetWalkWorld.ManyTex, records: new[] { hero }, walk: Walks.On,
                                                                          source_provider: AssetWalkWorld.DonorMod, to_file: toFile, format: "json", max_chars: max);
         var file = File("seeds");
         Seeded(file, Big);
@@ -309,7 +309,7 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
             using var manifest = JsonDocument.Parse(System.IO.File.ReadLines(path).First());
             var query = manifest.RootElement.GetProperty("query");
             Assert.Equal(hero, query.GetProperty("records").GetString());
-            Assert.Equal($"{AssetWalkWorld.ManyTex.Length} inline path(s)", query.GetProperty("asset_paths").GetString());
+            Assert.Equal($"{AssetWalkWorld.ManyTex.Length} inline path(s)", query.GetProperty("paths").GetString());
             Assert.False(query.TryGetProperty("formids", out _));
         }
     }
@@ -319,16 +319,16 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void AnUnusedWalkInputIsANote()
     {
-        var fromSource = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, from_source: new[] { AssetWalkWorld.Plugin });
+        var fromSource = (string)AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, from_source: new[] { AssetWalkWorld.Plugin });
         Assert.Contains("[!] notes (1):", fromSource);
         Assert.Contains(ReadSentences.WalkOnlyInput("from_source="), fromSource);
         Assert.Contains("notes=1", fromSource);
         Assert.DoesNotContain("[!] under", fromSource);
-        var provider = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, source_provider: "Cape", format: "json");
+        var provider = (string)AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, source_provider: "Cape", format: "json");
         using (var doc = JsonDocument.Parse(provider))
             Assert.Equal(ReadSentences.WalkOnlyInput("source_provider="), doc.RootElement.GetProperty("notes")[0].GetString());
 
-        var pathWalk = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, from_source: new[] { AssetWalkWorld.Plugin });
+        var pathWalk = (string)AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.On, from_source: new[] { AssetWalkWorld.Plugin });
         Assert.Contains(ReadSentences.FromSourceWithoutRecordSeed, pathWalk);
 
         var faceWalk = (string)AssetTools.AssetStatus(_w.Svc, formids: new[] { _w.Id("HcWalkHero") }, walk: Walks.On, from_source: new[] { AssetWalkWorld.Plugin });
@@ -338,7 +338,7 @@ public sealed class AssetWalkFrontDoorTests : IClassFixture<AssetWalkWorld>
         Assert.DoesNotContain(ReadSentences.FromSourceWithoutRecordSeed, recordWalk);
 
         // The row lane's census says the note too.
-        var census = (string)AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { AssetWalkWorld.CapeNif }, from_source: new[] { AssetWalkWorld.Plugin }, counts_only: true);
+        var census = (string)AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, from_source: new[] { AssetWalkWorld.Plugin }, counts_only: true);
         Assert.Contains(ReadSentences.WalkOnlyInput("from_source="), census);
     }
 

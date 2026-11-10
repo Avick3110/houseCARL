@@ -270,7 +270,7 @@ table over 326,491 paths, so the bound, not the prefix, is what keeps a sweep af
 filename it is or whose MO2 layer it names (`AssetSourceSelection.NameMatches`, the rule `source_provider=` uses), so
 a mod name covers the archives it ships, and `Data` covers the Data folder's loose files and the base-game archives
 (their owning layer is `Data`). Alone it walks the provider's whole tree; with `under=` it walks only
-beneath those selectors; beside `asset_paths=` or `formids=` alone it walks nothing and only reads those rows. A name that is not in the active load order (a disabled mod, an inactive archive, a typo) is refused by name, since
+beneath those selectors; beside `paths=` or `formids=` alone it walks nothing and only reads those rows. A name that is not in the active load order (a disabled mod, an inactive archive, a typo) is refused by name, since
 it would walk nothing. Each row is
 still resolved against every root, so the provider's standing is a reading of `AssetHit.Providers`, no new
 resolution, matched by name as the walk is: **wins** when the winning copy's name matches the provider, **shadowed**
@@ -291,9 +291,12 @@ past the bound, or the selected count when that is more. Those matches count pat
 `under=` selector, or an explicit path inside an `under=` folder), so after dedup the selection can hold fewer than
 `StoppedAt`, even no more than the bound. Explicit paths and `formids=` rows are never cut; they only leave that
 enumeration less room. The refusal that words
-the stop is the caller's: `asset_status`'s advice names its own parameters (`under=`, `asset_paths=`, `formids=`,
+the stop is the caller's: `asset_status`'s advice names its own parameters (`under=`, `paths=`, `formids=`,
 `to_file=`, `counts_only=`, `limit=`, `offset=`). It captures nothing and reads only through the view it is handed,
 so a tool that calls it selects the same files with the same notes and the same refusal as `asset_status`.
+`decompile_script` is the second caller (`AssetLayers.SelectScripts`; papyrus-decompile.md, "Selecting the
+scripts"), and words its own stop. `paths=` is the one name for this list on both (#1287); the retired
+`asset_paths=` is refused in one sentence.
 `asset_status` keeps the capture, the window, the declared-cost refusal and the resolve; the walk takes its seeds from
 `asset_status`'s rows, so it selects through the same component.
 

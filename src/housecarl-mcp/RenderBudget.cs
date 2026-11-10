@@ -193,8 +193,8 @@ internal static class RenderBudget
                    ? "this call resolves the COMPLETE selection — to_file= and counts_only= both do — so limit= " +
                      "does not lower what it resolves: narrow the " +
                      "selection itself — a tighter under= selector (anchor it at the folder you mean, not at " +
-                     "'meshes/**'), or fewer asset_paths=/formids= entries — and ask for it in one call."
-                   : "Narrow the selection with a tighter under= selector, pass fewer asset_paths=/formids= entries, " +
+                     "'meshes/**'), or fewer paths=/formids= entries — and ask for it in one call."
+                   : "Narrow the selection with a tighter under= selector, pass fewer paths=/formids= entries, " +
                      "or take it in windows with limit= and offset=.");
     }
 }

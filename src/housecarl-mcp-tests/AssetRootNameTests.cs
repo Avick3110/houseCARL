@@ -131,7 +131,7 @@ public sealed class AssetRootNameTests : IDisposable
     [InlineData("fomod/info.xml")]
     public void AHiddenRootPathRendersAbsentSayingMo2HidesIt(string rel)
     {
-        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { rel });
+        var text = AssetTools.AssetStatus(_p.Open(), paths: new[] { rel });
 
         Assert.Contains("ABSENT — hidden by MO2 (left out of MO2's Data view as a root", text);
         Assert.Contains("the game still maps it) in 'B' and 1 more", text);
@@ -144,7 +144,7 @@ public sealed class AssetRootNameTests : IDisposable
     [InlineData("fomod/info.xml")]
     public void AProviderOnAHiddenRootPathIsNotSaidNotToProvideIt(string rel)
     {
-        var text = AssetTools.AssetStatus(_p.Open(), asset_paths: new[] { rel }, provider: "A");
+        var text = AssetTools.AssetStatus(_p.Open(), paths: new[] { rel }, provider: "A");
 
         Assert.Contains("ABSENT — hidden by MO2", text);
         Assert.Contains("provider \"A\": holds it, hidden by MO2", text);
@@ -157,8 +157,8 @@ public sealed class AssetRootNameTests : IDisposable
     {
         var svc = _p.Open();
 
-        Assert.Contains("provider \"A\": does not provide this path", AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/nosuch.nif" }, provider: "A"));
-        Assert.Contains("provider \"A\": shadowed by", AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/meta.ini" }, provider: "A"));
+        Assert.Contains("provider \"A\": does not provide this path", AssetTools.AssetStatus(svc, paths: new[] { "meshes/nosuch.nif" }, provider: "A"));
+        Assert.Contains("provider \"A\": shadowed by", AssetTools.AssetStatus(svc, paths: new[] { "meshes/meta.ini" }, provider: "A"));
     }
 
     /// <summary>Pins unchanged behaviour: a path no mod ships keeps the plain absent line, and a nested meta.ini wins.</summary>
@@ -167,11 +167,11 @@ public sealed class AssetRootNameTests : IDisposable
     {
         var svc = _p.Open();
 
-        var text = AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/nosuch.nif" });
+        var text = AssetTools.AssetStatus(svc, paths: new[] { "meshes/nosuch.nif" });
         Assert.Contains("ABSENT — no active mod or BSA provides this path", text);
         Assert.DoesNotContain("MO2 hides", text);
         Assert.DoesNotContain("hidden by MO2", text);
-        Assert.Contains("WINS", AssetTools.AssetStatus(svc, asset_paths: new[] { "meshes/meta.ini" }));
+        Assert.Contains("WINS", AssetTools.AssetStatus(svc, paths: new[] { "meshes/meta.ini" }));
     }
 
     [Fact]

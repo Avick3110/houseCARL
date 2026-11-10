@@ -68,7 +68,7 @@ internal static class AssetArtifact
         // A hidden row adds its hidden member (AbsentWords.Write), named only then for the same reason.
         if (d.Results.Any(r => r.Hit?.Hidden is not null)) schema = schema.Append("hidden").ToArray();
         var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path",
-                                          schema, sort: "asset_paths= in the order given, then formids= (mesh then tint per NPC), then under= matches sorted",
+                                          schema, sort: "paths= in the order given, then formids= (mesh then tint per NPC), then under= matches sorted",
                                           total: d.Selected, epoch: order?.Epoch ?? "", notes: notes,
                                           epochUncovered: uncovered, excludedPlugins: order?.ExcludedPlugins);
         return err is not null

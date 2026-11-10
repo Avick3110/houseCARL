@@ -179,7 +179,7 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
     }
 
     /// <summary>A wildcard-free selector that names an existing FILE is answered as that one path. Enumerating a file
-    /// finds nothing beneath it, and saying "nothing provides that folder" would contradict what asset_paths= answers
+    /// finds nothing beneath it, and saying "nothing provides that folder" would contradict what paths= answers
     /// for the very same string — which is what a modder pasting a path into under= would read.</summary>
     [Fact]
     public void AWildcardFreeSelectorThatNamesAFileIsAnsweredAsThatFile()
@@ -191,7 +191,7 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         var r = Assert.Single(d.Results);
         Assert.Equal(rel, r.RelPath);
         Assert.True(r.Hit!.Exists);
-        // The same string through asset_paths= agrees, winner and all.
+        // The same string through paths= agrees, winner and all.
         Assert.Equal(_w.Svc.AssetStatus(new[] { rel }).Results[0].Hit!.Winner!.Source, r.Hit.Winner!.Source);
         // And the note says what under= did with it, rather than claiming nothing provides the folder.
         Assert.Contains(d.SelectorNotes!, n => n.Contains("names a file", StringComparison.Ordinal));

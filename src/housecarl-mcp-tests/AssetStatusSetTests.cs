@@ -342,7 +342,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         try
         {
             var d = _w.Svc.AssetStatus(
-                ListDoor.ReadItems(new[] { "@" + list }, "asset_paths", ListKind.Path).Tokens!);
+                ListDoor.ReadItems(new[] { "@" + list }, "paths", ListKind.Path).Tokens!);
 
             Assert.Equal(2, d.Results.Count);
             Assert.Equal(commaPath, d.Results[0].RelPath);
@@ -677,7 +677,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     {
         var text = AssetTools.AssetStatus(_w.Svc);
 
-        Assert.Contains("asset_paths, under, formids and provider are all empty", text);
+        Assert.Contains("paths, under, formids and provider are all empty", text);
         Assert.Contains("01A51A:Dawnguard.esm", text);
     }
 

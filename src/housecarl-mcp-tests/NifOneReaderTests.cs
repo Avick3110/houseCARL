@@ -94,7 +94,7 @@ public sealed class NifOneReaderTests : IDisposable
     [Fact]
     public void AFileNamedAtTwoSitesIsOnceInLinksJson()
     {
-        using var json = System.Text.Json.JsonDocument.Parse(AssetTools.AssetStatus(_svc, asset_paths: new[] { Cape }, links: true, format: "json"));
+        using var json = System.Text.Json.JsonDocument.Parse(AssetTools.AssetStatus(_svc, paths: new[] { Cape }, links: true, format: "json"));
         var shared = json.RootElement.GetProperty("results")[0].GetProperty("links").EnumerateArray()
                          .Where(l => l.GetProperty("raw").GetString() == Shared).ToList();
         Assert.Equal("shape 'Glow' effect source texture", Assert.Single(shared).GetProperty("where").GetString());
@@ -146,7 +146,7 @@ public sealed class NifOneReaderTests : IDisposable
     [Fact]
     public void LinksWithAProviderNameTheWinningCopyAndWithoutOneStayAsTheyWere()
     {
-        var named = AssetTools.AssetStatus(_svc, asset_paths: new[] { Cape }, links: true, provider: "Lower");
+        var named = AssetTools.AssetStatus(_svc, paths: new[] { Cape }, links: true, provider: "Lower");
         Assert.Contains("  links (6), of the winning copy \"Top\" (loose):\n", named, StringComparison.Ordinal);
         Assert.Contains("  links (6):\n", Links(Cape), StringComparison.Ordinal);
     }
@@ -160,7 +160,7 @@ public sealed class NifOneReaderTests : IDisposable
 
     string Paths(string mesh, string source = "") => NifTools.NifInspect(_svc, mesh_paths: new[] { mesh }, sections: "paths", source_provider: source);
 
-    string Links(string mesh) => AssetTools.AssetStatus(_svc, asset_paths: new[] { mesh }, links: true);
+    string Links(string mesh) => AssetTools.AssetStatus(_svc, paths: new[] { mesh }, links: true);
 
     /// <summary>The distinct Data path lines a render prints, each with its standing.</summary>
     static string[] DataLines(string text) => Regex.Matches(text, @"data path: [^\n]*").Select(m => m.Value)

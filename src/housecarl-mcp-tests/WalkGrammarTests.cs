@@ -259,7 +259,7 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     [Fact]
     public void AssetWalkFalseIsNoWalk()
     {
-        string Run(System.Text.Json.JsonElement? walk) => AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: walk);
+        string Run(System.Text.Json.JsonElement? walk) => AssetTools.AssetStatus(_w.Svc, paths: new[] { "meshes/hc/none.nif" }, walk: walk);
         var plain = Run(null);
         Assert.DoesNotContain("error:", plain);
         Assert.Equal(plain, Run(Walks.Of("false")));
@@ -282,12 +282,12 @@ public sealed class WalkGrammarTests : IClassFixture<AssetWalkDoorWorld>
     {
         const string unused = ReadSentences.WalkValuesWithoutRecordSeed;
         Assert.Contains(unused, Notes(AssetWalk("{\"through\": [\"HeadPart\"]}", records: Array.Empty<string>(), formids: new[] { Id("HcDoorA1") })));
-        Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"depth\": 1}"), format: "json")));
-        Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"follow\": \"*\"}"), format: "json")));
+        Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"depth\": 1}"), format: "json")));
+        Assert.Contains(unused, Notes(AssetTools.AssetStatus(_w.Svc, paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"follow\": \"*\"}"), format: "json")));
         Assert.DoesNotContain(unused, Notes(AssetWalk("true", records: Array.Empty<string>(), formids: new[] { Id("HcDoorA1") })));
         Assert.DoesNotContain(unused, Notes(AssetWalk("{\"depth\": 1}")));
         // through's edge kinds choose the rows of a path-only walk too, so they are not unused (#1278).
-        Assert.DoesNotContain(unused, Notes(AssetTools.AssetStatus(_w.Svc, asset_paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"through\": [\"texture\"]}"), format: "json")));
+        Assert.DoesNotContain(unused, Notes(AssetTools.AssetStatus(_w.Svc, paths: new[] { "meshes/hc/none.nif" }, walk: Walks.Of("{\"through\": [\"texture\"]}"), format: "json")));
     }
 
     /// <summary>from_source= with only a bad records= seed reads nothing through it, and says so.</summary>
