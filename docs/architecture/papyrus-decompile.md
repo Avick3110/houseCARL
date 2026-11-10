@@ -50,8 +50,10 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
 - A `paths=` entry that is a full path (`Path.IsPathFullyQualified`) is a file on disk, read as itself, with no
   instance needed under `out_path=`; one with no separator is a bare name, refused naming `scripts/<name>.pex` and
   the `under=` search (DECISIONS 2026-11-10 (4), Q1 (a), Q4 (b)). Everything else is a Data path.
-- One file on disk with no selector, no `source_provider=` and default transport answers exactly as the one-file
-  tool did; everything else is the many-script lane (`DecompileBatch`).
+- One file on disk with no selector, no `source_provider=` and default transport answers as the one-file tool did,
+  except that its no-such-file refusal names the Data-path form (`scripts/<name>.pex`) where it named
+  `bsa_extract`; everything else is the
+  many-script lane (`DecompileBatch`).
 - `provider=` picks which scripts; each is read from its winning copy, and a note counts the ones another provider
   wins. `source_provider=` picks whose copy, through `AssetSourceSelection` as `nif_inspect` does, so it reaches a
   disabled mod's loose files and archives; a script it does not ship is that row's error.
