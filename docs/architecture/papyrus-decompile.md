@@ -74,11 +74,17 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
 
 ## Pinned by
 - `DecompileSelectionTests` — a provider's loose and archived scripts in one call; `under=` across both;
-  `source_provider=` reading the shadowed copy and a disabled mod's; a file on disk beside the selection; the
-  bare-name and retired-name refusals; an existing target as one row; the window choosing what is decompiled;
-  an unreadable parent named; a mod parent only a `.psc` header names read loose and archived up to the vanilla root
-  (`AModParentOnlyAPscHeaderNamesIsReadLooseAndArchivedToTheVanillaRoot`); a vanilla root not read; one table read
-  per archive per call; `to_file=` refused; json.
+  `source_provider=` reading the shadowed copy and a disabled mod's, and turning off the won-elsewhere note; a file
+  on disk beside the selection, rows in the order given; a missing file on disk, an absent and an invalid Data path,
+  a non-script path and a second object's existing target (with what was already written) each its own row; `paths=`
+  from a file; the instance needed for a selection under `out_path=`; a bad `out_path=` beside `patch=`; the bare-name
+  (with and without `.pex`) and retired-name refusals; an existing target as one row; the window choosing what is
+  decompiled; an unreadable parent named in the many-script wording; a mod parent only a `.psc` header names read
+  loose and archived up to the vanilla root (`AModParentOnlyAPscHeaderNamesIsReadLooseAndArchivedToTheVanillaRoot`);
+  a vanilla root not read; one table read per archive per call; one file on disk alone answering as the one-file
+  tool did, whole; `counts_only=`; a `max_chars=` cut writing every script and advising no page over them, text and
+  json; the next page landing in the same folder (`into=` the patch written, as given, `patch=`, `out_path=`); json
+  rows cut at the first that does not fit; a fresh folder nothing landed in removed; `to_file=` refused; json.
 - `DecompileGuardTests` — the golden source for a canonical `.pex`, zero optimizer hints on
   canonical output, the hint firing on a statement-level `JMPT`, the refusal on an existing target
   leaving it byte-untouched, the Hidden flag kept on both objects of a two-object `.pex`, and the upcast
