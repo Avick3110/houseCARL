@@ -112,6 +112,104 @@ public sealed class DecompileSelectionTests : IDisposable
         Assert.Contains("DiskThing", Psc("HcDsDisk"));
         Assert.Contains("LooseThing", Psc("HcDsLoose"));
         Assert.Contains($"OK {disk} ← the file on disk", r);
+        Assert.True(r.IndexOf($"OK {disk}", StringComparison.Ordinal) < r.IndexOf("OK scripts", StringComparison.Ordinal), r);  // rows in the order given
+    }
+
+    [Fact]
+    public void AMissingFileOnDiskIsItsOwnRow()
+    {
+        var missing = Path.Combine(_p.Root, "gone", "HcDsGone.pex");
+
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { missing, LooseRel }, out_path: _out);
+
+        Assert.Contains($"ERROR {missing} — no such file: '{missing}'.", r);
+        Assert.Contains("1 OK, 0 PARTIAL, 1 not decompiled", r);
+    }
+
+    [Fact]
+    public void ADataPathNoProviderShipsAndAnInvalidOneAreEachTheirOwnRow()
+    {
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { "scripts/hcdsnope.pex", "scripts/../hcdsup.pex", LooseRel },
+                                               out_path: _out);
+
+        Assert.Contains("ERROR scripts/hcdsnope.pex — ABSENT — ", r);
+        Assert.Contains("ERROR scripts/../hcdsup.pex — invalid path — ", r);
+        Assert.Contains("1 OK, 0 PARTIAL, 2 not decompiled", r);
+    }
+
+    [Fact]
+    public void AScriptWhoseSecondObjectsTargetExistsSaysWhatWasAlreadyWritten()
+    {
+        var multi = Path.Combine(_p.Root, "multi", "HcDsMultiA.pex");
+        Directory.CreateDirectory(Path.GetDirectoryName(multi)!);
+        PexWriter.WriteMultiObjectPex(multi, "HcDsMultiA", "HcDsMultiB");
+        Directory.CreateDirectory(_out);
+        File.WriteAllText(Path.Combine(_out, "HcDsMultiB.psc"), "; mine");
+
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { multi, LooseRel }, out_path: _out);
+
+        Assert.Contains("Already written for this script: HcDsMultiA.psc.", r);
+    }
+
+    [Fact]
+    public void SelectingWithOutPathStillNeedsTheInstance()
+    {
+        using var unconfigured = LoadOrderService.WithInstance(null, 0, new UserConfigStore(Path.Combine(_p.Root, "user.json")));
+
+        var r = DecompileTools.DecompileScript(unconfigured, paths: new[] { LooseRel }, out_path: _out);
+
+        Assert.Equal(unconfigured.ConfigPromptOrNull(), r);
+    }
+
+    [Fact]
+    public void ABadOutPathBesidePatchSaysPatchWasIgnored()
+    {
+        var r = DecompileTools.DecompileScript(_svc, provider: "Arch", patch: "Mine", out_path: "relative/psc");
+
+        Assert.StartsWith("error:", r);
+        Assert.Contains("\nnote: patch=/into= were ignored because out_path= was given, and nothing was written.", r);
+    }
+
+    [Fact]
+    public void ProviderWithItsOwnSourceProviderCountsNoneWonElsewhere()
+    {
+        var r = DecompileTools.DecompileScript(_svc, provider: "Arch", source_provider: "Arch", out_path: _out);
+
+        Assert.Contains("ArchCopyThing", Psc("HcDsShared"));
+        Assert.DoesNotContain("won by another provider", r);
+    }
+
+    [Fact]
+    public void PathsTakesAFileOfPaths()
+    {
+        var list = _p.Scratch("list.txt", System.Text.Encoding.ASCII.GetBytes(LooseRel + "\n" + Arch1 + "\n"));
+
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { "@" + list }, out_path: _out);
+
+        Assert.Contains("2 OK", r);
+        Assert.Contains("LooseThing", Psc("HcDsLoose"));
+    }
+
+    [Fact]
+    public void JsonListsRowsInOrderUpToTheFirstThatDoesNotFit()
+    {
+        // The first row is the wider (its path is longer); a ceiling between the two widths lists neither.
+        var wide = Path.Combine(_p.Root, new string('w', 120), "HcDsDisk.pex");
+        Directory.CreateDirectory(Path.GetDirectoryName(wide)!);
+        File.WriteAllBytes(wide, Pex("HcDsDisk", null, "DiskThing"));
+        var o1 = Path.Combine(_p.Root, "o1");
+        var o2 = Path.Combine(_p.Root, "o2");
+        using var all = System.Text.Json.JsonDocument.Parse(
+            DecompileTools.DecompileScript(_svc, paths: new[] { wide, LooseRel }, format: "json", out_path: o1));
+        var widths = all.RootElement.GetProperty("rows").EnumerateArray().Select(e => e.GetRawText().Length).ToArray();
+        Assert.True(widths[0] > widths[1] + 1, string.Join(",", widths));
+
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { wide, LooseRel }, format: "json", out_path: o2,
+                                               max_chars: 4096 + widths[0] - 1);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(r);
+        Assert.Equal(0, doc.RootElement.GetProperty("rows").GetArrayLength());
+        Assert.Equal(2, doc.RootElement.GetProperty("accounting").GetProperty("truncated").GetInt32());
     }
 
     [Fact]
@@ -123,6 +221,15 @@ public sealed class DecompileSelectionTests : IDisposable
         Assert.Contains("paths=[\"scripts/hcdsloose.pex\"]", r);
         Assert.Contains("under=[\"**/hcdsloose*.pex\"]", r);
         Assert.False(Directory.Exists(_out));
+    }
+
+    [Fact]
+    public void ABareNameWithItsExtensionIsRefusedNamingItsDataPathOnce()
+    {
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { "hcdsloose.pex" }, out_path: _out);
+
+        Assert.Contains("paths=[\"scripts/hcdsloose.pex\"]", r);
+        Assert.Contains("under=[\"**/hcdsloose*.pex\"]", r);
     }
 
     [Fact]
@@ -193,6 +300,8 @@ public sealed class DecompileSelectionTests : IDisposable
 
         Assert.Contains("OrphanThing", Psc("HcDsOrphan"));
         Assert.Contains(@"1 parent script(s) could not be read off the load order: 'scripts\HcDsBroken.pex'", r);
+        Assert.Contains("the .pex files this hierarchy reads were not all read (", r);   // the many-script wording
+        Assert.Contains("plus what these scripts and the other .pex files that could be read declare", r);
     }
 
     [Fact]
@@ -290,8 +399,14 @@ public sealed class DecompileSelectionTests : IDisposable
 
         var r = DecompileTools.DecompileScript(_svc, paths: new[] { disk }, out_path: _out);
 
-        Assert.StartsWith($"decompile OK: HcDsDisk.pex → {Path.Combine(_out, "HcDsDisk.psc")}\n", r);
-        Assert.DoesNotContain("[accounting]", r);
+        // The whole answer, as main's one-file tool gave it.
+        Assert.Equal($"decompile OK: HcDsDisk.pex → {Path.Combine(_out, "HcDsDisk.psc")}\n" +
+                     "0 function(s), all structured clean.\n" +
+                     "known format losses (every decompiler): a parameter default is not in the .pex, so it survives only " +
+                     "where a call in the same script omitted the argument — a parameter with no such call comes back with " +
+                     "its default missing; comments/layout are gone (docstrings survive).\n" +
+                     "the .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile " +
+                     "with housecarl_compile_script.", r);
     }
 
     [Fact]
