@@ -47,12 +47,12 @@ internal static class DecompileBatch
         if (sel?.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
 
         // Rows in the order given: paths= entries as written (files on disk among them), then the selectors' matches.
+        // The selection's first entries are the explicit Data paths, one each, in the order given.
         var rows = new List<Row>();
-        var explicitScripts = sel?.Scripts.Where(s => s.Explicit).ToList() ?? new List<SelectedScript>();
         int nextExplicit = 0;
         foreach (var e in c.Entries)
-            rows.Add(e.OnDisk ? new Row(e.Path, true) : new Row(explicitScripts[nextExplicit++].Path, false));
-        if (sel is not null) rows.AddRange(sel.Scripts.Where(s => !s.Explicit).Select(s => new Row(s.Path, false)));
+            rows.Add(e.OnDisk ? new Row(e.Path, true) : new Row(sel!.Scripts[nextExplicit++], false));
+        if (sel is not null) rows.AddRange(sel.Scripts.Skip(dataPaths.Count).Select(p => new Row(p, false)));
         int total = rows.Count;
         var window = c.Window.Apply(rows).Select(r => Locate(sel?.View, r, sourceProvider)).ToList();
 
@@ -87,12 +87,18 @@ internal static class DecompileBatch
             }
         }
 
+        if (ignoredLane) notes.Add("out_path= was given, so patch=/into= are ignored (the .psc files land in out_path, not a houseCARL patch folder).");
+        // Nothing in the window can be read: every row says why, and no folder was cut.
+        if (rf is not { } folder)
+            return Render(new Answer(window.Select(r => NotDone(r, r.Error)).ToList(), total, c.Window, provider, sourceProvider,
+                                     null, chosenOutput, notes, null), c);
+
         // Pass 1, the class hierarchy: the baseline and mods-tree sources, every script in the window, the .pex files
         // beside each file on disk, and each script's parent chain read off the load order. Nothing parsed is kept.
-        var hierarchy = rf is null ? null : svc.ClassParentsForDecompile();
-        var edges = new Dictionary<string, string>(hierarchy?.Edges ?? new(), StringComparer.OrdinalIgnoreCase);
+        var hierarchy = svc.ClassParentsForDecompile();
+        var edges = new Dictionary<string, string>(hierarchy.Edges, StringComparer.OrdinalIgnoreCase);
         var objects = new List<string>();
-        for (int i = 0; i < window.Count && rf is not null; i++)
+        for (int i = 0; i < window.Count; i++)
         {
             if (window[i].Error is not null) continue;
             var (pex, err) = Read(sel?.View, window[i]);
@@ -101,26 +107,25 @@ internal static class DecompileBatch
             objects.AddRange(pex.Objects.Select(o => o.Name).Where(n => !string.IsNullOrWhiteSpace(n)));
         }
         var thin = new List<string>();
-        foreach (var folder in window.Where(r => r.OnDisk && r.Error is null).Select(r => Path.GetDirectoryName(r.Path)!)
+        foreach (var dir in window.Where(r => r.OnDisk && r.Error is null).Select(r => Path.GetDirectoryName(r.Path)!)
                                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var scan = PapyrusClassParents.AddFromPexFolder(edges, folder);
-            if (scan.FilesFailed > 0) thin.Add($"{scan.FilesFailed} .pex file(s) in '{folder}' could not be read");
-            if (scan.ListingFailed) thin.Add($"the folder '{folder}' could not be listed to the end");
+            var scan = PapyrusClassParents.AddFromPexFolder(edges, dir);
+            if (scan.FilesFailed > 0) thin.Add($"{scan.FilesFailed} .pex file(s) in '{dir}' could not be read");
+            if (scan.ListingFailed) thin.Add($"the folder '{dir}' could not be listed to the end");
         }
-        if (sel is not null && hierarchy is not null)
+        if (sel is not null)
             thin.AddRange(AddParentChains(sel.View, edges, objects,
                                           new HashSet<string>(hierarchy.Edges.Values, StringComparer.OrdinalIgnoreCase)));
-        if (hierarchy is not null) hierarchy = hierarchy with { SiblingPexMissing = thin.Count > 0 ? string.Join(", and ", thin) : null };
+        hierarchy = hierarchy with { SiblingPexMissing = thin.Count > 0 ? string.Join(", and ", thin) : null };
 
         // Pass 2: decompile and write, row by row; a row that cannot land is that row's error, and the rest still land.
         var done = new List<Done>(window.Count);
         foreach (var r in window)
         {
-            if (r.Error is not null || rf is null) { done.Add(new Done(r, Array.Empty<string>(), 0, 0, Array.Empty<string>(), false, r.Error)); continue; }
-            var (pex, err) = Read(sel?.View, r);
-            if (pex is null) { done.Add(new Done(r, Array.Empty<string>(), 0, 0, Array.Empty<string>(), false, err)); continue; }
-            var o = DecompileTools.WriteObjects(pex, edges, rf.Value.OutputDir);
+            var (pex, err) = r.Error is null ? Read(sel?.View, r) : (null, r.Error);
+            if (pex is null) { done.Add(NotDone(r, err)); continue; }
+            var o = DecompileTools.WriteObjects(pex, edges, folder.OutputDir);
             var name = Path.GetFileName(r.Path);
             string? why =
                 o.UnnamedObject ? $"'{name}' carries an unnamed script object."
@@ -131,13 +136,20 @@ internal static class DecompileBatch
             done.Add(new Done(r, o.Written, o.FunctionsTotal, o.FunctionsFailed, o.Failures, o.OptimizerHints > 0, why));
         }
 
-        string? residue = null;
-        if (rf is { } folderMade && done.All(d => d.Written.Count == 0)) residue = svc.RemoveOrNameRiderResidue(folderMade);
-        if (residue is not null) notes.Add($"the freshly created mod folder at '{residue}' still holds partial output — delete it or retry with into=.");
-        if (ignoredLane) notes.Add("out_path= was given, so patch=/into= are ignored (the .psc files land in out_path, not a houseCARL patch folder).");
+        if (done.All(d => d.Written.Count == 0) && svc.RemoveOrNameRiderResidue(folder) is { } residue)
+            notes.Add($"the freshly created mod folder at '{residue}' still holds partial output — delete it or retry with into=.");
+        return Render(new Answer(done, total, c.Window, provider, sourceProvider, folder, chosenOutput, notes, hierarchy), c);
+    }
 
-        var answer = new Answer(done, total, c.Window, provider, sourceProvider, rf, chosenOutput, notes, hierarchy);
-        return ToolAnswer.Served(json ? RenderJson(answer, c.CountsOnly, c.Cap) : RenderText(answer, c.CountsOnly, c.Cap));
+    static ToolAnswer Render(Answer a, Call c)
+        => ToolAnswer.Served(c.Json ? RenderJson(a, c.CountsOnly, c.Cap) : RenderText(a, c.CountsOnly, c.Cap));
+
+    static Done NotDone(Row r, string? error) => new(r, Array.Empty<string>(), 0, 0, Array.Empty<string>(), false, error);
+
+    static PexFile ParsePex(byte[] bytes)
+    {
+        using var ms = new MemoryStream(bytes);
+        return PexFile.CreateFromStream(ms, GameCategory.Skyrim);
     }
 
     /// <summary>A row with its copy located: a file on disk checked, a Data path picked through the one source policy.</summary>
@@ -167,8 +179,7 @@ internal static class DecompileBatch
             {
                 var (bytes, err) = view!.Value.ReadSource(r.Source!);
                 if (bytes is null) return (null, err ?? "could not read the resolved script bytes.");
-                using var ms = new MemoryStream(bytes);
-                pex = PexFile.CreateFromStream(ms, GameCategory.Skyrim);
+                pex = ParsePex(bytes);
             }
         }
         catch (Exception ex)
@@ -202,11 +213,7 @@ internal static class DecompileBatch
                 if (place.Sources.Count == 0) break;   // a root class, or a parent the order does not ship: nothing to read
                 var (bytes, err) = view.ReadSource(place.Sources[0]);
                 if (bytes is null) { unread.Add($"'{rel}' ({err})"); break; }
-                try
-                {
-                    using var ms = new MemoryStream(bytes);
-                    PapyrusClassParents.AddFromPex(edges, PexFile.CreateFromStream(ms, GameCategory.Skyrim));
-                }
+                try { PapyrusClassParents.AddFromPex(edges, ParsePex(bytes)); }
                 catch (Exception ex) { unread.Add($"'{rel}' ({ex.GetType().Name})"); break; }
                 if (!edges.TryGetValue(cur, out up)) break;
                 cur = up;
@@ -261,7 +268,7 @@ internal static class DecompileBatch
     {
         var sb = new StringBuilder();
         foreach (var n in a.Notes) sb.Append("\nnote: ").Append(n);
-        if (a.Rows.Any(d => d.Status == "partial")) sb.Append("\nnote: ").Append(PartialMeaning);
+        if (a.Partial > 0) sb.Append("\nnote: ").Append(PartialMeaning);
         if (a.Rows.Any(d => d.Optimizer)) sb.Append("\nnote: ").Append(OptimizerNote);
         if (a.AnyWritten)
         {
@@ -324,7 +331,7 @@ internal static class DecompileBatch
             {
                 w.WritePropertyName("rows");
                 w.WriteStartArray();
-                foreach (var r in rowsJson) w.WriteRawValue(r);
+                foreach (var r in rowsJson) w.WriteRawValue(r, skipInputValidation: true);
                 w.WriteEndArray();
             }
             w.WriteStartArray("notes");

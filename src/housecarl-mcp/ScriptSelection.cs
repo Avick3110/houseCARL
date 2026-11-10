@@ -2,15 +2,11 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>One Data path a script selection holds, and whether the caller named it (an explicit path) or a selector matched it.</summary>
-internal readonly record struct SelectedScript(string Path, bool Explicit);
-
-/// <summary>A script selection over one asset view: the Data paths in order (explicit paths first, then the
-/// <c>under=</c> or whole-provider matches that are <c>.pex</c>), how many matched files were not scripts, the
-/// selector notes, and the refusal under which nothing was selected.</summary>
-internal sealed record ScriptSelectionData(AssetResolver.AssetView View, IReadOnlyList<SelectedScript> Scripts, int NotScripts,
-                                           IReadOnlyList<string> Notes, string? Provider, IReadOnlyList<string> Warnings,
-                                           string ProfileName, string? Refusal = null);
+/// <summary>A script selection over one asset view: the Data paths in order (the explicit paths first, one each as
+/// given, then the <c>under=</c> or whole-provider matches that are <c>.pex</c>), how many matched files were not
+/// scripts, the selector notes, and the refusal under which nothing was selected.</summary>
+internal sealed record ScriptSelectionData(AssetResolver.AssetView View, IReadOnlyList<string> Scripts, int NotScripts,
+                                           IReadOnlyList<string> Notes, string? Refusal = null);
 
 /// <summary>The copy of one selected script a decompile reads: the source, the winner's description when the source
 /// is not the winner, or why there is no copy to read.</summary>
@@ -24,27 +20,24 @@ internal sealed partial class AssetLayers
     internal ScriptSelectionData SelectScripts(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under, string? provider)
     {
         var capture = CaptureForSelection(null, null);
-        var captured = capture.Captured;
+        var view = capture.Captured.View;
         var chosen = FileSelection.Select(capture, relPaths, under, provider, MaxAssetPaths);
-        ScriptSelectionData Refused(string why) => new(captured.View, Array.Empty<SelectedScript>(), 0, chosen.Notes,
-                                                        chosen.Provider, captured.Warnings, captured.ProfileName, why);
+        ScriptSelectionData Refused(string why) => new(view, Array.Empty<string>(), 0, chosen.Notes, why);
         if (chosen.Refusal is { } unknown) return Refused(unknown);
         if (chosen.StoppedAt is { } stoppedAt)
             return Refused($"error: the selection names at least {stoppedAt:N0} paths, past the {MaxAssetPaths:N0}-path bound one " +
                            "call is given, so nothing was decompiled — narrow it with a tighter under= selector " +
                            "(e.g. 'scripts/**/*.pex') or fewer paths= entries.");
-        var scripts = new List<SelectedScript>(chosen.Entries.Count);
+        var scripts = new List<string>(chosen.Entries.Count);
         int notScripts = 0;
         for (int i = 0; i < chosen.Entries.Count; i++)
         {
-            // The first relPaths.Count entries are the explicit paths, one each, in the order given.
-            bool isExplicit = i < relPaths.Count;
+            // The first relPaths.Count entries are the explicit paths, one each, in the order given; only matches are filtered.
             var path = chosen.Entries[i].Path;
-            if (!isExplicit && !path.EndsWith(".pex", StringComparison.OrdinalIgnoreCase)) { notScripts++; continue; }
-            scripts.Add(new SelectedScript(path, isExplicit));
+            if (i >= relPaths.Count && !path.EndsWith(".pex", StringComparison.OrdinalIgnoreCase)) { notScripts++; continue; }
+            scripts.Add(path);
         }
-        return new ScriptSelectionData(captured.View, scripts, notScripts, chosen.Notes, chosen.Provider,
-                                       captured.Warnings, captured.ProfileName);
+        return new ScriptSelectionData(view, scripts, notScripts, chosen.Notes);
     }
 
     /// <summary>The copy of <paramref name="rel"/> to decompile: the winner, or the one <paramref name="sourceProvider"/>
