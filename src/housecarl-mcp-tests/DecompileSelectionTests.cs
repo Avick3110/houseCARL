@@ -225,6 +225,78 @@ public sealed class DecompileSelectionTests : IDisposable
     }
 
     [Fact]
+    public void AFileOnDiskAloneAnswersAsTheOneFileToolDid()
+    {
+        var disk = _p.Scratch("HcDsDisk.pex", Pex("HcDsDisk", null, "DiskThing"));
+
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { disk }, out_path: _out);
+
+        Assert.StartsWith($"decompile OK: HcDsDisk.pex → {Path.Combine(_out, "HcDsDisk.psc")}\n", r);
+        Assert.DoesNotContain("[accounting]", r);
+    }
+
+    [Fact]
+    public void SourceProviderBesideAFileOnDiskSaysTheFileIsReadAsItself()
+    {
+        var disk = _p.Scratch("HcDsDisk.pex", Pex("HcDsDisk", null, "DiskThing"));
+
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { disk }, source_provider: "Arch", out_path: _out);
+
+        Assert.Contains("DiskThing", Psc("HcDsDisk"));
+        Assert.Contains("a file on disk is read as itself", r);
+    }
+
+    [Fact]
+    public void CountsOnlyListsNoRowsAndStillWritesEveryScript()
+    {
+        var r = DecompileTools.DecompileScript(_svc, provider: "Arch", counts_only: true, out_path: _out);
+
+        Assert.StartsWith("decompile: 4 script(s), provider \"Arch\" — 4 OK", r);
+        Assert.DoesNotContain(" OK scripts", r);
+        Assert.Equal(4, Directory.GetFiles(_out, "*.psc").Length);
+    }
+
+    [Fact]
+    public void MaxCharsCutsTheListingAndEveryScriptIsStillWritten()
+    {
+        var r = DecompileTools.DecompileScript(_svc, provider: "Arch", max_chars: 1500, out_path: _out);
+
+        Assert.Equal(4, Directory.GetFiles(_out, "*.psc").Length);
+        Assert.Contains("whatever max_chars cuts from the listing", r);
+        Assert.Matches(@"\[accounting\] total=4 rendered=[0-3] ", r);
+    }
+
+    [Fact]
+    public void NoSelectorIsRefused()
+    {
+        var r = DecompileTools.DecompileScript(_svc, out_path: _out);
+
+        Assert.StartsWith("error: no script given", r);
+    }
+
+    [Fact]
+    public void AnExplicitPathThatIsNotAScriptIsItsOwnRow()
+    {
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { "scripts/hcdsloose.psc", LooseRel }, out_path: _out);
+
+        Assert.Contains(@"ERROR scripts/hcdsloose.psc — 'scripts/hcdsloose.psc' is not a .pex compiled script.", r);
+        Assert.Contains("1 OK, 0 PARTIAL, 1 not decompiled", r);
+    }
+
+    [Fact]
+    public void AFreshPatchFolderNothingLandedInIsRemoved()
+    {
+        PlaceInstance.Loose(_p.Mod("Fix"), @"scripts\hcdsbroken.pex", BsaBuilder.Bytes("not a pex", 16));
+        _p.TouchModlist();
+        var before = Directory.GetDirectories(_p.Mods).Length;
+
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { @"scripts\hcdsbroken.pex" });
+
+        Assert.Contains("0 OK, 0 PARTIAL, 1 not decompiled", r);
+        Assert.Equal(before, Directory.GetDirectories(_p.Mods).Length);
+    }
+
+    [Fact]
     public void ToFileIsRefusedNamingTheOutputFolder()
     {
         var r = DecompileTools.DecompileScript(_svc, provider: "Arch", to_file: Path.Combine(_p.Root, "x.jsonl"));
