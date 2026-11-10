@@ -171,11 +171,12 @@ public sealed class DecompileSelectionTests : IDisposable
     }
 
     [Fact]
-    public void ProviderWithItsOwnSourceProviderCountsNoneWonElsewhere()
+    public void ProviderWithASourceProviderCountsNoneWonElsewhere()
     {
-        var r = DecompileTools.DecompileScript(_svc, provider: "Arch", source_provider: "Arch", out_path: _out);
+        // source_provider= chose every copy read, so another provider's copy is no winner to report.
+        var r = DecompileTools.DecompileScript(_svc, provider: "Arch", source_provider: "Fix", out_path: _out);
 
-        Assert.Contains("ArchCopyThing", Psc("HcDsShared"));
+        Assert.Contains("FixCopyThing", Psc("HcDsShared"));
         Assert.DoesNotContain("won by another provider", r);
     }
 
