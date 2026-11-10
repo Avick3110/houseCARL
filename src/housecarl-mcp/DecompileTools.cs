@@ -12,10 +12,14 @@ public static class DecompileTools
 {
     [McpServerTool(Name = ToolNames.DecompileScript, Title = "Decompile a compiled Papyrus script (.pex → .psc)"),
      Description(
-         "Decompile a compiled Papyrus script (.pex) back to source (.psc). The .psc lands in Source\\Scripts of a new " +
-         "houseCARL patch-mod folder, or in a folder you name with out_path= (for a look without a mod folder). Originals " +
-         "are untouched and an existing .psc is never overwritten. Needs houseCARL pointed at your MO2 instance, " +
-         "except with out_path=; needs no compiler or external tool.\n\n" +
+         "Decompile Papyrus scripts (.pex) to source (.psc), one or a whole mod's in one call. Select as " +
+         ToolNames.AssetStatus + " does: paths= (Data paths, 'scripts/<name>.pex'; or a .pex file on disk by full path), " +
+         "under= (folder or glob) and provider= (which files). Each Data path is read from its winning copy, loose or in " +
+         "an archive, with no extract step; source_provider= reads another mod's copy (a disabled mod's too). A bare " +
+         "script name is refused. The .psc files land in Source\\Scripts of a new houseCARL patch-mod folder, or in the " +
+         "folder out_path= names. Originals are untouched and an existing .psc is never overwritten: that script's row " +
+         "says so and the rest land. One row per script, then the [accounting] line. Needs your MO2 instance, except " +
+         "for files on disk with out_path=; needs no external tool.\n\n" +
          "Names, types, properties, states, events and docstrings survive; control flow is reconstructed and proven. Losses " +
          "every decompiler shares: .pex has no parameter defaults, so a '= None' default comes back only where a call in the " +
          "same script omitted that argument, and comments and blank-line layout are gone. A script built by an optimizing " +
@@ -25,14 +29,97 @@ public static class DecompileTools
          "that .psc will not compile as is. When part of the class hierarchy could not be read, the result says so.")]
     public static string DecompileScript(
         LoadOrderService svc,
-        [Description("Full path to the .pex to decompile. For a script inside a BSA, run " + ToolNames.BsaExtract + " first and pass the extracted path.")]
-            string pex,
+        [Description("The scripts to decompile, in the order given: Data paths ('scripts/qf_myquest_0001d8b2.pex', " +
+                     "forward or back slashes), each read from its winning copy, loose or in an archive; or the full " +
+                     "path to a .pex file on disk, read as that file. A bare name ('qf_myquest_0001d8b2') is refused " +
+                     "with the path to pass. Optional when under= or provider= is given." + ListText.Paths)]
+            ListArg? paths = null,
+        [Description("Optional. Data-relative folder or glob selector(s), as " + ToolNames.AssetStatus + " under=: every " +
+                     ".pex the load order provides beneath it, loose and in archives, e.g. 'scripts' or " +
+                     "'scripts/**/qf_*.pex'. Matches come after paths=, sorted, duplicates dropped; a matched file that is " +
+                     "not a .pex is left out and counted in a note. With provider=, only that provider's files." + ListText.Paths)]
+            ListArg? under = null,
+        [Description("Optional. WHICH scripts: one provider, as " + ToolNames.AssetStatus + " provider= spells it (an " +
+                     "enabled mod folder, 'overwrite', 'Data', or one active archive's filename). Alone, every .pex it " +
+                     "ships; with under=, only those beneath the selectors. A name not in the active load order is refused. " +
+                     "It does not choose whose copy is read: that is source_provider=.")]
+            string? provider = null,
+        [Description("Optional. WHOSE copy of each Data path is read: a mod folder (enabled or not, its loose files then " +
+                     "its archives), 'overwrite', 'Data' or an active archive's filename, instead of the winning copy, " +
+                     "e.g. to decompile a base mod's copy of a script its patch overrides. A script that provider does " +
+                     "not ship is that row's error. A file on disk is read as itself.")]
+            string? source_provider = null,
         [Description("Optional. Base name for the new patch-mod folder the .psc lands in (default 'houseCARL_Scripts'); auto-suffixed if taken, so each call makes its own folder. To keep compile and decompile output together, add to one folder with into= (e.g. into='houseCARL_Scripts').")]
             string? patch = null,
         [Description("Optional. An existing houseCARL patch mod to add the .psc into instead of a fresh folder: its plugin filename (found even if you renamed its MO2 mod folder), or its mod-folder name, which also picks between two patches sharing a filename. A script folder holds no plugin: pass its base name (into='houseCARL_Scripts' for the default) or its mod-folder name.")]
             string? into = null,
         [Description("Optional. Absolute path to a folder of your choosing, created if missing; the .psc is written straight into it and houseCARL never deletes it. patch= and into= are then ignored.")]
-            string? out_path = null) => Guard.Tool(ToolNames.DecompileScript, call =>
+            string? out_path = null,
+        [Description("Optional. Max scripts this call decompiles, from offset=, in selection order. 0 = no limit.")]
+            int limit = 0,
+        [Description("Optional. Where in the selection this call starts decompiling, for taking a large selection in " +
+                     "windows (pass into= the first window's patch to keep one folder). 0 = the beginning.")]
+            int offset = 0,
+        [Description("Optional. Return the totals and notes instead of one row per script; every script in the window is still decompiled and written.")]
+            bool counts_only = false,
+        [Description("Optional. 'text' (default) | 'json' (the same rows, machine-readable, accounting in-band).")]
+            string? format = null,
+        [Description("Optional. Character ceiling on the listing; rows past it are left out and counted in the " +
+                     "[accounting] line, while their .psc files are still written. 0 = the server default (~40k).")]
+            int max_chars = 0,
+        [Description("Not taken: decompile writes .psc files, and its output is the folder (out_path=, patch=, into=). A call passing it is refused.")]
+            string? to_file = null,
+        [Description("Retired: pass paths=[\"<full path to the .pex>\"]. A call passing this is refused.")]
+            string? pex = null) => Guard.Tool(ToolNames.DecompileScript, call =>
+    {
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);
+        if (!string.IsNullOrWhiteSpace(pex))
+            return ToolAnswer.Refusal(json, "error: pex= is now paths= — pass paths=[\"<full path to the .pex>\"] for a " +
+                                            "file on disk, or its Data path ('scripts/<name>.pex') to read it from the load order.");
+        if (!string.IsNullOrWhiteSpace(to_file))
+            return ToolAnswer.Refusal(json, "error: to_file= is the read tools' result file, and decompile writes .psc " +
+                                            "files: its output is the folder out_path=, patch= or into= names — drop to_file=.");
+        var pathsIn = paths.Read("paths", ListKind.Path);
+        var underIn = under.Read("under", ListKind.Path);
+        if ((pathsIn.Error ?? underIn.Error) is { } listErr) return ToolAnswer.Refusal(json, listErr);
+        var window = new RowWindow(offset, limit);
+        if (window.Error is { } bad) return ToolAnswer.Refusal(json, bad);
+
+        // Each entry is a file on disk (a full path) or a Data path; a bare name is neither, and is refused naming both forms.
+        var entries = new List<DecompileBatch.Entry>();
+        var bare = new List<string>();
+        foreach (var raw in pathsIn.Tokens ?? Array.Empty<string>())
+        {
+            var p = (raw ?? "").Trim().Trim('"');
+            if (p.Length == 0) continue;
+            if (Path.IsPathFullyQualified(p)) entries.Add(new(p, true));
+            else if (p.IndexOf('/') < 0 && p.IndexOf('\\') < 0) bare.Add(p);
+            else entries.Add(new(p, false));
+        }
+        if (bare.Count > 0)
+        {
+            string Stem(string b) => b.EndsWith(".pex", StringComparison.OrdinalIgnoreCase) ? b[..^4] : b;
+            var first = Stem(bare[0]);
+            return ToolAnswer.Refusal(json, $"error: {string.Join(", ", bare.Select(b => $"'{b}'"))} " +
+                (bare.Count == 1 ? "is a script name, not a path" : "are script names, not paths") +
+                $" — pass its Data path, paths=[\"scripts/{first}.pex\"], or search for it with under=[\"**/{first}*.pex\"].");
+        }
+        var underTokens = underIn.Tokens ?? Array.Empty<string>();
+        if (entries.Count == 0 && underTokens.Length == 0 && string.IsNullOrWhiteSpace(provider))
+            return ToolAnswer.Refusal(json, "error: no script given — pass paths= (a Data path such as " +
+                                            "'scripts/<name>.pex', or the full path to a .pex on disk), under= or provider=.");
+
+        // One file on disk, nothing else asked of the transport: today's single-file answer.
+        if (entries is [{ OnDisk: true } only] && underTokens.Length == 0 && string.IsNullOrWhiteSpace(provider)
+            && string.IsNullOrWhiteSpace(source_provider) && !json && !window.IsPaged && !counts_only && max_chars <= 0)
+            return SingleFile(svc, only.Path, patch, into, out_path);
+        return DecompileBatch.Run(svc, new DecompileBatch.Call(entries, underTokens, provider, source_provider, patch, into,
+                                                               out_path, window, counts_only, json, Wire.Cap(max_chars)));
+    });
+
+    /// <summary>One .pex file on disk, the answer the tool gave before it took a selection, unchanged.</summary>
+    static ToolAnswer SingleFile(LoadOrderService svc, string pex, string? patch, string? into, string? out_path)
     {
         // 1) lane: out_path= supersedes patch=/into= saying so; the note is APPENDED, so a refusal opens with "error:".
         bool chosenOutput = !string.IsNullOrWhiteSpace(out_path);
@@ -51,11 +138,8 @@ public static class DecompileTools
             return ToolAnswer.Refusal("error: " + patchInto);
 
         // 3) validate the pex path.
-        if (string.IsNullOrWhiteSpace(pex))
-            return ToolAnswer.Refusal("error: no pex given. Pass pex= the full path to the .pex file to decompile." + LaneNoteFail());
-        pex = pex.Trim().Trim('"');
         if (!File.Exists(pex))
-            return ToolAnswer.Refusal($"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, {ToolNames.BsaExtract} it first)." + LaneNoteFail());
+            return ToolAnswer.Refusal($"error: no such file: '{pex}'. Pass the full path to the .pex, or for a script in the load order its Data path ('scripts/<name>.pex')." + LaneNoteFail());
         if (!pex.EndsWith(".pex", StringComparison.OrdinalIgnoreCase))
             return ToolAnswer.Refusal($"error: '{Path.GetFileName(pex)}' is not a .pex compiled script." + LaneNoteFail());
         pex = Path.GetFullPath(pex);
@@ -163,10 +247,10 @@ public static class DecompileTools
             ? "\nthe .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile with " + ToolNames.CompileScript + "."
             : "\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with " + ToolNames.CompileScript + " (into= the same patch).");
         return ToolAnswer.Served(outSb.ToString() + LaneNoteOk());
-    });
+    }
 
     /// <summary>One sentence saying what the class hierarchy IS when a source is missing; two could contradict each other.</summary>
-    internal static string HierarchySentence(ClassParents h)
+    internal static string HierarchySentence(ClassParents h, bool batch = false)
     {
         if (h.BaselineNote is null && h.TopUpMissing is null && h.SiblingPexMissing is null) return "";
         // What a thinner hierarchy costs, said once however many sources are thin.
@@ -185,13 +269,17 @@ public static class DecompileTools
             kept.Add("the MO2 mods-tree sources that could be read");
         }
         else kept.Add("the MO2 mods-tree sources");
+        // A many-script call reads each script, the .pex files beside a file on disk, and each parent chain off the load order.
         if (h.SiblingPexMissing is not null)
         {
-            thin.Add($"the .pex files beside this one were not all read ({h.SiblingPexMissing})");
+            thin.Add(batch ? $"the .pex files this hierarchy reads were not all read ({h.SiblingPexMissing})"
+                           : $"the .pex files beside this one were not all read ({h.SiblingPexMissing})");
             // True whether some siblings were read or none were, so a partial failure never disowns the edges it added.
-            kept.Add("what this .pex and the sibling .pex files that could be read declare");
+            kept.Add(batch ? "what these scripts and the other .pex files that could be read declare"
+                           : "what this .pex and the sibling .pex files that could be read declare");
         }
-        else kept.Add("what this .pex and the .pex files beside it declare");
+        else kept.Add(batch ? "what these scripts, the .pex files beside a file on disk and each parent script in the load order declare"
+                            : "what this .pex and the .pex files beside it declare");
         return $"\nnote: {string.Join(", and ", thin)} — the class hierarchy is {string.Join(" plus ", kept)}{cost}";
     }
 

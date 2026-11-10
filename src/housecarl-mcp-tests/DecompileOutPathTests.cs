@@ -25,7 +25,7 @@ public sealed class DecompileOutPathTests
         var dest = Path.Combine(FreshDir(), "sources");   // does not exist yet: out_path= creates it
         try
         {
-            var r = DecompileTools.DecompileScript(W.Svc, Pex, out_path: dest);
+            var r = DecompileTools.DecompileScript(W.Svc, new[] { Pex }, out_path: dest);
 
             var psc = Path.Combine(dest, ScriptsWorld.BaseScript + ".psc");
             Assert.True(File.Exists(psc), r);
@@ -41,7 +41,7 @@ public sealed class DecompileOutPathTests
         var before = Directory.GetDirectories(W.ModsDir).OrderBy(d => d, StringComparer.Ordinal).ToArray();
         try
         {
-            DecompileTools.DecompileScript(W.Svc, Pex, out_path: dest);
+            DecompileTools.DecompileScript(W.Svc, new[] { Pex }, out_path: dest);
 
             Assert.Equal(before, Directory.GetDirectories(W.ModsDir).OrderBy(d => d, StringComparer.Ordinal).ToArray());
         }
@@ -55,7 +55,7 @@ public sealed class DecompileOutPathTests
         // fixed name would carry one run's residue into the next.
         var relative = "hc-decompile-out-" + Guid.NewGuid().ToString("N");
 
-        var r = DecompileTools.DecompileScript(W.Svc, Pex, out_path: relative);
+        var r = DecompileTools.DecompileScript(W.Svc, new[] { Pex }, out_path: relative);
 
         Assert.StartsWith("error:", r);
         Assert.Contains("absolute", r);
@@ -71,7 +71,7 @@ public sealed class DecompileOutPathTests
         try
         {
             var r = DecompileTools.DecompileScript(
-                W.Svc, Path.Combine(W.ScriptsDir, "HcSpNoSuchScript.pex"), patch: "HcIgnoredPatch", out_path: dest);
+                W.Svc, new[] { Path.Combine(W.ScriptsDir, "HcSpNoSuchScript.pex") }, patch: "HcIgnoredPatch", out_path: dest);
 
             Assert.StartsWith("error:", r);
             Assert.Contains("patch=/into= were ignored", r);
@@ -90,7 +90,7 @@ public sealed class DecompileOutPathTests
         {
             using var unconfigured = LoadOrderService.WithInstance(null, 0, new UserConfigStore(Path.Combine(dir, "user.json")));
 
-            var r = DecompileTools.DecompileScript(unconfigured, Pex, out_path: dest);
+            var r = DecompileTools.DecompileScript(unconfigured, new[] { Pex }, out_path: dest);
 
             Assert.True(File.Exists(Path.Combine(dest, ScriptsWorld.BaseScript + ".psc")), r);
             Assert.Contains("no MO2 instance is configured", r);
@@ -111,7 +111,7 @@ public sealed class DecompileOutPathTests
             using var broken = LoadOrderService.WithInstance(
                 Path.Combine(dir, "no-such-instance"), 0, new UserConfigStore(Path.Combine(dir, "user.json")));
 
-            var r = DecompileTools.DecompileScript(broken, Pex, out_path: dest);
+            var r = DecompileTools.DecompileScript(broken, new[] { Pex }, out_path: dest);
 
             Assert.True(File.Exists(Path.Combine(dest, ScriptsWorld.BaseScript + ".psc")), r);
             Assert.Contains("the mods-tree sources were not all read", r);
@@ -129,7 +129,7 @@ public sealed class DecompileOutPathTests
         {
             using var unconfigured = LoadOrderService.WithInstance(null, 0, new UserConfigStore(Path.Combine(dir, "user.json")));
 
-            var r = DecompileTools.DecompileScript(unconfigured, Pex);
+            var r = DecompileTools.DecompileScript(unconfigured, new[] { Pex });
 
             Assert.Contains("Mod Organizer 2 instance", r);
         }
@@ -155,7 +155,7 @@ public sealed class DecompileOutPathTests
         var escaped = Path.Combine(dest, objectName + ".psc");
         try
         {
-            var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
+            var r = DecompileTools.DecompileScript(W.Svc, new[] { pex }, out_path: dest);
 
             Assert.StartsWith("error:", r);
             Assert.Contains(objectName, r);
@@ -184,7 +184,7 @@ public sealed class DecompileOutPathTests
         PexWriter.WriteMultiObjectPex(pex, "HcFirstObject", "..\\HcSecondEscapes");
         try
         {
-            var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
+            var r = DecompileTools.DecompileScript(W.Svc, new[] { pex }, out_path: dest);
 
             Assert.StartsWith("error:", r);
             Assert.Contains("Nothing was written", r);
@@ -200,7 +200,7 @@ public sealed class DecompileOutPathTests
         var before = Directory.GetDirectories(W.ModsDir).OrderBy(d => d, StringComparer.Ordinal).ToArray();
         try
         {
-            var r = DecompileTools.DecompileScript(W.Svc, Pex, into: W.PluginName, out_path: dest);
+            var r = DecompileTools.DecompileScript(W.Svc, new[] { Pex }, into: W.PluginName, out_path: dest);
 
             Assert.Contains("patch=/into= are ignored", r);
             Assert.True(File.Exists(Path.Combine(dest, ScriptsWorld.BaseScript + ".psc")), r);
@@ -224,7 +224,7 @@ public sealed class DecompileOutPathTests
         File.WriteAllBytes(Path.Combine(src, "HcSiblingBroken.pex"), new byte[] { 0x01, 0x02, 0x03, 0x04 });
         try
         {
-            var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
+            var r = DecompileTools.DecompileScript(W.Svc, new[] { pex }, out_path: dest);
 
             Assert.True(File.Exists(Path.Combine(dest, "HcSiblingHost.psc")), r);
             Assert.Contains("the .pex files beside this one were not all read", r);
@@ -254,7 +254,7 @@ public sealed class DecompileOutPathTests
         File.WriteAllBytes(Path.Combine(src, "HcPartialBroken.pex"), new byte[] { 0x01, 0x02, 0x03, 0x04 });
         try
         {
-            var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
+            var r = DecompileTools.DecompileScript(W.Svc, new[] { pex }, out_path: dest);
 
             Assert.True(File.Exists(Path.Combine(dest, "HcPartialHost.psc")), r);
             Assert.Contains("1 of 2 sibling .pex file(s)", r);

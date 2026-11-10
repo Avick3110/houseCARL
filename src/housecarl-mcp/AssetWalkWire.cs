@@ -81,7 +81,7 @@ static class AssetWalkWire
         _ => "error: " + n.Error,
     };
 
-    static string Copy(PlacementSource s)
+    internal static string Copy(PlacementSource s)
         => AssetSourceSelection.Describe(s)
          + (!s.OffOrder ? ""
             : s is { OwnerEnabled: true, Kind: AssetKind.Loose } ? " (enabled, but its folder did not read this build)"

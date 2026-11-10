@@ -62,7 +62,7 @@ public sealed class PatchIntoLaneRefusalTests
     {
         var dest = Path.Combine(W.Root, "hc-1061-" + Guid.NewGuid().ToString("N"));
 
-        var r = DecompileTools.DecompileScript(W.Svc, Path.Combine(W.ScriptsDir, ScriptsWorld.BaseScript + ".pex"),
+        var r = DecompileTools.DecompileScript(W.Svc, new[] { Path.Combine(W.ScriptsDir, ScriptsWorld.BaseScript + ".pex") },
                                                patch: "HcLaneA", into: "houseCARL_Scripts", out_path: dest);
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
@@ -75,7 +75,7 @@ public sealed class PatchIntoLaneRefusalTests
     {
         var before = Folders(W.ModsDir);
 
-        var r = DecompileTools.DecompileScript(W.Svc, Path.Combine(W.ScriptsDir, ScriptsWorld.BaseScript + ".pex"),
+        var r = DecompileTools.DecompileScript(W.Svc, new[] { Path.Combine(W.ScriptsDir, ScriptsWorld.BaseScript + ".pex") },
                                                patch: "HcLaneA", into: "houseCARL_Scripts");
 
         Assert.StartsWith("error:", r);

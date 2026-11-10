@@ -1,0 +1,1 @@
+- **`decompile_script` takes asset_status's selectors (`paths=`, `under=`, `provider=`, `@file`) and `source_provider=`, reading loose or archived scripts with no extract step; `pex=` is now `paths=`, and `asset_status asset_paths=` is now `paths=`.** Check: `decompile_script provider="<a mod>" out_path=<folder>`.

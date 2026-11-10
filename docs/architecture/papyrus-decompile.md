@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-29
-covers: [src/housecarl-core/PapyrusDecompiler.cs, src/housecarl-mcp/DecompileTools.cs]
+updated: 2026-11-10
+covers: [src/housecarl-core/PapyrusDecompiler.cs, src/housecarl-mcp/DecompileTools.cs, src/housecarl-mcp/DecompileBatch.cs, src/housecarl-mcp/ScriptSelection.cs]
 ---
 # Papyrus: decompile
 
@@ -42,7 +42,36 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   disk (#783). Writes go through `FileMode.CreateNew`, so an existing source file is never
   overwritten.
 
+### Selecting the scripts (#1287)
+- `paths=`, `under=` and `provider=` are `asset_status`'s selectors, through `FileSelection.Select` over one
+  captured view (`AssetLayers.SelectScripts`, assets.md "Selecting a set of paths"): explicit paths in the order
+  given, then the selectors' matches. A match that is not a `.pex` is dropped and counted in one note; an explicit
+  path that is not one is its row's error. The path bound and the unknown-provider refusal are the selection's own.
+- A `paths=` entry that is a full path (`Path.IsPathFullyQualified`) is a file on disk, read as itself, with no
+  instance needed under `out_path=`; one with no separator is a bare name, refused naming `scripts/<name>.pex` and
+  the `under=` search (DECISIONS 2026-11-10 (4), Q1 (a), Q4 (b)). Everything else is a Data path.
+- One file on disk with no selector, no `source_provider=` and default transport answers exactly as the one-file
+  tool did; everything else is the many-script lane (`DecompileBatch`).
+- `provider=` picks which scripts; each is read from its winning copy, and a note counts the ones another provider
+  wins. `source_provider=` picks whose copy, through `AssetSourceSelection` as `nif_inspect` does, so it reaches a
+  disabled mod's loose files and archives; a script it does not ship is that row's error.
+- Bytes come through the view's `ReadSource`, a loose file or one archive entry, so each archive's table is read
+  once per call and nothing is extracted. A many-script call parses each script twice (hierarchy, then write) and
+  keeps no parsed file, so memory does not grow with the selection.
+- The class hierarchy adds every script in the window, the `.pex` files beside each file on disk, and each script's
+  parent chain read off the load order (`scripts\<parent>.pex`, the winner); a class the baseline or the mods-tree
+  sources already name as a parent is not read. A parent that will not read is named in the hierarchy note.
+- `limit=`/`offset=` window what is decompiled, not only what is listed (SPEC §2.1's list-driven offset); taking a
+  large selection in windows keeps one folder with `into=`. An existing target `.psc` is that script's row error and
+  the rest still land. `max_chars=` cuts the listing only; every script in the window is written. `counts_only=`
+  gives the totals and notes. `to_file=` is refused: decompile writes `.psc` files, and its output is the folder.
+- The retired `pex=` is refused in one sentence naming `paths=`.
+
 ## Pinned by
+- `DecompileSelectionTests` — a provider's loose and archived scripts in one call; `under=` across both;
+  `source_provider=` reading the shadowed copy and a disabled mod's; a file on disk beside the selection; the
+  bare-name and retired-name refusals; an existing target as one row; the window choosing what is decompiled;
+  an archived script's parent read off the load order; one table read per archive per call; `to_file=` refused; json.
 - `DecompileGuardTests` — the golden source for a canonical `.pex`, zero optimizer hints on
   canonical output, the hint firing on a statement-level `JMPT`, the refusal on an existing target
   leaving it byte-untouched, the Hidden flag kept on both objects of a two-object `.pex`, and the upcast
@@ -67,4 +96,6 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
 
 ## Where
 - Core: `PapyrusDecompiler` (`DecompileFile`, the `Body` structurer).
-- Tools: `DecompileTools` (`housecarl_decompile_script`, `WriteObjects`, `HierarchySentence`).
+- Tools: `DecompileTools` (`housecarl_decompile_script`, the one-file lane, `WriteObjects`, `HierarchySentence`);
+  `DecompileBatch` (the many-script lane and its renders); `ScriptSelection.cs` (`AssetLayers.SelectScripts`,
+  `PickScript`).
