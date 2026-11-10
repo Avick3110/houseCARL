@@ -140,7 +140,39 @@ internal static class DecompileBatch
     }
 
     static ToolAnswer Render(Answer a, Call c)
-        => ToolAnswer.Served(c.Json ? RenderJson(a, c.CountsOnly, c.Cap) : RenderText(a, c.CountsOnly, c.Cap));
+    {
+        var lane = NextPageLane(a, c);
+        return ToolAnswer.Served(c.Json ? RenderJson(a, c.CountsOnly, c.Cap, lane) : RenderText(a, c.CountsOnly, c.Cap, lane));
+    }
+
+    /// <summary>The output knob a next page passes to land in this call's folder: out_path= or into= as given, else the
+    /// patch this call wrote into (patch= as given while nothing landed).</summary>
+    static (string Name, string Value)? NextPageLane(Answer a, Call c) =>
+        a.ChosenOutput ? ("out_path", c.OutPath!.Trim())
+        : !string.IsNullOrWhiteSpace(c.Into) ? ("into", c.Into.Trim())
+        : a.Folder is { } f && a.AnyWritten ? ("into", Path.GetFileName(f.ModFolder))
+        : !string.IsNullOrWhiteSpace(c.Patch) ? ("patch", c.Patch.Trim())
+        : null;
+
+    static string LaneArg((string Name, string Value)? lane) => lane is { } l ? $" {l.Name}=\"{l.Value}\"" : "";
+
+    /// <summary>The accounting counts: a window is decompiled whole, so what remains starts after it, not after the rows listed.</summary>
+    static TransportCounts Counts(Answer a, int rendered) =>
+        TransportAccounting.Tally(a.Total, a.Rows.Count, rendered, a.Window, a.Notes.Count)
+            with { Remaining = Math.Max(a.Total - a.Window.Offset - a.Rows.Count, 0) };
+
+    /// <summary>The [accounting] line, then the write lane's own paging advice: the next page after the window, into this call's folder.</summary>
+    static string Accounting(TransportCounts c, int windowed, (string Name, string Value)? lane)
+    {
+        var composed = TransportAccounting.Compose(c, "script(s)", everySentence: false);
+        int lineEnd = composed.IndexOf('\n', 2);
+        var sb = new StringBuilder(lineEnd < 0 ? composed : composed[..lineEnd]);
+        if (c.Remaining > 0)
+            sb.Append("\nthe selection is longer than this window: re-call with").Append(LaneArg(lane)).Append(" limit=")
+              .Append(c.NextLimit).Append(" offset=").Append(c.Offset + windowed).Append(" for the next page.");
+        if (TransportAccounting.PastEnd(c)) sb.Append('\n').Append(TransportAccounting.PastEndSentence(c, "script(s)"));
+        return sb.ToString();
+    }
 
     static Done NotDone(Row r, string? error) => new(r, Array.Empty<string>(), 0, 0, Array.Empty<string>(), false, error);
 
@@ -289,13 +321,14 @@ internal static class DecompileBatch
         return sb.ToString();
     }
 
-    static string RenderText(Answer a, bool countsOnly, int cap)
+    static string RenderText(Answer a, bool countsOnly, int cap, (string Name, string Value)? lane)
     {
         var head = Head(a);
         if (countsOnly) return head + Tail(a, false);
         int notes = a.Notes.Count;
         var tailCut = Tail(a, true);
-        int room = cap - head.Length - tailCut.Length - TransportAccounting.Reserve(a.Total, a.Rows.Count, a.Window, notes, "script(s)");
+        int room = cap - head.Length - tailCut.Length - TransportAccounting.Reserve(a.Total, a.Rows.Count, a.Window, notes, "script(s)")
+                   - LaneArg(lane).Length;
         var body = new StringBuilder();
         int rendered = 0;
         foreach (var d in a.Rows)
@@ -305,11 +338,10 @@ internal static class DecompileBatch
             body.Append(t);
             rendered++;
         }
-        var counts = TransportAccounting.Tally(a.Total, a.Rows.Count, rendered, a.Window, notes);
-        return head + body + Tail(a, rendered < a.Rows.Count) + TransportAccounting.Compose(counts, "script(s)", everySentence: false);
+        return head + body + Tail(a, rendered < a.Rows.Count) + Accounting(Counts(a, rendered), a.Rows.Count, lane);
     }
 
-    static string RenderJson(Answer a, bool countsOnly, int cap)
+    static string RenderJson(Answer a, bool countsOnly, int cap, (string Name, string Value)? lane)
     {
         // The rows that fit the ceiling, judged on each row's own json; the document closes with the accounting either way.
         var rowsJson = new List<string>();
@@ -346,9 +378,15 @@ internal static class DecompileBatch
             w.WriteEndArray();
             if (!countsOnly)
             {
-                var counts = TransportAccounting.Tally(a.Total, a.Rows.Count, rowsJson.Count, a.Window, a.Notes.Count);
+                var counts = Counts(a, rowsJson.Count);
                 TransportAccounting.WriteJson(w, counts);
-                TransportAccounting.WritePageAdviceJson(w, counts, "script(s)");
+                if (counts.Remaining > 0)
+                {
+                    w.WriteNumber("next_limit", counts.NextLimit);
+                    w.WriteNumber("next_offset", counts.Offset + a.Rows.Count);
+                    if (lane is { } l) w.WriteString("next_" + l.Name, l.Value);
+                }
+                if (TransportAccounting.PastEnd(counts)) w.WriteString("offset_note", TransportAccounting.PastEndSentence(counts, "script(s)"));
             }
             else w.WriteNumber("total", a.Total);
             w.WriteEndObject();
