@@ -1,4 +1,6 @@
 using HousecarlGenerator;
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Pex;
 using HousecarlMcp;
 using Xunit;
 
@@ -191,6 +193,63 @@ public sealed class DecompileSelectionTests : IDisposable
 
         Assert.Contains("OrphanThing", Psc("HcDsOrphan"));
         Assert.Contains(@"1 parent script(s) could not be read off the load order: 'scripts\HcDsBroken.pex'", r);
+    }
+
+    [Fact]
+    public void AModParentOnlyAPscHeaderNamesIsReadLooseAndArchivedToTheVanillaRoot()
+    {
+        // MCM Helper's shape: kid -> HcDsMcmBase (loose .pex, named as a parent only by another mod's .psc header)
+        // -> HcDsSkiBase (in an archive) -> Quest -> Form (the baseline). The kid upcasts a parameter to Form.
+        PlaceInstance.Loose(_p.Mod("Fix"), @"Source\Scripts\HcDsOtherKid.psc",
+            System.Text.Encoding.ASCII.GetBytes("ScriptName HcDsOtherKid extends HcDsMcmBase\n"));
+        PlaceInstance.Loose(_p.Mod("Fix"), @"scripts\hcdsmcmkid.pex", UpcastPex("HcDsMcmKid", "HcDsMcmBase", "Form"));
+        PlaceInstance.Loose(_p.Mod("Fix"), @"scripts\hcdsmcmbase.pex", Pex("HcDsMcmBase", "HcDsSkiBase", "McmThing"));
+        File.WriteAllBytes(Path.Combine(_p.Mod("Arch"), "Dummy - Textures.bsa"),
+            BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
+                new[] { ("scripts", new[] { ("hcdsskibase.pex", Pex("HcDsSkiBase", "Quest", "SkiThing")) }) }));
+        _p.TouchModlist();
+
+        var r = DecompileTools.DecompileScript(_p.Open(), paths: new[] { @"scripts\hcdsmcmkid.pex" }, out_path: _out);
+
+        Assert.Contains("Take(k)", Psc("HcDsMcmKid"));
+        Assert.DoesNotContain(" as Form", Psc("HcDsMcmKid"), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("could not be read", r);
+    }
+
+    /// <summary>A .pex named <paramref name="name"/> whose <c>Give(name k)</c> passes <c>k</c> to
+    /// <c>Take(<paramref name="ancestor"/> f)</c>: the upcast is implicit only when the hierarchy reaches the ancestor.</summary>
+    byte[] UpcastPex(string name, string parent, string ancestor)
+    {
+        static PexObjectVariableData Id(string n)
+            => new() { VariableType = VariableType.Identifier, StringValue = n };
+        var give = new PexObjectFunction { ReturnTypeName = "None", DocString = "" };
+        give.Parameters.Add(new() { TypeName = name, Name = "k" });
+        give.Locals.Add(new() { TypeName = ancestor, Name = "::temp0" });
+        void Ins(InstructionOpcode op, params PexObjectVariableData[] args)
+        {
+            var ins = new PexObjectFunctionInstruction { OpCode = op };
+            foreach (var a in args) ins.Arguments.Add(a);
+            give.Instructions.Add(ins);
+        }
+        Ins(InstructionOpcode.CAST, Id("::temp0"), Id("k"));
+        Ins(InstructionOpcode.CALLMETHOD, Id("Take"), Id("self"), Id("::NoneVar"),
+            new() { VariableType = VariableType.Integer, IntValue = 1 }, Id("::temp0"));
+        Ins(InstructionOpcode.RETURN, new PexObjectVariableData { VariableType = VariableType.Null });
+        var take = new PexObjectFunction { ReturnTypeName = "None", DocString = "" };
+        take.Parameters.Add(new() { TypeName = ancestor, Name = "f" });
+
+        var state = new PexObjectState { Name = "" };
+        state.Functions.Add(new() { FunctionName = "Give", Function = give });
+        state.Functions.Add(new() { FunctionName = "Take", Function = take });
+        var obj = new PexObject { Name = name, ParentClassName = parent, DocString = "", AutoStateName = "" };
+        obj.States.Add(state);
+        var pex = new PexFile(GameCategory.Skyrim)
+            { MajorVersion = 3, MinorVersion = 2, GameId = 1, SourceFileName = name + ".psc", Username = "hc", MachineName = "ci" };
+        pex.Objects.Add(obj);
+        var path = Path.Combine(_p.Root, "pex", name + "-upcast.pex");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        pex.WritePexFile(path, GameCategory.Skyrim);
+        return File.ReadAllBytes(path);
     }
 
     [Fact]
