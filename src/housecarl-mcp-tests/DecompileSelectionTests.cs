@@ -180,12 +180,37 @@ public sealed class DecompileSelectionTests : IDisposable
     }
 
     [Fact]
-    public void AnArchivedScriptsParentIsReadOffTheLoadOrder()
+    public void AnArchivedScriptsParentIsReadOffTheLoadOrderAndAnUnreadableOneIsNamed()
     {
-        // Only the child is selected; its parent ships in the same archive, and no .psc of either is anywhere.
-        DecompileTools.DecompileScript(_svc, paths: new[] { Arch1 }, out_path: _out);
+        // The parent ships, unreadable, in a mod no plugin of which is the one the child's archive binds.
+        PlaceInstance.Loose(_p.Mod("Fix"), @"scripts\hcdsbroken.pex", BsaBuilder.Bytes("not a pex", 16));
+        PlaceInstance.Loose(_p.Mod("Fix"), @"scripts\hcdsorphan.pex", Pex("HcDsOrphan", "HcDsBroken", "OrphanThing"));
+        _p.TouchModlist();
 
-        Assert.Contains("ScriptName HcDsArch1 extends HcDsArchBase", Psc("HcDsArch1"), StringComparison.OrdinalIgnoreCase);
+        var r = DecompileTools.DecompileScript(_svc, paths: new[] { @"scripts\hcdsorphan.pex" }, out_path: _out);
+
+        Assert.Contains("OrphanThing", Psc("HcDsOrphan"));
+        Assert.Contains(@"1 parent script(s) could not be read off the load order: 'scripts\HcDsBroken.pex'", r);
+    }
+
+    [Fact]
+    public void AParentTheBaselineAlreadyNamesIsNotRead()
+    {
+        // Quest's parent is Form in the vanilla baseline; Form itself has none, and the order ships a form.pex in a
+        // second archive, which reading the chain to its root would open.
+        File.WriteAllBytes(Path.Combine(_p.Mod("Arch"), "Dummy - Textures.bsa"),
+            BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
+                new[] { ("scripts", new[] { ("form.pex", Pex("Form", null, "FormThing")) }) }));
+        PlaceInstance.Loose(_p.Mod("Fix"), @"scripts\hcdsquestkid.pex", Pex("HcDsQuestKid", "Quest", "KidThing"));
+        _p.TouchModlist();
+        var svc = _p.Open();
+        var assets = ((ILoadOrderHost)svc).Assets;
+        svc.AssetStatus(new[] { LooseRel });                                 // builds the view first
+        var before = assets.ArchiveTableReadCount;
+
+        DecompileTools.DecompileScript(svc, paths: new[] { @"scripts\hcdsquestkid.pex", Arch1 }, out_path: _out);
+
+        Assert.Equal(1, assets.ArchiveTableReadCount - before);              // Dummy.bsa, for Arch1; never the second
     }
 
     [Fact]
