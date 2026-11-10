@@ -114,9 +114,7 @@ internal static class DecompileBatch
             if (scan.FilesFailed > 0) thin.Add($"{scan.FilesFailed} .pex file(s) in '{dir}' could not be read");
             if (scan.ListingFailed) thin.Add($"the folder '{dir}' could not be listed to the end");
         }
-        if (sel is not null)
-            thin.AddRange(AddParentChains(sel.View, edges, objects,
-                                          new HashSet<string>(hierarchy.Edges.Values, StringComparer.OrdinalIgnoreCase)));
+        if (sel is not null) thin.AddRange(AddParentChains(sel.View, edges, objects, BaselineRoots.Value));
         hierarchy = hierarchy with { SiblingPexMissing = thin.Count > 0 ? string.Join(", and ", thin) : null };
 
         // Pass 2: decompile and write, row by row; a row that cannot land is that row's error, and the rest still land.
@@ -189,9 +187,17 @@ internal static class DecompileBatch
         return pex.Objects.Count == 0 ? (null, $"'{name}' contains no script objects.") : (pex, null);
     }
 
+    /// <summary>The vanilla baseline's root classes (Form, Alias, ActiveMagicEffect, ...): parents it names that have no
+    /// parent of their own. Read once per process; a missing baseline gives none, so the climb reads those roots too.</summary>
+    static readonly Lazy<IReadOnlySet<string>> BaselineRoots = new(() =>
+    {
+        var (baseline, _) = PapyrusClassParents.LoadBaseline(Path.Combine(AppContext.BaseDirectory, "vanilla-class-parents.json"));
+        return baseline.Values.Where(p => !baseline.ContainsKey(p)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    });
+
     /// <summary>Climb each object's parent chain, reading a parent the edges do not know from its winning
-    /// <c>scripts\&lt;parent&gt;.pex</c> in the load order; a class the baseline and mods-tree sources already name as a
-    /// parent (<paramref name="known"/>, a vanilla root such as Form) is not read. The clause for each parent that would not read.</summary>
+    /// <c>scripts\&lt;parent&gt;.pex</c> in the load order; a vanilla root class (<paramref name="known"/>) is not read.
+    /// The clause for each parent that would not read.</summary>
     static IEnumerable<string> AddParentChains(AssetResolver.AssetView view, Dictionary<string, string> edges, IEnumerable<string> objects,
                                                IReadOnlySet<string> known)
     {

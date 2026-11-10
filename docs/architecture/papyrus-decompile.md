@@ -58,9 +58,12 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
 - Bytes come through the view's `ReadSource`, a loose file or one archive entry, so each archive's table is read
   once per call and nothing is extracted. A many-script call parses each script twice (hierarchy, then write) and
   keeps no parsed file, so memory does not grow with the selection.
-- The class hierarchy adds every script in the window, the `.pex` files beside each file on disk, and each script's
-  parent chain read off the load order (`scripts\<parent>.pex`, the winner); a class the baseline or the mods-tree
-  sources already name as a parent is not read. A parent that will not read is named in the hierarchy note.
+- The class hierarchy adds every script in the window and the `.pex` files beside each file on disk; when the call
+  has a Data-path selection (`paths=` Data paths, `under=` or `provider=`), it also climbs each script's parent chain
+  off the load order (`scripts\<parent>.pex`, the winner, loose or archived) up to a class with an edge or a root
+  class of the vanilla baseline (Form, Alias, ActiveMagicEffect, ...), which is not read. So a mod class that only
+  mods-tree `.psc` headers name as a parent (MCM Helper's `MCM_ConfigBase`, SkyUI's `SKI_ConfigBase`) is read from
+  its `.pex`. A parent that will not read is named in the hierarchy note.
 - `limit=`/`offset=` window what is decompiled, not only what is listed (SPEC §2.1's list-driven offset); taking a
   large selection in windows keeps one folder with `into=`. An existing target `.psc` is that script's row error and
   the rest still land. `max_chars=` cuts the listing only; every script in the window is written. `counts_only=`
@@ -71,7 +74,9 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
 - `DecompileSelectionTests` — a provider's loose and archived scripts in one call; `under=` across both;
   `source_provider=` reading the shadowed copy and a disabled mod's; a file on disk beside the selection; the
   bare-name and retired-name refusals; an existing target as one row; the window choosing what is decompiled;
-  an archived script's parent read off the load order; one table read per archive per call; `to_file=` refused; json.
+  an unreadable parent named; a mod parent only a `.psc` header names read loose and archived up to the vanilla root
+  (`AModParentOnlyAPscHeaderNamesIsReadLooseAndArchivedToTheVanillaRoot`); a vanilla root not read; one table read
+  per archive per call; `to_file=` refused; json.
 - `DecompileGuardTests` — the golden source for a canonical `.pex`, zero optimizer hints on
   canonical output, the hint firing on a statement-level `JMPT`, the refusal on an existing target
   leaving it byte-untouched, the Hidden flag kept on both objects of a two-object `.pex`, and the upcast
