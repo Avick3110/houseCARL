@@ -358,6 +358,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                                        IReadOnlyList<FaceGenSeed>? seeds = null, bool wholeSelection = false,
                                        string? provider = null, bool links = false, FaceSources? faceSources = null)
         => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider, links, faceSources);
+    internal ScriptSelectionData SelectScripts(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under, string? provider)
+        => _assetLayers.SelectScripts(relPaths, under, provider);
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
                                    IReadOnlyList<string>? fromSource, string? sourceProvider,
                                    IReadOnlyDictionary<string, string?>? keyedSeeds = null,
