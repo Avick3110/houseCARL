@@ -185,7 +185,11 @@ public sealed class RuntimeFormatSourceTests
         var cfg = With("\"nameToken\": \".ini\"", "\"nameToken\": \".cfg\"");
         Assert.Contains("the .ini file the draft", SkyPatcherDraft.Prepare("", "weapon", SkyPatcherCatalog.Load(), out _));
         Assert.Contains("the .cfg file the draft", SkyPatcherDraft.Prepare("", "weapon", SkyPatcherCatalog.Load(), out _, cfg));
-        Assert.Contains("the .cfg file the draft", SkyPatcherDraft.Prepare("a.cfg", "weapon", SkyPatcherCatalog.Load(), out _, cfg));
+        var notAbsolute = SkyPatcherDraft.Prepare("a.cfg", "weapon", SkyPatcherCatalog.Load(), out _, cfg);
+        Assert.Contains("the .cfg file the draft", notAbsolute);
+        Assert.Contains("weapon\\MyPatch.cfg'", notAbsolute);
+        Assert.DoesNotContain(".ini", notAbsolute);
+        Assert.Contains("(e.g. 'C:\\MO2\\mods\\MyPatch\\SkyPatcher\\weapon\\MyPatch.ini')", SkyPatcherDraft.Prepare("a.ini", "weapon", SkyPatcherCatalog.Load(), out _));
     }
 
     // a changed delimiter changes how the parser splits a line and the printed grammar

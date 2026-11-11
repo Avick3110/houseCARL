@@ -111,7 +111,7 @@ public static class SkyPatcherDraft
         if (path.Length == 0)
             return $"the draft INI path is empty — give the absolute path to the {token} file the draft would be placed as.";
         if (PathArguments.NotAbsolute(path, "the draft INI path", $"the {token} file the draft would be placed as",
-                                      "C:\\MO2\\mods\\MyPatch\\SkyPatcher\\weapon\\MyPatch.ini") is { } notAbsolute)
+                                      $"C:\\MO2\\mods\\MyPatch\\SkyPatcher\\weapon\\MyPatch{token}") is { } notAbsolute)
             return notAbsolute;
         try { path = Path.GetFullPath(path); }
         catch (Exception ex) { return $"the draft INI path '{path}' is not a usable path: {ex.Message}"; }
