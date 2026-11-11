@@ -69,10 +69,13 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   read that fails. So a mod class that only mods-tree `.psc` headers name as a parent (MCM Helper's `MCM_ConfigBase`,
   SkyUI's `SKI_ConfigBase`) is read from its `.pex`. Only a failed read is named in the hierarchy note: a parent the
   order does not ship ends the climb unnamed, and its children keep explicit casts.
-- `limit=`/`offset=` window what is decompiled, not only what is listed (SPEC §2.1's list-driven offset); taking a
-  large selection in windows keeps one folder with `into=`. An existing target `.psc` is that script's row error and
-  the rest still land. `max_chars=` cuts the listing only; every script in the window is written. `counts_only=`
-  gives the totals and notes. `to_file=` is refused: decompile writes `.psc` files, and its output is the folder.
+- `limit=`/`offset=` window what is decompiled, not only what is listed (SPEC §2.1's list-driven offset). So
+  `remaining` counts the scripts after the window, not after the rows listed, and while any remain the next-page
+  advice names `limit=`, the `offset=` after the window and the knob that lands the page in this call's folder:
+  `out_path=` or `into=` as given, else `into=` the stem of the patch this call wrote into, else `patch=` as given.
+  Json carries it as `next_limit`, `next_offset` and `next_out_path`, `next_into` or `next_patch`. An existing target
+  `.psc` is that script's row error and the rest still land. `max_chars=` cuts the listing only; every script in the
+  window is written, and no page is advised over them. `counts_only=` gives the totals and notes, and no next page. `to_file=` is refused: decompile writes `.psc` files, and its output is the folder.
 - The retired `pex=` is refused in one sentence naming `paths=`.
 
 ## Pinned by
