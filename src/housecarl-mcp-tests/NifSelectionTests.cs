@@ -110,6 +110,33 @@ public sealed class NifSelectionTests : IDisposable
     }
 
     [Fact]
+    public void SourceProviderBesideAFileOnDiskSaysTheFileIsReadAsItself()
+    {
+        var disk = _p.Scratch("hcns-src.nif", NifSetMeshes.Guard());
+
+        var r = NifTools.NifInspect(_svc, paths: new[] { disk, Shared }, source_provider: "Arch");
+
+        Assert.Contains("note: source_provider= picks whose copy of a Data path is read; a file on disk is read as itself.", r);
+        Assert.Contains("'LitShape'", Block(r, Shared));
+    }
+
+    [Fact]
+    public void BlankEntriesAloneAreRefusedNamingTheList()
+    {
+        Assert.StartsWith("error: paths contains only empty/blank entries.", NifTools.NifInspect(_svc, paths: new[] { " ", "" }));
+        Assert.StartsWith("error: formids contains only empty/blank entries.", NifTools.NifInspect(_svc, formids: new[] { " " }));
+    }
+
+    [Fact]
+    public void ToFileRefusesCountsOnlyAndOffset()
+    {
+        var file = Path.Combine(_p.Root, "hcns-refused.jsonl");
+        Assert.Equal(Artifacts.CountsOnlyWithToFile, NifTools.NifInspect(_svc, provider: "Arch", to_file: file, counts_only: true));
+        Assert.StartsWith("error: to_file= captures the COMPLETE result", NifTools.NifInspect(_svc, provider: "Arch", to_file: file, offset: 1));
+        Assert.False(File.Exists(file));
+    }
+
+    [Fact]
     public void AFileOnDiskAloneReadsWithNoInstance()
     {
         var disk = _p.Scratch("hcns-alone.nif", NifSetMeshes.Guard());
