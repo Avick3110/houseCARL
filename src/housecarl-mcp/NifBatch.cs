@@ -49,9 +49,9 @@ internal static class NifBatch
         var sel = svc.SelectMeshes(c.Entries, c.Under, provider.Length > 0 ? provider : null, c.Seeds,
                                    c.Seeds.Count > 0 ? svc.ProviderFaceSources(source) : null, c.NeedView);
         if (sel.Refusal is { } refused) return ToolAnswer.Refusal(c.Json, refused);
-        // A file on disk in the mods tree names its load-order address off the roots, with or without a captured view.
-        var modsRoot = sel.Captured?.ModsRootOrNull
-                       ?? (c.Entries.Any(e => e.OnDisk) && svc.ConfigPromptOrNull() is null ? svc.ModsRootOrNull : null);
+        // The capture's mods root; a call with no capture reads only files on disk, and takes the roots' when configured.
+        var modsRoot = sel.Captured is { } captured ? captured.ModsRootOrNull
+                       : svc.ConfigPromptOrNull() is null ? svc.ModsRootOrNull : null;
         var ctx = new Ctx(c, sel, provider, source, sel.Captured?.ProfileName ?? svc.ProfileName, modsRoot);
 
         var notes = new List<string>(sel.Notes);
