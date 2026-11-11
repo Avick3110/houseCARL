@@ -73,7 +73,9 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   `remaining` counts the scripts after the window, not after the rows listed, and while any remain the next-page
   advice names `limit=`, the `offset=` after the window and the knob that lands the page in this call's folder:
   `out_path=` or `into=` as given, else `into=` the stem of the patch this call wrote into, else `patch=` as given.
-  Json carries it as `next_limit`, `next_offset` and `next_out_path`, `next_into` or `next_patch`. An existing target
+  With none of the three given and nothing landed it names no knob: the fresh folder was removed, so the next page
+  cuts its own. Json carries it as `next_limit`, `next_offset` and `next_out_path`, `next_into` or `next_patch` (none
+  of the three when no knob is named). An existing target
   `.psc` is that script's row error and the rest still land. `max_chars=` cuts the listing only; every script in the
   window is written, and no page is advised over them. `counts_only=` gives the totals, the notes and the next page,
   with no `[accounting]` line (json: `total`, no accounting object). `to_file=` is refused: decompile writes `.psc`
