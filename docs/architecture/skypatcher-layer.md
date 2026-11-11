@@ -116,7 +116,8 @@ expands a file's lines only under `filter=`: a malformed address, a
 plugin not in the order (or one with a space SkyPatcher keeps), a FormID no plugin defines, an
 EditorID found nowhere, or hidden by the po3 Tweaks gap. The no-op scan's count of unresolved
 EditorID targets also counts a `~name~` literal, which no line names. A target whose EditorID names several
-records says so, and which one the game uses.
+records of its scope says so, and which one the replay takes (the first loaded; see Known
+limitations for the game's map across types).
 
 ### The per-type subfolder rule and the filename gate
 

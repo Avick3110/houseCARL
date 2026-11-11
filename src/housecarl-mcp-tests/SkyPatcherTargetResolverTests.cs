@@ -33,7 +33,7 @@ public sealed class SkyPatcherTargetResolverTests
     public void ADuplicatedEditorIdSaysOnItsLineWhichRecordTheGameUses()
     {
         using var w = DuplicateWorld("filterByArmors=HcPlainCuirass:value=42\r\n");
-        Assert.Contains("target 'HcPlainCuirass' (in a filterByArmors) names 2 records; the game uses the first loaded, 000811:HcSpRel.esp from HcSpRel.esp.",
+        Assert.Contains("target 'HcPlainCuirass' (in a filterByArmors) names 2 Armor records; the replay takes the first loaded, 000811:HcSpRel.esp from HcSpRel.esp.",
             SkyPatcherTools.SkyPatcherLayer(w.Svc, filter: Ini));
     }
 
