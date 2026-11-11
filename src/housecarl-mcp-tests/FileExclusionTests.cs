@@ -211,6 +211,12 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(now, paths);
         Assert.Equal($"exclude= file '{old}' was written on another build (epoch=e2-0000000000000000; this build is epoch={epoch}), " +
                      "so it may not hold what that call answers now — re-run the call that wrote it with to_file= and pass the new file.", notes[0]);
+        // A file written with no epoch says it cannot tell.
+        var bare = File("bare");
+        lines[0] = lines[0].Replace("\"epoch\":\"e2-0000000000000000\"", "\"epoch\":\"\"");
+        System.IO.File.WriteAllLines(bare, lines);
+        Assert.Equal($"exclude= file '{bare}' carries no epoch, so whether it was written on this build is unknown — " +
+                     "re-run the call that wrote it with to_file= and pass the new file.", Json(Status(new[] { "@" + bare })).Notes[0]);
         // The same build says nothing of it.
         Assert.DoesNotContain(Json(Status(new[] { "@" + f })).Notes, n => n.Contains("another build"));
     }
