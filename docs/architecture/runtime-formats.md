@@ -30,7 +30,15 @@ them. Only SkyPatcher has a row today; SPID, KID, BOS and FLM join as rows when 
   2026-11-03 (1): skill lines that mention houseCARL are stripped).
 - Not printed from the source, so still hand-written: SKILL.md's "Build the string" step and its conflict-model
   note, the per-type toggle reminder beside the placement paragraph, the `[Features]` switches, and the layer tool's
-  own description.
+  own description. These restate a row value by hand, and a row edit plus a regenerate leaves them as they are:
+  - `skypatcher-authoring`: SKILL.md's example path (`Data/SKSE/Plugins/SkyPatcher/weapon/…`); grammar-core.md's
+    `iEnable<Type>Patching` and its read-order sentence; placement-and-conflicts.md's example paths
+    (`SkyPatcher/npc/…`), its `;` comment bullet and its `Data/SKSE/Plugins/SkyPatcher.ini` heading; each per-type
+    reference's header line (`SkyPatcher/<folder>/`, `iEnable<Type>Patching`, and light.md's "on unless").
+  - `kid-authoring`: SKILL.md's two SkyPatcher folder paths and grammar-core.md's one.
+  - The server: the layer tool's two empty-layer answers spell `Data\SKSE\Plugins\SkyPatcher`
+    (`SkyPatcherTools`), and the overlay's packed-value unpack and two item splits use literal `=` and `,`
+    (`SkyPatcherOverlay`).
 
 ## Pinned by
 - `RuntimeFormatSourceTests.TheCommittedSkillRegionsMatchAFreshPrint` — the committed regions are the print, and
