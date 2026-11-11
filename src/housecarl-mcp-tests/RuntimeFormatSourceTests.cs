@@ -112,12 +112,15 @@ public sealed class RuntimeFormatSourceTests
         Assert.True(SkyPatcherDiscovery.HasIniName("a.ini"));
         Assert.False(SkyPatcherDiscovery.HasIniName("a.cfg"));
         Assert.True(SkyPatcherDiscovery.HasIniName("a.cfg", cfg));
+        Assert.Null(SkyPatcherDiscovery.GatePluginOf("Skyrim.esm.cfg"));
+        Assert.Equal("Skyrim.esm", SkyPatcherDiscovery.GatePluginOf("Skyrim.esm.cfg", cfg));
+        Assert.Contains("ends in '.CFG'", SkyPatcherDiscovery.NotReadReason("a.CFG", _ => true, cfg));
         var printed = RuntimeFormatSkillText.Regions(cfg);
         Assert.Contains("`bandits.cfg.bak`", printed["skypatcher.names"]);
         Assert.Contains("a name ending `.CFG` is not", printed["skypatcher.place"]);
     }
 
-    // a changed root moves the printed folder tree and placement path, and a switches file not beside it is refused
+    // a changed root and switches file move what the scan reads and the printed tree and placement path; a switches file not beside the root is refused
     [Fact]
     public void ChangingTheRootChangesTheTreeAndThePlacementPath()
     {
@@ -130,14 +133,36 @@ public sealed class RuntimeFormatSourceTests
         Assert.Contains("`Data/SKSE/Patcher/<subfolder>/<name>.ini`", printed["skypatcher.place"]);
         Assert.Contains("    ├── Patcher.ini", printed["skypatcher.tree"]);
         Assert.DoesNotContain("Plugins", printed["skypatcher.tree"]);
+
+        var dir = Path.Combine(Path.GetTempPath(), "hc-runtime-root-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var mod = Path.Combine(dir, "mods", "A", "SKSE");
+            Directory.CreateDirectory(Path.Combine(mod, "Patcher", "weapon"));
+            File.WriteAllText(Path.Combine(mod, "Patcher", "weapon", "a.ini"), "attackDamage=1");
+            File.WriteAllText(Path.Combine(mod, "Patcher.ini"), "[Patcher]\niEnableWeaponPatching=1\n");
+            foreach (var d in new[] { "overwrite", "Data" }) Directory.CreateDirectory(Path.Combine(dir, d));
+            using var r = AssetResolver.Build(Path.Combine(dir, "overwrite"), Path.Combine(dir, "mods"), Path.Combine(dir, "Data"), new[] { "A" }, Array.Empty<ActiveArchive>());
+            SkyPatcherDiscovery.LayerScan Scan(SkyPatcherFormat? f) => SkyPatcherDiscovery.Scan(r.Capture(), SkyPatcherCatalog.Load(), _ => false, format: f);
+            Assert.Empty(Scan(null).Folders);
+            Assert.True(Assert.Single(Scan(both).Folders).PatchingEnabled);
+            Assert.False(Assert.Single(Scan(moved).Folders).PatchingEnabled);
+            var rekeyed = With(("\"root\": \"SKSE/Plugins/SkyPatcher\"", "\"root\": \"SKSE/Patcher\""),
+                               ("\"file\": \"SKSE/Plugins/SkyPatcher.ini\"", "\"file\": \"SKSE/Patcher.ini\""),
+                               ("\"keyPrefix\": \"iEnable\"", "\"keyPrefix\": \"bUse\""));
+            Assert.False(Assert.Single(Scan(rekeyed).Folders).PatchingEnabled);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 
-    // a changed delimiter changes the printed grammar
+    // a changed delimiter changes how the parser splits a line and the printed grammar
     [Fact]
     public void ChangingADelimiterChangesTheSkillText()
     {
         var piped = With("\"segment\": \":\"", "\"segment\": \"!\"");
         Assert.Equal('!', piped.Grammar.Segment);
+        Assert.Single(SkyPatcherParse.ParseLine("a=1!b=2").Segments);
+        Assert.Equal(2, SkyPatcherParse.ParseLine("a=1!b=2", piped.Grammar).Segments.Count);
         Assert.Contains("- `!` separates every segment", RuntimeFormatSkillText.Regions(piped)["skypatcher.segments"]);
     }
 
@@ -184,6 +209,7 @@ public sealed class RuntimeFormatSourceTests
     public void AValueTheServerHasNoRuleForFailsTheLoad(string from, string to)
     {
         var ex = Assert.Throws<InvalidOperationException>(() => With(from, to));
-        Assert.Contains(from.Split(':')[0].Trim('"'), ex.Message);
+        var (prop, value) = (from.Split(':')[0].Trim('"'), to.Split(':', 2)[1].Trim().Trim('"'));
+        Assert.Contains(prop == "segment" ? $"[grammar.segment]: '{value}'" : $"'{prop}' = '{value}'", ex.Message);
     }
 }

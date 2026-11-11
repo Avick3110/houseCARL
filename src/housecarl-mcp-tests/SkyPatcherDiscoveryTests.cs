@@ -153,7 +153,7 @@ public sealed class SkyPatcherDiscoveryTests : IDisposable
         var scan = Scan();
         Assert.False(Folder(scan, "weapon").PatchingEnabled);
         Assert.True(Folder(scan, "light").PatchingEnabled);
-        Assert.Single(scan.Notes, n => n.Contains("no loose SkyPatcher.ini"));
+        Assert.Contains("every patcher but Light is off", Assert.Single(scan.Notes, n => n.Contains("no loose SkyPatcher.ini")));
         Assert.Contains(scan.Notes, n => n.Contains("is not loose in this order, which leaves 'weapon' patching off"));
         Assert.DoesNotContain(scan.Notes, n => n.Contains("iEnable…Patching"));
     }
