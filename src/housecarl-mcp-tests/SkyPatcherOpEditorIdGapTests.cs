@@ -51,7 +51,7 @@ public sealed class SkyPatcherOpEditorIdGapTests
     // {0} is the EditorID: an existing one applies with Tweaks and names Tweaks without; a typo with Tweaks keeps the op's wording
     public static TheoryData<string, string, string, string> Ops => new()
     {
-        { "npc", "Npc", "spellsToAdd={0}", "form not resolvable (EditorID 'HcTypo' not found among Spell winners)" },
+        { "npc", "Npc", "spellsToAdd={0}", "form not resolvable (EditorID 'HcTypo' not found among Spell records)" },
         { "npc", "Npc", "objectsToAdd={0}=2", "entry form 'HcTypo' not resolvable" },
         { "npc", "Npc", "objectsToRemove={0}", "form not resolvable; skipped" },
         { "npc", "Npc", "removeInventoryObjectsByCount={0}~1", "expected form~count" },
