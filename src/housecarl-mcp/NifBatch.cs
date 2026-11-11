@@ -323,7 +323,7 @@ internal static class NifBatch
     {
         w.WriteStartObject();
         w.WriteString("path", d.RelPath);
-        w.WriteBoolean("on_disk", d.OnDisk || row.OnDisk);
+        w.WriteBoolean("on_disk", d.OnDisk);
         Str(w, "formid", row.FormId);
         Str(w, "face_note", d.FaceNote);
         w.WriteString("status", d.Inspect is null ? "error" : "ok");

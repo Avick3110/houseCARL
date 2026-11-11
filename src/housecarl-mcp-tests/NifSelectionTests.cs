@@ -166,6 +166,19 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Null(_svc.SelectMeshes(new[] { (good, true) }, Array.Empty<string>(), null, Array.Empty<FaceGenSeed>(), null, needView: false).Captured);
     }
 
+    /// <summary>Pins unchanged behaviour: a file on disk that fails is on_disk from its own data, beside a Data path that is not.</summary>
+    [Fact]
+    public void AFailedFileOnDiskRowIsOnDiskInJson()
+    {
+        var gone = Path.Combine(_p.Root, "hcns-gone-json.nif");
+
+        var rows = Json(NifTools.NifInspect(_svc, paths: new[] { gone, Arch1 }, format: "json")).GetProperty("rows");
+
+        Assert.Equal("error", rows[0].GetProperty("status").GetString());
+        Assert.True(rows[0].GetProperty("on_disk").GetBoolean());
+        Assert.False(rows[1].GetProperty("on_disk").GetBoolean());
+    }
+
     [Fact]
     public void AMissingFileOnDiskIsItsOwnRow()
     {
