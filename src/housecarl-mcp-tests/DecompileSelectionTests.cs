@@ -518,7 +518,7 @@ public sealed class DecompileSelectionTests : IDisposable
         var r = DecompileTools.DecompileScript(_svc, provider: "Arch", max_chars: 1500, out_path: _out);
 
         Assert.Equal(4, Directory.GetFiles(_out, "*.psc").Length);
-        Assert.Contains("whatever max_chars cuts from the listing", r);
+        Assert.Contains("max_chars cuts only this listing: the counts above include the rows cut", r);
         Assert.Matches(@"\[accounting\] total=4 rendered=[0-3] ", r);
     }
 
