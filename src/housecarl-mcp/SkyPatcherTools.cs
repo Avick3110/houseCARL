@@ -104,7 +104,7 @@ public static class SkyPatcherTools
         var select = formidsIn.Tokens is null && pluginsIn.Tokens is null ? null
             : new SkyPatcherLineSelect(formidsIn.Tokens, pluginsIn.Tokens, plugins?.defined_in ?? false,
                 new[] { formidsIn.Demand }.OfType<ArtifactDemand>().ToList());
-        string? echo = select is null ? null : SkyPatcherWire.SelectEcho(formidsIn, pluginsIn, plugins?.defined_in ?? false);
+        string? echo = select is null ? null : SkyPatcherWire.SelectEcho(formidsIn, pluginsIn, select.DefinedIn);
         return svc.SkyPatcherLayer(data => data.SelectRefusal is { } refused
             ? ToolAnswer.Refusal(refused)
             : ToolAnswer.Served(SkyPatcherWire.RenderLayer(data, filter, Wire.Cap(max_chars), echo)), ct, select);
@@ -131,15 +131,16 @@ static class SkyPatcherWire
         return string.Join(" and ", parts);
     }
 
-    /// <summary>Per INI, the patch lines naming a selected form and the forms each names, in line order.</summary>
+    /// <summary>Per INI the filter keeps, the patch lines naming a selected form and the forms each names, in line order.</summary>
     static Dictionary<SkyPatcherDiscovery.IniFile, List<(int Index, IReadOnlyList<SkyPatcherOverlay.LineForm> Forms)>> Picked(
-        SkyPatcherLayerData d, Func<SkyPatcherDiscovery.FolderScan, SkyPatcherDiscovery.IniFile, int, IReadOnlyList<SkyPatcherOverlay.LineForm>> select)
+        SkyPatcherLayerData d, Func<SkyPatcherDiscovery.FolderScan, SkyPatcherDiscovery.IniFile, int, IReadOnlyList<SkyPatcherOverlay.LineForm>> select,
+        string? filter)
     {
         var picked = new Dictionary<SkyPatcherDiscovery.IniFile, List<(int, IReadOnlyList<SkyPatcherOverlay.LineForm>)>>(ReferenceEqualityComparer.Instance);
         foreach (var f in d.Scan.Folders)
-            foreach (var file in f.Files)
+            foreach (var file in f.Files.Where(x => filter is null || Matches(filter, f, x)))
                 for (int i = 0; i < file.Lines.Count; i++)
-                    if (file.Lines[i].Kind == SkyPatcherLineKind.Patch && select(f, file, i) is { Count: > 0 } forms)
+                    if (select(f, file, i) is { Count: > 0 } forms)
                     {
                         if (!picked.TryGetValue(file, out var rows)) picked[file] = rows = new();
                         rows.Add((i, forms));
@@ -159,7 +160,7 @@ static class SkyPatcherWire
         };
         var id = FormIdToken.Of(f.Form);
         return "          ↳ " + place + " " + f.Key + ": "
-               + (SkyPatcherParse.TryParseAddress(f.Token) is null ? f.Token + " → " + id : id) + "\n";
+               + (f.ByEditorId ? f.Token + " → " + id : id) + "\n";
     }
 
     static string Render(SkyPatcherLayerData d, string? filter, int maxChars, string? selectEcho)
@@ -170,15 +171,17 @@ static class SkyPatcherWire
         int cap = maxChars - caveats.Length;
         var folders = d.Scan.Folders;
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();   // a blank filter is no filter, never a match-everything
-        var picked = d.Select is { } select ? Picked(d, select) : null;
-        bool narrowed = filter is not null || picked is not null;
-        // A file is listed with its lines when it passes the filter and holds a selected line.
-        bool Hit(SkyPatcherDiscovery.FolderScan f, SkyPatcherDiscovery.IniFile x)
-            => (filter is null || Matches(filter, f, x)) && (picked is null || picked.ContainsKey(x));
         // A selection matching nothing must never fall through to the unfiltered overview — that reads as the whole layer.
         if (filter is { } zero && !folders.Any(f => f.Files.Any(x => Matches(zero, f, x))))
             return ZeroMatch(d, zero, cap, caveats);   // the block is composed ONCE; charging it twice spends it twice
-        if (picked is not null && !folders.Any(f => f.Files.Any(x => Hit(f, x))))
+        var picked = d.Select is { } select ? Picked(d, select, filter) : null;
+        // The files listed with their lines: those holding a selected line, or else those the filter matches; null for the overview.
+        var hits = picked is not null ? picked.Keys.ToHashSet(ReferenceEqualityComparer.Instance)
+            : filter is { } q ? folders.SelectMany(f => f.Files.Where(x => Matches(q, f, x))).ToHashSet(ReferenceEqualityComparer.Instance)
+            : null;
+        bool narrowed = hits is not null;
+        bool Hit(SkyPatcherDiscovery.IniFile x) => hits!.Contains(x);
+        if (picked is { Count: 0 })
             return ZeroSelect(d, selectEcho!, filter, cap, caveats);
         int files = folders.Sum(f => f.Files.Count);
         int applied = folders.Sum(f => f.PatchingEnabled ? f.Files.Count(x => x.NotApplied is null) : 0);
@@ -200,9 +203,9 @@ static class SkyPatcherWire
         // filter= selects at the FOLDER level, so a late-sorting match is never cut by the cap and a matching folder still lists every file in apply order.
         if (picked is not null)
             sb.Append("lines naming a form of ").Append(selectEcho).Append(filter is null ? "" : " in filter '" + filter + "'").Append(" — ")
-              .Append(folders.Sum(f => f.Files.Where(x => Hit(f, x)).Sum(x => picked[x].Count))).Append(" line(s) in ")
-              .Append(folders.Sum(f => f.Files.Count(x => Hit(f, x)))).Append(" of ").Append(files)
-              .Append(" INI(s), in ").Append(folders.Count(f => f.Files.Any(x => Hit(f, x))))
+              .Append(picked.Values.Sum(r => r.Count)).Append(" line(s) in ")
+              .Append(picked.Count).Append(" of ").Append(files)
+              .Append(" INI(s), in ").Append(folders.Count(f => f.Files.Any(Hit)))
               .Append(" of ").Append(folders.Count)
               .Append(" type folder(s); only those folders are listed below, each in full apply order with the matching " +
                       "files expanded to those lines, each selected form labelled where the line names it (the counts above are the whole layer).\n");
@@ -231,9 +234,9 @@ static class SkyPatcherWire
         bool listCut = false;
         foreach (var f in folders)
         {
-            if (narrowed && !f.Files.Any(x => Hit(f, x))) continue;
+            if (narrowed && !f.Files.Any(Hit)) continue;
             if (listCut) { sb.Append(folderCut); break; }
-            var head = FolderHead(f, narrowed ? x => Hit(f, x) : null, d.Scan.PatcherSwitches);
+            var head = FolderHead(f, narrowed ? Hit : null, d.Scan.PatcherSwitches);
             if (sb.Length + head.Length > listRoom) { sb.Append(folderCut); break; }
             sb.Append(head);
             foreach (var file in f.Files)
@@ -243,7 +246,7 @@ static class SkyPatcherWire
                 if (sb.Length + row.Length > listRoom) { sb.Append(FileCut); listCut = true; break; }
                 sb.Append(row);
                 // Every file of a selected folder is listed — a match's neighbours are where it sorts; only a match expands.
-                if (!narrowed || !Hit(f, file)) continue;
+                if (!narrowed || !Hit(file)) continue;
                 var rows = picked?[file] ?? Enumerable.Range(0, file.Lines.Count)
                     .Where(i => file.Lines[i].Kind == SkyPatcherLineKind.Patch)
                     .Select(i => (Index: i, Forms: (IReadOnlyList<SkyPatcherOverlay.LineForm>)Array.Empty<SkyPatcherOverlay.LineForm>())).ToList();

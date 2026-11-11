@@ -135,9 +135,8 @@ internal sealed partial class AssetLayers
         internal (IReadOnlyList<string> Lint, bool Incomplete) LineLint(SkyPatcherDiscovery.FolderScan folder, SkyPatcherOverlay.OrderedLine line)
         {
             if (folder.Catalog is null) return (Array.Empty<string>(), false);
-            var maps = FieldMap.ForSubfolder(folder.Subfolder);
             _formResolver.WatchLookups();
-            var lint = (maps.Count == 0 ? new RecordMap?[] { null } : maps.Select(m => (RecordMap?)m))
+            var lint = MapsOf(folder)
                 .SelectMany(m => SkyPatcherOverlay.LineLint(line, Catalog, folder.Catalog, m, _formResolver))
                 .Distinct(StringComparer.Ordinal).ToList();
             return (lint, lint.Count > 0 && _formResolver.ConsumedIncompleteTable);
@@ -145,12 +144,12 @@ internal sealed partial class AssetLayers
 
         /// <summary>Every form one line names, across every record type its folder holds, each once.</summary>
         internal IReadOnlyList<SkyPatcherOverlay.LineForm> LineForms(SkyPatcherDiscovery.FolderScan folder, SkyPatcherLine line)
-        {
-            IReadOnlyList<RecordMap> maps = folder.Catalog is null ? Array.Empty<RecordMap>() : FieldMap.ForSubfolder(folder.Subfolder);
-            return (maps.Count == 0 ? new RecordMap?[] { null } : maps.Select(m => (RecordMap?)m))
-                .SelectMany(m => SkyPatcherOverlay.LineForms(line, Catalog, folder.Catalog, m, _formResolver))
-                .Distinct().ToList();
-        }
+            => MapsOf(folder).SelectMany(m => SkyPatcherOverlay.LineForms(line, Catalog, folder.Catalog, m, _formResolver)).Distinct().ToList();
+
+        /// <summary>The field maps a folder's lines are read under, one per record type it holds; a single null map for a folder with none (or no catalog).</summary>
+        IEnumerable<RecordMap?> MapsOf(SkyPatcherDiscovery.FolderScan folder)
+            => folder.Catalog is not null && FieldMap.ForSubfolder(folder.Subfolder) is { Count: > 0 } maps
+                ? maps.Select(m => (RecordMap?)m) : new RecordMap?[] { null };
 
         /// <summary>Plugins an EditorID sweep could not open during this call.</summary>
         internal IReadOnlyList<PluginUnreadableException> Unreadable => _formResolver.Unreadable;
