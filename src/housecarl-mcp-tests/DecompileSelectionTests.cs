@@ -383,6 +383,27 @@ public sealed class DecompileSelectionTests : IDisposable
     }
 
     [Fact]
+    public void AWindowScriptThatDeclaresNoParentIsNotReadAgainAsOne()
+    {
+        // The winning copy of a parentless script is an unreadable entry in a second archive; source_provider= reads
+        // the disabled mod's good copy, which is the only read the call needs.
+        File.WriteAllBytes(Path.Combine(_p.Mod("Arch"), "Dummy - Textures.bsa"),
+            BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
+                new[] { ("scripts", new[] { ("hcdsoff.pex", BsaBuilder.Bytes("not a pex", 16)) }) }));
+        _p.TouchModlist();
+        var svc = _p.Open();
+        var assets = ((ILoadOrderHost)svc).Assets;
+        svc.AssetStatus(new[] { LooseRel });                                 // builds the view first
+        var before = assets.ArchiveTableReadCount;
+
+        var r = DecompileTools.DecompileScript(svc, paths: new[] { OffRel }, source_provider: "Off", out_path: _out);
+
+        Assert.Contains("OffThing", Psc("HcDsOff"));
+        Assert.DoesNotContain("could not be read", r);
+        Assert.Equal(0, assets.ArchiveTableReadCount - before);
+    }
+
+    [Fact]
     public void ACallReadsEachArchiveOnce()
     {
         var assets = ((ILoadOrderHost)_svc).Assets;
