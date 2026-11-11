@@ -223,7 +223,7 @@ internal sealed partial class AssetLayers
         finally { foreach (var o in overlays) { try { o.Dispose(); } catch { /* releasing the off-order overlays */ } } }
     }
 
-    /// <summary>The face door's answer for each NPC key over the current view (npc=, place formid=), read through
+    /// <summary>The face door's answer for each NPC key over the current view (formids=, place formid=), read through
     /// <paramref name="sources"/> too when the lane has any, or why the load order could not be read.</summary>
     public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys, FaceSources? sources = null)
     {

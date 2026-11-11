@@ -591,11 +591,11 @@ reason, plus the chain's errors:
   where Mutagen yields no link, **one reason**: the first unmet input of Mutagen's gate, in the order no race / race
   not read / not a race, no `FaceGenHead`, `Traits` with no `Template`, `ACBS` 0x100. Mutagen's gate is named as it
   is, not coded around: a 0x100 NPC the CK baked still gets the reason, not a pair.
-- **Reads are batched where a lane prefetches.** On `formids=`, `npc=` and `place` (`AssetLayers.Faces`) and on
+- **Reads are batched where a lane prefetches.** On `formids=` (`asset_status` and `nif_inspect`) and `place` (`AssetLayers.Faces`) and on
   the walk (`MemberReads.Templates`), `NpcFace.Prefetch` reads each hop's templates and the roots' races in rounds,
   and the memo (`RoundReads`, `MemberReads`) keeps each key's record or its exception, so the door reads nothing
   after the prefetch. The check does not prefetch: it reads each race the first time the door asks, a round of one
-  through `RoundReads.Get`. On `formids=` (the walk's seeds too, read through `Faces`), `npc=` and `place` only, an
+  through `RoundReads.Get`. On `formids=` (`asset_status`, `nif_inspect` and the walk's seeds, read through `Faces`) and `place` only, an
   NPC key whose plugin is in the view's excluded set says that plugin was not read rather than "no plugin defines
   it"; a template or race there, one a walk's `records=` seed reaches, and every key on the check gets the door's
   not-found sentence.
@@ -808,13 +808,13 @@ provided either; the generic lane does not, because it legitimately answers for 
   read in one pass (`TwoCellsReadTheirUnionsInOnePass`); a miss in every source and the order is a note
   (`AReachedRecordInNoSourceNorTheOrderIsSaid`).
 - *One FaceGen answer per NPC*: `NpcFaceDoorTests` — a plain NPC is its own pair on every lane and the check
-  judges it; a templated NPC is its root's pair on `formids=`, the walk, `npc=` and `place`, and the check excludes
-  it as templated; a leveled-template NPC names each member, one of N, on `formids=`, the walk and `npc=`, and
-  `place` refuses it; a donor-only NPC gives its pair through the walk's `from_source=` and `npc=`'s
+  judges it; a templated NPC is its root's pair on `formids=` (`asset_status` and `nif_inspect`), the walk and `place`, and the check excludes
+  it as templated; a leveled-template NPC names each member, one of N, on `formids=` and the walk, and
+  `place` refuses it; a donor-only NPC gives its pair through the walk's `from_source=` and `nif_inspect formids=`'s
   `source_provider=` (`ADonorOnlyNpcGivesItsPairThroughTheLanesOwnSources`), and a clone in an unenabled `into=`
   patch places by formid (`CopySourceFolderReadbackTests`); two plugins of one folder defining an NPC are read by
   filename, first hit (`AFoldersPluginsAreReadInFilenameOrderFirstHit`); a plugin there that will not open fails
-  only the keys the order misses, on `npc=` and `place into=`
+  only the keys the order misses, on `nif_inspect formids=` and `place into=`
   (`AnUnopenablePluginInTheFolderFailsOnlyTheKeysTheOrderMisses`); a walk's `formids=` and `records=` seeds share
   one not-found sentence (`AWalksFormidsAndRecordsSeedsShareOneNotFoundSentence`); the pair is Mutagen's link
   (`ThePairIsSpelledAsMutagensLink`); each no-pair input is one reason on every lane, and Mutagen names no link for
