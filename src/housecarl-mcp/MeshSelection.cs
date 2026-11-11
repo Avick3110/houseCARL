@@ -65,7 +65,7 @@ internal sealed partial class AssetLayers
         if (row.Error is { } bad) return NifInspectData.Fail(rel, bad);
         NifInspectData data;
         try { data = row.OnDisk ? InspectFile(view, modsRoot, rel, links) : NifInspectOne(view!.Value, rel, sourceProvider, links); }
-        catch (Exception ex) { data = NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}"); }
+        catch (Exception ex) { data = NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}") with { OnDisk = row.OnDisk }; }
         return row.FaceNote is { } note ? data with { FaceNote = note } : data;
     }
 
