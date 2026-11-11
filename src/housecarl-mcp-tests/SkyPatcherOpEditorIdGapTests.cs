@@ -94,6 +94,11 @@ public sealed class SkyPatcherOpEditorIdGapTests
         Assert.Equal("g.ini:1: 'teachSpell=HcTypo' — spell not resolvable; skipped.",
             Assert.Single(Run("book", "Book", "teachSpell=HcTypo", tweaks: true).Warnings));
 
+    [Fact] // an op value whose '|' side SkyPatcher cannot read says so, not that its plugin is unparseable
+    public void AMalformedOpAddressSaysItIsNoFormId() =>
+        Assert.Contains("form not resolvable (not a FormID SkyPatcher can read after '|')",
+            Assert.Single(Run("npc", "Npc", "spellsToAdd=HcGap.esp|zz", tweaks: true).Warnings));
+
     [Fact] // skin=<donor NPC EditorID> without Tweaks names the donor type's gap; with Tweaks it is the donor-copy warning, unchanged
     public void WithoutTweaksASkinDonorNpcEditorIdNamesTheNpcType()
     {

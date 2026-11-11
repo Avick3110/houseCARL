@@ -117,6 +117,57 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Equal(2, holders.Count);
     }
 
+    // Holders sort by load position alone: the keyword HcKw2 in HcSpRel.esp comes before HcSpRelOther.esp's armor, whatever the type names.
+    [Fact]
+    public void HoldersOfOneNameSortByLoadPositionNotType()
+    {
+        using var w = new SkyPatcherRelevanceWorld(Array.Empty<(string, string)>(), otherPlugin: true,
+            otherRecords: o => o.Armors.Add(new Armor(new FormKey(o.ModKey, 0x830), SkyrimRelease.SkyrimSE) { EditorID = "HcKw2" }));
+        var table = SkyPatcherEditorIdTable.For(w.Svc.CaptureView(), null);
+        table.Cover(new[] { typeof(IKeywordGetter), typeof(IArmorGetter) });
+        Assert.Equal(new FormKey(ModKey.FromFileName("HcSpRel.esp"), 0x802), table.Find("HcKw2", null, out _)[0].Record);
+    }
+
+    // One call holds one table per view: a second order's view inside the same call gets a table of its own.
+    [Fact]
+    public void ACallGivesEachViewItsOwnTable()
+    {
+        using var a = new SkyPatcherRelevanceWorld(Array.Empty<(string, string)>());
+        using var b = new SkyPatcherRelevanceWorld(Array.Empty<(string, string)>());
+        var (va, vb) = (a.Svc.CaptureView(), b.Svc.CaptureView());   // taken outside the call, which pins one view
+        using var call = CallContext.Begin();
+        var first = SkyPatcherEditorIdTable.For(va, null);
+        Assert.Same(first, SkyPatcherEditorIdTable.For(va, null));
+        Assert.NotSame(first, SkyPatcherEditorIdTable.For(vb, null));
+    }
+
+    // A name starting with a digit is not in the call's first walk; its own lookup walks its scope.
+    [Fact]
+    public void ADigitFirstEditorIdTargetResolves()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByArmors=1HcDigit:value=5\r\n") },
+            records: m => m.Armors.Add(new Armor(new FormKey(m.ModKey, 0x830), SkyrimRelease.SkyrimSE) { EditorID = "1HcDigit" }));
+        Assert.Contains("Value = 5", Post(w, "000830:HcSpRel.esp", "Value"));
+    }
+
+    // The Excluded spelling resolves its EditorID like the direct list: only the first loaded HcPlainCuirass is left out.
+    [Fact]
+    public void AnExcludedEditorIdLeavesOutOnlyTheFirstLoadedRecord()
+    {
+        using var w = DuplicateWorld("filterByArmorsExcluded=HcPlainCuirass:value=7\r\n");
+        Assert.Contains("Value = 0", Post(w, w.Plain, "Value"));
+        Assert.Contains("Value = 7", Post(w, "000810:HcSpRelOther.esp", "Value"));
+    }
+
+    // The conflict detector resolves an EditorID target, so a record named by EditorID in one INI and by FormID in another is one target.
+    [Fact]
+    public void ARecordNamedByEditorIdAndByFormIdConflictsWithItself()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { ("HcA.ini", "filterByArmors=HcPlainCuirass:value=3\r\n"),
+            ("HcB.ini", "filterByArmors=HcSpRel.esp|811:value=4\r\n") });
+        Assert.Contains("1 set-conflict(s)", SkyPatcherTools.SkyPatcherLayer(w.Svc));
+    }
+
     // addToLLs carries no form type: its item is looked up among every item type, as SkyPatcher's untyped lookup finds it.
     [Fact]
     public void AnUntypedOpFindsItsEditorId()
@@ -166,7 +217,7 @@ public sealed class SkyPatcherTargetResolverTests
             subfolder: "formList", tweaks: false, records: AddList);
         var read = Post(w, "000840:HcSpRel.esp", "Items");
         Assert.Contains("Items = [list: 2 item(s)]", read);
-        Assert.Contains("'formsToAdd=HcHeelBoots' — EditorID 'HcHeelBoots' finds nothing: powerofthree's Tweaks (SKSE\\Plugins\\po3_Tweaks.dll) is not in this order, so of SkyrimMajorRecord records the game keeps EditorIDs only of ", read);
+        Assert.Contains("formList\\HcTargets.ini:2: 'formsToAdd=HcHeelBoots' — EditorID 'HcHeelBoots' finds nothing: powerofthree's Tweaks (SKSE\\Plugins\\po3_Tweaks.dll) is not in this order, so of SkyrimMajorRecord records the game keeps EditorIDs only of ", read);
         Assert.DoesNotContain("HcHeelKw' finds nothing", read);
     }
 }
