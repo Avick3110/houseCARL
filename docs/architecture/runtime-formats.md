@@ -45,10 +45,14 @@ them. Only SkyPatcher has a row today; SPID, KID, BOS and FLM join as rows when 
   every region has a home.
 - `RuntimeFormatSourceTests.MovingAPassChangesTheFolderOrderAndTheSkillText`,
   `APatcherOnWithoutItsKeyRunsAndTheSkillTextNamesIt`, `ChangingTheNameTokenChangesWhatIsReadAndTheSkillText`,
-  `ChangingTheRootChangesTheTreeAndThePlacementPath`, `ChangingADelimiterChangesTheSkillText` — one row changes both
-  outputs: the server's order, switch, name, gate, scan root, switches file, key shape or parse, and the printed text.
-- `RuntimeFormatSourceTests.TheOffReasonAndTheDraftRefusalSpellTheRow` — the answers that name the key shape and the
-  name token spell the row's.
+  `ChangingTheRootChangesTheTreeAndThePlacementPath`, `ChangingADelimiterChangesTheSkillText`,
+  `TheSwitchesSectionAndKeyShapeOfTheRowDriveTheScanAndTheSkillText` — one row changes both outputs: the server's
+  order, switch, name, gate, scan root, switches file, section, key shape or parse, and the printed text.
+- `RuntimeFormatSourceTests.EveryDelimiterOfTheRowDrivesTheParse`, `AnEditedGateExtensionGatesTheName` — each
+  delimiter, comment lead and the label reading drive the file and address parse; the gate extensions drive the gate.
+- `RuntimeFormatSourceTests.TheOffReasonAndTheDraftRefusalSpellTheRow`,
+  `TheSwitchesNotesAndTheDraftPathRefusalsNameTheRowsFile` — the answers that name the key shape, the switches file
+  and the name token spell the row's.
 - `RuntimeFormatSourceTests.AnIndentedOrMalformedMarkerIsUnplacedAndRefused` — one rule for which line opens a region.
 - `RuntimeFormatSourceTests.AValueTheServerHasNoRuleForFailsTheLoad` — each kind value the code has no rule for.
 - `RuntimeFormatSourceTests.NoPrintedRegionNamesTheServer`, `AHandEditInsideARegionIsRewritten`,
