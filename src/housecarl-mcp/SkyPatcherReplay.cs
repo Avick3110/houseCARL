@@ -297,7 +297,7 @@ internal sealed partial class AssetLayers
 
         public string? EditorIdNote(string editorId, string? mutagenType)
             => Find(editorId, mutagenType) is { Count: > 1 } holders
-                ? $"names {holders.Count} records; the game uses the first loaded, {FormIdToken.Of(holders[0].Record)} from {holders[0].Plugin}"
+                ? $"names {holders.Count} {mutagenType} records; the replay takes the first loaded, {FormIdToken.Of(holders[0].Record)} from {holders[0].Plugin}"
                 : null;
 
         /// <summary>The records loaded under a name within the scope, first loaded first, covering the call's scopes at the first lookup; empty for a blank name, no scope, a type the game keeps no names of here, or a scope that names no type.</summary>
