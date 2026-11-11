@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace HousecarlCore;
 
-/// <summary>The runtime-layer format source (runtime-formats.json): each format's discovery, order, conflict and grammar values, read by the server and printed into the skills by the build; contract in docs/architecture/runtime-formats.md.</summary>
+/// <summary>The runtime-layer format source (runtime-formats.json): each format's discovery, order, conflict and grammar values, read by the server and printed into the skills by the generator's skill-text mode; contract in docs/architecture/runtime-formats.md.</summary>
 public static class RuntimeFormats
 {
     static string? _text;
@@ -11,7 +11,7 @@ public static class RuntimeFormats
     /// <summary>SkyPatcher's row of the embedded source (memoized); throws loudly on a missing or malformed resource.</summary>
     public static SkyPatcherFormat SkyPatcher => _skyPatcher ??= SkyPatcherFrom(SourceText());
 
-    /// <summary>The embedded source's text (memoized), for the build's skill-text generation.</summary>
+    /// <summary>The embedded source's text (memoized), for the tests that edit a row.</summary>
     public static string SourceText() => _text ??= EmbeddedJson.Read("runtime-formats.json", "runtime-format source");
 
     /// <summary>Parse SkyPatcher's row from source text; a value the code has no rule for throws, naming the row and the value.</summary>

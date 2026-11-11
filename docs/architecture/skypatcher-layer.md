@@ -23,10 +23,10 @@ article: a filterless line that patches nothing, keys it does not read, keys tha
 direct list, which finders can find the player and which narrowers never remove him, and other
 records whose keywords its keyword filters read. The patcher run order, the file rules and the delimiters are not
 the catalog's: they come from SkyPatcher's row of the runtime-format source ([`runtime-formats.md`](runtime-formats.md)),
-which also prints them into the skill. Its record dimension (name,
-sig, subfolder, primaryFilter) is cross-checked in CI against the router table in that skill's
-`SKILL.md` — `SkyPatcherCatalogTests.TheCatalogMatchesTheSkillRouterTable` requires the row count to equal the
-loaded record count and matches recordType and signature per subfolder. That is the one contract
+which the generator also prints into the skill. The catalog's record dimension (name, sig, subfolder, primaryFilter) is
+cross-checked in CI against the router table in that skill's `SKILL.md` —
+`SkyPatcherCatalogTests.TheCatalogMatchesTheSkillRouterTable` requires the row count to equal the loaded record count
+and matches recordType, signature and primaryFilter per subfolder. That is the one contract
 here the code cannot express at all: it couples `src/housecarl-core/` to a file in
 `.claude/skills/`, so adding a record type on one side without the other fails
 that test.

@@ -42,7 +42,7 @@ public static class Mo2LoadOrder
     /// <summary>Test seam: raised with the profile folder on every <see cref="ReadComposition"/>, never for <see cref="Build"/>'s own parse; null in the product.</summary>
     internal static event Action<string>? CompositionRead;
 
-    static readonly string[] PluginExts = PluginFile.Extensions;   // the one shared home (HousecarlCore.PluginFile) — no divergent copy
+    static readonly string[] PluginExts = PluginFile.Extensions;   // the shared plugin extensions (HousecarlCore.PluginFile); SkyPatcher's filename gate reads its own list from runtime-formats.json
 
     /// <summary>Read the active order from <paramref name="profileDir"/>'s three profile files, resolving each active plugin to its winning real path; the returned paths are in load order, winner last.</summary>
     public static Mo2OrderResult Build(string profileDir, string modsDir, string dataDir, string overwriteDir = "")

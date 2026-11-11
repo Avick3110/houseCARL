@@ -26,8 +26,8 @@ them. Only SkyPatcher has a row today; SPID, KID, BOS and FLM join as rows when 
   `<!-- end generated:<tag> -->`; the text between is the print, byte for byte, in the file's own line ending. Edit the
   source, then `dotnet run --project src/housecarl-generator -c Release -- skill-text` from the repo root. The plugin
   build copies the skill files as they are, with no step of its own.
-- **Printed text names no server tool.** A region speaks for SkyPatcher only (the skill rule in DECISIONS
-  2026-11-03).
+- **Printed text names no server tool.** A region speaks for SkyPatcher only and never names houseCARL (DECISIONS
+  2026-11-03 (1): skill lines that mention houseCARL are stripped).
 - Not printed from the source, so still hand-written: SKILL.md's "Build the string" step and its conflict-model
   note, the per-type toggle reminder beside the placement paragraph, the `[Features]` switches, and the layer tool's
   own description.
