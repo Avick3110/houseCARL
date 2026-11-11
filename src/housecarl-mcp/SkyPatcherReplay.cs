@@ -126,7 +126,7 @@ internal sealed partial class AssetLayers
             if (classified.UnknownKey || !shape.OnlyDirect || shape.Direct[0].seg.Values.Count == 0) return null;
             var keys = new HashSet<FormKey>();
             foreach (var v in shape.Direct[0].seg.Values)
-                if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var k)) keys.Add(k);
+                if (v.Address is { } a && SkyPatcherTargets.FormKeyOf(a) is { } k) keys.Add(k);
                 else return null;
             return keys;
         }
@@ -293,17 +293,26 @@ internal sealed partial class AssetLayers
             IReadOnlyList<Type>? scope = null;
             if (string.IsNullOrWhiteSpace(editorId)) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if (EditorIdGap(mutagenType) is not null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();   // the game cannot see this name, so neither does the replay
-            if (mutagenType is not null && (scope = _layers.ResolveFormScope(mutagenType)) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
+            if (mutagenType is not null && (scope = Scope(mutagenType)) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if (!_covered)
             {
                 // The first lookup walks once for every scope the call's lines name, so later lookups walk nothing.
                 _covered = true;
                 _table.Cover(_callScopes().OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)
-                    .SelectMany(s => _layers.ResolveFormScope(s) ?? Array.Empty<Type>()));
+                    .SelectMany(s => Scope(s) ?? Array.Empty<Type>()));
             }
             var e = _table.Find(editorId, scope, out var incomplete);
             if (incomplete) _consumedIncomplete = true;
             return e;
+        }
+
+        readonly Dictionary<string, IReadOnlyList<Type>?> _scopes = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>A scope string's getter types, resolved once per context.</summary>
+        IReadOnlyList<Type>? Scope(string scope)
+        {
+            if (!_scopes.TryGetValue(scope, out var types)) _scopes[scope] = types = _layers.ResolveFormScope(scope);
+            return types;
         }
 
         // The winners the lines name (donors, keyword sources, EditorID targets), each read once per replay context

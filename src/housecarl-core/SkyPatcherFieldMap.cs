@@ -345,6 +345,9 @@ public sealed record FilterSpec(
     string? Unmapped,
     string? EditorIdScope = null)
 {
+    /// <summary>The type or type group a bare EditorID in this filter is looked up among: its form type, else the scope an untyped filter names.</summary>
+    public string? LookupScope => FormType ?? EditorIdScope;
+
     internal static FilterSpec MakeUnmapped(string reason)
         => new(SkyPatcherFilterEval.FormEquals, Array.Empty<string>(), null, null, null, false, null, false, null, null, reason);
     public bool IsUnmapped => Unmapped is not null;

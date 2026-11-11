@@ -35,6 +35,7 @@ internal sealed class SkyPatcherEditorIdTable
     /// <summary>Walk every type in <paramref name="types"/> not yet walked this call, all in one walk.</summary>
     internal void Cover(IEnumerable<Type> types)
     {
+        if (types is IReadOnlyList<Type> list && list.All(_swept.Contains)) return;
         var fresh = types.Where(t => !_swept.Contains(t)).Distinct().ToList();
         if (fresh.Count == 0) return;
         _swept.UnionWith(fresh);

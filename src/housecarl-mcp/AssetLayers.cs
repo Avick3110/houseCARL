@@ -724,11 +724,11 @@ internal sealed partial class AssetLayers
                 var eids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var ol in SkyPatcherDiscovery.OrderedLines(folder))
                     SkyPatcherConflicts.CollectExplicitPrimaryTargets(ol.Parsed, catalog, folder.Catalog, targets, eids, ref broadLines);
-                var folderTypes = fieldMap.ForSubfolder(folder.Subfolder).Select(m => m.RecordType).ToList();
+                var folderTypes = fieldMap.ForSubfolder(folder.Subfolder).Select(m => (string?)m.RecordType).ToList();
                 foreach (var eid in eids)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var rfk = folderTypes.Select(t => replay.Forms.ResolveEditorId(eid, t)).FirstOrDefault(x => x is not null);
+                    var rfk = SkyPatcherTargets.Resolve(eid, folderTypes, replay.Forms);
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }

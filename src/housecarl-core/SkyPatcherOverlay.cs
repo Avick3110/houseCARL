@@ -252,7 +252,7 @@ public static class SkyPatcherOverlay
 
     /// <summary>Whether a segment holds a token that could be an EditorID: a sub-arg with no '|' that starts with a letter.</summary>
     static bool HoldsName(SkyPatcherSegment seg)
-        => seg.Values.Any(v => !v.IsNameLiteral && v.SubArgs.Any(a => a.Length > 0 && char.IsLetter(a[0]) && !a.Contains('|')));
+        => seg.Values.Any(v => !v.IsNameLiteral && v.SubArgs.Any(a => a.Length > 0 && char.IsLetter(a[0]) && SkyPatcherParse.TryParseAddress(a) is null));
 
     static string HiddenEditorIdText(SkyPatcherValue v, SkyPatcherSegment seg, string gap)
         => $"EditorID '{v.Raw}' (in a {seg.Key}) finds nothing: {gap}.";
@@ -266,7 +266,7 @@ public static class SkyPatcherOverlay
             return spec.IsUnmapped ? null : spec.Eval switch
             {
                 SkyPatcherFilterEval.FormEquals => new(spec.FormType, true, "form"),
-                SkyPatcherFilterEval.FormInList when !spec.EidSubstring => new(spec.FormType ?? spec.EditorIdScope, false, "form"),
+                SkyPatcherFilterEval.FormInList when !spec.EidSubstring => new(spec.LookupScope, false, "form"),
                 SkyPatcherFilterEval.DonorKeywords => KeywordTokens,
                 _ => null,
             };
@@ -1299,7 +1299,7 @@ public static class SkyPatcherOverlay
 
         string token;
         if (v.IsNameLiteral) token = v.NameText!;                       // rename literal, wrapper stripped
-        else if (v.Address is { IsFormId: true } a && TryFormKey(a, out var fk1)) token = fk1.ToString();
+        else if (v.Address is { } a && SkyPatcherTargets.FormKeyOf(a) is { } fk1) token = fk1.ToString();
         else if (map.ValueMap is { } vm && vm.TryGetValue(v.Raw, out var mapped)) token = mapped;
         else if (map.FormType is not null)
         {

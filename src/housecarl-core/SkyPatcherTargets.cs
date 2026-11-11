@@ -15,6 +15,14 @@ public static class SkyPatcherTargets
     public static FormKey? Resolve(string token, string? scope, SkyPatcherOverlay.IFormResolver resolver)
         => SkyPatcherParse.TryParseAddress(token) is { } a ? FormKeyOf(a) : resolver.ResolveEditorId(token, scope);
 
+    /// <summary>The record a value names in the first of <paramref name="scopes"/> that resolves it, as a folder with two record types resolves a target.</summary>
+    public static FormKey? Resolve(SkyPatcherValue v, IEnumerable<string?> scopes, SkyPatcherOverlay.IFormResolver resolver)
+        => scopes.Select(s => Resolve(v, s, resolver)).FirstOrDefault(k => k is not null);
+
+    /// <summary>The same for one token.</summary>
+    public static FormKey? Resolve(string token, IEnumerable<string?> scopes, SkyPatcherOverlay.IFormResolver resolver)
+        => scopes.Select(s => Resolve(token, s, resolver)).FirstOrDefault(k => k is not null);
+
     /// <summary>A '|' address to its FormKey; null for one whose FormID side or plugin name cannot be read.</summary>
     public static FormKey? FormKeyOf(FormAddress a) => SkyPatcherOverlay.TryFormKey(a, out var fk) ? fk : null;
 

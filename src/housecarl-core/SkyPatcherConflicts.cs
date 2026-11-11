@@ -198,7 +198,7 @@ public static class SkyPatcherConflicts
                 // One record per target, by the one resolver, so a record named by FormID on one line and by EditorID on another is one target.
                 var fk = v.Address is { } a ? SkyPatcherTargets.FormKeyOf(a)
                     : resolver is null ? null
-                    : maps.Select(m => SkyPatcherTargets.Resolve(v, m.RecordType, resolver)).FirstOrDefault(k => k is not null);
+                    : SkyPatcherTargets.Resolve(v, maps.Select(m => (string?)m.RecordType), resolver);
                 tokens.Add((fk is { } k ? FormIdToken.Of(k) : v.Raw.ToLowerInvariant(), shape.DirectConditional));
             }
         if (shape.HasFinderReach)
