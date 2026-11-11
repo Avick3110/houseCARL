@@ -109,6 +109,7 @@ public sealed class LayerSelectTests : IDisposable
         Assert.Contains("0 of 3 INI(s) hold one", Layer(formids: new[] { _w.Heel }, plugins: new[] { Other }));
     }
 
+    /// <summary>Pins what the tokenizer already gives: a <c>~…~</c> literal spelling a FormID keeps its '~' on the plugin name, so it names no loaded record.</summary>
     [Fact]
     public void ANameLiteralNamesNoRecord()
     {

@@ -263,7 +263,8 @@ public static class SkyPatcherOverlay
 
     /// <summary>Every form a patch line names that resolves to a record: each <c>Plugin|FormID</c> sub-arg anywhere on
     /// the line, and each leading EditorID sub-arg where the replay looks one up, by the one target resolver. A
-    /// <c>~name~</c> literal names no record; an undocumented folder's line (<paramref name="recordCatalog"/> null) gives its '|' forms only.</summary>
+    /// <c>~name~</c> literal resolves to no loaded record (its '~' stays on the plugin name); an undocumented folder's
+    /// line (<paramref name="recordCatalog"/> null) gives its '|' forms only.</summary>
     public static IEnumerable<LineForm> LineForms(SkyPatcherLine line, SkyPatcherCatalog catalog,
         SkyPatcherRecordCatalog? recordCatalog, RecordMap? fieldMap, IFormResolver resolver)
     {
@@ -280,7 +281,6 @@ public static class SkyPatcherOverlay
             var scopes = cls is null ? Array.Empty<string?>() : SegmentScopes(cls, fieldMap).Where(s => s is not null).ToArray();
             foreach (var v in seg.Values)
             {
-                if (v.IsNameLiteral) continue;
                 for (int k = 0; k < v.SubArgs.Count; k++)
                 {
                     var a = v.SubArgs[k];   // untrimmed: SkyPatcher keeps a space around '|', and so names nothing

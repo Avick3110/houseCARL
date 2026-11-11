@@ -36,7 +36,7 @@ internal static class AliasTable
 
         // The runtime layers: one tool with a format selector, SkyPatcher the first format it reads.
         ("housecarl_skypatcher_layer",
-         "absorbed into " + ToolNames.Layer + ": distributor=\"skypatcher\" names the format, and omitting it reads every format read. filter= and max_chars= are unchanged; formids= and plugins= select the lines naming a record."),
+         "absorbed into " + ToolNames.Layer + ": distributor=\"skypatcher\" names the format, and omitted it reads every format houseCARL reads. filter= and max_chars= are unchanged; formids= and plugins= select the lines naming a record."),
 
         // The write side; each redirect names the parameter migration too.
         ("housecarl_set_field",
