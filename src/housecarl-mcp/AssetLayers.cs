@@ -765,7 +765,7 @@ internal sealed partial class AssetLayers
                 return c != 0 ? c : string.Compare(x.FieldPath, y.FieldPath, StringComparison.Ordinal);
             });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
-            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit EditorID target(s) did not resolve; each is named, with why, on its line.");
+            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit EditorID target(s) did not resolve; {ToolNames.SkypatcherLayer} filter='<INI>' lists each under its line with why (a ~name~ target is counted here but named nowhere).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure / an EditorID lookup that could not be completed).");
             // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
             foreach (var msg in replay.Unreadable.Select(u => u.Message).Distinct())
