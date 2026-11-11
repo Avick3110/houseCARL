@@ -166,6 +166,21 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Null(_svc.SelectMeshes(new[] { (good, true) }, Array.Empty<string>(), null, Array.Empty<FaceGenSeed>(), null, needView: false).Captured);
     }
 
+    /// <summary>The json row and the to_file= row of a mods-tree file carry the address the text answer gives.</summary>
+    [Fact]
+    public void JsonAndToFileRowsOfAModsTreeFileCarryItsAddress()
+    {
+        var good = Path.Combine(_p.Mod("Arch"), LooseRel);
+        var file = Path.Combine(_p.Root, "hcns-disknote.jsonl");
+        var address = $"paths=[\"{LooseRel}\"] source_provider=\"Arch\" reads that copy through the load order.";
+
+        var row = Json(NifTools.NifInspect(_svc, paths: new[] { good }, format: "json")).GetProperty("rows")[0];
+        NifTools.NifInspect(_svc, paths: new[] { good }, to_file: file);
+
+        Assert.EndsWith(address, row.GetProperty("disk_note").GetString());
+        Assert.EndsWith(address, Json(File.ReadAllLines(file)[1]).GetProperty("disk_note").GetString());
+    }
+
     /// <summary>Pins unchanged behaviour: a file on disk that fails is on_disk from its own data, beside a Data path that is not.</summary>
     [Fact]
     public void AFailedFileOnDiskRowIsOnDiskInJson()

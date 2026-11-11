@@ -21,7 +21,7 @@ internal static class NifBatch
     /// <summary>The columns every row carries, in order, in the manifest and on each format=json row.</summary>
     internal static readonly string[] RowSchema =
     {
-        "path", "on_disk", "formid", "face_note", "status", "read_from", "providers", "ambiguous", "absent",
+        "path", "on_disk", "disk_note", "formid", "face_note", "status", "read_from", "providers", "ambiguous", "absent",
         "version", "user_version", "stream_version", "skyrim_se", "block_count", "blocks", "unknown_blocks",
         "unknown_block_types", "shapes", "node_count", "sections", "error",
     };
@@ -203,7 +203,8 @@ internal static class NifBatch
         var fileNotes = new List<string>
         {
             "One row per mesh, in selection order. 'read_from' is the copy whose bytes were read: the winner, or the " +
-            "source_provider= copy; a file on disk has none and 'on_disk' true. 'sections' is the requested detail " +
+            "source_provider= copy; a file on disk has none and 'on_disk' true, and one inside the mods tree names in " +
+            "'disk_note' the address that reads that copy through the load order. 'sections' is the requested detail " +
             "sections as the text answer prints them.",
             "An ABSENT row is authoritative only where the response's read-failure and discovery alarms were empty; " +
             "'read_incomplete' in the query echo names whether an archive or root failed to read.",
@@ -324,6 +325,7 @@ internal static class NifBatch
         w.WriteStartObject();
         w.WriteString("path", d.RelPath);
         w.WriteBoolean("on_disk", d.OnDisk);
+        Str(w, "disk_note", d.DiskNote);
         Str(w, "formid", row.FormId);
         Str(w, "face_note", d.FaceNote);
         w.WriteString("status", d.Inspect is null ? "error" : "ok");
