@@ -119,4 +119,9 @@ public sealed class SkyPatcherOpEditorIdGapTests
     public void AnOutfitItemEditorIdNamesTweaks()
         => Assert.Equal($"g.ini:1: 'formsToAdd=HcItem' — EditorID 'HcItem' finds nothing: {Missing}, so the game keeps no EditorIDs of OutfitTarget records; not applied.",
             Assert.Single(Run("outfit", "Outfit", "formsToAdd=HcItem", tweaks: false).Warnings));
+
+    [Fact] // pins unchanged behaviour: an op with only a lookup scope names that scope as a group when a name finds nothing with Tweaks
+    public void WithTweaksAMissingScopedOpEditorIdNamesTheGroup()
+        => Assert.Contains("form not resolvable (EditorID 'HcTypo' not found among the record types of the OutfitTarget group)",
+            Assert.Single(Run("outfit", "Outfit", "formsToAdd=HcTypo", tweaks: true).Warnings));
 }
