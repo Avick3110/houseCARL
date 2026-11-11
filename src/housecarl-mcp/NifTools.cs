@@ -115,7 +115,7 @@ public static class NifTools
                      "meshes with unknown blocks, over the whole selection, with no [accounting] line. Every mesh is still read.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) | 'json' (one row per mesh, machine-readable: the summary as fields and " +
-                     "the requested sections as their text, accounting in-band).")]
+                     "the requested sections as their text, accounting in-band; a census or to_file= manifest carries none).")]
             string? format = null,
         [Description("Optional. Character ceiling on the whole response: the mesh whose block would cross it is not " +
                      "written, and the read result (the window under limit=) is written whole to a file in the " +
