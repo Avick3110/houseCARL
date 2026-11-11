@@ -349,7 +349,7 @@ public sealed class HiddenReasonTests : IDisposable
     [Fact]
     public void NifSetOnAHiddenPathSaysHidden()
     {
-        var t = NifTools.NifSet(_p.Open(), mesh_path: "meta.ini", op: "set_flags", target: "X", flags: "0x800000E");
+        var t = NifTools.NifSet(_p.Open(), paths: new[] { "meta.ini" }, op: "set_flags", target: "X", flags: "0x800000E");
 
         Assert.Contains("ABSENT — hidden by MO2", t);
         Assert.DoesNotContain("no active mod or BSA provides", t);

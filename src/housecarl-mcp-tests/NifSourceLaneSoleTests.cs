@@ -53,7 +53,7 @@ public sealed class NifSourceLaneSoleTests : IClassFixture<NifSourceSoleWorld>
     {
         using var own = new NifSourceSoleWorld();
 
-        var text = NifTools.NifSet(own.Svc, mesh_path: S.SoleRel, op: "set_flags", target: "GuardShape",
+        var text = NifTools.NifSet(own.Svc, paths: new[] { S.SoleRel }, op: "set_flags", target: "GuardShape",
                                    flags: "0x800000E", source_provider: S.SoleMod, patch: "NifSole");
 
         Assert.Contains("wrote the verified mesh into a new mod folder", text);

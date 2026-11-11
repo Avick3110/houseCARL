@@ -129,7 +129,7 @@ public sealed class PatchIntoLaneRefusalTests
         var mods = Path.Combine(own.Root, "inst", "mods");
         var before = Folders(mods);
 
-        var r = NifTools.NifSet(own.Svc, mesh_path: S.SoleRel, op: "set_flags", target: "GuardShape",
+        var r = NifTools.NifSet(own.Svc, paths: new[] { S.SoleRel }, op: "set_flags", target: "GuardShape",
                                 flags: "0x800000E", source_provider: S.SoleMod, patch: "HcLaneA", into: "HcLaneB",
                                 in_place: true);
 
@@ -145,7 +145,7 @@ public sealed class PatchIntoLaneRefusalTests
         var mods = Path.Combine(own.Root, "inst", "mods");
         var before = Folders(mods);
 
-        var r = NifTools.NifSet(own.Svc, mesh_path: S.SoleRel, op: "set_flags", target: "GuardShape",
+        var r = NifTools.NifSet(own.Svc, paths: new[] { S.SoleRel }, op: "set_flags", target: "GuardShape",
                                 flags: "0x800000E", source_provider: S.SoleMod, patch: "HcLaneA", into: "HcLaneB");
 
         Assert.StartsWith("error:", r);

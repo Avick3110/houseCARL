@@ -22,7 +22,7 @@ public sealed class RawModsPathWorkingDirectoryTests : IClassFixture<AssetSelect
         Directory.SetCurrentDirectory(Path.Combine(_w.ModsDir, "FaceBase"));
         try
         {
-            var text = NifTools.NifInspect(_w.Svc, mesh_paths: new[] { _w.Rel("0001.nif") });
+            var text = NifTools.NifInspect(_w.Svc, paths: new[] { _w.Rel("0001.nif") });
 
             Assert.DoesNotContain("raw path into MO2's mods folder", text);
         }

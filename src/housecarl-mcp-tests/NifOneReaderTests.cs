@@ -73,7 +73,7 @@ public sealed class NifOneReaderTests : IDisposable
             Assert.DoesNotContain("texture slot 2", text, StringComparison.Ordinal);
             Assert.DoesNotContain("texture slot 3", text, StringComparison.Ordinal);
         }
-        var shapes = NifTools.NifInspect(_svc, mesh_paths: new[] { Cape }, sections: "shapes");
+        var shapes = NifTools.NifInspect(_svc, paths: new[] { Cape }, sections: "shapes");
         Assert.Contains("tex[2]: \n\n", shapes, StringComparison.Ordinal);
         Assert.Contains("tex[3]:   \n", shapes, StringComparison.Ordinal);
     }
@@ -154,11 +154,12 @@ public sealed class NifOneReaderTests : IDisposable
     [Fact]
     public void AMeshThatNamesNoFileSaysSo()
     {
-        Assert.EndsWith("\n  (the mesh names no file)", Paths(Bare).TrimEnd(), StringComparison.Ordinal);
+        var paths = Paths(Bare);
+        Assert.EndsWith("\n  (the mesh names no file)", paths[..paths.IndexOf("\n\n[accounting]", StringComparison.Ordinal)].TrimEnd(), StringComparison.Ordinal);
         Assert.Contains("  links (0):\n", Links(Bare), StringComparison.Ordinal);
     }
 
-    string Paths(string mesh, string source = "") => NifTools.NifInspect(_svc, mesh_paths: new[] { mesh }, sections: "paths", source_provider: source);
+    string Paths(string mesh, string source = "") => NifTools.NifInspect(_svc, paths: new[] { mesh }, sections: "paths", source_provider: source);
 
     string Links(string mesh) => AssetTools.AssetStatus(_svc, paths: new[] { mesh }, links: true);
 

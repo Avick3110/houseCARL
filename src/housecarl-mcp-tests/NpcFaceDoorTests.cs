@@ -120,7 +120,7 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
         => JsonDocument.Parse(AssetTools.AssetStatus(_w.Svc, formids: new[] { Id(npc) }, format: "json"))
                        .RootElement.GetProperty("results").EnumerateArray().ToList();
 
-    string Npc(FormKey npc) => NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(npc) });
+    string Npc(FormKey npc) => NifTools.NifInspect(_w.Svc, null, formids: new[] { Id(npc) });
 
     string Check(FormKey npc) => CheckTools.CheckTool(_w.Svc, formids: new[] { Id(npc) }, findings: new[] { "facegen" });
 
@@ -332,7 +332,7 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
         Assert.DoesNotContain("no FaceGen pair", walk);
         Assert.Contains(Mesh(npc), walk, StringComparison.OrdinalIgnoreCase);
 
-        var nif = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(npc) }, source_provider: NpcFaceDoorWorld.DonorMod);
+        var nif = NifTools.NifInspect(_w.Svc, null, formids: new[] { Id(npc) }, source_provider: NpcFaceDoorWorld.DonorMod);
         Assert.DoesNotContain("no FaceGen pair", nif);
         Assert.Contains(Mesh(npc), nif, StringComparison.OrdinalIgnoreCase);
 
@@ -349,10 +349,10 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
         var donor = _w.Donor.FormKey;
         var broken = NpcFaceDoorWorld.BrokenPlugin;
 
-        var nif = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(plain) }, source_provider: NpcFaceDoorWorld.BrokenMod);
+        var nif = NifTools.NifInspect(_w.Svc, null, formids: new[] { Id(plain) }, source_provider: NpcFaceDoorWorld.BrokenMod);
         Assert.DoesNotContain("no FaceGen pair", nif);
         Assert.Contains(Mesh(plain), nif, StringComparison.OrdinalIgnoreCase);
-        var nifDonor = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(donor) }, source_provider: NpcFaceDoorWorld.BrokenMod);
+        var nifDonor = NifTools.NifInspect(_w.Svc, null, formids: new[] { Id(donor) }, source_provider: NpcFaceDoorWorld.BrokenMod);
         Assert.Contains("its record sources were not opened", nifDonor);
         Assert.Contains(broken, nifDonor);
 
@@ -376,7 +376,7 @@ public sealed class NpcFaceDoorTests : IClassFixture<NpcFaceDoorWorld>
     public void AFoldersPluginsAreReadInFilenameOrderFirstHit()
     {
         var npc = _w.Twin.FormKey;
-        var nif = NifTools.NifInspect(_w.Svc, null, npc: new[] { Id(npc) }, source_provider: NpcFaceDoorWorld.TwinMod);
+        var nif = NifTools.NifInspect(_w.Svc, null, formids: new[] { Id(npc) }, source_provider: NpcFaceDoorWorld.TwinMod);
         Assert.DoesNotContain("no FaceGen pair", nif);
         Assert.Contains(Mesh(npc), nif, StringComparison.OrdinalIgnoreCase);
     }

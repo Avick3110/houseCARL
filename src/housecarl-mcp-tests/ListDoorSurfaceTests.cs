@@ -25,7 +25,7 @@ public sealed class ListDoorSurfaceTests
     {
         var rows = ListParameters().Select(r => $"{r[0]}.{r[1]}").ToHashSet();
         foreach (var expected in new[] { ToolNames.AssetStatus + ".records", ToolNames.AssetStatus + ".under",
-                                         ToolNames.NifInspect + ".mesh_paths", ToolNames.Check + ".formids",
+                                         ToolNames.NifInspect + ".paths", ToolNames.NifInspect + ".formids", ToolNames.NifSet + ".paths", ToolNames.Check + ".formids",
                                          ToolNames.BsaList + ".under", ToolNames.MergePlugins + ".plugins" })
             Assert.Contains(expected, rows);
     }

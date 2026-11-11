@@ -161,7 +161,7 @@ public sealed class TypedAnswerNifSetTests
     public void NifSetsConsentPromptIsServed()
     {
         using var w = new NifSetInstance(NifSetMeshes.Guard());
-        var (text, refused) = TypedAnswerTests.Answer(() => NifTools.NifSet(w.Svc, mesh_path: NifSetInstance.MeshRel,
+        var (text, refused) = TypedAnswerTests.Answer(() => NifTools.NifSet(w.Svc, paths: new[] { NifSetInstance.MeshRel },
             op: "set_flags", target: "GuardShape", flags: "0x800000E", in_place: true));
         Assert.False(refused, text);
         Assert.Contains("first-time confirmation", text);
@@ -171,7 +171,7 @@ public sealed class TypedAnswerNifSetTests
     public void NifSetsNoWriteRefusalIsRefused()
     {
         using var w = new NifSetInstance(NifSetMeshes.Guard());
-        var (text, refused) = TypedAnswerTests.Answer(() => NifTools.NifSet(w.Svc, mesh_path: NifSetInstance.MeshRel,
+        var (text, refused) = TypedAnswerTests.Answer(() => NifTools.NifSet(w.Svc, paths: new[] { NifSetInstance.MeshRel },
             op: "set_flags", target: "NoSuchShape", flags: "0x800000E", patch: "TaNif"));
         Assert.True(refused, text);
         Assert.Contains("NoSuchShape", text);

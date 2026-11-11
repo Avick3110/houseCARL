@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using HousecarlCore;
 using ModelContextProtocol.Server;
 
@@ -21,40 +22,59 @@ public static class NifTools
 
     [McpServerTool(Name = ToolNames.NifInspect, ReadOnly = true, Title = "Inspect the data values inside one or many Skyrim meshes (.nif)"),
      Description(
-         "Read the data values inside one or many Skyrim meshes (.nif), beneath NifSkope. Each Data-relative path, " +
-         "typed in mesh_paths or derived from an npc= FormID, resolves through Mod Organizer 2's virtual file system " +
-         "to the copy the game uses, or to the copy source_provider= names.\n\n" +
-         "The default summary per mesh: the header version and whether it is a Skyrim SE stream, the block census " +
-         "(every block type and count), any unknown blocks (named, never dropped), and the shape names. sections= " +
-         "adds detail. Data values only: geometry and visual content are not read.\n\n" +
+         "Read the data values inside Skyrim meshes (.nif), beneath NifSkope: one mesh, a list, or every mesh a mod " +
+         "ships, loose or in its archives, in one call. Select as " + ToolNames.AssetStatus + " does: paths= (Data " +
+         "paths, or a .nif on disk by full path, read as that file), under= (folder or glob), provider= (which files) " +
+         "and formids= (an NPC's FaceGen head mesh). Each Data path is read from the copy the game uses through MO2's " +
+         "virtual file system, or the copy source_provider= names: provider=X picks the meshes, provider=X " +
+         "source_provider=X reads that mod's own copies.\n\n" +
+         "The default summary per mesh: the header version and whether it is a Skyrim SE stream, the block census, any " +
+         "unknown blocks (named, never dropped), and the shape names. sections= adds detail. Data values only: " +
+         "geometry and visual content are not read.\n\n" +
          "Use it for 'what shapes / bones / textures / partitions / alpha does this mesh have', 'does it glow / use " +
          "soft lighting / subsurface skin / env-mapping', a facegen mesh's baked shape names and tint path, a " +
-         "skeleton's bone names, or a dark-face mesh's flags, alpha and partitions. It reads inside a file; " +
-         ToolNames.AssetStatus + " says which mod's copy wins, though sections=paths names the winner of each texture, physics XML and BODYTRI file it reads.\n\n" +
-         "Select — mesh_paths= | npc=; one is required, and the two compose into one batch.\n" +
+         "skeleton's bone names, or a dark-face mesh's flags, alpha and partitions. " + ToolNames.AssetStatus +
+         " says which mod's copy wins; sections=paths names the winner of each file the mesh names.\n\n" +
+         "Select — paths= | under= | provider= | formids=; one is required, and they compose.\n" +
          "Source — source_provider= (empty = the VFS winner).\n" +
          "Project — sections= (empty = the summary).\n" +
-         "Transport — max_chars=.\n\n" +
-         "A per-path failure (an absent path, a source_provider= name nothing provides, a mesh the mesh library " +
-         "refuses) is reported by name on that path and the rest still read; an unreadable archive is named once " +
-         "for the batch. Read-only; " + ToolNames.NifSet + " is the write counterpart.")]
+         "Transport — limit=, offset=, counts_only=, format=, max_chars=, to_file=. One block per mesh, then the " +
+         "[accounting] line; an answer past max_chars is written whole to a results file it names.\n\n" +
+         "A per-path failure (absent, a source_provider= name nothing provides, a mesh the library refuses, a " +
+         "malformed FormID) is that path's row and the rest still read; an unreadable archive is named once. " +
+         "Read-only; " + ToolNames.NifSet + " is the write counterpart.")]
     public static string NifInspect(
         LoadOrderService svc,
-        [Description("Data-relative mesh path(s), e.g. " +
+        [Description("The meshes to read, in the order given: Data paths, e.g. " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif' or " +
-                     "'meshes\\armor\\iron\\cuirass_1.nif'. Read and returned in the order given. Forward or back " +
-                     "slashes; a drive-rooted path ('C:\\…') or one with a '..' segment is an error on that path, " +
-                     "never normalized. Optional if npc= is passed." + ListText.Paths)]
-            ListArg? mesh_paths = null,
+                     "'meshes\\armor\\iron\\cuirass_1.nif', forward or back slashes, each read from its winning copy, " +
+                     "loose or in an archive; or the full path to a .nif file on disk ('C:\\work\\out\\head.nif'), read " +
+                     "as that file, with no winner and no providers (one inside the mods tree also names its Data " +
+                     "path). A path with a '..' segment, or a drive-relative one, is an error on that path, never " +
+                     "normalized. Optional when under=, provider= or formids= is given." + ListText.Paths)]
+            ListArg? paths = null,
+        [Description("Optional. Data-relative folder or glob selector(s), as " + ToolNames.AssetStatus + " under=: every " +
+                     ".nif the load order provides beneath it, loose and in archives, e.g. 'meshes/armor/iron' or " +
+                     "'meshes/**/*cloak*.nif'. Matches come after paths= and formids=, sorted, duplicates dropped; a " +
+                     "matched file that is not a .nif is left out and counted in a note. With provider=, only that " +
+                     "provider's files." + ListText.Paths)]
+            ListArg? under = null,
+        [Description("Optional. WHICH meshes: one provider, as " + ToolNames.AssetStatus + " provider= spells it (an " +
+                     "enabled mod folder, 'overwrite', 'Data', or one active archive's filename). Alone, every .nif it " +
+                     "ships; with under=, only those beneath the selectors. A name not in the active load order is " +
+                     "refused. Each mesh is still read from its winning copy, and a note counts the ones another " +
+                     "provider wins: that is source_provider=.")]
+            string? provider = null,
         [Description("Optional. NPC FormID(s) whose FaceGen head mesh to read: " +
                      "'Meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' (Mutagen's spelling) is " +
                      "derived and read like any other path. 'XXXXXX:Plugin.esp', or the runtime form the game or " +
                      "console prints ('FE012800', '0501A51A'). The mesh is the one every FaceGen tool names: a " +
                      "Traits-templated NPC reads its template root's head, and an NPC with no FaceGen pair is an " +
                      "error row per reason (a leveled template's pairless member or broken chain entry beside the " +
-                     "other members' heads). The folder is the plugin that defines that NPC, never " +
-                     "the conflict winner. Derived paths are read after any mesh_paths, in the order given." + ListText.FormIds)]
-            ListArg? npc = null,
+                     "other members' heads); a malformed FormID is one error row. The folder is the plugin that defines that NPC, never " +
+                     "the conflict winner. Only the head mesh is read: the face tint is a texture, counted in a note " +
+                     "(" + ToolNames.AssetStatus + " formids= reads both). Derived paths come after paths=, in the order given." + ListText.FormIds)]
+            ListArg? formids = null,
         [Description("Optional. Detail sections beyond the summary: any of 'shapes', 'partitions', 'alpha', " +
                      "'paths', 'shader', 'strings', 'nodes', 'bones', or 'all'; comma-, space- or JSON-array-separated " +
                      "(e.g. [\"shapes\",\"shader\"]). Per shape unless noted: 'shapes' the shape name, the NiAVObject " +
@@ -76,76 +96,117 @@ public static class NifTools
                      "read it for that block type or the mesh has another game's layout); 'bones' the bone list; " +
                      "'nodes' the node tree per mesh, with the same flag decode; 'strings' the header string table " +
                      "per mesh. There is no 'textures' section: texture-set paths are under 'shapes' and 'paths'. " +
-                     "Applies to every mesh in the batch; unrecognized tokens are reported. Empty = the summary.")]
+                     "Applies to every mesh in the call; unrecognized tokens are reported. Empty = the summary.")]
             string sections = "",
-        [Description("Optional. Read a specific provider's copy instead of the VFS winner: " +
+        [Description("Optional. WHOSE copy of each Data path is read, instead of the VFS winner: " +
                      ProviderNameSentence + ", so a donor mod can be read without enabling it; the response then " +
                      "says the game is not loading that copy. A name that provides no copy of a mesh is that path's " +
-                     "own miss, listing the providers that do; the rest of the batch still reads. Applies to every " +
-                     "mesh. With npc=, a mod folder's own plugins are read after the active order, so a donor's NPC " +
+                     "own miss, listing the providers that do; the rest still read. Applies to every Data path; a " +
+                     "file on disk is read as itself. With formids=, a mod folder's own plugins are read after the active order, so a donor's NPC " +
                      "names its head. Empty = the winner.")]
             string source_provider = "",
-        [Description("Optional. Character ceiling on the whole batch's response, not per mesh: the mesh whose block would cross it is not written, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (~40k).")]
-            int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, call =>
+        [Description("Optional. Max meshes this call reads and renders, from offset=, in selection order. 0 = no limit. " +
+                     "to_file= and counts_only= ignore it and cover the whole selection.")]
+            int limit = 0,
+        [Description("Optional. Where in the selection this call starts reading, for paging. 0 = the beginning.")]
+            int offset = 0,
+        [Description("Optional. Return totals instead of one block per mesh: how many read and how many did not (absent " +
+                     "among them), read loose, from an archive or as a file on disk, Skyrim SE streams or not, and " +
+                     "meshes with unknown blocks, over the whole selection. Every mesh is still read.")]
+            bool counts_only = false,
+        [Description("Optional. 'text' (default) | 'json' (one row per mesh, machine-readable: the summary as fields and " +
+                     "the requested sections as their text, accounting in-band).")]
+            string? format = null,
+        [Description("Optional. Character ceiling on the whole response: the mesh whose block would cross it is not " +
+                     "written, and the read result (the window under limit=) is written whole to a file in the " +
+                     "server's results directory, which the response names. Detail sections cut against what the " +
+                     "response has left. 0 = the server default (~40k).")]
+            int max_chars = 0,
+        [Description("Optional. Write the complete result to this absolute .jsonl path (line 1 = manifest, then one row " +
+                     "per mesh, the format=json rows) and render only the manifest inline. It covers the whole " +
+                     "selection: limit= does not narrow it. Re-enter it via paths=[\"@<path>\"]; its identity column is 'path'.")]
+            string? to_file = null,
+        [Description("Retired: renamed paths=, the one name for a list of file paths on every file tool. A call passing this is refused.")]
+            JsonElement? mesh_paths = null,
+        [Description("Retired: renamed formids=, as " + ToolNames.AssetStatus + " spells it. A call passing this is refused.")]
+            JsonElement? npc = null) => Guard.Tool(ToolNames.NifInspect, call =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
-        // Both lists through the one door; an npc= FormID artifact is epoch-checked before any NPC is read.
-        var meshIn = mesh_paths.Read("mesh_paths", ListKind.Path);
-        var npcIn = npc.Read("npc", ListKind.FormId);
-        if ((meshIn.Error ?? npcIn.Error) is { } listErr) return ToolAnswer.Refusal(listErr);
-        if (npcIn.Demand is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
-            return ToolAnswer.Refusal("error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
-        return Body(meshIn.Tokens, npcIn.Tokens);
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ToolAnswer.Refusal(ferr);
+        // A JSON null is no value, as unset is.
+        if (mesh_paths is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) })
+            return ToolAnswer.Refusal(json, "error: mesh_paths= is now paths= — pass the same list as paths=.");
+        if (npc is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) })
+            return ToolAnswer.Refusal(json, "error: npc= is now formids= — pass the same FormIDs as formids=.");
+        // Every list through the one door; a formids= artifact is epoch-checked before any NPC is read.
+        var pathsIn = paths.Read("paths", ListKind.Path);
+        var underIn = under.Read("under", ListKind.Path);
+        var idsIn = formids.Read("formids", ListKind.FormId);
+        if ((pathsIn.Error ?? underIn.Error ?? idsIn.Error) is { } listErr) return ToolAnswer.Refusal(json, listErr);
+        var window = new RowWindow(offset, limit);
+        if (window.Error is { } badWindow) return ToolAnswer.Refusal(json, badWindow);
 
-        ToolAnswer Body(string[]? mesh_paths, string[]? npc)
+        var toFile = to_file?.Trim();
+        bool wantFile = toFile is { Length: > 0 };
+        if (wantFile)
         {
-        bool anyPath = mesh_paths is not null && mesh_paths.Any(p => !string.IsNullOrWhiteSpace(p));
-        bool anyNpc = npc is not null && npc.Any(p => !string.IsNullOrWhiteSpace(p));
-        if (!anyPath && !anyNpc)
-        {
-            if (mesh_paths is { Length: > 0 })
-                return ToolAnswer.Refusal("error: mesh_paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif').");
-            if (npc is { Length: > 0 })
-                return ToolAnswer.Refusal("error: npc contains only empty/blank entries. Pass NPC FormIDs (e.g. '01A51A:Dawnguard.esm').");
-            return ToolAnswer.Refusal("error: nothing to inspect. Pass mesh_paths (Data-relative mesh paths, e.g. 'meshes\\armor\\iron\\cuirass_1.nif') and/or npc (NPC FormIDs, whose FaceGen head mesh is derived).");
+            if (Artifacts.ValidateToFile(toFile!, svc.ResultsDir) is { } verr) return ToolAnswer.Refusal(json, verr);
+            if (counts_only) return ToolAnswer.Refusal(json, Artifacts.CountsOnlyWithToFile);
+            if (offset > 0)
+                return ToolAnswer.Refusal(json, "error: to_file= captures the COMPLETE result (the artifact is never a " +
+                                         "window), so offset= has nothing to page — drop offset=.");
         }
+        // A census covers the whole selection, so there is no selection window for offset= to move.
+        if (counts_only && offset > 0) return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only=", hasTable: false));
 
-        // npc= is a SELECT value, not a mode: each FormID becomes the head mesh of every pair the face door names (its
-        // own, or each template root's) and joins the batch, or one row per reason it has none.
-        var selected = new List<NifTarget>((mesh_paths?.Length ?? 0) + (npc?.Length ?? 0));
-        if (mesh_paths is not null) selected.AddRange(mesh_paths.Select(p => new NifTarget(p)));
-        if (anyNpc)
+        // Each paths= entry is a file on disk (a full path) or a Data path; a blank one answers as its own row.
+        var entries = new List<(string Path, bool OnDisk)>();
+        foreach (var raw in pathsIn.Tokens ?? Array.Empty<string>())
         {
-            var door = svc.OpenFormIdDoor();
-            var keys = new List<(string Token, Mutagen.Bethesda.Plugins.FormKey Key)>();
-            foreach (var raw in npc!)
-            {
-                if (string.IsNullOrWhiteSpace(raw)) continue;
-                try { keys.Add((raw.Trim(), door.Parse(raw))); }
-                catch (Exception ex)
-                {
-                    return ToolAnswer.Refusal(FormIdDoor.Sentence(ex, "error: ",
-                        $"error: bad npc FormID '{raw.Trim()}' ({ex.Message}). Expected 'XXXXXX:Plugin.esp' or a runtime FormID."));
-                }
-            }
-            // A source_provider= mod folder's plugins are read after the winners, so a donor's own NPC has its face.
-            var (faces, noOrder) = svc.NpcFaces(keys.Select(k => k.Key).ToList(), svc.ProviderFaceSources(source_provider));
-            foreach (var (token, key) in keys)
-            {
-                if (faces?.GetValueOrDefault(key) is not { } face) { selected.Add(new NifTarget(token, NpcFaceAnswer.NoPair(noOrder!))); continue; }
-                foreach (var why in face.Reasons()) selected.Add(new NifTarget(token, NpcFaceAnswer.NoPair(why)));
-                foreach (var root in face.Roots.Where(r => r.Reason is null))
-                    selected.Add(new NifTarget(root.Mesh!, FaceNote: face.NoteFor(root)));
-            }
+            var p = (raw ?? "").Trim().Trim('"');
+            entries.Add((p, p.Length > 0 && Path.IsPathFullyQualified(p)));
+        }
+        var ids = (idsIn.Tokens ?? Array.Empty<string>()).Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
+        var underTokens = underIn.Tokens ?? Array.Empty<string>();
+        bool anyPath = entries.Any(e => e.Path.Length > 0);
+        if (!anyPath && ids.Count == 0 && underTokens.Length == 0 && string.IsNullOrWhiteSpace(provider))
+        {
+            if (entries.Count > 0)
+                return ToolAnswer.Refusal(json, "error: paths contains only empty/blank entries. Pass Data-relative mesh paths (e.g. 'meshes\\armor\\iron\\cuirass_1.nif') or the full path to a .nif on disk.");
+            if (idsIn.Tokens is { Length: > 0 })
+                return ToolAnswer.Refusal(json, "error: formids contains only empty/blank entries. Pass NPC FormIDs (e.g. '01A51A:Dawnguard.esm').");
+            return ToolAnswer.Refusal(json, "error: nothing to inspect. Pass paths= (Data-relative mesh paths, e.g. 'meshes\\armor\\iron\\cuirass_1.nif', or a .nif on disk by full path), under= (a folder or glob), provider= (a mod or archive) or formids= (NPC FormIDs, whose FaceGen head mesh is derived).");
         }
 
         var (want, unknownTokens) = ParseSections(sections);
         // Sections requested but none resolved: fail rather than render the summary as if that were the answer.
-        if (SectionsError(want, unknownTokens) is { } sectionsErr) return ToolAnswer.Refusal(sectionsErr);
+        if (SectionsError(want, unknownTokens) is { } sectionsErr) return ToolAnswer.Refusal(json, sectionsErr);
 
-        var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(source_provider) ? null : source_provider, want.Contains("paths"));
-        return ToolAnswer.Served(NifWire.Render(data, want, unknownTokens, Wire.Cap(max_chars)));
+        // The load order is read for any Data path or selector, and for the paths section's links; files on disk alone need none.
+        bool needView = entries.Any(e => !e.OnDisk) || ids.Count > 0 || underTokens.Length > 0
+                        || !string.IsNullOrWhiteSpace(provider) || want.Contains("paths");
+        if (needView && svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(json, prompt);
+        if (idsIn.Demand is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
+            return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
+
+        // A token that is not a FormID is that token's own error row, whatever the door threw.
+        var seeds = new List<FaceGenSeed>(ids.Count);
+        if (ids.Count > 0)
+        {
+            var door = FormIdDoor.For(svc);
+            foreach (var raw in ids)
+            {
+                try { seeds.Add(new FaceGenSeed(raw, door.Parse(raw), null)); }
+                catch (Exception ex)
+                {
+                    seeds.Add(new FaceGenSeed(raw, null, $"not a FormID: {Guard.Flatten(ex.Message)} Expected 'XXXXXX:Plugin.esp' or a runtime FormID."));
+                }
+            }
         }
+
+        return NifBatch.Run(svc, new NifBatch.Call(entries, underTokens, provider, seeds, source_provider, want, unknownTokens,
+                                                   needView, pathsIn, underIn, idsIn, wantFile ? RowWindow.All : window, counts_only, json,
+                                                   Wire.Cap(max_chars), wantFile ? toFile : null));
     });
 
     /// <summary>Parse <c>sections=</c> into the recognized set plus the unrecognized tokens, which are surfaced rather
@@ -176,7 +237,7 @@ public static class NifTools
          "anything lands. The write counterpart to " + ToolNames.NifInspect + ", which reads the values this edits; " +
          "the facegen head-mesh repairs are its main use. To make a different existing copy win instead of editing " +
          "one, use " + ToolNames.Place + ".\n\n" +
-         "It resolves mesh_path through Mod Organizer 2's VFS to the winning copy, or to the copy source_provider= " +
+         "It resolves the paths= mesh through Mod Organizer 2's VFS to the winning copy, or to the copy source_provider= " +
          "names, applies the op, and checks that only the block and value the op targets changed, that a reload reads the new " +
          "value, and that the block census and SE stream are intact. A failed check writes nothing and says why. A " +
          "passed check proves the value landed, not that the face or armour renders right: geometry, .dds pixels " +
@@ -189,7 +250,7 @@ public static class NifTools
          "source_provider= names) where it sits, with no backup; editing a shadowed copy leaves the game loading " +
          "the winner. Data " +
          "values only: never geometry, vertices or .dds pixels.\n\n" +
-         "Select — mesh_path= (which mesh) x target= (what inside it the op edits).\n" +
+         "Select — paths= (the one mesh) x target= (what inside it the op edits).\n" +
          "Source — source_provider= (empty = the VFS winner).\n" +
          "Act — op= names the write; its operands are new_name=, flags=, scale=, body_part_id= [+ partition_index=], " +
          "alpha_flags= / alpha_threshold=, path= [+ texture_slot=] (set_path with no slot is the header-string " +
@@ -197,11 +258,6 @@ public static class NifTools
          "Lane — patch= | into= on the default lane, or in_place= + acknowledge=.")]
     public static string NifSet(
         LoadOrderService svc,
-        [Description("The Data-relative mesh path to edit, e.g. " +
-                     "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'. Forward or back " +
-                     "slashes. The mesh must be a Skyrim SE stream (user 12 / stream 100); another game's mesh (LE, " +
-                     "FO4, Starfield) is refused.")]
-            string mesh_path,
         // Built from OpList so a shipped op cannot go missing from the tool schema a caller reads.
         [Description("The write op, one of: " + OpList + ". rename_shape / rename_node: retitle a baked shape or " +
                      "node (the facegen head-part EditorID case). set_flags: NiAVObject flags on a shape or node " +
@@ -226,6 +282,11 @@ public static class NifTools
                      "key an extra-data block is looked up by (swapping it would hide the block; pass the block's " +
                      "value instead).")]
             string target,
+        [Description("The one mesh to edit, as a one-entry list of its Data path, e.g. " +
+                     "[\"meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif\"]. Forward or back " +
+                     "slashes. A second entry is refused: one mesh per call. The mesh must be a Skyrim SE stream (user " +
+                     "12 / stream 100); another game's mesh (LE, FO4, Starfield) is refused." + ListText.Paths)]
+            ListArg? paths = null,
         [Description("rename_shape / rename_node: the new name.")] string new_name = "",
         [Description("set_flags: the NiAVObject flags value — hex ('0x800000E') or decimal.")] string flags = "",
         [Description("set_scale: the scale, e.g. '1.0'.")] string scale = "",
@@ -263,20 +324,30 @@ public static class NifTools
         [Description("Optional, default false. Overwrite the chosen loose copy (the winner, or the copy source_provider= names) where it sits instead of writing a new folder, with no backup; editing a shadowed copy leaves the game loading the winner. Needs acknowledge=true on the first in-place edit of a mesh. Omit to write a new override and leave the original untouched.")]
             bool in_place = false,
         [Description("Optional, default false. Confirms the one-time in-place trade-off for this file: needed only on the first in-place edit of a given mesh, and not again once one has landed; a call that is refused records nothing, so it may be needed again. It waives the consent to overwrite the original only, never the mesh verification.")]
-            bool acknowledge = false) => Guard.Tool(ToolNames.NifSet, call =>
+            bool acknowledge = false,
+        [Description("Retired: renamed paths=, the one name for a list of file paths on every file tool. A call passing this is refused.")]
+            JsonElement? mesh_path = null) => Guard.Tool(ToolNames.NifSet, call =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
         // in_place= ignores patch=, so with it the conflict is into= beside in_place=, which the service refuses before any work.
         if (!in_place && LaneSentences.PatchIntoFolderRefusal(patch, into, "edited mesh") is { } patchInto)
             return ToolAnswer.Refusal("error: " + patchInto);
-        if (string.IsNullOrWhiteSpace(mesh_path)) return ToolAnswer.Refusal("error: mesh_path is empty. Pass a Data-relative mesh path.");
+        if (mesh_path is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) })
+            return ToolAnswer.Refusal("error: mesh_path= is now paths= — pass paths=[\"<the mesh path>\"].");
+        var pathsIn = paths.Read("paths", ListKind.Path);
+        if (pathsIn.Error is { } listErr) return ToolAnswer.Refusal(listErr);
+        var meshes = (pathsIn.Tokens ?? Array.Empty<string>()).Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()).ToList();
+        if (meshes.Count == 0) return ToolAnswer.Refusal("error: paths is empty. Pass the Data-relative path of the one mesh to edit, e.g. paths=[\"meshes\\armor\\iron\\cuirass_1.nif\"].");
+        if (meshes.Count > 1)
+            return ToolAnswer.Refusal($"error: paths names {meshes.Count} meshes, and {ToolNames.NifSet} edits one per call — pass one, e.g. paths=[\"{meshes[0]}\"], and call again for each of the others.");
+        var meshPath = meshes[0];
         if (string.IsNullOrWhiteSpace(op)) return ToolAnswer.Refusal("error: op is empty. Pass one of: " + OpList + ".");
         if (string.IsNullOrWhiteSpace(target)) return ToolAnswer.Refusal("error: target is empty. Pass the shape/node NAME the op edits (from " + ToolNames.NifInspect + ").");
 
         var (built, buildErr) = BuildOp(op.Trim(), target.Trim(), new_name, flags, scale, body_part_id, partition_index, alpha_flags, alpha_threshold, texture_slot, path, shader_value, value);
         if (buildErr is not null) return ToolAnswer.Refusal("error: " + buildErr);
 
-        var data = svc.NifSet(mesh_path, new[] { built! },
+        var data = svc.NifSet(meshPath, new[] { built! },
             string.IsNullOrWhiteSpace(source_provider) ? null : source_provider,
             string.IsNullOrWhiteSpace(patch) ? null : patch,
             string.IsNullOrWhiteSpace(into) ? null : into,
@@ -369,11 +440,17 @@ public static class NifTools
 static class NifWire
 {
     public static string Render(NifInspectBatchData d, HashSet<string> want, IReadOnlyList<string> unknownSections, int cap)
+        => Render(d, want, unknownSections, cap, out _);
+
+    /// <summary>The batch render, with <paramref name="shown"/> the meshes that reached the page, <paramref name="reserve"/>
+    /// the room the caller writes after it, and <paramref name="headerTail"/> appended inside the header's parentheses.</summary>
+    public static string Render(NifInspectBatchData d, HashSet<string> want, IReadOnlyList<string> unknownSections, int cap,
+                                out int shown, int reserve = 0, string headerTail = "")
     {
         var header = new StringBuilder("nif inspect — profile '")
             .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
             .Append("'  (").Append(d.Results.Count).Append(" mesh").Append(d.Results.Count == 1 ? "" : "es")
-            .Append(')').ToString();
+            .Append(headerTail).Append(')').ToString();
 
         bool readIncomplete = d.BsaFailures.Count > 0, rootIncomplete = d.RootFailures.Count > 0,
              discoveryIncomplete = d.Warnings.Count > 0;
@@ -392,8 +469,21 @@ static class NifWire
             },
             // The mesh's sections cut against the ROOM LEFT, not against max_chars, or the mesh lands past the ceiling.
             (sb, r, room) => AppendMesh(sb, r, want, room, readIncomplete, rootIncomplete, discoveryIncomplete),
-            out _), cap);
+            out shown, reserve), cap);
     }
+
+    /// <summary>The requested detail sections of one read mesh as the text answer prints them, uncut; null when none
+    /// was requested or the mesh did not read.</summary>
+    internal static string? SectionsText(NifInspectData d, HashSet<string> want)
+    {
+        if (want.Count == 0 || d.Inspect is null) return null;
+        var sb = new StringBuilder();
+        AppendSections(sb, d, want, new RenderCap(int.MaxValue / 2, int.MaxValue / 2));
+        return sb.ToString();
+    }
+
+    /// <summary>Where a mesh's bytes came from, as its "read from" line names it.</summary>
+    static string ReadFrom(NifInspectData d) => d.OnDisk ? "the file on disk" : d.Inspected!.Text;
 
     /// <summary>One mesh's block: the path line, then its named error with the provider chain, or the resolution,
     /// summary and requested sections. An ABSENT is hedged at the point of use on each batch-level scan caveat — the
@@ -409,6 +499,7 @@ static class NifWire
         if (d.Inspect is null)
         {
             sb.Append("  ").Append(d.Error ?? "unknown error").Append('\n');
+            if (d.DiskNote is { } diskNote) sb.Append("  note: ").Append(diskNote).Append('\n');
             if (d.Absent)
             {
                 if (readIncomplete)
@@ -426,9 +517,13 @@ static class NifWire
         }
 
         var nif = d.Inspect;
-        sb.Append("  read from: ").Append(d.Inspected!.Text).Append('\n');
-        if (d.Inspected.Provenance is { } prov) sb.Append("  [!] ").Append(prov).Append(".\n");
-        AppendProviders(sb, d.Providers);
+        sb.Append("  read from: ").Append(ReadFrom(d)).Append('\n');
+        if (d.OnDisk) { if (d.DiskNote is { } disk) sb.Append("  note: ").Append(disk).Append('\n'); }
+        else
+        {
+            if (d.Inspected!.Provenance is { } prov) sb.Append("  [!] ").Append(prov).Append(".\n");
+            AppendProviders(sb, d.Providers);
+        }
         if (d.Ambiguous)
             sb.Append("  note: more than one source provides this mesh — the winner above was read (loose beats BSA). " +
                       "Pass source_provider= to inspect another provider's copy.\n");
@@ -452,8 +547,13 @@ static class NifWire
 
         AppendClampedList(sb, "  shapes (" + nif.Shapes.Count + "): ", nif.Shapes.Select(s => "'" + s.Name + "'"), cap);
         sb.Append("  nodes: ").Append(nif.Nodes.Count).Append("  (pass sections=nodes for the tree)\n");
+        AppendSections(sb, d, want, cap);
+    }
 
-        // ---- detail sections on demand ----
+    /// <summary>The requested detail sections of a read mesh, each cut against <paramref name="cap"/>'s room.</summary>
+    static void AppendSections(StringBuilder sb, NifInspectData d, HashSet<string> want, RenderCap cap)
+    {
+        var nif = d.Inspect!;
         // A section the budget cannot start is COUNTED, so the room for that line and for each section's own cut marker is charged here.
         var room = cap.Less(SectionsMissed(want.Count, cap.Cap).Length + BatchRender.CutReserve("", cap.Cap));
         int missed = 0;
@@ -534,7 +634,7 @@ static class NifWire
         // Charged with the heading, for the same reason the shapes section charges it there.
         if (!cap.TryAppend(sb, "\n--- paths (each site: texture-set slots, effect-shader textures, the root node's own HDT-SMP and BODYTRI strings; a child node's extra data is under 'strings') ---\n"
                              + (SlotNamingCaveat(d.Inspect!) ?? "")
-                             + "  links read from " + d.Inspected!.Text + "; each Data path's standing is the load order's\n")) return false;
+                             + "  links read from " + ReadFrom(d) + "; each Data path's standing is the load order's\n")) return false;
         if (d.LinksError is { } err) { AssetWire.AppendLinksNotRead(sb, err); return true; }
         var links = d.Links ?? Array.Empty<ResolvedNifLink>();
         for (int i = 0; i < links.Count; i++)
