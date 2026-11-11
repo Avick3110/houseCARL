@@ -206,6 +206,19 @@ public sealed class NifSelectionTests : IDisposable
         Assert.EndsWith(address, Json(File.ReadAllLines(file)[1]).GetProperty("disk_note").GetString());
     }
 
+    /// <summary>A file-on-disk row that carries its own error is on disk like every other disk row, and a Data-path row
+    /// with one is not; json's on_disk reads this.</summary>
+    [Fact]
+    public void ARowFailingAtItsOwnErrorKeepsItsOnDisk()
+    {
+        var disk = AssetLayers.InspectMesh(null, null, new MeshRow(Path.Combine(_p.Root, "hcns-own.nif"), true, Error: "bad row"), null, false);
+        var data = AssetLayers.InspectMesh(null, null, new MeshRow(Arch1, false, Error: "bad row"), null, false);
+
+        Assert.Equal("bad row", disk.Error);
+        Assert.True(disk.OnDisk);
+        Assert.False(data.OnDisk);
+    }
+
     /// <summary>Pins unchanged behaviour: a file on disk that fails is on_disk from its own data, beside a Data path that is not.</summary>
     [Fact]
     public void AFailedFileOnDiskRowIsOnDiskInJson()
