@@ -191,6 +191,20 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Null(_svc.SelectMeshes(new[] { (good, true) }, Array.Empty<string>(), null, Array.Empty<FaceGenSeed>(), null, needView: false).Captured);
     }
 
+    /// <summary>A mods-tree path read alone on a configured instance takes the mods root from the roots, not from an asset view.</summary>
+    [Fact]
+    public void AModsTreePathAloneTakesNoAssetView()
+    {
+        var good = Path.Combine(_p.Mod("Arch"), LooseRel);
+        NifTools.NifInspect(_svc, paths: new[] { Arch1 });   // builds the asset view, so a later capture counts a freshness check
+        var files = _svc.Counters.FileFreshnessChecks;
+
+        var r = NifTools.NifInspect(_svc, paths: new[] { good });
+
+        Assert.Contains("note: this file is in the mod folder 'Arch' and was read as the file on disk;", r);
+        Assert.Equal(files, _svc.Counters.FileFreshnessChecks);
+    }
+
     /// <summary>The json row and the to_file= row of a mods-tree file carry the address the text answer gives.</summary>
     [Fact]
     public void JsonAndToFileRowsOfAModsTreeFileCarryItsAddress()
