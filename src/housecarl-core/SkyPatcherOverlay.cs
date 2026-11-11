@@ -1582,7 +1582,7 @@ public static class SkyPatcherOverlay
     static string FormHint(SkyPatcherValue v, OpMap map)
         => v.Address is { IsMalformed: true } ? "not a FormID SkyPatcher can read after '|'"
             : v.Address is not null ? "plugin name unparseable"
-            : $"EditorID '{v.Raw}' not found{(map.LookupScope is null ? "" : $" among {map.LookupScope} records")}";
+            : $"EditorID '{v.Raw}' not found{(map.FormType is { } t ? $" among {t} records" : map.EditorIdScope is { } g ? $" among the record types of the {g} group" : "")}";
 
     /// <summary>Sub-args of one comma-item: an '='-packed op splits on the FIRST '=' and both sides contribute; otherwise the tokenizer's ~-split sub-args are used as-is.</summary>
     static IReadOnlyList<string> UnpackArgs(SkyPatcherValue v, bool eqPacked)

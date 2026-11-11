@@ -23,10 +23,10 @@ public static class SkyPatcherTools
          "flagged), cross-INI duplicates (two files set the same field and target to the same value), and no-op writes " +
          "(the replay shows the set writes the value the record already has). An entry whose applicability also " +
          "depends on other filters is flagged conditional, not guessed. filter= narrows to the type folders holding a " +
-         "match and lists each matching INI's lines with their notes; only there does a direct or Excluded target that names " +
-         "nothing say why (an unreadable FormID, a plugin not in the order or spelt with a space, a FormID no plugin defines, " +
-         "an EditorID found nowhere or hidden without po3 Tweaks), and an EditorID naming several records say which one the " +
-         "replay takes. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
+         "match and lists each matching INI's lines with their notes, where a direct or Excluded target that names " +
+         "nothing says why (an unreadable FormID, a plugin not in the order or spelt with a space, a FormID no plugin defines, " +
+         "an EditorID found nowhere or of a type the game keeps no names of), and an EditorID naming several records says which " +
+         "the replay takes; a post read warns on such a hidden direct EditorID too. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
          "source={\"overlay\": \"skypatcher\", \"state\": \"post\"} over formids= or a scan. Read-only.")]
     public static string SkyPatcherLayer(
         LoadOrderService svc,

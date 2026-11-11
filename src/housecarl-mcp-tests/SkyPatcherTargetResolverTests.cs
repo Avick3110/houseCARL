@@ -6,8 +6,8 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>One target resolver (#1321): a direct-list EditorID names the one record the game's EditorID map holds, the
-/// first loaded under the name; a target that names nothing says why on its line; EditorIDs are walked once per call.</summary>
+/// <summary>One target resolver (#1321): a direct-list EditorID names the first record loaded under the name within its
+/// scope, the one the replay takes; a target that names nothing says why on its line; EditorIDs are walked once per call.</summary>
 [Trait("tier", "integration")]
 public sealed class SkyPatcherTargetResolverTests
 {
@@ -30,7 +30,7 @@ public sealed class SkyPatcherTargetResolverTests
     }
 
     [Fact]
-    public void ADuplicatedEditorIdSaysOnItsLineWhichRecordTheGameUses()
+    public void ADuplicatedEditorIdSaysOnItsLineWhichRecordTheReplayTakes()
     {
         using var w = DuplicateWorld("filterByArmors=HcPlainCuirass:value=42\r\n");
         Assert.Contains("target 'HcPlainCuirass' (in a filterByArmors) names 2 Armor records; the replay takes the first loaded, 000811:HcSpRel.esp from HcSpRel.esp.",
@@ -196,6 +196,19 @@ public sealed class SkyPatcherTargetResolverTests
             Post(w, "000840:HcSpRel.esp", "Items"));
     }
 
+    // formsToReplace has no lookup scope, so its EditorID misses even after the call's armor lookup has walked armor names.
+    [Fact]
+    public void AnUnscopedOpEditorIdMissesAfterAScopedWalk()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByArmors=HcPlainCuirass:value=3\r\n"),
+            ("../formList/HcList.ini", "filterByFormLists=HcSpRel.esp|840:formsToReplace=HcPlainCuirass=HcBothBoots:formsToAdd=HcHeelBoots\r\n") },
+            records: AddList);
+        var read = RecordsTools.Records(w.Svc, formids: new[] { w.Plain, "000840:HcSpRel.esp" }, source: SkyPatcherRelevanceWorld.Post(),
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Value", "Items" } });
+        Assert.Contains("Value = 3", read);
+        Assert.Contains("HcList.ini:1: 'formsToReplace=HcPlainCuirass=HcBothBoots' — form(s) not resolvable; skipped.", read);
+    }
+
     // A form-list item EditorID is looked up among every type: a call that looks none up walks only its own scopes.
     [Fact]
     public void ACallThatLooksUpNoFormListItemWalksOnlyItsScopes()
@@ -264,7 +277,7 @@ public sealed class SkyPatcherTargetResolverTests
             subfolder: "formList", tweaks: false, records: AddList);
         var read = Post(w, "000840:HcSpRel.esp", "Items");
         Assert.Contains("Items = [list: 2 item(s)]", read);
-        Assert.Contains("formList\\HcTargets.ini:2: 'formsToAdd=HcHeelBoots' — EditorID 'HcHeelBoots' finds nothing: powerofthree's Tweaks (SKSE\\Plugins\\po3_Tweaks.dll) is not in this order, so of SkyrimMajorRecord records the game keeps EditorIDs only of ", read);
+        Assert.Contains("formList\\HcTargets.ini:2: 'formsToAdd=HcHeelBoots' — EditorID 'HcHeelBoots' finds nothing: powerofthree's Tweaks (SKSE\\Plugins\\po3_Tweaks.dll) is not in this order, so of the record types of the SkyrimMajorRecord group the game keeps EditorIDs only of Cell, GlobalFloat, GlobalInt, GlobalShort, HeadPart, IdleAnimation, Keyword, MusicType, Quest, Race, VoiceType, Worldspace records; not applied.", read);
         Assert.DoesNotContain("HcHeelKw' finds nothing", read);
     }
 }

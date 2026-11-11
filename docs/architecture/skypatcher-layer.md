@@ -104,9 +104,13 @@ Its first lookup walks once over every scope the call's lines can look an Editor
 (`SkyPatcherOverlay.EditorIdScopes`), so later lookups and the call's other replay contexts walk
 nothing; a scope the first walk missed is walked once more, its types only, and a record it finds
 that loaded first still comes first. The one scope of every record type (form-list items) is left
-out of the first walk and walked at its own first lookup, so a call that looks up no form-list item
-never walks the whole order. `CostCounters.EditorIdSweeps` counts the walks, `EditorIdTypesWalked`
-the types they covered.
+out of the first walk unless the first lookup is one, and is otherwise walked at its own first
+lookup, so a call that looks up no form-list item never walks the whole order. A post read of a form
+list with an EditorID item does look one up, as does the layer listing under `filter=` naming a
+form-list INI (its line notes); the listing otherwise does not, since its no-op scan compares only
+set-class ops and leaves form-list items unresolved. Without po3 Tweaks a walk covers
+only the types the game keeps names of. `CostCounters.EditorIdSweeps` counts the walks,
+`EditorIdTypesWalked` the types they covered.
 An op with no form type looks its EditorIDs up among the field map's `editorIdScope` (`Item` for
 leveled item entries and recipe ingredients, `NpcSpawn` for leveled NPC entries, `OutfitTarget` for
 outfit items, every record type for form-list items).
@@ -255,7 +259,8 @@ names po3 Tweaks. Every op miss words it the same way: an EditorID value or entr
 is not applied and its warning names po3 Tweaks, and an op with a donor type (npc `skin`) names the
 donor type too. An op with no form type looks its EditorIDs up among its `editorIdScope`, so its
 miss names Tweaks the same way; a group scope holding a kept type (form-list items) still finds
-names of its kept types, the table gating each type, and its miss names the kept types. One with neither (`formsToReplace`) never resolves an EditorID,
+names of its kept types, only those types walked, and its miss names the kept types. One with neither
+(`addOnceToLLs`, `removeFromLLs`, `objectMultCount`, `formsToReplace`, `formsToRemove`) never resolves an EditorID,
 Tweaks or not (#1334), so its miss does not name Tweaks. The ten kept types answer as before. A `po3_Tweaks.ini`
 that cannot be read is replayed as the DLL's default (EditorIDs load), and the read and the layer
 say the state is unknown.
@@ -272,7 +277,8 @@ say the state is unknown.
 - The game's map is one name space across every type, so a record of another type that loaded a
   name first can hide a typed lookup in game. houseCARL does not model that hiding: a scoped lookup
   takes the first loaded record of its scope, whatever other types share the name, so one line's
-  answer never depends on which other lines the layer holds. For the ten types the engine keeps
+  answer does not depend on which other lines the layer holds, except for the same-plugin tie below.
+  For the ten types the engine keeps
   names of itself, the first-loaded rule is po3 Tweaks', not read from the game executable.
 - `Plugin|+hex` and `Plugin|-hex` are read as malformed; SkyPatcher's `stoul` takes the sign.
   Main read them the same way.
@@ -283,11 +289,15 @@ say the state is unknown.
   an EditorID lookup missed a plugin; the layer's no-op note does.
 - An EditorID that starts with `_` or a digit costs one more walk in the call.
 - In the shared leveledList folder a line's lint runs once per field map, so under `filter=` a
-  direct target named by an LVLI EditorID is also reported as finding no LeveledNpc record, though
-  the line applies. FormID targets are unaffected.
+  direct target named by an LVLI EditorID is also reported as finding no LeveledNpc record, and one
+  named by an LVLN EditorID as finding no LeveledItem record, though the line applies. FormID targets
+  are unaffected.
 - Two records of one scope that share a name in one plugin tie by walk order (types in scope
   order, then later walks), not by their order in the file, so the duplicate note can name the
-  other one.
+  other one, and which one wins can change with the other lines the layer holds.
+- A post read of a form list with an EditorID item walks every record type once in its call (about
+  24 s on a large order such as ARR), as does the layer listing under `filter=` naming a form-list
+  INI with one; the listing otherwise does not.
 - An unknown key still skips its line loud; the game drops the key silently and the line can widen
   to every record of its type. houseCARL keeps refusing to guess.
 - `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the
