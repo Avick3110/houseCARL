@@ -59,7 +59,7 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Contains("'FemaleHead'", Block(r, LooseRel));
         // provider= picks which; the winner is read, and the note names the knob that reads Arch's own copy.
         Assert.Contains("read from: \"Fix\" (loose)", Block(r, Shared));
-        Assert.Contains("1 mesh(es) provider 'Arch' ships are won by another provider, and the winning copy was read; source_provider=\"Arch\" reads its own copies.", r);
+        Assert.Contains("1 mesh(es) provider 'Arch' ships are won by another provider, and the winning copy was the one chosen to read; source_provider=\"Arch\" reads its own copies.", r);
         // Dummy.esp, Dummy.bsa and the texture are files Arch provides, and not meshes.
         Assert.Contains("3 file(s) the selectors matched are not .nif meshes and were left out", r);
         Assert.Contains("[accounting] total=3 rendered=3 skipped=0 capped=0 truncated=0", r);

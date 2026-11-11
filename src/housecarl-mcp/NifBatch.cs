@@ -78,7 +78,7 @@ internal static class NifBatch
     {
         if (wonElsewhere > 0)
             notes.Add($"{wonElsewhere} mesh(es) provider '{ctx.Provider}' ships are won by another provider, and the winning " +
-                      $"copy was read; source_provider=\"{ctx.Provider}\" reads its own copies.");
+                      $"copy was the one chosen to read; source_provider=\"{ctx.Provider}\" reads its own copies.");
     }
 
     static string HeaderTail(Ctx ctx, int shown, int total)
