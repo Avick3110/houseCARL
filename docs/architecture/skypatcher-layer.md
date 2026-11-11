@@ -75,8 +75,9 @@ un-addressed, because an EditorID (`filterByWeapons=IronSword`) and an enum scal
 whether the key is form-valued, so EditorID resolution belongs to the overlay. The catalog
 classifies keys; it does not resolve values.
 
-The FormID side is read as SkyPatcher's base-16 `stoul` reads it: leading whitespace, an optional
-`0x`, then hex up to the first non-hex character (`Skyrim.esm|0x013261` is `013261`;
+The FormID side is read like SkyPatcher's base-16 `stoul`: leading whitespace, an optional
+`0x`, then hex up to the first non-hex character, but no `+` or `-` sign, which `stoul` takes
+(see Known limitations) (`Skyrim.esm|0x013261` is `013261`;
 `Skyrim.esm|1BE1B=5` reads `1BE1B`). No hex digit, or a value past 32 bits, is a malformed address:
 it names nothing, and is still never read as an EditorID. The plugin name is taken untrimmed, as
 SkyPatcher's mod lookup takes it, so `Skyrim.esm |123` names no loaded plugin. Each comma item and
@@ -271,6 +272,8 @@ say the state is unknown.
   takes the first loaded record of its scope, whatever other types share the name, so one line's
   answer never depends on which other lines the layer holds. For the ten types the engine keeps
   names of itself, the first-loaded rule is po3 Tweaks', not read from the game executable.
+- `Plugin|+hex` and `Plugin|-hex` are read as malformed; SkyPatcher's `stoul` takes the sign.
+  Main read them the same way.
 - An unknown key still skips its line loud; the game drops the key silently and the line can widen
   to every record of its type. houseCARL keeps refusing to guess.
 - `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the

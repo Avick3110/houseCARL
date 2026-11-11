@@ -144,7 +144,7 @@ public static class SkyPatcherParse
         return new FormAddress(token[..bar], ParseFormId(token[(bar + 1)..]), EditorId: null);
     }
 
-    /// <summary>The FormID side read as SkyPatcher's base-16 <c>stoul</c> reads it: leading whitespace, an optional <c>0x</c>, then hex up to the first non-hex character; null when no digit is read or the value passes 32 bits.</summary>
+    /// <summary>The FormID side read like SkyPatcher's base-16 <c>stoul</c>: leading whitespace, an optional <c>0x</c>, then hex up to the first non-hex character, but no sign; null when no digit is read or the value passes 32 bits.</summary>
     static uint? ParseFormId(string side)
     {
         int i = 0;
