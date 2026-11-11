@@ -106,7 +106,8 @@ public static class SkyPatcherDraft
     {
         plan = null;
         var path = (iniPath ?? "").Trim();
-        var token = (format ?? RuntimeFormats.SkyPatcher).NameToken;
+        var f = format ?? RuntimeFormats.SkyPatcher;
+        var token = f.NameToken;
         if (path.Length == 0)
             return $"the draft INI path is empty — give the absolute path to the {token} file the draft would be placed as.";
         if (PathArguments.NotAbsolute(path, "the draft INI path", $"the {token} file the draft would be placed as",
@@ -114,7 +115,7 @@ public static class SkyPatcherDraft
             return notAbsolute;
         try { path = Path.GetFullPath(path); }
         catch (Exception ex) { return $"the draft INI path '{path}' is not a usable path: {ex.Message}"; }
-        if (!SkyPatcherDiscovery.HasIniName(Path.GetFileName(path), format))
+        if (!SkyPatcherDiscovery.HasIniName(Path.GetFileName(path), f))
             return $"the draft '{path}' has no '{token}' in its name — SkyPatcher reads only files with '{token}' in the name from its type folders.";
         if (!File.Exists(path))
             return $"there is no file at '{path}' — the draft is read from disk, so it has to exist before it can be checked.";
