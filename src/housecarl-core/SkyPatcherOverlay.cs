@@ -218,7 +218,7 @@ public static class SkyPatcherOverlay
     sealed record FormTokenKind(string? FormType, bool IsEquality, string Noun)
     {
         public string UnresolvedText(SkyPatcherValue v, SkyPatcherSegment seg) => IsEquality
-            ? $"form '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order{(FormType is null ? "" : $" among {FormType} winners")} — treated as matching no record."
+            ? $"form '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order{(FormType is null ? "" : $" among {FormType} records")} — treated as matching no record."
             : $"{Noun} '{v.Raw}' (in a {seg.Key}) resolves to nothing in the active order — treated as attached to no record.";
     }
 
@@ -1582,7 +1582,7 @@ public static class SkyPatcherOverlay
     static string FormHint(SkyPatcherValue v, OpMap map)
         => v.Address is { IsMalformed: true } ? "not a FormID SkyPatcher can read after '|'"
             : v.Address is not null ? "plugin name unparseable"
-            : $"EditorID '{v.Raw}' not found{(map.LookupScope is null ? "" : $" among {map.LookupScope} winners")}";
+            : $"EditorID '{v.Raw}' not found{(map.LookupScope is null ? "" : $" among {map.LookupScope} records")}";
 
     /// <summary>Sub-args of one comma-item: an '='-packed op splits on the FIRST '=' and both sides contribute; otherwise the tokenizer's ~-split sub-args are used as-is.</summary>
     static IReadOnlyList<string> UnpackArgs(SkyPatcherValue v, bool eqPacked)
