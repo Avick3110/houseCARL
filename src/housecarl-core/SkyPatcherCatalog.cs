@@ -16,8 +16,6 @@ public sealed class SkyPatcherCatalog
     /// <summary>The SkyPatcher version the catalog is transcribed from.</summary>
     public string Version { get; }
 
-    /// <summary>The subfolders in the order the DLL runs their patchers.</summary>
-    public IReadOnlyList<string> PatcherOrder { get; }
 
     readonly Dictionary<string, SkyPatcherRecordCatalog> _bySubfolder;   // subfolder (case-insensitive) → catalog
     readonly Dictionary<string, RecordLookup> _lookup;                    // subfolder (case-insensitive) → name maps
@@ -26,10 +24,9 @@ public sealed class SkyPatcherCatalog
         Dictionary<string, SkyPatcherFilterDef> Filters,   // base filter name (case-insensitive) → def
         Dictionary<string, SkyPatcherOpDef> Operations);   // op name (case-insensitive) → def
 
-    SkyPatcherCatalog(string version, IReadOnlyList<string> patcherOrder, IReadOnlyList<SkyPatcherRecordCatalog> records)
+    SkyPatcherCatalog(string version, IReadOnlyList<SkyPatcherRecordCatalog> records)
     {
         Version = version;
-        PatcherOrder = patcherOrder;
         Records = records;
         _bySubfolder = new(StringComparer.OrdinalIgnoreCase);
         _lookup = new(StringComparer.OrdinalIgnoreCase);
@@ -85,12 +82,12 @@ public sealed class SkyPatcherCatalog
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         if (root.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("SkyPatcher catalog: the root is not an object with 'version', 'patcherOrder' and 'records'.");
+            throw new InvalidOperationException("SkyPatcher catalog: the root is not an object with 'version' and 'records'.");
         var records = new List<SkyPatcherRecordCatalog>();
         if (root.TryGetProperty("records", out var rs) && RequireArray(rs, "records", "root"))
             foreach (var el in rs.EnumerateArray())
                 records.Add(ParseRecord(el));
-        return new SkyPatcherCatalog(Str(root, "version"), StrList(root, "patcherOrder", "root"), records);
+        return new SkyPatcherCatalog(Str(root, "version"), records);
     }
 
     /// <summary>A string array property; absent reads as empty, a wrong kind throws loudly.</summary>
@@ -146,7 +143,6 @@ public sealed class SkyPatcherCatalog
             PlayerFoundBy = hasPlayer ? StrList(player, "foundBy", recordType) : Array.Empty<string>(),
             PlayerNeverRemovedBy = hasPlayer ? StrList(player, "neverRemovedBy", recordType) : Array.Empty<string>(),
             KeywordsAlsoFrom = sources,
-            EnabledWithoutSwitch = el.TryGetProperty("enabledWithoutSwitch", out var ew) && ew.ValueKind == JsonValueKind.True,
         };
     }
 
@@ -260,9 +256,6 @@ public sealed record SkyPatcherRecordCatalog(
 
     /// <summary>Other records whose keywords this patcher's keyword filters also read.</summary>
     public IReadOnlyList<SkyPatcherKeywordSource> KeywordsAlsoFrom { get; init; } = Array.Empty<SkyPatcherKeywordSource>();
-
-    /// <summary>The patcher runs when SkyPatcher.ini has no switch for it (Light).</summary>
-    public bool EnabledWithoutSwitch { get; init; }
 }
 
 /// <summary>One segment key's classification: a filter with its connective-stripped <see cref="BaseKey"/> (the line's own spelling), an <see cref="Operation"/>, or Unknown.</summary>

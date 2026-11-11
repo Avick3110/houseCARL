@@ -11,6 +11,7 @@ Sections: 1. The folder tree · 2. Subfolder casing · 3. The two filename behav
 
 ## 1. The folder tree
 
+<!-- generated:skypatcher.tree from the runtime-format source; edit the source and regenerate, not this text -->
 ```
 Data/
 └── SKSE/
@@ -23,6 +24,7 @@ Data/
             ├── armor/
             └── … (the subfolder column of the router table in SKILL.md)
 ```
+<!-- end generated:skypatcher.tree -->
 
 - An INI goes in the **subfolder for its record type**. A race patch must live under `race/`,
   a weapon patch under `weapon/`, etc. INIs in the wrong subfolder are read by the wrong patcher
@@ -41,6 +43,7 @@ file systems are case-insensitive, but match the shipped casing.
 
 ## 3. The two INI filename behaviours
 
+<!-- generated:skypatcher.names from the runtime-format source; edit the source and regenerate, not this text -->
 SkyPatcher reads every file that has `.ini` anywhere in its name, so backups like
 `bandits.ini.bak` or `bandits.ini.off` are read too. Write the ending `.ini` in lower case: a file
 ending in `.INI` is not read.
@@ -53,6 +56,7 @@ ending in `.INI` is not read.
 
 Upper and lower case of the plugin name do not matter, also not for the ending `.esp`, `.esm` or
 `.esl` (an upper-case ending works since 8.0.1). The same rule counts for the `raceHook` folder.
+<!-- end generated:skypatcher.names -->
 
 The plugin-gated form is how you ship conditional patches: name the file after the plugin
 whose records you patch, and it self-disables when that plugin is absent. This is distinct
@@ -67,6 +71,7 @@ other (same path). Always nest plugin-named INIs in a mod-specific subfolder:
 
 ## 5. Conflict resolution
 
+<!-- generated:skypatcher.conflict from the runtime-format source; edit the source and regenerate, not this text -->
 Each patcher reads its own type folder. First it reads the files of the type folder itself, then
 the files of its subfolders, then the subfolders inside those, level by level. Files in one folder
 are read in the order Windows lists them, which is A to Z on normal drives. When two lines set the
@@ -74,16 +79,19 @@ are read in the order Windows lists them, which is A to Z on normal drives. When
 folder; any file of `armor/` beats every file of `armor/MyMod/`).
 Add/remove operations (e.g. `keywordsToAdd`, `formsToAdd`) **accumulate** rather than
 overwrite, so multiple INIs can add to the same record without conflict.
+<!-- end generated:skypatcher.conflict -->
 
 ## 6. Global settings — `SkyPatcher.ini`
 
 `Data/SKSE/Plugins/SkyPatcher.ini` holds three sections:
 
+<!-- generated:skypatcher.switches from the runtime-format source; edit the source and regenerate, not this text -->
 - **`[Patcher]`** — one `iEnable<Type>Patching=1|0` per record type. Without the key a patcher is
   **off**; only `iEnableLightPatching` is on without the key. Keep the shipped file installed:
   without it almost every patcher stays off. Turning a type off skips its whole subfolder.
   `iEnableObjectModificationPatching` has no effect in Skyrim; Race Hook needs
   `iEnableRaceHookPatching=1`.
+<!-- end generated:skypatcher.switches -->
 - **`[Log]`** — `iEnablelog=0|1`.
 - **`[Features]`** — global behaviors. The load-bearing ones:
   - `iAllowLeveledListsAddedToContainers` — with 1 the Container patcher can add leveled item

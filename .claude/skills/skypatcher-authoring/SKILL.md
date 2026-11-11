@@ -93,12 +93,14 @@ name, nested under a mod-specific folder, in the `weapon` subfolder the table gi
 
 ## Place the INI
 
+<!-- generated:skypatcher.place from the runtime-format source; edit the source and regenerate, not this text -->
 The INI goes at `Data/SKSE/Plugins/SkyPatcher/<subfolder>/<name>.ini`, with `<subfolder>` taken from
 the table. A plain filename always loads; a filename that matches a plugin (`Plugin.esp.ini`) loads
 only when that plugin is active, so it self-gates — the right shape for a patch against one mod, the
 wrong shape when the targets span many plugins. Nest a plugin-named INI in a mod-specific subfolder
 so another mod shipping the same filename cannot overwrite it. Any name with `.ini` in it is read
 (`x.ini.bak` too); a name ending `.INI` is not. Comments start with `;`.
+<!-- end generated:skypatcher.place -->
 
 Read `references/placement-and-conflicts.md` before naming the file — the exact subfolder casing,
 the per-type toggles (a missing toggle is **off**, Light excepted), the global `SkyPatcher.ini`

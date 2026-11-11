@@ -64,7 +64,7 @@ public static class SkyPatcherDraft
             var cat = catalog.ForSubfolder(Subfolder);
             bool folderEnabled = at >= 0
                 ? live.Folders[at].PatchingEnabled
-                : SkyPatcherDiscovery.PatcherRuns(live.PatcherSwitches, cat, Subfolder);
+                : SkyPatcherDiscovery.PatcherRuns(live.PatcherSwitches, Subfolder);
             if (!folderEnabled)
                 warnings?.Add($"{IniPath}: SkyPatcher.ini {SkyPatcherDiscovery.SwitchOffReason(live.PatcherSwitches, Subfolder)}"
                               + " — the DLL skips the whole folder, so the draft would apply nothing once placed and this post state is the plain winner.");
@@ -75,7 +75,7 @@ public static class SkyPatcherDraft
                 folders.Add(new SkyPatcherDiscovery.FolderScan(Subfolder, cat, folderEnabled,
                                                                new List<SkyPatcherDiscovery.IniFile> { draft },
                                                                SwitchUnknown: live.PatcherSwitches.Unreadable is not null));
-                folders = folders.OrderBy(f => f.Subfolder, SkyPatcherDiscovery.FolderOrder(catalog)).ToList();
+                folders = folders.OrderBy(f => f.Subfolder, SkyPatcherDiscovery.FolderOrder()).ToList();
             }
             else
             {
