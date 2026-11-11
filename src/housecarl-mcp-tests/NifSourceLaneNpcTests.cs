@@ -39,6 +39,18 @@ public sealed class NifSourceLaneNpcTests : IClassFixture<NifSourceLaneWorld>
                         ToolNames.AssetStatus + " formids= reads them.", text);
     }
 
+    // A formids= head is named, not picked by provider=: it is not one of the provider's meshes another provider wins.
+    [Fact]
+    public void AProviderBesideAFormIdHeadCountsNoMeshWonElsewhere()
+    {
+        var text = NifTools.NifInspect(_w.Svc, formids: new[] { W.NpcFormId }, provider: W.BsaOnlyMod);
+        var census = NifTools.NifInspect(_w.Svc, formids: new[] { W.NpcFormId }, provider: W.BsaOnlyMod, counts_only: true);
+
+        Assert.Contains("read from: \"" + W.LooseMod + "\" (loose)", text);
+        Assert.DoesNotContain("won by another provider", text);
+        Assert.DoesNotContain("won by another provider", census);
+    }
+
     // Probe: "no selector is a named refusal that names every one".
     [Fact]
     public void NoSelectorIsANamedRefusalThatNamesEveryOne()
