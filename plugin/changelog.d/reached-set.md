@@ -1,0 +1,1 @@
+- **`asset_status`, `nif_inspect` and `decompile_script` take `exclude=`, and a walk's `to_file=` output now re-enters as `paths=` or `exclude=` instead of being refused.** Check: walk a mod's records with `to_file=`, then `asset_status provider="<mod>" exclude=["@<that file>"]` lists what it ships that the walk does not reach.
