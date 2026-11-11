@@ -218,6 +218,14 @@ public sealed class RuntimeFormatSourceTests
         Assert.Null(SkyPatcherParse.TryParseAddress("Skyrim.esm/12"));
         Assert.NotNull(SkyPatcherParse.TryParseAddress("Skyrim.esm/12", g));
         Assert.Equal(SkyPatcherLineKind.Label, SkyPatcherParse.ParseLine("[x]").Kind);
+
+        // the trailing-comment strip cuts at the row's comment, and the row's assign and compound open the name literal it skips
+        var stripped = SkyPatcherParse.ParseFile("t@a % tail\nm@^Iron%Sword^", g);
+        Assert.Equal("a", Assert.Single(Assert.Single(stripped[0].Segments).Values).Raw);
+        Assert.Equal("Iron%Sword", Assert.Single(Assert.Single(stripped[1].Segments).Values).NameText);
+        var kept = With("\"trailingComment\": true", "\"trailingComment\": false").Grammar;
+        Assert.Equal("a", Assert.Single(Assert.Single(SkyPatcherParse.ParseLine("k=a ; b").Segments).Values).Raw);
+        Assert.Equal("a ; b", Assert.Single(Assert.Single(SkyPatcherParse.ParseLine("k=a ; b", kept).Segments).Values).Raw);
     }
 
     // an edited gate extension decides which file names gate on a plugin and which are never read
@@ -229,6 +237,23 @@ public sealed class RuntimeFormatSourceTests
         Assert.Equal("Mod.esx", SkyPatcherDiscovery.GatePluginOf("Mod.esx.ini", esx));
         Assert.Null(SkyPatcherDiscovery.NotReadReason("Mod.esx-extra.ini", _ => true));
         Assert.Contains("names a plugin with more text after it", SkyPatcherDiscovery.NotReadReason("Mod.esx-extra.ini", _ => true, esx));
+
+        // the scan gates a file and names why it is not read with the row's extensions
+        var dir = Path.Combine(Path.GetTempPath(), "hc-runtime-gate-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var weapon = Path.Combine(dir, "mods", "A", "SKSE", "Plugins", "SkyPatcher", "weapon");
+            Directory.CreateDirectory(weapon);
+            File.WriteAllText(Path.Combine(weapon, "Mod.esx.ini"), "attackDamage=1");
+            foreach (var d in new[] { "overwrite", "Data" }) Directory.CreateDirectory(Path.Combine(dir, d));
+            using var r = AssetResolver.Build(Path.Combine(dir, "overwrite"), Path.Combine(dir, "mods"), Path.Combine(dir, "Data"), new[] { "A" }, Array.Empty<ActiveArchive>());
+            SkyPatcherDiscovery.IniFile File1(SkyPatcherFormat? f) => Assert.Single(Assert.Single(SkyPatcherDiscovery.Scan(r.Capture(), SkyPatcherCatalog.Load(), _ => false, format: f).Folders).Files);
+            Assert.Null(File1(null).GatePlugin);
+            Assert.Null(File1(null).NotApplied);
+            Assert.Equal("Mod.esx", File1(esx).GatePlugin);
+            Assert.Contains("filename-gated on plugin 'Mod.esx'", File1(esx).NotApplied);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 
     // an edited switches section and key shape decide which keys the scan reads and the printed switch rule; the scan parses with the row's grammar
@@ -247,14 +272,24 @@ public sealed class RuntimeFormatSourceTests
             var plugins = Path.Combine(dir, "mods", "A", "SKSE", "Plugins");
             Directory.CreateDirectory(Path.Combine(plugins, "SkyPatcher", "weapon"));
             File.WriteAllText(Path.Combine(plugins, "SkyPatcher", "weapon", "a.ini"), "attackDamage@1");
+            Directory.CreateDirectory(Path.Combine(plugins, "SkyPatcher", "armor"));
+            File.WriteAllText(Path.Combine(plugins, "SkyPatcher", "armor", "b.ini"), "armorRating=1");
             File.WriteAllText(Path.Combine(plugins, "SkyPatcher.ini"), "[Toggles]\nbUseWeaponOn=1\n");
             foreach (var d in new[] { "overwrite", "Data" }) Directory.CreateDirectory(Path.Combine(dir, d));
             using var r = AssetResolver.Build(Path.Combine(dir, "overwrite"), Path.Combine(dir, "mods"), Path.Combine(dir, "Data"), new[] { "A" }, Array.Empty<ActiveArchive>());
-            SkyPatcherDiscovery.FolderScan Weapon(SkyPatcherFormat? f) => Assert.Single(SkyPatcherDiscovery.Scan(r.Capture(), SkyPatcherCatalog.Load(), _ => false, format: f).Folders);
+            IReadOnlyList<SkyPatcherDiscovery.FolderScan> Folders(SkyPatcherFormat? f) => SkyPatcherDiscovery.Scan(r.Capture(), SkyPatcherCatalog.Load(), _ => false, format: f).Folders;
+            SkyPatcherDiscovery.FolderScan Weapon(SkyPatcherFormat? f) => Folders(f).Single(x => x.Subfolder == "weapon");
             Assert.False(Weapon(null).PatchingEnabled);
             var weapon = Weapon(edited);
             Assert.True(weapon.PatchingEnabled);
             Assert.Equal("attackDamage", Assert.Single(Assert.Single(Assert.Single(weapon.Files).Lines).Segments).Key);
+
+            // the scan's folder order and its no-key switch rule are the row's
+            const string w = """{ "folder": "weapon", "name": "Weapon" },""", a = """{ "folder": "armor", "name": "Armor" },""";
+            var reordered = With((w + "\n    " + a, a + "\n    " + w), ("\"onWithoutKey\": [\"light\"]", "\"onWithoutKey\": [\"light\", \"weapon\"]"));
+            Assert.Equal(new[] { "weapon", "armor" }, Folders(null).Select(x => x.Subfolder));
+            Assert.Equal(new[] { "armor", "weapon" }, Folders(reordered).Select(x => x.Subfolder));
+            Assert.True(Weapon(reordered).PatchingEnabled);
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
