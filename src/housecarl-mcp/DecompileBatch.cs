@@ -235,10 +235,11 @@ internal static class DecompileBatch
     /// <summary>Climb each object's parent chain, reading a parent the edges do not know from its winning
     /// <c>scripts\&lt;parent&gt;.pex</c> in the load order; a vanilla root class (<paramref name="known"/>) is not read.
     /// The clause for each parent that would not read.</summary>
-    static IEnumerable<string> AddParentChains(AssetResolver.AssetView view, Dictionary<string, string> edges, IEnumerable<string> objects,
+    static IEnumerable<string> AddParentChains(AssetResolver.AssetView view, Dictionary<string, string> edges, IReadOnlyList<string> objects,
                                                IReadOnlySet<string> known)
     {
-        var tried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // A window script was read already: one with no edge declares no parent, so it is never read again as one.
+        var tried = new HashSet<string>(objects, StringComparer.OrdinalIgnoreCase);
         var unread = new List<string>();
         foreach (var start in objects)
         {
