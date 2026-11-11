@@ -20,13 +20,14 @@ sealed class SkyPatcherRelevanceWorld : IDisposable
     public readonly LoadOrderService Svc;
     public readonly string Heel, Both, Plain;
 
-    public SkyPatcherRelevanceWorld(IEnumerable<(string Name, string Text)> inis, bool otherPlugin = false, bool tweaks = true)
+    public SkyPatcherRelevanceWorld(IEnumerable<(string Name, string Text)> inis, bool otherPlugin = false, bool tweaks = true,
+        string subfolder = "armor", Action<SkyrimMod>? records = null, Action<SkyrimMod>? otherRecords = null)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-skypatcher-relevance-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
         var profileDir = Path.Combine(instance, "profiles", "Default");
         var mods = Path.Combine(instance, "mods");
-        var iniDir = Path.Combine(mods, "HcSpRelIni", "SKSE", "Plugins", "SkyPatcher", "armor");
+        var iniDir = Path.Combine(mods, "HcSpRelIni", "SKSE", "Plugins", "SkyPatcher", subfolder);
         SkyPatcherSwitchesFile.Write(Path.Combine(mods, "HcSpRelIni"));
         if (tweaks) SkyPatcherSwitchesFile.WriteTweaks(Path.Combine(mods, "HcSpRelIni"));
         foreach (var d in new[] { profileDir, Path.Combine(Root, "game", "Data"), Path.Combine(mods, "HcSpRelPlugins"), iniDir })
@@ -56,6 +57,7 @@ sealed class SkyPatcherRelevanceWorld : IDisposable
         mod.Armors.Add(heel);
         mod.Armors.Add(plain);
         mod.Armors.Add(both);
+        records?.Invoke(mod);
         mod.BeginWrite.ToPath(Path.Combine(mods, "HcSpRelPlugins", PluginName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         Heel = RecordsWorld.Fid(heel.FormKey);
         Plain = RecordsWorld.Fid(plain.FormKey);
@@ -70,6 +72,7 @@ sealed class SkyPatcherRelevanceWorld : IDisposable
             Directory.CreateDirectory(Path.GetDirectoryName(OtherPath)!);
             var other = new SkyrimMod(ModKey.FromFileName(OtherName), SkyrimRelease.SkyrimSE);
             other.Keywords.Add(new Keyword(new FormKey(other.ModKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = "HcOtherKw" });
+            otherRecords?.Invoke(other);
             other.BeginWrite.ToPath(OtherPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
         var order = otherPlugin ? new[] { PluginName, OtherName } : new[] { PluginName };

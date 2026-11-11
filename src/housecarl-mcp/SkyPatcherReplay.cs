@@ -67,8 +67,28 @@ internal sealed partial class AssetLayers
             _host = layers._host; _view = view; _session = session;
             Assets = assets; AssetWarnings = assetWarnings; ProfileName = profileName;
             Catalog = catalog; FieldMap = fieldMap; Scan = scan;
-            _formResolver = new SkyPatcherServiceResolver(layers, view, session, tweaksMissing);
+            _formResolver = new SkyPatcherServiceResolver(layers, view, session, tweaksMissing, CallScopes);
         }
+
+        /// <summary>Every scope an EditorID in this layer is looked up among, across its folders and their record types.</summary>
+        IEnumerable<string?> CallScopes()
+            => Scan.Folders.Where(f => f.Catalog is not null).SelectMany(f =>
+            {
+                var maps = FieldMap.ForSubfolder(f.Subfolder);
+                return Lines(f).SelectMany(l => (maps.Count == 0 ? new RecordMap?[] { null } : maps.Select(m => (RecordMap?)m))
+                    .SelectMany(m => SkyPatcherOverlay.EditorIdScopes(l.Parsed, Catalog, f.Catalog!, m)));
+            });
+
+        /// <summary>One folder's lines in apply order, built once per context.</summary>
+        IReadOnlyList<SkyPatcherOverlay.OrderedLine> Lines(SkyPatcherDiscovery.FolderScan folder)
+        {
+            if (!_linesCache.TryGetValue(folder.Subfolder, out var lines))
+                _linesCache[folder.Subfolder] = lines = SkyPatcherDiscovery.OrderedLines(folder);
+            return lines;
+        }
+
+        /// <summary>The call's form lookups, for a site outside the replay that resolves a target the same way.</summary>
+        internal SkyPatcherOverlay.IFormResolver Forms => _formResolver;
 
         /// <summary>Per folder, the lines checked against every record and the lines that can touch only the records they name.</summary>
         readonly Dictionary<string, (List<int> Always, IReadOnlyList<SkyPatcherOverlay.OrderedLine> AlwaysLines, Dictionary<FormKey, List<int>> ByKey)> _lineIndex = new(StringComparer.OrdinalIgnoreCase);
@@ -110,9 +130,6 @@ internal sealed partial class AssetLayers
                 else return null;
             return keys;
         }
-
-        /// <summary>An EditorID of one type to its winning FormKey; null on a miss.</summary>
-        internal FormKey? ResolveEditorId(string editorId, string? mutagenType) => _formResolver.ResolveEditorId(editorId, mutagenType);
 
         /// <summary>One line's lint against the load order, across every record type its folder holds, and whether a lookup read an EditorID table missing a plugin; empty for an undocumented folder.</summary>
         internal (IReadOnlyList<string> Lint, bool Incomplete) LineLint(SkyPatcherDiscovery.FolderScan folder, SkyPatcherOverlay.OrderedLine line)
@@ -174,8 +191,7 @@ internal sealed partial class AssetLayers
                     folders.Add(new SkyPatcherFolderOutcome(m.Subfolder, 0, 0, null, true));
                     continue;
                 }
-                if (!_linesCache.TryGetValue(folder.Subfolder, out var lines))
-                    _linesCache[folder.Subfolder] = lines = SkyPatcherDiscovery.OrderedLines(folder);
+                var lines = Lines(folder);
                 var result = SkyPatcherOverlay.Apply(copy, fk, body.EditorID, Catalog, folder.Catalog, m, LinesFor(folder, lines, fk), _formResolver);
                 // A toggled-off folder contributes nothing: reporting its files as applied would assert INIs the DLL skips.
                 folders.Add(new SkyPatcherFolderOutcome(folder.Subfolder,
@@ -225,19 +241,19 @@ internal sealed partial class AssetLayers
     }
 
     /// <summary>The live-load-order lookups the overlay needs, off the ONE pinned view and session the call holds.
-    /// EditorID resolution sweeps a type's winners once into a table; a miss is null, reported loudly upstream.</summary>
+    /// EditorIDs resolve through the call's one table, which its first lookup fills for every scope the call's lines name; a miss is null, reported on its line.</summary>
     sealed class SkyPatcherServiceResolver : SkyPatcherOverlay.IFormResolver
     {
         readonly AssetLayers _layers;
         readonly LoadOrderResolver.IndexView _view;
         readonly LoadOrderResolver.OverlaySession _session;
-        readonly Dictionary<string, Dictionary<string, FormKey>> _eidsByType = new(StringComparer.OrdinalIgnoreCase);
-        readonly List<PluginUnreadableException> _unreadable = new();
-        readonly HashSet<string> _incompleteTypes = new(StringComparer.OrdinalIgnoreCase);   // types whose sweep missed a plugin
+        readonly SkyPatcherEditorIdTable _table;
+        readonly Func<IEnumerable<string?>> _callScopes;
+        bool _covered;
         bool _consumedIncomplete;
 
         /// <summary>Plugins an EditorID sweep could not open, so a miss here is not proof the name does not exist.</summary>
-        public IReadOnlyList<PluginUnreadableException> Unreadable => _unreadable;
+        public IReadOnlyList<PluginUnreadableException> Unreadable => _table.Unreadable;
 
         /// <summary>Whether a lookup since the last <see cref="WatchLookups"/> was answered from a table a plugin is missing from — the flag that tells a caller its OWN answer is affected.</summary>
         public bool ConsumedIncompleteTable => _consumedIncomplete;
@@ -246,8 +262,12 @@ internal sealed partial class AssetLayers
 
         readonly string? _tweaksMissing;
 
-        public SkyPatcherServiceResolver(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, string? tweaksMissing)
-        { _layers = layers; _view = view; _session = session; _tweaksMissing = tweaksMissing; }
+        public SkyPatcherServiceResolver(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                                         string? tweaksMissing, Func<IEnumerable<string?>> callScopes)
+        {
+            _layers = layers; _view = view; _session = session; _tweaksMissing = tweaksMissing; _callScopes = callScopes;
+            _table = SkyPatcherEditorIdTable.For(view, tweaksMissing);
+        }
 
         readonly Dictionary<string, string?> _gaps = new(StringComparer.OrdinalIgnoreCase);
 
@@ -260,25 +280,35 @@ internal sealed partial class AssetLayers
         }
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
+            => Find(editorId, mutagenType, out var scope) is { } e && e.In(scope) ? e.First : null;
+
+        public string? EditorIdNote(string editorId, string? mutagenType)
         {
-            if (mutagenType is null || string.IsNullOrWhiteSpace(editorId)) return null;
+            if (Find(editorId, mutagenType, out var scope) is not { } e) return null;
+            if (!e.In(scope))
+                return $"first names {FormIdToken.Of(e.First)} ({e.Type}, loaded first by {e.Plugin}) in the game's one EditorID map, so SkyPatcher finds no {mutagenType} by it";
+            return e.Others is { Count: > 0 } others
+                ? $"names {others.Count + 1} records; the game uses the first loaded, {FormIdToken.Of(e.First)} from {e.Plugin}"
+                : null;
+        }
+
+        /// <summary>The table's entry for a name, covering the scope first; null for a blank name, a type the game keeps no names of here, or a scope that names no type.</summary>
+        SkyPatcherEditorIdTable.Entry? Find(string editorId, string? mutagenType, out IReadOnlyList<Type>? scope)
+        {
+            scope = null;
+            if (string.IsNullOrWhiteSpace(editorId)) return null;
             if (EditorIdGap(mutagenType) is not null) return null;   // the game cannot see this name, so neither does the replay
-            if (!_eidsByType.TryGetValue(mutagenType, out var eids))
+            if (mutagenType is not null && (scope = _layers.ResolveFormScope(mutagenType)) is null) return null;
+            if (!_covered)
             {
-                eids = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
-                var types = _layers.ResolveFormScope(mutagenType);
-                if (types is not null)
-                {
-                    int before = _unreadable.Count;
-                    foreach (var (candidate, _, cBody) in _view.WinnerRecordsOfType(types, _unreadable))
-                        if (cBody.EditorID is { Length: > 0 } eid && !eids.ContainsKey(eid))   // first winner keeps the slot
-                            eids[eid] = candidate;
-                    if (_unreadable.Count > before) _incompleteTypes.Add(mutagenType);
-                }
-                _eidsByType[mutagenType] = eids;
+                // The first lookup walks once for every scope the call's lines name, so later lookups walk nothing.
+                _covered = true;
+                _table.Cover(_callScopes().OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)
+                    .SelectMany(s => _layers.ResolveFormScope(s) ?? Array.Empty<Type>()));
             }
-            if (_incompleteTypes.Contains(mutagenType)) _consumedIncomplete = true;
-            return eids.TryGetValue(editorId, out var fk) ? fk : null;
+            var e = _table.Find(editorId, scope, out var incomplete);
+            if (incomplete) _consumedIncomplete = true;
+            return e;
         }
 
         // The winners the lines name (donors, keyword sources, EditorID targets), each read once per replay context

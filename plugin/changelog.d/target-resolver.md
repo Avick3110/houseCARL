@@ -1,0 +1,1 @@
+- **SkyPatcher targets written `Plugin.esp|0x…` now resolve, as SkyPatcher reads them, and a target that names nothing says why on its line in `housecarl_skypatcher_layer`; a duplicated EditorID patches only the record the game uses, the first loaded.** Check: a Skyrim Revoiced NPC read with the SkyPatcher post state now carries its new voice type.

@@ -31,6 +31,7 @@ public sealed class SkyPatcherOverlayWeaponReplay
         var resolver = new StubResolver();
         resolver.Plugins.Add("HcSpOv.esp");
         resolver.EditorIds["HcNamedKeyword"] = KEid;
+        resolver.EditorIds["HcTestSword"] = weap.FormKey;   // the sword's own name, as the game's EditorID map holds it
 
         const string me = "HcSpOv.esp|800";
         Weapon = weap;
