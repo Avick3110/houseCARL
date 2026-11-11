@@ -280,5 +280,7 @@ worse.
 `src/housecarl-core/NifService.cs` is the format layer: `Inspect`, `Set`, `ReallyReads`, `ReallyWrites`,
 `DecodeFlagWord`, `SlotName`, and the two gates `VerifyBlockContent` and `VerifyReadBack`.
 `src/housecarl-mcp/NifTools.cs` is the tool front. Tools: `housecarl_nif_inspect`, `housecarl_nif_set`.
+`src/housecarl-mcp/NifBatch.cs` is `nif_inspect`'s transport: the window, census, json rows, spill and `to_file=`.
+`src/housecarl-mcp/MeshSelection.cs` is its selection (`SelectMeshes`) and its one-mesh read (`InspectMesh`).
 The result records are in `src/housecarl-mcp/AssetResults.cs` ([`assets.md`](assets.md)).
 The service code, which resolves the winning bytes and writes the result into the VFS, is in `src/housecarl-mcp/AssetLayers.cs` ([`assets.md`](assets.md)).
