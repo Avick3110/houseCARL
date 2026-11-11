@@ -202,7 +202,7 @@ public static class ResultArtifact
                                     $"the file does not match its own manifest (was it edited?). Regenerate it from the producing query.");
             }
         }
-        if (tokens.Count == 0 && !(noRowsIsEmpty && errorRows == 0))
+        if (tokens.Count == 0 && (errorRows > 0 || !noRowsIsEmpty))
             return (null, null, errorRows > 0
                 ? $"artifact '{path}': all {errorRows} row(s) are ERROR rows (failed inputs of the producing call) — nothing resolved, so there is no {manifest.Identity} list to re-enter with."
                 : $"artifact '{path}' has a manifest but no rows — the producing query matched nothing; there is no list to re-enter with.");

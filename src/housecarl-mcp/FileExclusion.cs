@@ -34,8 +34,7 @@ public sealed class FileExclusion
         if (read.Error is not null) return (null, read.Error);
         if (read.Tokens is null) return (null, null);
         var plain = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var globs = new List<Func<string, bool>>();
-        var globSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var patterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var raw in read.Tokens)
         {
             var entry = (raw ?? "").Trim();
@@ -46,12 +45,11 @@ public sealed class FileExclusion
             {
                 var norm = AssetResolver.ValidateRelPath(entry).TrimEnd('\\');
                 if (norm.Length == 0) throw new ArgumentException($"an empty selector names nothing: '{entry}'");
-                if (!AssetGlob.HasWildcard(norm)) plain.Add(norm);
-                else if (globSeen.Add(norm)) globs.Add(AssetGlob.Matcher(norm));
+                (AssetGlob.HasWildcard(norm) ? patterns : plain).Add(norm);
             }
             catch (ArgumentException ex) { return (null, $"error: exclude= entry '{entry}': {ex.Message}"); }
         }
-        return (new FileExclusion(plain, globs, read.Demand is { } d ? Leading(d, svc) : Array.Empty<string>()), null);
+        return (new FileExclusion(plain, patterns.Select(AssetGlob.Matcher).ToList(), read.Demand is { } d ? Leading(d, svc) : Array.Empty<string>()), null);
     }
 
     /// <summary>What a file entry cannot say by its paths alone: its walk was cut, or it was written on another build.</summary>
@@ -72,6 +70,9 @@ public sealed class FileExclusion
         if (order is null)
             lead.Add($"exclude= file '{d.Path}' was written at epoch={d.Epoch}, and this call could not read the load order " +
                      $"to compare — {why}");
+        else if (order.Epoch != d.Epoch && !LoadOrderResolver.IsCurrentEpochFormat(d.Epoch))
+            lead.Add($"exclude= file '{d.Path}' carries an epoch an older houseCARL wrote (epoch={d.Epoch}), which this build " +
+                     $"cannot compare with its own, so whether it holds what that call answers now is unknown — {Redo}");
         else if (order.Epoch != d.Epoch)
             lead.Add($"exclude= file '{d.Path}' was written on another build (epoch={d.Epoch}; this build is epoch={order.Epoch}), " +
                      $"so it may not hold what that call answers now — {Redo}");
@@ -100,7 +101,7 @@ public sealed class FileExclusion
     bool Matches(string path, HashSet<string> hitPlain, bool[] hitGlob)
     {
         string norm;
-        try { norm = AssetResolver.ValidateRelPath((path ?? "").Trim()); }
+        try { norm = AssetResolver.ValidateRelPath(path.Trim()); }
         catch (ArgumentException) { return false; }   // a bad explicit path answers as its own row
         bool hit = false;
         for (var p = norm; p.Length > 0; p = p.LastIndexOf('\\') is var cut and >= 0 ? p[..cut] : "")

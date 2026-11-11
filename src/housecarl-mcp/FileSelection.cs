@@ -23,6 +23,16 @@ internal sealed record FileSelectionResult(IReadOnlyList<SelectedFile> Entries, 
 /// selects the same files with the same notes and the same refusal.</summary>
 internal static class FileSelection
 {
+    /// <summary>A caller's paths= entries in the order given, files on disk among them, less each Data path
+    /// <c>exclude=</c> removed from <paramref name="kept"/>, the selection over those Data paths in order.</summary>
+    internal static IEnumerable<T> KeptAsGiven<T>(IEnumerable<T> entries, Func<T, bool> onDisk, IEnumerable<SelectedFile> kept)
+    {
+        var keep = kept.Where(f => f.Given >= 0).Select(f => f.Given).ToHashSet();
+        int next = 0;
+        foreach (var e in entries)
+            if (onDisk(e) || keep.Contains(next++)) yield return e;
+    }
+
     /// <summary>The refusal for a selection the path bound stopped, in the caller's words: what was not done, and a narrower selector to try.</summary>
     internal static string BoundRefusal(int stoppedAt, int max, string notDone, string example) =>
         $"error: the selection names at least {stoppedAt:N0} paths, past the {max:N0}-path bound one " +
