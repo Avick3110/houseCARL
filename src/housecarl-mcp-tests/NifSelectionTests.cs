@@ -348,6 +348,19 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Contains("[accounting] total=3", r);
     }
 
+    /// <summary>A spill of one window of the selection names that window in its query echo.</summary>
+    [Fact]
+    public void ASpilledWindowNamesItselfInTheManifest()
+    {
+        var r = NifTools.NifInspect(_svc, provider: "Arch", sections: "all", limit: 2, max_chars: 1500);
+
+        const string spilled = "spilled: the returned WINDOW (2 rows of 3 total matches) -> ";
+        Assert.Contains(spilled, r);
+        var path = r[(r.IndexOf(spilled, StringComparison.Ordinal) + spilled.Length)..].Split('\n')[0];
+        var query = Json(File.ReadAllLines(path)[0]).GetProperty("query");
+        Assert.Equal("window: rows 1–2 of 3 (limit=2, offset=0)", query.GetProperty("window").GetString());
+    }
+
     [Fact]
     public void JsonPastTheCeilingIsSpilledWhole()
     {
