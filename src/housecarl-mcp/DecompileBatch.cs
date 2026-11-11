@@ -388,13 +388,9 @@ internal static class DecompileBatch
             {
                 var counts = Counts(a, rowsJson.Count);
                 TransportAccounting.WriteJson(w, counts);
-                if (counts.Remaining > 0)
-                {
-                    w.WriteNumber("next_limit", counts.NextLimit);
-                    w.WriteNumber("next_offset", counts.Offset + a.Rows.Count);
-                    if (lane is { } l) w.WriteString("next_" + l.Name, l.Value);
-                }
-                if (TransportAccounting.PastEnd(counts)) w.WriteString("offset_note", TransportAccounting.PastEndSentence(counts, "script(s)"));
+                // The next page starts after the window, not after the rows listed; offset_note never sits beside it.
+                TransportAccounting.WritePageAdviceJson(w, counts with { Rendered = a.Rows.Count }, "script(s)");
+                if (counts.Remaining > 0 && lane is { } l) w.WriteString("next_" + l.Name, l.Value);
             }
             else w.WriteNumber("total", a.Total);
             w.WriteEndObject();
