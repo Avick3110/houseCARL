@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-30
-covers: [src/housecarl-core/NifService.cs, src/housecarl-core/NifLinks.cs, src/housecarl-mcp/NifTools.cs]
+updated: 2026-11-11
+covers: [src/housecarl-core/NifService.cs, src/housecarl-core/NifLinks.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/NifBatch.cs, src/housecarl-mcp/MeshSelection.cs]
 ---
 # The NIF layer: reading mesh values, and the two write gates
 
@@ -31,6 +31,38 @@ model. The fork's `InvalidDataException` renders as "the mesh is malformed and w
 field and the number from its message. A file that loaded but threw while its structure was read is a real defect
 and fails loud with the type and message. Unknown blocks are preserved byte-for-byte and reported by their REAL on-disk type from the header's
 block-type table — `GetType().Name` would flatten every one of them to `NiUnknown`.
+
+### Selecting the meshes
+
+`nif_inspect` takes `asset_status`'s selection (`FileSelection.Select`, through `AssetLayers.SelectMeshes`):
+`paths=`, `under=`, `provider=`, `formids=` and `@file`. The rows come in this order: `paths=` as given, then each
+`formids=` NPC's head mesh, then the `under=` or whole-provider matches, sorted. A match that is not a `.nif` is left out
+and counted in a note. An explicit path is never filtered. `formids=` names both halves of each FaceGen pair. Only the
+head mesh is read, and a note counts the tints. A malformed FormID is one error row, as on `asset_status`. A
+`source_provider=` mod folder's own plugins are read after the active order for the face door, as before. Past the
+path bound, the call is refused in this tool's words, and nothing is read.
+
+A `paths=` entry that is a full path (`Path.IsPathFullyQualified`) is a file on disk, read as that file, as
+`decompile_script` reads one. Its row has no winner and no providers, and says "read from: the file on disk". One inside
+the mods tree is read the same way, and its row names the Data path and mod folder (`paths=[…] source_provider=…`) that
+read the same copy through the load order. Before #1081 such a path was refused with that address. Every other entry is
+a Data path. Each Data path is read from its winner, or from the copy `source_provider=` names. `provider=` picks which
+meshes; it does not pick whose copy is read. A note counts the meshes another provider wins and names
+`source_provider=` as the knob. A call that reads only files on disk, without `sections=paths`, needs no MO2
+instance and captures no view. With `sections=paths`, a file on disk's links resolve against the load order.
+
+Transport is SPEC §2.1's. `limit=` and `offset=` choose which meshes this call reads. `counts_only=` reads the whole
+selection and returns the census: read and not read (absent among them), loose, BSA and file on disk, SE stream or not,
+and unknown blocks. `format=json` gives one row per mesh: the summary as fields, and the requested sections as the text
+the text answer prints. `to_file=` writes every mesh, one parsed mesh held at a time, and renders the manifest. The text
+answer is the per-mesh blocks, unchanged, then the notes, then the `[accounting]` line. When the capped render differs
+from the uncapped one (a mesh or a section cut), the window is written whole to the results directory, and the answer
+names the file (§2.1.1). It is no longer only cut. The json lane spills when its rows do not all fit. One view is
+captured per call, so each archive's table is read once.
+
+`nif_set` takes its mesh as `paths=`, a one-entry list. A second entry is refused in one sentence, and the retired
+`mesh_path=` is refused naming `paths=`. Its `target=` is unchanged (SPEC §5.2), and it does not take a selection
+(concern 10).
 
 ### Coverage comes from the library, never a hand list
 
@@ -213,6 +245,12 @@ worse.
 
 ## Pinned by
 
+- *Selecting the meshes*: `NifSelectionTests` — a provider's loose and archived meshes in one call with the
+  won-elsewhere and not-a-mesh notes, `source_provider=` reading the shadowed copy, a file on disk beside the
+  selection and alone with no instance, the window, the census, json, `to_file=` and its re-entry, the spill past the
+  ceiling (text and json), one table read per archive, the retired names, and `nif_set`'s one-entry `paths=`;
+  `NifSourceLaneNpcTests` — `formids=` reads the head and counts the tint, and a malformed FormID is one row;
+  `RawModsPathRefusalTests.NifInspectReadsARawModsPathAsThatFileAndNamesItsLoadOrderAddress`.
 - *Contracts*, the parse-failure paragraph: `NifInspectDecodeTests` — empty bytes and non-NIF garbage each return a
   named error, never a throw or a half-model (`EmptyBytesReturnANamedError`, `NonNifGarbageReturnsANamedErrorNotAThrow`);
   `NifInspectMalformedTests` — through the built server under a 2 GB heap cap and a 30 s call timeout, meshes that ran

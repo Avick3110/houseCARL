@@ -295,8 +295,9 @@ the stop is the caller's: `asset_status`'s advice names its own parameters (`und
 `to_file=`, `counts_only=`, `limit=`, `offset=`). It captures nothing and reads only through the view it is handed,
 so a tool that calls it selects the same files with the same notes and the same refusal as `asset_status`.
 `decompile_script` is the second caller (`AssetLayers.SelectScripts`; papyrus-decompile.md, "Selecting the
-scripts"), and words its own stop. `paths=` is the one name for this list on both (#1287); the retired
-`asset_paths=` is refused in one sentence.
+scripts"), and words its own stop. `nif_inspect` is the third (`AssetLayers.SelectMeshes`; nif.md, "Selecting the
+meshes"), with `formids=` too, and words its own stop. `paths=` is the one name for this list on all three (#1287,
+#1081); the retired `asset_paths=`, `mesh_paths=` and `nif_inspect npc=` are refused in one sentence.
 `asset_status` keeps the capture, the window, the declared-cost refusal and the resolve; the walk takes its seeds from
 `asset_status`'s rows, so it selects through the same component.
 
@@ -580,7 +581,7 @@ links as nodes). Then:
 ### One FaceGen answer per NPC
 
 `NpcFace` (core) is the one door every lane asks for an NPC's FaceGen: `asset_status formids=`, the walk,
-`nif_inspect npc=`, `place formid=` and `check findings=["facegen"]`. Its answer is a list of roots, each a pair or a
+`nif_inspect formids=`, `place formid=` and `check findings=["facegen"]`. Its answer is a list of roots, each a pair or a
 reason, plus the chain's errors:
 
 - **Mutagen derives the pair.** Each root's mesh and tint are the `\facegendata\` links of Mutagen's
@@ -607,7 +608,7 @@ The door reads each NPC, template and race through the lane's own record sources
 per lane): the active order's winners, and where the lane reads plugins off the order, those too. The walk reads
 `from_source=` in its order for `records=` and `formids=` seeds alike (`MemberReads.Through`); `place formid=` reads
 the `into=` patch's plugins after the winners, so a clone a copy wrote there places by formid before it is enabled;
-`nif_inspect npc=` reads the plugins a `source_provider=` mod folder ships, after the winners. A folder's plugins are
+`nif_inspect formids=` reads the plugins a `source_provider=` mod folder ships, after the winners. A folder's plugins are
 read by filename, first hit. Where the winners come first (`place`, `nif_inspect`, and a walk whose `from_source=`
 starts with `winner`), the door opens the off-order plugins only when a read round's winners miss a key: any such
 key, an NPC's template or race included, opens them, and a plugin there that will not open fails only the missed
