@@ -102,7 +102,10 @@ The table lives on the call context and is dropped with the call: nothing is kep
 Its first lookup walks once over every scope the call's lines can look an EditorID up among
 (`SkyPatcherOverlay.EditorIdScopes`), so later lookups and the call's other replay contexts walk
 nothing; a scope the first walk missed is walked once more, its types only, and a record it finds
-that loaded first still comes first. `CostCounters.EditorIdSweeps` counts the walks.
+that loaded first still comes first. The one scope of every record type (form-list items) is left
+out of the first walk and walked at its own first lookup, so a call that looks up no form-list item
+never walks the whole order. `CostCounters.EditorIdSweeps` counts the walks, `EditorIdTypesWalked`
+the types they covered.
 An op with no form type looks its EditorIDs up among the field map's `editorIdScope` (`Item` for
 leveled item entries and recipe ingredients, `NpcSpawn` for leveled NPC entries, `OutfitTarget` for
 outfit items, every record type for form-list items).
@@ -247,7 +250,8 @@ record's own EditorID matches no direct-list name or `filterByEditorIdContains`,
 names po3 Tweaks. Every op miss words it the same way: an EditorID value or entry key of a typed op
 is not applied and its warning names po3 Tweaks, and an op with a donor type (npc `skin`) names the
 donor type too. An op with no form type looks its EditorIDs up among its `editorIdScope`, so its
-miss names Tweaks the same way; one with neither (`formsToReplace`) never resolves an EditorID,
+miss names Tweaks the same way; a group scope holding a kept type (form-list items) still finds
+names of its kept types, the table gating each type, and its miss names the kept types. One with neither (`formsToReplace`) never resolves an EditorID,
 Tweaks or not (#1334), so its miss does not name Tweaks. The ten kept types answer as before. A `po3_Tweaks.ini`
 that cannot be read is replayed as the DLL's default (EditorIDs load), and the read and the layer
 say the state is unknown.
@@ -302,7 +306,9 @@ hardened.
   record and says so on its line, a name a renaming override drops still names the record, a later walk puts the
   record loaded first first, a name another type shares still names the scoped record, each kind of miss is reported on its line, a `0x` target is no miss, an
   untyped op finds its EditorID, an op with no scope misses beside one that walks every type
-  (`AnUnscopedOpEditorIdMissesBesideAScopedOne`), and one call walks once (`EditorIdsAreWalkedOncePerCall`).
+  (`AnUnscopedOpEditorIdMissesBesideAScopedOne`), one call walks once (`EditorIdsAreWalkedOncePerCall`), a call
+  that looks up no form-list item walks only its own scopes (`ACallThatLooksUpNoFormListItemWalksOnlyItsScopes`), and
+  without Tweaks a form-list item of a kept type resolves (`WithoutTweaksAFormListItemEditorIdOfAKeptTypeResolves`).
 - *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryTests` —
   the breadth-first order (`FilesAreReadBreadthFirst`), the name rules (`TheFileNameRulesReadIniAnywhereAndRefuseTheRest`),
   `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a missing switch off and Light on, no
