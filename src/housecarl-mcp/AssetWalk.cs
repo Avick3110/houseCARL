@@ -16,6 +16,20 @@ public sealed record AssetWalkNode(string Path, string Edge, string PulledBy, Wa
                                    PlacementSource? Copy, bool Keyed = false, string? Note = null, string? Error = null,
                                    HiddenCopies? Hidden = null);
 
+/// <summary>How the walk's notes open when it stopped short of everything it reaches, so a reader of its file can tell
+/// a cut walk from a whole one by the same words the walk wrote.</summary>
+internal static class WalkCut
+{
+    internal const string MaxNodes = "the walk stopped entering records at walk.max_nodes=";
+    internal const string Files = "the walk stopped at ";
+    internal const string DepthTail = "hops from a seed and were not entered";
+
+    /// <summary>Is this walk note one that says the walk did not reach everything?</summary>
+    internal static bool Says(string note) =>
+        note.StartsWith(MaxNodes, StringComparison.Ordinal) || note.StartsWith(Files, StringComparison.Ordinal)
+        || note.Contains(DepthTail, StringComparison.Ordinal);
+}
+
 /// <summary>The data behind <c>asset_status walk=true</c>: every node shown in walk order, what the walk noted (records
 /// not found, boundaries, gaps), the source it read files from, the record sources (none on a path-only walk), the
 /// build caveats, and the record cycles it found, each a loop of records, with whether the search cap stopped them.</summary>
@@ -151,7 +165,7 @@ internal sealed partial class AssetLayers
         finally { foreach (var o in overlays) { try { o.Dispose(); } catch { /* releasing the off-order overlays */ } } }
 
         if (filesCut)
-            notes.Add($"the walk stopped at {cap} files (the asset_status path bound); "
+            notes.Add($"{WalkCut.Files}{cap} files (the asset_status path bound); "
                       + (values.Edges is null ? "what it reached so far is listed."
                          : "of what it reached so far, the rows of walk.through's edge kinds are listed and the rest counted on the left-out line."));
         // The walk is whole; through's edge kinds choose only the rows shown, so every lane reads the same set.
@@ -380,13 +394,13 @@ internal sealed partial class AssetLayers
             if (capped)
             {
                 truncated = true;
-                notes.Add($"the walk stopped entering records at walk.max_nodes={maxRecords} (every record entered counts, seeds included); raise walk.max_nodes to walk further.");
+                notes.Add($"{WalkCut.MaxNodes}{maxRecords} (every record entered counts, seeds included); raise walk.max_nodes to walk further.");
                 next.Clear();
             }
             frontier = next;
         }
         if (pastDepth > 0)
-            notes.Add($"{pastDepth} record(s) sit more than walk.depth={maxDepth} hops from a seed and were not entered; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc).");
+            notes.Add($"{pastDepth} record(s) sit more than walk.depth={maxDepth} {WalkCut.DepthTail}; raise walk.depth to walk them (an NPC among them is then a boundary unless walk.through names Npc).");
         if (stopped > 0)
             notes.Add($"{stopped} reached record(s) matched a stop exclusion and were kept as boundaries, not entered (no files, no links).");
         if (values.Through is not null || values.Edges is not null)

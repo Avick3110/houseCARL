@@ -57,13 +57,13 @@ public static class ListFile
     /// <summary>A result artifact's identity column as the list, refused by name when its identity is not
     /// <paramref name="identity"/>; the demand is the consumer's to epoch-check.</summary>
     public static (List<string>? Tokens, ArtifactDemand? Demand, string? Error) ReadArtifact(
-        string path, string content, string identity, string label)
+        string path, string content, string identity, string label, bool noRowsIsEmpty = false)
     {
-        var (manifest, tokens, err) = ResultArtifact.ReadIdentity(path, content);
+        var (manifest, tokens, err) = ResultArtifact.ReadIdentity(path, content, noRowsIsEmpty);
         if (err is not null) return (null, null, err);
         if (!manifest!.Identity!.Equals(identity, StringComparison.OrdinalIgnoreCase))
             return (null, null, $"artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' identities, " +
                                 $"not '{identity}' ones — there is no {identity} list in it for {label}.");
-        return (tokens, new ArtifactDemand(path, manifest.Epoch), null);
+        return (tokens, new ArtifactDemand(path, manifest.Epoch, manifest.Notes), null);
     }
 }

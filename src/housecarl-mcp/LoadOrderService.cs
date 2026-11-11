@@ -356,10 +356,12 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     // The assets area's tool-facing surface; the bodies are in AssetLayers.cs and SkyPatcherReplay.cs.
     public AssetStatusData AssetStatus(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under = null, int limit = 0, int offset = 0,
                                        IReadOnlyList<FaceGenSeed>? seeds = null, bool wholeSelection = false,
-                                       string? provider = null, bool links = false, FaceSources? faceSources = null)
-        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider, links, faceSources);
-    internal ScriptSelectionData SelectScripts(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under, string? provider)
-        => _assetLayers.SelectScripts(relPaths, under, provider);
+                                       string? provider = null, bool links = false, FaceSources? faceSources = null,
+                                       FileExclusion? exclude = null)
+        => _assetLayers.AssetStatus(relPaths, under, limit, offset, seeds, wholeSelection, provider, links, faceSources, exclude);
+    internal ScriptSelectionData SelectScripts(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under, string? provider,
+                                               FileExclusion? exclude = null)
+        => _assetLayers.SelectScripts(relPaths, under, provider, exclude);
     public AssetWalkData AssetWalk(IReadOnlyList<string> seedPaths, IReadOnlyList<FormKey> seedRecords,
                                    IReadOnlyList<string>? fromSource, string? sourceProvider,
                                    IReadOnlyDictionary<string, string?>? keyedSeeds = null,
@@ -372,8 +374,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, CancellationToken ct = default) => _assetLayers.SkyPatcherLayer(use, ct: ct);
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(relPaths, sourceProvider, links);
     internal MeshSelectionData SelectMeshes(IReadOnlyList<(string Path, bool OnDisk)> entries, IReadOnlyList<string>? under, string? provider,
-                                            IReadOnlyList<FaceGenSeed>? seeds, FaceSources? faceSources, bool needView)
-        => _assetLayers.SelectMeshes(entries, under, provider, seeds, faceSources, needView);
+                                            IReadOnlyList<FaceGenSeed>? seeds, FaceSources? faceSources, bool needView,
+                                            FileExclusion? exclude = null)
+        => _assetLayers.SelectMeshes(entries, under, provider, seeds, faceSources, needView, exclude);
     public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys, FaceSources? sources = null) => _assetLayers.NpcFaces(keys, sources);
     public FaceSources? IntoFaceSources(string? into) => _assetLayers.IntoFaceSources(into);
     public FaceSources? ProviderFaceSources(string? provider) => _assetLayers.ProviderFaceSources(provider);

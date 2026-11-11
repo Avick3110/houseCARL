@@ -14,7 +14,7 @@ internal static class NifBatch
     internal sealed record Call(IReadOnlyList<(string Path, bool OnDisk)> Entries, IReadOnlyList<string> Under, string? Provider,
                                 IReadOnlyList<FaceGenSeed> Seeds, string? SourceProvider, HashSet<string> Want,
                                 IReadOnlyList<string> Unknown, bool NeedView, ListRead PathsIn, ListRead UnderIn, ListRead IdsIn,
-                                RowWindow Window, bool CountsOnly, bool Json, int Cap, string? ToFile);
+                                RowWindow Window, bool CountsOnly, bool Json, int Cap, string? ToFile, FileExclusion? Exclude = null);
 
     const string Noun = "mesh(es)";
 
@@ -47,7 +47,7 @@ internal static class NifBatch
         string provider = c.Provider?.Trim() ?? "", source = c.SourceProvider?.Trim() ?? "";
         // With formids=, a source_provider= mod folder's own plugins are read after the active order, so a donor's NPC names its head.
         var sel = svc.SelectMeshes(c.Entries, c.Under, provider.Length > 0 ? provider : null, c.Seeds,
-                                   c.Seeds.Count > 0 ? svc.ProviderFaceSources(source) : null, c.NeedView);
+                                   c.Seeds.Count > 0 ? svc.ProviderFaceSources(source) : null, c.NeedView, c.Exclude);
         if (sel.Refusal is { } refused) return ToolAnswer.Refusal(c.Json, refused);
         // The capture's mods root; a call with no capture reads only files on disk, and takes the roots' when configured.
         var modsRoot = sel.Captured is { } captured ? captured.ModsRootOrNull

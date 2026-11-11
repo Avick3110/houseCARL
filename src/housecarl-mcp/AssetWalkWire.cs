@@ -32,6 +32,9 @@ static class AssetWalkWire
     internal static string PlaceArray(IReadOnlyList<string> paths)
         => JsonSerializer.Serialize(paths.Select(p => new Dictionary<string, string> { ["path"] = p }));
 
+    /// <summary>How the walk's file carries each of the walk's notes in its manifest.</summary>
+    internal const string NotePrefix = "walk note: ";
+
     /// <summary>The columns of the walk's spilled file, one row per node.</summary>
     static readonly string[] RowSchema = { "path", "edge", "pulled_by", "standing", "provider", "provider_kind", "keyed", "note", "error" };
 
@@ -48,7 +51,7 @@ static class AssetWalkWire
             "One row per node in walk order. 'standing' from_source rows are the place set: pass their paths as "
             + $"{ToolNames.Place} assets= with source_provider set to the walk's source. A keyed row sits at a FormID-named path.",
         };
-        notes.AddRange(d.Notes.Select(n => "walk note: " + n));
+        notes.AddRange(d.Notes.Select(n => NotePrefix + n));
         notes.AddRange(d.Cycles.Select(c => "walk cycle: " + c));
         if (noEpochBecause is not null)
             notes.Add("'epoch' is EMPTY: the load order could not be read for a fingerprint when this was written — " + noEpochBecause);

@@ -26,7 +26,8 @@ internal static class DecompileBatch
 
     /// <summary>The call's inputs, past the tool's own refusals.</summary>
     internal sealed record Call(IReadOnlyList<Entry> Entries, IReadOnlyList<string>? Under, string? Provider, string? SourceProvider,
-                                string? Patch, string? Into, string? OutPath, RowWindow Window, bool CountsOnly, bool Json, int Cap);
+                                string? Patch, string? Into, string? OutPath, RowWindow Window, bool CountsOnly, bool Json, int Cap,
+                                ListArg? Exclude = null);
 
     internal static ToolAnswer Run(LoadOrderService svc, Call c)
     {
@@ -36,23 +37,35 @@ internal static class DecompileBatch
         string provider = c.Provider?.Trim() ?? "";
         string sourceProvider = c.SourceProvider?.Trim() ?? "";
         var dataPaths = c.Entries.Where(e => !e.OnDisk).Select(e => e.Path).ToList();
-        bool selecting = dataPaths.Count > 0 || c.Under is { Count: > 0 } || provider.Length > 0;
+        bool selecting = dataPaths.Count > 0 || c.Under is { Count: > 0 } || provider.Length > 0 || c.Exclude is not null;
 
         // The selection reads the load order, and so does the default lane; out_path= over files on disk needs neither.
         if ((selecting || !chosenOutput) && svc.ConfigPromptOrNull() is { } cfgPrompt) return ToolAnswer.Refusal(json, cfgPrompt);
         if (!chosenOutput && LaneSentences.PatchIntoFolderRefusal(c.Patch, c.Into, ".psc") is { } patchInto)
             return ToolAnswer.Refusal(json, "error: " + patchInto);
 
-        ScriptSelectionData? sel = selecting ? svc.SelectScripts(dataPaths, c.Under, provider.Length > 0 ? provider : null) : null;
+        FileExclusion? exclude = null;
+        if (c.Exclude is not null)
+        {
+            var (ex, exErr) = FileExclusion.Read(c.Exclude, svc);
+            if (exErr is not null) return ToolAnswer.Refusal(json, exErr);
+            exclude = ex;
+        }
+        ScriptSelectionData? sel = selecting ? svc.SelectScripts(dataPaths, c.Under, provider.Length > 0 ? provider : null, exclude) : null;
         if (sel?.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
 
         // Rows in the order given: paths= entries as written (files on disk among them), then the selectors' matches.
         // The selection's first entries are the explicit Data paths, one each, in the order given.
+        // An explicit Data path exclude= removed has no row.
         var rows = new List<Row>();
+        var given = sel?.Scripts.Where(f => f.Given >= 0).ToDictionary(f => f.Given, f => f.Path);
         int nextExplicit = 0;
         foreach (var e in c.Entries)
-            rows.Add(e.OnDisk ? new Row(e.Path, true) : new Row(sel!.Scripts[nextExplicit++], false));
-        if (sel is not null) rows.AddRange(sel.Scripts.Skip(dataPaths.Count).Select(p => new Row(p, false)));
+        {
+            if (e.OnDisk) rows.Add(new Row(e.Path, true));
+            else if (given!.TryGetValue(nextExplicit++, out var kept)) rows.Add(new Row(kept, false));
+        }
+        if (sel is not null) rows.AddRange(sel.Scripts.Where(f => f.Given < 0).Select(f => new Row(f.Path, false)));
         int total = rows.Count;
         var window = c.Window.Apply(rows).Select(r => Locate(sel?.View, r, sourceProvider)).ToList();
 

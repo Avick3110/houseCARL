@@ -65,6 +65,8 @@ public static class NifTools
                      "refused. Each mesh is still read from its winning copy, and a note counts the ones another " +
                      "provider wins: that is source_provider=.")]
             string? provider = null,
+        [Description(FileExclusion.Text)]
+            ListArg? exclude = null,
         [Description("Optional. NPC FormID(s) whose FaceGen head mesh to read: " +
                      "'Meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' (Mutagen's spelling) is " +
                      "derived and read like any other path. 'XXXXXX:Plugin.esp', or the runtime form the game or " +
@@ -184,10 +186,12 @@ public static class NifTools
 
         // The load order is read for any Data path or selector, and for the paths section's links; files on disk alone need none.
         bool needView = entries.Any(e => !e.OnDisk) || ids.Count > 0 || underTokens.Length > 0
-                        || !string.IsNullOrWhiteSpace(provider) || want.Contains("paths");
+                        || !string.IsNullOrWhiteSpace(provider) || want.Contains("paths") || exclude is not null;
         if (needView && svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(json, prompt);
         if (idsIn.Demand is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
             return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
+        var (exclusion, exErr) = FileExclusion.Read(exclude, svc);
+        if (exErr is not null) return ToolAnswer.Refusal(json, exErr);
 
         // A token that is not a FormID is that token's own error row, whatever the door threw.
         var door = ids.Count > 0 ? FormIdDoor.For(svc) : null;
@@ -195,7 +199,7 @@ public static class NifTools
 
         return NifBatch.Run(svc, new NifBatch.Call(entries, underTokens, provider, seeds, source_provider, want, unknownTokens,
                                                    needView, pathsIn, underIn, idsIn, wantFile ? RowWindow.All : window, counts_only, json,
-                                                   Wire.Cap(max_chars), wantFile ? toFile : null));
+                                                   Wire.Cap(max_chars), wantFile ? toFile : null, exclusion));
     });
 
     /// <summary>Parse <c>sections=</c> into the recognized set plus the unrecognized tokens, which are surfaced rather

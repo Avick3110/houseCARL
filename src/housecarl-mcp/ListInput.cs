@@ -5,8 +5,11 @@ namespace HousecarlMcp;
 
 /// <summary>What a list parameter's file may hold: the artifact identity it takes, and whether a plain file splits
 /// on commas as well as line breaks.</summary>
-public sealed record ListKind(string Identity, bool CommaSeparates, string Example)
+public sealed record ListKind(string Identity, bool CommaSeparates, string Example, bool NoRowsIsEmpty = false)
 {
+    /// <summary>Asset paths to subtract: as <see cref="Path"/>, and a <c>path</c> artifact with no rows (a walk that
+    /// reached no file) is the empty set rather than a refusal.</summary>
+    public static readonly ListKind Exclusion = new("path", false, "C:\\work\\reached.jsonl", NoRowsIsEmpty: true);
     /// <summary>FormIDs: a plain list (commas or lines) or a <c>formid</c> artifact, epoch-checked by the consumer.</summary>
     public static readonly ListKind FormId = new("formid", true, "C:\\work\\list.jsonl");
     /// <summary>Asset paths or globs: lines, a JSON array, or a <c>path</c> artifact.</summary>
@@ -91,7 +94,7 @@ public static class ListDoor
 
         if (ResultArtifact.LooksLikeArtifact(content!))
         {
-            var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content!, kind.Identity, label);
+            var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content!, kind.Identity, label, kind.NoRowsIsEmpty);
             if (aerr is not null) return Refused(aerr);
             return new(tokens!.ToArray(), demand, "@" + path, null);
         }

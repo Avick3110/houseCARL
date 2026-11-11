@@ -166,7 +166,8 @@ public static class ResultArtifact
     }
 
     /// <summary>Parse an artifact's manifest and extract its identity-column tokens in row order, or return a named error; error rows are skipped, not identity-bearing — re-entry contract in docs/architecture/output-and-artifacts.md.</summary>
-    public static (Manifest? Manifest, List<string>? Tokens, string? Error) ReadIdentity(string path, string content)
+    /// <param name="noRowsIsEmpty">An artifact with no rows is an empty list, not a refusal: a set subtracted, where nothing is a real answer.</param>
+    public static (Manifest? Manifest, List<string>? Tokens, string? Error) ReadIdentity(string path, string content, bool noRowsIsEmpty = false)
     {
         Manifest? manifest;
         {
@@ -176,7 +177,7 @@ public static class ResultArtifact
         }
         if (manifest!.Identity is null)
             return (null, null, $"artifact '{path}' (from {manifest.Tool}) declares NO identity column — its rows are " +
-                                $"aggregate/count rows, not per-record rows, so there is no formid list to re-enter with. " +
+                                $"aggregate/count rows, not per-record rows, so there is no list to re-enter with. " +
                                 $"Re-run the producing query without group_by= (or with to_file=) to get a per-record artifact.");
 
         var tokens = new List<string>(manifest.RowCount);
@@ -188,7 +189,8 @@ public static class ResultArtifact
             try
             {
                 using var doc = JsonDocument.Parse(line);
-                if (doc.RootElement.TryGetProperty("error", out _)) { errorRows++; continue; }   // not identity-bearing — see the doc
+                // Not identity-bearing — see the doc. A null error is no error: the walk's rows carry the column on every node.
+                if (doc.RootElement.TryGetProperty("error", out var errProp) && errProp.ValueKind != JsonValueKind.Null) { errorRows++; continue; }
                 if (!doc.RootElement.TryGetProperty(manifest.Identity, out var idProp) || idProp.ValueKind != JsonValueKind.String)
                     return (null, null, $"artifact '{path}': row on line {lineNo} carries no '{manifest.Identity}' identity value — " +
                                         $"the file does not match its own manifest (was it edited?). Regenerate it from the producing query.");
@@ -200,9 +202,9 @@ public static class ResultArtifact
                                     $"the file does not match its own manifest (was it edited?). Regenerate it from the producing query.");
             }
         }
-        if (tokens.Count == 0)
+        if (tokens.Count == 0 && !(noRowsIsEmpty && errorRows == 0))
             return (null, null, errorRows > 0
-                ? $"artifact '{path}': all {errorRows} row(s) are ERROR rows (failed inputs of the producing call) — nothing resolved, so there is no formid list to re-enter with."
+                ? $"artifact '{path}': all {errorRows} row(s) are ERROR rows (failed inputs of the producing call) — nothing resolved, so there is no {manifest.Identity} list to re-enter with."
                 : $"artifact '{path}' has a manifest but no rows — the producing query matched nothing; there is no list to re-enter with.");
         return (manifest, tokens, null);
     }
@@ -344,4 +346,4 @@ public sealed class ArtifactTarget : IDisposable
 }
 
 /// <summary>An epoch obligation carried by an artifact-backed list input: the consuming call must compare <see cref="Epoch"/> against the build it captures, AFTER its own Capture() and inside the service.</summary>
-public sealed record ArtifactDemand(string Path, string Epoch);
+public sealed record ArtifactDemand(string Path, string Epoch, IReadOnlyList<string>? Notes = null);

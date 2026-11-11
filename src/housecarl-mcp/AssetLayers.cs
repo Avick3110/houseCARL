@@ -52,14 +52,15 @@ internal sealed partial class AssetLayers
         bool wholeSelection,
         string? provider = null,
         bool links = false,
-        FaceSources? faceSources = null)
+        FaceSources? faceSources = null,
+        FileExclusion? exclude = null)
     {
         var capture = CaptureForSelection(seeds, faceSources);
         var captured = capture.Captured;
         var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
         // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
         bool wholeIsResolved = wholeSelection || limit <= 0;
-        var chosen = FileSelection.Select(capture, relPaths, under, provider, wholeIsResolved ? MaxAssetPaths : null);
+        var chosen = FileSelection.Select(capture, relPaths, under, provider, wholeIsResolved ? MaxAssetPaths : null, exclude: exclude);
         if (chosen.Refusal is { } unknown)
             return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.RootFailures,
                                        view.ReadIncomplete, warnings, profileName, Refusal: unknown);
