@@ -361,6 +361,18 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Equal("window: rows 1–2 of 3 (limit=2, offset=0)", query.GetProperty("window").GetString());
     }
 
+    /// <summary>Files on disk and Data paths are rows in the order paths= gives them, interleaved.</summary>
+    [Fact]
+    public void FilesOnDiskAndDataPathsKeepThePathsOrder()
+    {
+        var disk = _p.Scratch("hcns-order.nif", NifSetMeshes.Guard());
+
+        var rows = Json(NifTools.NifInspect(_svc, paths: new[] { Arch1, disk, LooseRel }, format: "json")).GetProperty("rows");
+
+        Assert.Equal(new[] { Arch1, disk, LooseRel }, rows.EnumerateArray().Select(x => x.GetProperty("path").GetString()!).ToArray(),
+                     StringComparer.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void JsonPastTheCeilingIsSpilledWhole()
     {
