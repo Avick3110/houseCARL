@@ -199,14 +199,23 @@ public sealed class DecompileSelectionTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(wide)!);
         File.WriteAllBytes(wide, Pex("HcDsDisk", null, "DiskThing"));
         var o1 = Path.Combine(_p.Root, "o1");
-        var o2 = Path.Combine(_p.Root, "o2");
+        var o2 = Path.Combine(_p.Root, "pr", "99");                      // as long as each probe's folder, so as wide a row
         using var all = System.Text.Json.JsonDocument.Parse(
             DecompileTools.DecompileScript(_svc, paths: new[] { wide, LooseRel }, format: "json", out_path: o1));
         var widths = all.RootElement.GetProperty("rows").EnumerateArray().Select(e => e.GetRawText().Length).ToArray();
         Assert.True(widths[0] > widths[1] + 1, string.Join(",", widths));
+        // The smallest ceiling that lists the wide row alone is the json reserve plus its width, measured, not copied.
+        int probes = 0, lo = 1, hi = 1 << 20;
+        while (lo < hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            using var one = System.Text.Json.JsonDocument.Parse(DecompileTools.DecompileScript(_svc, paths: new[] { wide },
+                format: "json", out_path: Path.Combine(_p.Root, "pr", $"{probes++:D2}"), max_chars: mid));
+            if (one.RootElement.GetProperty("rows").GetArrayLength() == 1) hi = mid; else lo = mid + 1;
+        }
 
         var r = DecompileTools.DecompileScript(_svc, paths: new[] { wide, LooseRel }, format: "json", out_path: o2,
-                                               max_chars: 4096 + widths[0] - 1);
+                                               max_chars: lo - 1);
 
         using var doc = System.Text.Json.JsonDocument.Parse(r);
         Assert.Equal(0, doc.RootElement.GetProperty("rows").GetArrayLength());
