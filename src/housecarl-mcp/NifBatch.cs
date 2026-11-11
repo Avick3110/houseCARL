@@ -82,7 +82,6 @@ internal static class NifBatch
         var sb = new StringBuilder();
         if (ctx.C.Window.IsPaged || shown != total) sb.Append(" in this window of ").Append(total).Append(" selected");
         if (ctx.Provider.Length > 0) sb.Append(", provider \"").Append(ctx.Provider).Append('"');
-        if (ctx.Source.Length > 0) sb.Append(", source \"").Append(ctx.Source).Append('"');
         return sb.ToString();
     }
 
@@ -110,7 +109,7 @@ internal static class NifBatch
         {
             var sb = new StringBuilder();
             Artifacts.AppendSpillStateText(sb, Spill(svc, ctx, ctx.Sel.Rows, results, notes));
-            spill = sb.ToString();
+            spill = sb.ToString().TrimEnd('\n');
             body = NifWire.Render(batch, c.Want, c.Unknown, c.Cap, out shown, reserve + spill.Length, headerTail);
         }
         var counts = TransportAccounting.Tally(total, results.Count, shown, c.Window, notes.Count);
