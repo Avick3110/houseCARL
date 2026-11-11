@@ -69,7 +69,7 @@ public static class SkyPatcherOverlay
         /// <summary>Why the game cannot see EditorIDs of this Mutagen type (po3 Tweaks missing), or null when it can; <see cref="ResolveEditorId"/> then finds nothing for the type.</summary>
         string? EditorIdGap(string? mutagenType) => null;
 
-        /// <summary>What the call's EditorID table says of a name beyond hit or miss: that a record of another type holds it first, or that it names several records and the first loaded keeps it; null when there is nothing to add.</summary>
+        /// <summary>What the call's EditorID table says of a name beyond hit or miss: that it names several records and the first loaded keeps it; null when there is nothing to add.</summary>
         string? EditorIdNote(string editorId, string? mutagenType) => null;
     }
 

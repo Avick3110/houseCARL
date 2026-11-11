@@ -366,4 +366,16 @@ public sealed class SkyPatcherConflictsTests
     [Fact]
     public void TheSetAndAccumulateSetsAreDisjoint() =>
         Assert.Empty(SkyPatcherConflicts.SetClassSemantics.Intersect(SkyPatcherConflicts.AccumulatingSemantics));
+
+    // one record named by FormID in one file and by EditorID in another is one target, so the two writes conflict
+    [Fact]
+    public void ARecordNamedByFormIdAndByEditorIdIsOneTarget()
+    {
+        var resolver = new SkyPatcherOverlayHarness.StubResolver();
+        resolver.EditorIds["IronSword"] = new FormKey(ModKey.FromFileName("Skyrim.esm"), 0x12EB7);
+        var report = SkyPatcherConflicts.Detect(new SkyPatcherDiscovery.FolderScan("weapon", WeapCat, PatchingEnabled: true,
+            Files: new[] { Ini("a.ini", $"filterByWeapons={Target}:attackDamage=40"), Ini("z.ini", "filterByWeapons=IronSword:attackDamage=60") }),
+            Catalog, FieldMap, resolver);
+        Assert.Equal("012EB7:Skyrim.esm", Assert.Single(report.Conflicts).Target);
+    }
 }

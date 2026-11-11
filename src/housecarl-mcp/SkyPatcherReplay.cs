@@ -280,25 +280,20 @@ internal sealed partial class AssetLayers
         }
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
-            => Find(editorId, mutagenType, out var scope) is { } e && e.In(scope) ? e.First : null;
+            => Find(editorId, mutagenType) is { Count: > 0 } holders ? holders[0].Record : null;
 
         public string? EditorIdNote(string editorId, string? mutagenType)
-        {
-            if (Find(editorId, mutagenType, out var scope) is not { } e) return null;
-            if (!e.In(scope))
-                return $"first names {FormIdToken.Of(e.First)} ({e.Type}, loaded first by {e.Plugin}) in the game's one EditorID map, so SkyPatcher finds no {mutagenType} by it";
-            return e.Others is { Count: > 0 } others
-                ? $"names {others.Count + 1} records; the game uses the first loaded, {FormIdToken.Of(e.First)} from {e.Plugin}"
+            => Find(editorId, mutagenType) is { Count: > 1 } holders
+                ? $"names {holders.Count} records; the game uses the first loaded, {FormIdToken.Of(holders[0].Record)} from {holders[0].Plugin}"
                 : null;
-        }
 
-        /// <summary>The table's entry for a name, covering the scope first; null for a blank name, a type the game keeps no names of here, or a scope that names no type.</summary>
-        SkyPatcherEditorIdTable.Entry? Find(string editorId, string? mutagenType, out IReadOnlyList<Type>? scope)
+        /// <summary>The records loaded under a name within the scope, first loaded first, covering the call's scopes at the first lookup; empty for a blank name, a type the game keeps no names of here, or a scope that names no type.</summary>
+        IReadOnlyList<SkyPatcherEditorIdTable.Holder> Find(string editorId, string? mutagenType)
         {
-            scope = null;
-            if (string.IsNullOrWhiteSpace(editorId)) return null;
-            if (EditorIdGap(mutagenType) is not null) return null;   // the game cannot see this name, so neither does the replay
-            if (mutagenType is not null && (scope = _layers.ResolveFormScope(mutagenType)) is null) return null;
+            IReadOnlyList<Type>? scope = null;
+            if (string.IsNullOrWhiteSpace(editorId)) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
+            if (EditorIdGap(mutagenType) is not null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();   // the game cannot see this name, so neither does the replay
+            if (mutagenType is not null && (scope = _layers.ResolveFormScope(mutagenType)) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if (!_covered)
             {
                 // The first lookup walks once for every scope the call's lines name, so later lookups walk nothing.
