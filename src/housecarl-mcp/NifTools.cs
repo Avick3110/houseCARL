@@ -39,7 +39,7 @@ public static class NifTools
          "Source — source_provider= (empty = the VFS winner).\n" +
          "Project — sections= (empty = the summary).\n" +
          "Transport — limit=, offset=, counts_only=, format=, max_chars=, to_file=. One block per mesh, then the " +
-         "[accounting] line; an answer past max_chars is written whole to a results file it names.\n\n" +
+         "[accounting] line (a census or to_file= manifest has none); an answer past max_chars is written whole to a results file it names.\n\n" +
          "A per-path failure (absent, a source_provider= name nothing provides, a mesh the library refuses, a " +
          "malformed FormID) is that path's row and the rest still read; an unreadable archive is named once. " +
          "Read-only; " + ToolNames.NifSet + " is the write counterpart.")]
@@ -112,7 +112,7 @@ public static class NifTools
             int offset = 0,
         [Description("Optional. Return totals instead of one block per mesh: how many read and how many did not (absent " +
                      "among them), read loose, from an archive or as a file on disk, Skyrim SE streams or not, and " +
-                     "meshes with unknown blocks, over the whole selection. Every mesh is still read.")]
+                     "meshes with unknown blocks, over the whole selection, with no [accounting] line. Every mesh is still read.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) | 'json' (one row per mesh, machine-readable: the summary as fields and " +
                      "the requested sections as their text, accounting in-band).")]
