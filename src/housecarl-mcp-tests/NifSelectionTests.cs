@@ -148,6 +148,24 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Contains("'GuardShape'", r);
     }
 
+    /// <summary>A full path into the mods tree, alone and without sections=paths, still names its load-order address,
+    /// on a mesh that reads and on one that does not, and the selection captures no view for it.</summary>
+    [Fact]
+    public void AModsTreePathAloneNamesItsLoadOrderAddress()
+    {
+        var good = Path.Combine(_p.Mod("Arch"), LooseRel);
+        PlaceInstance.Loose(_p.Mod("Fix"), @"meshes\hcns\bad.nif", BsaBuilder.Bytes("HCNS-NOT-A-NIF", 32));
+        var bad = Path.Combine(_p.Mod("Fix"), @"meshes\hcns\bad.nif");
+
+        var ok = NifTools.NifInspect(_svc, paths: new[] { good });
+        var failed = NifTools.NifInspect(_svc, paths: new[] { bad });
+
+        Assert.Contains("'FemaleHead'", ok);
+        Assert.Contains($"note: this file is in the mod folder 'Arch' and was read as the file on disk; paths=[\"{LooseRel}\"] source_provider=\"Arch\" reads that copy through the load order.", ok);
+        Assert.Contains($"note: this file is in the mod folder 'Fix' and was read as the file on disk; paths=[\"meshes\\hcns\\bad.nif\"] source_provider=\"Fix\" reads that copy through the load order.", failed);
+        Assert.Null(_svc.SelectMeshes(new[] { (good, true) }, Array.Empty<string>(), null, Array.Empty<FaceGenSeed>(), null, needView: false).Captured);
+    }
+
     [Fact]
     public void AMissingFileOnDiskIsItsOwnRow()
     {
