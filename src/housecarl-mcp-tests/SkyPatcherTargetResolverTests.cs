@@ -144,4 +144,29 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Contains("formList\\HcTargets.ini:1: 'formsToReplace=HcPlainCuirass=HcBothBoots' — form(s) not resolvable; skipped.",
             Post(w, "000840:HcSpRel.esp", "Items"));
     }
+
+    // A form-list item EditorID is looked up among every type: a call that looks none up walks only its own scopes.
+    [Fact]
+    public void ACallThatLooksUpNoFormListItemWalksOnlyItsScopes()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByArmors=HcPlainCuirass:value=3\r\n"),
+            ("../formList/HcList.ini", "filterByFormLists=HcSpRel.esp|840:formsToAdd=HcHeelBoots\r\n") }, records: AddList);
+        var before = w.Svc.Counters.EditorIdTypesWalked;
+        Assert.Contains("Value = 3", Post(w, w.Plain, "Value"));
+        Assert.Equal(1, w.Svc.Counters.EditorIdTypesWalked - before);
+        Assert.Contains("Items = [list: 2 item(s)]", Post(w, "000840:HcSpRel.esp", "Items"));
+    }
+
+    // Without Tweaks a form-list item EditorID resolves for a type the game keeps names of, and a miss names those types.
+    [Fact]
+    public void WithoutTweaksAFormListItemEditorIdOfAKeptTypeResolves()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini,
+            "filterByFormLists=HcSpRel.esp|840:formsToAdd=HcHeelKw\r\nfilterByFormLists=HcSpRel.esp|840:formsToAdd=HcHeelBoots\r\n") },
+            subfolder: "formList", tweaks: false, records: AddList);
+        var read = Post(w, "000840:HcSpRel.esp", "Items");
+        Assert.Contains("Items = [list: 2 item(s)]", read);
+        Assert.Contains("'formsToAdd=HcHeelBoots' — EditorID 'HcHeelBoots' finds nothing: powerofthree's Tweaks (SKSE\\Plugins\\po3_Tweaks.dll) is not in this order, so of SkyrimMajorRecord records the game keeps EditorIDs only of ", read);
+        Assert.DoesNotContain("HcHeelKw' finds nothing", read);
+    }
 }

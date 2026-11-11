@@ -275,9 +275,22 @@ internal sealed partial class AssetLayers
         {
             if (_tweaksMissing is null) return null;
             var key = mutagenType ?? "";
-            if (!_gaps.TryGetValue(key, out var gap)) _gaps[key] = gap = SkyPatcherEditorIds.Gap(_tweaksMissing, mutagenType);
+            if (!_gaps.TryGetValue(key, out var gap)) _gaps[key] = gap = GroupGap(mutagenType) ?? SkyPatcherEditorIds.Gap(_tweaksMissing, mutagenType);
             return gap;
         }
+
+        /// <summary>The gap of a group scope holding a type the game keeps names of without Tweaks, naming those types; null for any other scope.</summary>
+        string? GroupGap(string? mutagenType)
+        {
+            if (mutagenType is null || SkyPatcherEditorIds.Gap(_tweaksMissing, mutagenType) is null || Kept(mutagenType) is not { Count: > 0 } kept) return null;
+            return $"{_tweaksMissing}, so of {mutagenType} records the game keeps EditorIDs only of {string.Join(", ", kept)} records";
+        }
+
+        /// <summary>The display names in a scope whose EditorIDs the game keeps here.</summary>
+        IReadOnlyList<string>? Kept(string mutagenType)
+            => Scope(mutagenType) is { } types && TypeLookup.DisplayNames(types) is { } names
+                ? names.Where(n => SkyPatcherEditorIds.Gap(_tweaksMissing, n) is null).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                : null;
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
             => Find(editorId, mutagenType) is { Count: > 0 } holders ? holders[0].Record : null;
@@ -293,14 +306,16 @@ internal sealed partial class AssetLayers
             IReadOnlyList<Type>? scope;
             // An untyped lookup misses: contract in docs/architecture/skypatcher-layer.md.
             if (mutagenType is null || string.IsNullOrWhiteSpace(editorId)) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
-            if (EditorIdGap(mutagenType) is not null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();   // the game cannot see this name, so neither does the replay
             if ((scope = Scope(mutagenType)) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
+            // The game cannot see this name, so neither does the replay; a group with a kept type is gated per type by the table.
+            if (EditorIdGap(mutagenType) is not null && GroupGap(mutagenType) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if (!_covered)
             {
-                // The first lookup walks once for every scope the call's lines name, so later lookups walk nothing.
+                // The first lookup walks once for every scope the call's lines name, so later lookups walk nothing;
+                // a scope of every type is left to its own first lookup, so a call that never looks one up never walks it.
                 _covered = true;
                 _table.Cover(_callScopes().OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)
-                    .SelectMany(s => Scope(s) ?? Array.Empty<Type>()));
+                    .Select(Scope).OfType<IReadOnlyList<Type>>().Where(s => !EveryType(s)).SelectMany(s => s));
             }
             var e = _table.Find(editorId, scope, out var incomplete);
             if (incomplete) _consumedIncomplete = true;
@@ -315,6 +330,9 @@ internal sealed partial class AssetLayers
             if (!_scopes.TryGetValue(scope, out var types)) _scopes[scope] = types = _layers.ResolveFormScope(scope);
             return types;
         }
+
+        /// <summary>Whether a scope holds every record type (form-list items).</summary>
+        bool EveryType(IReadOnlyList<Type> scope) => Scope(nameof(SkyrimMajorRecord)) is { } all && scope.Count >= all.Count;
 
         // The winners the lines name (donors, keyword sources, EditorID targets), each read once per replay context
         // through the door, so the same donor named for every record and line is read once.

@@ -40,6 +40,7 @@ internal sealed class SkyPatcherEditorIdTable
         if (fresh.Count == 0) return;
         _swept.UnionWith(fresh);
         Interlocked.Increment(ref _view.Counters.EditorIdSweeps);
+        Interlocked.Add(ref _view.Counters.EditorIdTypesWalked, fresh.Count);
         var kinds = new Dictionary<Type, (Type Getter, string Name)?>();
         int before = _unreadable.Count;
         foreach (var (fk, body, position, plugin) in _view.RecordVersionsOfType(fresh, _unreadable))

@@ -64,7 +64,12 @@ sealed class SkyPatcherRelevanceWorld : IDisposable
         Both = RecordsWorld.Fid(both.FormKey);
 
         foreach (var (name, text) in inis)
-            File.WriteAllText(Path.Combine(iniDir, name), text);
+        {
+            // a name like ../formList/x.ini lands in a sibling type folder
+            var path = Path.GetFullPath(Path.Combine(iniDir, name));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
 
         OtherPath = Path.Combine(mods, "HcSpRelOther", OtherName);
         if (otherPlugin)

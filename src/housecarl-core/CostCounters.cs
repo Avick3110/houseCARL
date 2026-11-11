@@ -52,6 +52,9 @@ public sealed class CostCounters
     /// <summary>Load-order walks the SkyPatcher EditorID table made to fill itself.</summary>
     public long EditorIdSweeps;
 
+    /// <summary>Record types those walks covered, each counted once per walk.</summary>
+    public long EditorIdTypesWalked;
+
     /// <summary>Off-order files a comparison pole swept.</summary>
     public long OffOrderSweeps;
 
