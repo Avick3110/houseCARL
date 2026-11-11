@@ -127,7 +127,7 @@ public static class SkyPatcherDiscovery
                 notes.Add($"subfolder '{subfolder}' is not a documented SkyPatcher record type — its {files.Count} INI(s) are listed but cannot be interpreted (not in the grammar reference; verify the folder name or the reference version).");
             bool enabled = PatcherRuns(switches, subfolder, f);
             if (!enabled)
-                notes.Add($"SkyPatcher.ini {SwitchOffReason(switches, subfolder, f)} — its {files.Count} INI(s) are present but the DLL skips the whole subfolder.");
+                notes.Add($"{SwitchesName(f)} {SwitchOffReason(switches, subfolder, f)} — its {files.Count} INI(s) are present but the DLL skips the whole subfolder.");
             folders.Add(new FolderScan(subfolder, cat, enabled, files.OrderBy(x => x.SortKey, FileOrder).ToList(),
                                        SwitchUnknown: switches.Unreadable is not null));
         }
@@ -219,6 +219,9 @@ public static class SkyPatcherDiscovery
            || (switches.Keys.TryGetValue(subfolder, out var on) ? on
                : (format ?? Format).RunsWithoutKey(subfolder));
 
+    /// <summary>The switches file's name as the answers spell it ('SkyPatcher.ini').</summary>
+    public static string SwitchesName(SkyPatcherFormat? format = null) => Path.GetFileName((format ?? Format).SwitchesFile);
+
     /// <summary>The clause naming why a patcher that does not run is off: its switch at 0, no switch in the file, or no loose file.</summary>
     public static string SwitchOffReason(Switches switches, string subfolder, SkyPatcherFormat? format = null)
     {
@@ -242,7 +245,7 @@ public static class SkyPatcherDiscovery
                 if (noteMissing)
                 {
                     var on = string.Join(", ", f.Passes.Where(p => f.RunsWithoutKey(p.Folder)).Select(p => p.Name));
-                    notes.Add($"no loose SkyPatcher.ini in this order{(winner is null ? "" : " (only inside a BSA)")} — without its keys every patcher but {on} is off.");
+                    notes.Add($"no loose {SwitchesName(f)} in this order{(winner is null ? "" : " (only inside a BSA)")} — without its keys every patcher but {on} is off.");
                 }
                 return new Switches(map, null, Loose: false);
             }
@@ -255,7 +258,7 @@ public static class SkyPatcherDiscovery
         }
         catch (Exception ex)
         {
-            notes.Add($"SkyPatcher.ini could not be read ({ex.Message}) — whether each patcher runs is UNKNOWN; every folder is marked so, and its lines are replayed as if its patcher runs.");
+            notes.Add($"{SwitchesName(f)} could not be read ({ex.Message}) — whether each patcher runs is UNKNOWN; every folder is marked so, and its lines are replayed as if its patcher runs.");
             return new Switches(map, ex.Message);
         }
     }

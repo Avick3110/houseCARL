@@ -155,6 +155,39 @@ public sealed class RuntimeFormatSourceTests
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 
+    // the scan's switches notes and the draft's path refusals name the row's switches file and name token; the shipped row spells SkyPatcher.ini and .ini
+    [Fact]
+    public void TheSwitchesNotesAndTheDraftPathRefusalsNameTheRowsFile()
+    {
+        var root = ("\"root\": \"SKSE/Plugins/SkyPatcher\"", "\"root\": \"SKSE/Patcher\"");
+        var rekeyed = With(root, ("\"file\": \"SKSE/Plugins/SkyPatcher.ini\"", "\"file\": \"SKSE/Patcher.ini\""), ("\"keyPrefix\": \"iEnable\"", "\"keyPrefix\": \"bUse\""));
+        var gone = With(root, ("\"file\": \"SKSE/Plugins/SkyPatcher.ini\"", "\"file\": \"SKSE/Gone.ini\""));
+        Assert.Equal("SkyPatcher.ini", SkyPatcherDiscovery.SwitchesName());
+        Assert.Equal("Patcher.ini", SkyPatcherDiscovery.SwitchesName(rekeyed));
+
+        var dir = Path.Combine(Path.GetTempPath(), "hc-runtime-switches-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var mod = Path.Combine(dir, "mods", "A", "SKSE");
+            Directory.CreateDirectory(Path.Combine(mod, "Patcher", "weapon"));
+            File.WriteAllText(Path.Combine(mod, "Patcher", "weapon", "a.ini"), "attackDamage=1");
+            File.WriteAllText(Path.Combine(mod, "Patcher.ini"), "[Patcher]\niEnableWeaponPatching=1\n");
+            foreach (var d in new[] { "overwrite", "Data" }) Directory.CreateDirectory(Path.Combine(dir, d));
+            using var r = AssetResolver.Build(Path.Combine(dir, "overwrite"), Path.Combine(dir, "mods"), Path.Combine(dir, "Data"), new[] { "A" }, Array.Empty<ActiveArchive>());
+            IReadOnlyList<string> Notes(SkyPatcherFormat f) => SkyPatcherDiscovery.Scan(r.Capture(), SkyPatcherCatalog.Load(), _ => false, format: f).Notes;
+            Assert.Contains(Notes(rekeyed), n => n.StartsWith("Patcher.ini has no bUse…Patching key for 'weapon'"));
+            Assert.Contains(Notes(gone), n => n.StartsWith("no loose Gone.ini in this order"));
+            using (new FileStream(Path.Combine(mod, "Patcher.ini"), FileMode.Open, FileAccess.Read, FileShare.None))
+                Assert.Contains(Notes(rekeyed), n => n.StartsWith("Patcher.ini could not be read"));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+
+        var cfg = With("\"nameToken\": \".ini\"", "\"nameToken\": \".cfg\"");
+        Assert.Contains("the .ini file the draft", SkyPatcherDraft.Prepare("", "weapon", SkyPatcherCatalog.Load(), out _));
+        Assert.Contains("the .cfg file the draft", SkyPatcherDraft.Prepare("", "weapon", SkyPatcherCatalog.Load(), out _, cfg));
+        Assert.Contains("the .cfg file the draft", SkyPatcherDraft.Prepare("a.cfg", "weapon", SkyPatcherCatalog.Load(), out _, cfg));
+    }
+
     // a changed delimiter changes how the parser splits a line and the printed grammar
     [Fact]
     public void ChangingADelimiterChangesTheSkillText()

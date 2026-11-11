@@ -66,7 +66,7 @@ public static class SkyPatcherDraft
                 ? live.Folders[at].PatchingEnabled
                 : SkyPatcherDiscovery.PatcherRuns(live.PatcherSwitches, Subfolder);
             if (!folderEnabled)
-                warnings?.Add($"{IniPath}: SkyPatcher.ini {SkyPatcherDiscovery.SwitchOffReason(live.PatcherSwitches, Subfolder)}"
+                warnings?.Add($"{IniPath}: {SkyPatcherDiscovery.SwitchesName()} {SkyPatcherDiscovery.SwitchOffReason(live.PatcherSwitches, Subfolder)}"
                               + " — the DLL skips the whole folder, so the draft would apply nothing once placed and this post state is the plain winner.");
 
             var folders = new List<SkyPatcherDiscovery.FolderScan>(live.Folders);
@@ -106,14 +106,14 @@ public static class SkyPatcherDraft
     {
         plan = null;
         var path = (iniPath ?? "").Trim();
+        var token = (format ?? RuntimeFormats.SkyPatcher).NameToken;
         if (path.Length == 0)
-            return "the draft INI path is empty — give the absolute path to the .ini file the draft would be placed as.";
-        if (PathArguments.NotAbsolute(path, "the draft INI path", "the .ini file the draft would be placed as",
+            return $"the draft INI path is empty — give the absolute path to the {token} file the draft would be placed as.";
+        if (PathArguments.NotAbsolute(path, "the draft INI path", $"the {token} file the draft would be placed as",
                                       "C:\\MO2\\mods\\MyPatch\\SkyPatcher\\weapon\\MyPatch.ini") is { } notAbsolute)
             return notAbsolute;
         try { path = Path.GetFullPath(path); }
         catch (Exception ex) { return $"the draft INI path '{path}' is not a usable path: {ex.Message}"; }
-        var token = (format ?? RuntimeFormats.SkyPatcher).NameToken;
         if (!SkyPatcherDiscovery.HasIniName(Path.GetFileName(path), format))
             return $"the draft '{path}' has no '{token}' in its name — SkyPatcher reads only files with '{token}' in the name from its type folders.";
         if (!File.Exists(path))
