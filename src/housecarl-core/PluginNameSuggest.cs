@@ -6,7 +6,7 @@ namespace HousecarlCore;
 /// Anything clearing none of these is not offered, and matches are de-duplicated and capped.</summary>
 public static class PluginNameSuggest
 {
-    static readonly string[] PluginExts = PluginFile.Extensions;   // the one shared home (HousecarlCore.PluginFile) — no divergent copy
+    static readonly string[] PluginExts = PluginFile.Extensions;   // the shared plugin extensions (HousecarlCore.PluginFile); SkyPatcher's filename gate reads its own list from runtime-formats.json
 
     /// <summary>Up to <paramref name="max"/> nearest candidate names for a missed <paramref name="query"/>, best
     /// first; empty when nothing clears the relevance bar. Case-insensitive throughout.</summary>

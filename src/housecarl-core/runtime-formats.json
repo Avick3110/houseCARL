@@ -1,5 +1,5 @@
 {
-"_about": "One row per runtime-layer format: where its files are found, the order they apply in, who wins a conflict and how a line is split. The server reads these values and the build generates the skill paragraphs from them (docs/architecture/runtime-formats.md). Each block's 'source' names the upstream text it is taken from; 'reading' marks a rule upstream does not state.",
+"_about": "One row per runtime-layer format: where its files are found, the order they apply in, who wins a conflict and how a line is split. The server reads these values and the generator's skill-text mode, run by hand, prints the skill paragraphs from them (docs/architecture/runtime-formats.md). Each block's 'source' names the upstream text it is taken from; 'reading' marks a rule upstream does not state.",
 "formats": [
  {
   "format": "SkyPatcher",
