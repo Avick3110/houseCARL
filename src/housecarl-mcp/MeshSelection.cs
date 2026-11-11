@@ -21,29 +21,35 @@ internal sealed partial class AssetLayers
     /// counted). <paramref name="needView"/> captures the view even when no entry is a Data path.</summary>
     internal MeshSelectionData SelectMeshes(IReadOnlyList<(string Path, bool OnDisk)> entries, IReadOnlyList<string>? under,
                                             string? provider, IReadOnlyList<FaceGenSeed>? seeds, FaceSources? faceSources,
-                                            bool needView)
+                                            bool needView, FileExclusion? exclude = null)
     {
         var dataPaths = entries.Where(e => !e.OnDisk).Select(e => e.Path).ToList();
-        bool selecting = dataPaths.Count > 0 || under is { Count: > 0 } || !string.IsNullOrWhiteSpace(provider) || seeds is { Count: > 0 };
+        bool selecting = dataPaths.Count > 0 || under is { Count: > 0 } || !string.IsNullOrWhiteSpace(provider) || seeds is { Count: > 0 }
+                         || exclude is not null;
         if (!selecting)
         {
             var onlyDisk = entries.Select(e => new MeshRow(e.Path, true)).ToList();
             return new MeshSelectionData(needView ? _host.CaptureAssets() : null, onlyDisk, 0, 0, Array.Empty<string>());
         }
         var capture = CaptureForSelection(seeds, faceSources);
-        var chosen = FileSelection.Select(capture, dataPaths, under, provider, MaxAssetPaths, filesOnDisk: dataPaths.Count < entries.Count);
+        var chosen = FileSelection.Select(capture, dataPaths, under, provider, MaxAssetPaths, filesOnDisk: dataPaths.Count < entries.Count,
+                                          exclude: exclude);
         MeshSelectionData Refused(string why) => new(capture.Captured, Array.Empty<MeshRow>(), 0, 0, chosen.Notes, why);
         if (chosen.Refusal is { } unknown) return Refused(unknown);
         if (chosen.StoppedAt is { } stoppedAt)
             return Refused(FileSelection.BoundRefusal(stoppedAt, MaxAssetPaths, "read", "meshes/**/*.nif"));
 
-        // paths= entries as given, files on disk among them; the selection's first entries are the Data paths, one each, in order.
+        // paths= entries as given, files on disk among them; a Data path exclude= removed has no row.
         var rows = new List<MeshRow>(chosen.Entries.Count + entries.Count);
+        var given = chosen.Entries.Where(f => f.Given >= 0).ToDictionary(f => f.Given, f => f.Path);
         int next = 0;
         foreach (var e in entries)
-            rows.Add(e.OnDisk ? new MeshRow(e.Path, true) : new MeshRow(chosen.Entries[next++].Path, false));
+        {
+            if (e.OnDisk) rows.Add(new MeshRow(e.Path, true));
+            else if (given.TryGetValue(next++, out var kept)) rows.Add(new MeshRow(kept, false));
+        }
         int notMeshes = 0, tints = 0;
-        foreach (var f in chosen.Entries.Skip(dataPaths.Count))
+        foreach (var f in chosen.Entries.Where(f => f.Given < 0))
         {
             if (f.FormId is not null)
             {

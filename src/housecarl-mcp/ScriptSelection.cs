@@ -2,10 +2,10 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>A script selection over one asset view: the Data paths in order (the explicit paths first, one each as
-/// given, then the <c>under=</c> or whole-provider matches that are <c>.pex</c>), how many matched files were not
-/// scripts, the selector notes, and the refusal under which nothing was selected.</summary>
-internal sealed record ScriptSelectionData(AssetResolver.AssetView View, IReadOnlyList<string> Scripts, int NotScripts,
+/// <summary>A script selection over one asset view: the entries in order (the explicit paths first, one each as
+/// given unless <c>exclude=</c> removed it, then the <c>under=</c> or whole-provider matches that are <c>.pex</c>), how
+/// many matched files were not scripts, the selector notes, and the refusal under which nothing was selected.</summary>
+internal sealed record ScriptSelectionData(AssetResolver.AssetView View, IReadOnlyList<SelectedFile> Scripts, int NotScripts,
                                            IReadOnlyList<string> Notes, string? Refusal = null);
 
 /// <summary>The copy of one selected script a decompile reads: the source, the winner's description when the source
@@ -17,23 +17,23 @@ internal sealed partial class AssetLayers
     /// <summary>The scripts the shared selection names (<see cref="FileSelection.Select"/>, asset_status's selectors
     /// and refusals), over one captured view: explicit paths as given, then each match that is a <c>.pex</c>; a
     /// match that is not is counted, not listed. The path bound is asset_status's; a stop is refused here in decompile's words.</summary>
-    internal ScriptSelectionData SelectScripts(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under, string? provider)
+    internal ScriptSelectionData SelectScripts(IReadOnlyList<string> relPaths, IReadOnlyList<string>? under, string? provider,
+                                               FileExclusion? exclude = null)
     {
         var capture = CaptureForSelection(null, null);
         var view = capture.Captured.View;
-        var chosen = FileSelection.Select(capture, relPaths, under, provider, MaxAssetPaths);
-        ScriptSelectionData Refused(string why) => new(view, Array.Empty<string>(), 0, chosen.Notes, why);
+        var chosen = FileSelection.Select(capture, relPaths, under, provider, MaxAssetPaths, exclude: exclude);
+        ScriptSelectionData Refused(string why) => new(view, Array.Empty<SelectedFile>(), 0, chosen.Notes, why);
         if (chosen.Refusal is { } unknown) return Refused(unknown);
         if (chosen.StoppedAt is { } stoppedAt)
             return Refused(FileSelection.BoundRefusal(stoppedAt, MaxAssetPaths, "decompiled", "scripts/**/*.pex"));
-        var scripts = new List<string>(chosen.Entries.Count);
+        var scripts = new List<SelectedFile>(chosen.Entries.Count);
         int notScripts = 0;
-        for (int i = 0; i < chosen.Entries.Count; i++)
+        foreach (var f in chosen.Entries)
         {
-            // The first relPaths.Count entries are the explicit paths, one each, in the order given; only matches are filtered.
-            var path = chosen.Entries[i].Path;
-            if (i >= relPaths.Count && !path.EndsWith(".pex", StringComparison.OrdinalIgnoreCase)) { notScripts++; continue; }
-            scripts.Add(path);
+            // The explicit paths are kept as given; only matches are filtered.
+            if (f.Given < 0 && !f.Path.EndsWith(".pex", StringComparison.OrdinalIgnoreCase)) { notScripts++; continue; }
+            scripts.Add(f);
         }
         return new ScriptSelectionData(view, scripts, notScripts, chosen.Notes);
     }

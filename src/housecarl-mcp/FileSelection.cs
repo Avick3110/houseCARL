@@ -3,8 +3,9 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>One entry of a file selection: the path, and on a <c>formids=</c> row the NPC, the slot, the other half's path and the face door's line for a template root. <c>Error</c> answers as its own row.</summary>
-internal readonly record struct SelectedFile(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null, string? FaceNote = null);
+/// <summary>One entry of a file selection: the path, and on a <c>formids=</c> row the NPC, the slot, the other half's path and the face door's line for a template root. <c>Error</c> answers as its own row. <c>Given</c> is an explicit path's index in the list given, -1 on any other row.</summary>
+internal readonly record struct SelectedFile(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null, string? FaceNote = null,
+                                             int Given = -1);
 
 /// <summary>What a file selection reads: the call's asset capture, the <c>formids=</c> seeds it was taken for and,
 /// when they name an NPC, the face door's answers over the pin taken with it, or why the load order could not be read.</summary>
@@ -34,14 +35,16 @@ internal static class FileSelection
     /// only that <c>under=</c> or whole-provider enumeration, which stops once the selection would cross it and sets
     /// <see cref="FileSelectionResult.StoppedAt"/>; explicit and seed rows are never cut, only leave it less room. The
     /// caller words the stop. <paramref name="filesOnDisk"/>: the caller reads files on disk beside the selection, which
-    /// are explicit paths to the whole-provider test.</summary>
+    /// are explicit paths to the whole-provider test. <paramref name="exclude"/> then removes what it names from every
+    /// row, an explicit path's included.</summary>
     internal static FileSelectionResult Select(
         SelectionCapture capture,
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under,
         string? provider,
         int? maxPaths,
-        bool filesOnDisk = false)
+        bool filesOnDisk = false,
+        FileExclusion? exclude = null)
     {
         var (view, seeds, faces, noOrder) = (capture.Captured.View, capture.Seeds, capture.Faces, capture.NoOrder);
         provider = provider?.Trim() is { Length: > 0 } named ? named : null;
@@ -53,7 +56,7 @@ internal static class FileSelection
                                                     "as a row's providers line spells it.");
         var notes = new List<string>();
         var selected = new List<SelectedFile>(relPaths.Count);
-        foreach (var p in relPaths) selected.Add(new SelectedFile(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
+        for (int i = 0; i < relPaths.Count; i++) selected.Add(new SelectedFile(relPaths[i] ?? "", null, null, null, Given: i));   // explicit paths first, in the order given, never deduped
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in relPaths)
             try { seen.Add(AssetResolver.ValidateRelPath((p ?? "").Trim())); } catch (ArgumentException) { /* a bad explicit path answers per-path below */ }
@@ -125,7 +128,8 @@ internal static class FileSelection
             catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
         }
         // The stop's count, not the deduped one: at least one past the bound, even when dedup left fewer entries.
-        return new FileSelectionResult(selected, notes, provider,
-                                       StoppedAt: overBound ? Math.Max(selected.Count, maxPaths!.Value + 1) : null);
+        if (overBound)
+            return new FileSelectionResult(selected, notes, provider, StoppedAt: Math.Max(selected.Count, maxPaths!.Value + 1));
+        return new FileSelectionResult(exclude?.Apply(selected, notes) ?? selected, notes, provider);
     }
 }

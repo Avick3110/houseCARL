@@ -46,6 +46,8 @@ public static class DecompileTools
                      "ships; with under=, only those beneath the selectors. A name not in the active load order is refused. " +
                      "It does not choose whose copy is read: that is source_provider=.")]
             string? provider = null,
+        [Description(FileExclusion.Text)]
+            ListArg? exclude = null,
         [Description("Optional. WHOSE copy of each Data path is read: a mod folder (enabled or not, its loose files then " +
                      "its archives), 'overwrite', 'Data' or an active archive's filename, instead of the winning copy, " +
                      "e.g. to decompile a base mod's copy of a script its patch overrides; '" + AssetSourceChoice.WinnerToken +
@@ -114,11 +116,11 @@ public static class DecompileTools
                                             "'scripts/<name>.pex', or the full path to a .pex on disk), under= or provider=.");
 
         // One file on disk, nothing else asked of the transport: today's single-file answer.
-        if (entries is [{ OnDisk: true } only] && underTokens.Length == 0 && string.IsNullOrWhiteSpace(provider)
+        if (entries is [{ OnDisk: true } only] && underTokens.Length == 0 && string.IsNullOrWhiteSpace(provider) && exclude is null
             && string.IsNullOrWhiteSpace(source_provider) && !json && !window.IsPaged && !counts_only && max_chars <= 0)
             return SingleFile(svc, only.Path, patch, into, out_path);
         return DecompileBatch.Run(svc, new DecompileBatch.Call(entries, underTokens, provider, source_provider, patch, into,
-                                                               out_path, window, counts_only, json, Wire.Cap(max_chars)));
+                                                               out_path, window, counts_only, json, Wire.Cap(max_chars), exclude));
     });
 
     /// <summary>One .pex file on disk, the answer the tool gave before it took a selection, unchanged.</summary>

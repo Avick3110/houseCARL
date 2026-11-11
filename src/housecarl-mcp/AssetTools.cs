@@ -83,6 +83,8 @@ public static class AssetTools
                      "by its own mod's loose copy; the census tables count by MO2 layer, the mod an archive belongs to. A name " +
                      "that is not in the active order is refused.")]
             string? provider = null,
+        [Description(FileExclusion.Text + " With a walk, it narrows the selection the walk seeds from.")]
+            ListArg? exclude = null,
         [Description("Optional. On every .nif row that resolves, list the files the winning copy names, each with the " +
                      "Data path it maps to and that path's winner, each file once at its first site (one line per kind " +
                      "and stored string, matched ignoring case): texture-set slots, effect-shader textures, and the root node's " +
@@ -174,8 +176,9 @@ public static class AssetTools
                      "a formids= row the formid, the slot, the paired path, its winner, whether the two differ, and " +
                      "face_note (the template root whose pair the row is, null for the NPC's own). The file covers the " +
                      "whole selection: limit= does not narrow it and row_count equals total. Re-enter it via " +
-                     "paths=[\"@<path>\"]; its identity column is 'path', so it is not a formids= list. Under " +
-                     "a walk, one row per node in walk order, the same rows a spilled walk writes.")]
+                     "paths=[\"@<path>\"], or subtract it with exclude=[\"@<path>\"]; its identity column is 'path', so it " +
+                     "is not a formids= list. Under a walk, one row per node in walk order, the same rows a spilled walk " +
+                     "writes: the files the walk reaches, which exclude= takes as the reached set.")]
             string? to_file = null,
         [Description("Optional. Return a census instead of path rows: which MO2 layers win how many paths, which " +
                      "layers provide a copy that another layer wins over, how the winners split between loose and " +
@@ -208,6 +211,8 @@ public static class AssetTools
         var sourcesIn = from_source.Read("from_source", ListKind.Plugin);
         foreach (var listErr in new[] { pathsIn.Error, underIn.Error, idsIn.Error, recordsIn.Error, sourcesIn.Error })
             if (listErr is not null) return ToolAnswer.Refusal(json, listErr);
+        var (exclusion, exErr) = FileExclusion.Read(exclude, svc);
+        if (exErr is not null) return ToolAnswer.Refusal(json, exErr);
         var underTokens = underIn.Tokens;
         if (WalkGrammar.ReadAssetWalk(svc.Types, walk, out var walkValues) is { } walkErr) return ToolAnswer.Refusal(json, walkErr);
         bool walking = walkValues is not null;
@@ -247,7 +252,7 @@ public static class AssetTools
         if (walking && links) return ToolAnswer.Refusal(json, ReadSentences.WalkWithLinks);
         // to_file= covers the whole walk, so limit= is ignored under it, as on the row lane.
         if (walking) return Walk(svc, walkValues!, pathsIn, underTokens, idsIn, provider, recordsIn, sourcesIn.Tokens, source_provider,
-                              wantFile ? RowWindow.All : window, wantFile ? toFile : null, counts_only, json, cap);
+                              wantFile ? RowWindow.All : window, wantFile ? toFile : null, counts_only, json, cap, exclusion);
 
         // The walk's own inputs, given without it, change nothing here: said, not dropped.
         var callNotes = new List<string>();
@@ -283,7 +288,7 @@ public static class AssetTools
 
         // counts_only= resolves the WHOLE selection, as to_file= does: a census of a window would answer about a window while the rows that need paging had no knob.
         var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), underTokens, counts_only ? 0 : limit, offset, seeds,
-                                   wholeSelection: wantFile || counts_only, provider: provider, links: links);
+                                   wholeSelection: wantFile || counts_only, provider: provider, links: links, exclude: exclusion);
         // The declared-cost refusal (the selection was counted and is past the bound) or an unknown provider: nothing was resolved.
         if (data.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
         if (callNotes.Count > 0) data = data with { Notes = callNotes };
@@ -346,7 +351,7 @@ public static class AssetTools
     /// The tool's transport checks have run: <paramref name="window"/> is legal, <paramref name="toFile"/> validated.</summary>
     static ToolAnswer Walk(LoadOrderService svc, WalkGrammar.Values values, ListRead pathsIn, string[]? under, ListRead idsIn, string? provider,
                        ListRead recordsIn, string[]? from_source, string? source_provider,
-                       RowWindow window, string? toFile, bool countsOnly, bool json, int cap)
+                       RowWindow window, string? toFile, bool countsOnly, bool json, int cap, FileExclusion? exclude)
     {
         // Each FormID artifact, formids= and records= alike, is epoch-checked the same way the row lane checks one.
         var demands = new[] { idsIn.Demand, recordsIn.Demand }.OfType<HousecarlCore.ArtifactDemand>().ToList();
@@ -375,11 +380,12 @@ public static class AssetTools
         var paths = new List<string>();
         var keyed = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         List<string>? selectorNotes = null;
-        if (pathTokens is { Length: > 0 } || under is { Length: > 0 } || seeds.Count > 0 || !string.IsNullOrWhiteSpace(provider))
+        if (pathTokens is { Length: > 0 } || under is { Length: > 0 } || seeds.Count > 0 || !string.IsNullOrWhiteSpace(provider) || exclude is not null)
         {
             // formids= seeds read their face through from_source=, as records= seeds do.
             var sel = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, 0, 0, seeds, wholeSelection: true, provider: provider,
-                                      faceSources: from_source is { Length: > 0 } ? new FaceSources(from_source, "from_source", AssetLayers.RecordSourcesUnset) : null);
+                                      faceSources: from_source is { Length: > 0 } ? new FaceSources(from_source, "from_source", AssetLayers.RecordSourcesUnset) : null,
+                                      exclude: exclude);
             if (sel.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
             selectorNotes = sel.SelectorNotes?.ToList() ?? new List<string>();
             foreach (var r in sel.Results)
