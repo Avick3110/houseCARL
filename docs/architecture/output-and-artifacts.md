@@ -88,7 +88,7 @@ door at the head of `housecarl_records`; the JSON-element lists (`ops`, `assignm
 - `references=`'s `!` before an `@file` entry negates every token the file holds.
 
 The door returns the `ArtifactDemand` and never checks it: each consumer checks it against its own capture. The
-asset walk checks `formids=` and `records=` each, `nif_inspect npc=` and `check formids=`/`seeds=` check theirs, and
+asset walk checks `formids=` and `records=` each, `nif_inspect formids=` and `check formids=`/`seeds=` check theirs, and
 `forward`/`remove` still refuse a `formid` artifact outright. Four string-typed lists, `compile_script import_dirs=`,
 `nexus_check_updates mods=`, `nexus_identify md5=` and `nif_inspect sections=`, have their own separators and take
 no `@file`. Neither does an op's `values=` inside `ops=`, which is data written to a record.
@@ -180,7 +180,7 @@ prefix so a throwing lane and a returning lane can both use it.
   — an artifact whose identity column is not the one the parameter takes is refused by that identity in one sentence.
 - *Re-entering an artifact*, the list door: `ListDoorTests` — a file answers as the same list inline on every
   list kind (`AWalkRecordsArtifactWalksTheSameNodesAsTheListInline` is #1284), a FormID artifact is epoch-checked on
-  the walk, `nif_inspect npc=` and `check`, `@@` is literal everywhere, and each file mistake is one sentence on
+  the walk, `nif_inspect formids=` and `check`, `@@` is literal everywhere, and each file mistake is one sentence on
   every list; `ListDoorSurfaceTests` that every `ListArg` parameter is published as an array of strings carrying
   the `["@<absolute path>"]` sentence. *No test pins `copy` or `merge_plugins` reading a file into a write that
   lands; both are pinned on a refusal reached through the file.*

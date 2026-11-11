@@ -1,0 +1,1 @@
+- **`nif_inspect` reads many meshes per call, loose or archived, by asset_status's selectors or a `.nif` on disk, and pages, counts or spills to a file instead of cutting; `mesh_paths=`/`npc=` are now `paths=`/`formids=`, and `nif_set mesh_path=` is `paths=`.** Check: `nif_inspect provider="<a mod>"`.
