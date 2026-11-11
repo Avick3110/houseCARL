@@ -217,10 +217,14 @@ public static class SkyPatcherDiscovery
                : (format ?? Format).RunsWithoutKey(subfolder));
 
     /// <summary>The clause naming why a patcher that does not run is off: its switch at 0, no switch in the file, or no loose file.</summary>
-    public static string SwitchOffReason(Switches switches, string subfolder)
-        => switches.Keys.ContainsKey(subfolder) ? $"disables '{subfolder}' patching (iEnable…Patching=0)"
+    public static string SwitchOffReason(Switches switches, string subfolder, SkyPatcherFormat? format = null)
+    {
+        var f = format ?? Format;
+        var key = $"{f.SwitchKeyPrefix}…{f.SwitchKeySuffix}";
+        return switches.Keys.ContainsKey(subfolder) ? $"disables '{subfolder}' patching ({key}=0)"
             : !switches.Loose ? $"is not loose in this order, which leaves '{subfolder}' patching off"
-            : $"has no iEnable…Patching key for '{subfolder}', which leaves that patcher off";
+            : $"has no {key} key for '{subfolder}', which leaves that patcher off";
+    }
 
     /// <summary>Read the winning loose SkyPatcher.ini's [Patcher] section; no loose copy means every key is missing, and an unreadable one is named, and <see cref="PatcherRuns"/> replays every patcher as running.</summary>
     static Switches ReadSwitches(AssetResolver.AssetView view, List<string> notes, bool noteMissing)
