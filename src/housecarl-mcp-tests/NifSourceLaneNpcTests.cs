@@ -39,7 +39,7 @@ public sealed class NifSourceLaneNpcTests : IClassFixture<NifSourceLaneWorld>
                         ToolNames.AssetStatus + " formids= reads them.", text);
     }
 
-    // A formids= head is named, not picked by provider=: it is not one of the provider's meshes another provider wins.
+    // Pins unchanged behaviour: a formids= head is named, not picked by provider=, so it is not one of the provider's meshes another provider wins.
     [Fact]
     public void AProviderBesideAFormIdHeadCountsNoMeshWonElsewhere()
     {
