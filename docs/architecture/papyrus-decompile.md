@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-10
+updated: 2026-11-11
 covers: [src/housecarl-core/PapyrusDecompiler.cs, src/housecarl-mcp/DecompileTools.cs, src/housecarl-mcp/DecompileBatch.cs, src/housecarl-mcp/ScriptSelection.cs]
 ---
 # Papyrus: decompile
@@ -79,18 +79,41 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
 - The retired `pex=` is refused in one sentence naming `paths=`.
 
 ## Pinned by
-- `DecompileSelectionTests` — a provider's loose and archived scripts in one call; `under=` across both;
-  `source_provider=` reading the shadowed copy and a disabled mod's, and turning off the won-elsewhere note; a file
-  on disk beside the selection, rows in the order given; a missing file on disk, an absent and an invalid Data path,
-  a non-script path and a second object's existing target (with what was already written) each its own row; `paths=`
-  from a file; the instance needed for a selection under `out_path=`; a bad `out_path=` beside `patch=`; the bare-name
-  (with and without `.pex`) and retired-name refusals; an existing target as one row; the window choosing what is
-  decompiled; an unreadable parent named in the many-script wording; a mod parent only a `.psc` header names read
-  loose and archived up to the vanilla root (`AModParentOnlyAPscHeaderNamesIsReadLooseAndArchivedToTheVanillaRoot`);
-  a vanilla root not read; one table read per archive per call; one file on disk alone answering as the one-file
-  tool did, whole; `counts_only=`; a `max_chars=` cut writing every script and advising no page over them, text and
-  json; the next page landing in the same folder (`into=` the patch written, as given, `patch=`, `out_path=`); json
-  rows cut at the first that does not fit; a fresh folder nothing landed in removed; `to_file=` refused; json.
+- `DecompileSelectionTests` — a provider's loose and archived scripts in one call
+  (`AProviderDecompilesItsLooseAndArchivedScriptsInOneCall`); `under=` across both
+  (`UnderSelectsScriptsAcrossLooseAndArchives`); `source_provider=` reading the shadowed copy
+  (`SourceProviderReadsTheCopyThatDoesNotWin`) and a disabled mod's (`SourceProviderReachesADisabledModsScript`), and
+  turning off the won-elsewhere note (`ProviderWithASourceProviderCountsNoneWonElsewhere`); a file on disk beside the
+  selection, rows in the order given (`AFileOnDiskDecompilesBesideTheSelection`); each its own row: a missing file on
+  disk (`AMissingFileOnDiskIsItsOwnRow`), an absent and an invalid Data path
+  (`ADataPathNoProviderShipsAndAnInvalidOneAreEachTheirOwnRow`), a non-script path
+  (`AnExplicitPathThatIsNotAScriptIsItsOwnRow`), a second object's existing target with what was already written
+  (`AScriptWhoseSecondObjectsTargetExistsSaysWhatWasAlreadyWritten`) and an existing target while the rest land
+  (`AnExistingSourceIsThatScriptsRowAndTheRestLand`); `paths=` from a file (`PathsTakesAFileOfPaths`); the instance
+  needed for a selection under `out_path=` (`SelectingWithOutPathStillNeedsTheInstance`); a bad `out_path=` beside
+  `patch=` (`ABadOutPathBesidePatchSaysPatchWasIgnored`); the refusals of a bare name
+  (`ABareScriptNameIsRefusedNamingItsDataPathAndTheSearch`, `ABareNameWithItsExtensionIsRefusedNamingItsDataPathOnce`),
+  the retired names (`TheRetiredPexParameterIsRefusedInOneSentence`, `TheRetiredAssetPathsParameterIsRefusedInOneSentence`,
+  with `AssetStatusTakesPaths`), no script given (`NoSelectorIsRefused`) and `to_file=`
+  (`ToFileIsRefusedNamingTheOutputFolder`); the window choosing what is decompiled
+  (`LimitAndOffsetChooseWhichScriptsAreDecompiled`); the parent climb: an unreadable parent named in the many-script
+  wording (`AnArchivedScriptsParentIsReadOffTheLoadOrderAndAnUnreadableOneIsNamed`), a mod parent only a `.psc` header
+  names read loose and archived up to the vanilla root
+  (`AModParentOnlyAPscHeaderNamesIsReadLooseAndArchivedToTheVanillaRoot`), a vanilla root not read
+  (`AParentTheBaselineAlreadyNamesIsNotRead`), a window script that declares no parent not read again
+  (`AWindowScriptThatDeclaresNoParentIsNotReadAgainAsOne`) and one table read per archive per call
+  (`ACallReadsEachArchiveOnce`); the hierarchy note claiming only the sources the call read
+  (`TheHierarchyNoteClaimsOnlyTheSourcesThisCallRead`); one file on disk alone answering as the one-file tool did,
+  whole (`AFileOnDiskAloneAnswersAsTheOneFileToolDid`); `source_provider=` beside a file on disk saying the file is
+  read as itself (`SourceProviderBesideAFileOnDiskSaysTheFileIsReadAsItself`); `counts_only=`
+  (`CountsOnlyListsNoRowsAndStillWritesEveryScript`); a `max_chars=` cut writing every script
+  (`MaxCharsCutsTheListingAndEveryScriptIsStillWritten`) and advising no page over them, text and json
+  (`AMaxCharsCutAdvisesNoPageOverScriptsAlreadyWritten`); the next page landing in the same folder: `into=` the stem
+  of the patch written (`TheNextPageAdviceLandsInThePatchThisWindowWrote`, `TheJsonNextPageNamesTheFreshPatchByItsStem`),
+  the lane as given while nothing landed (`TheNextPageAdviceKeepsTheLaneAsGivenWhenNothingLanded`) and `out_path=`
+  (`TheNextPageAdviceUnderOutPathNamesTheSameFolder`); json rows cut at the first that does not fit, under a measured
+  reserve (`JsonListsRowsInOrderUpToTheFirstThatDoesNotFit`); a fresh folder nothing landed in removed
+  (`AFreshPatchFolderNothingLandedInIsRemoved`); json (`JsonCarriesTheRowsAndTheAccounting`).
 - `DecompileGuardTests` — the golden source for a canonical `.pex`, zero optimizer hints on
   canonical output, the hint firing on a statement-level `JMPT`, the refusal on an existing target
   leaving it byte-untouched, the Hidden flag kept on both objects of a two-object `.pex`, and the upcast
