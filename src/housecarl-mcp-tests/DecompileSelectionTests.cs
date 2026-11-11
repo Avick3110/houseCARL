@@ -485,14 +485,30 @@ public sealed class DecompileSelectionTests : IDisposable
 
         var first = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1, ArchBase }, limit: 1);
         var folder = Path.GetFileName(Assert.Single(Directory.GetDirectories(_p.Mods), d => !mods.Contains(d)));
-        Assert.Contains($"re-call with into=\"{folder}\" limit=1 offset=1 for the next page.", first);
+        // into= names the patch by its stem, the form into= resolves on its canonical path.
+        Assert.StartsWith("houseCARL - ", folder);
+        var stem = folder["houseCARL - ".Length..];
+        Assert.Contains($"re-call with into=\"{stem}\" limit=1 offset=1 for the next page.", first);
 
         var json = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1, ArchBase }, limit: 1, offset: 1,
-                                                  into: folder, format: "json");
+                                                  into: stem, format: "json");
         using var doc = System.Text.Json.JsonDocument.Parse(json);
-        Assert.Equal(folder, doc.RootElement.GetProperty("next_into").GetString());
+        Assert.Equal(stem, doc.RootElement.GetProperty("next_into").GetString());
         Assert.Equal(2, doc.RootElement.GetProperty("next_offset").GetInt32());
         Assert.Single(Directory.GetDirectories(_p.Mods), d => !mods.Contains(d));
+        Assert.True(File.Exists(Path.Combine(_p.Mods, folder, "Source", "Scripts", "HcDsArch1.psc")), json);
+    }
+
+    [Fact]
+    public void TheJsonNextPageNamesTheFreshPatchByItsStem()
+    {
+        var mods = Directory.GetDirectories(_p.Mods).ToHashSet();
+
+        var json = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1 }, limit: 1, format: "json");
+
+        var folder = Path.GetFileName(Assert.Single(Directory.GetDirectories(_p.Mods), d => !mods.Contains(d)));
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(folder["houseCARL - ".Length..], doc.RootElement.GetProperty("next_into").GetString());
     }
 
     [Fact]
