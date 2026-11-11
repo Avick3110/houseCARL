@@ -48,7 +48,7 @@ public static class SkyPatcherOverlay
     /// <summary>Everything the overlay needs from the load order, behind an interface so the engine stays testable off fixtures.</summary>
     public interface IFormResolver
     {
-        /// <summary>Resolve a bare EditorID to its winning FormKey, scoped to the Mutagen type when given; null means not found.</summary>
+        /// <summary>Resolve a bare EditorID to the first record loaded under it within the Mutagen type's scope; null when not found or no type is given (contract in docs/architecture/skypatcher-layer.md).</summary>
         FormKey? ResolveEditorId(string editorId, string? mutagenType);
 
         /// <summary>Read one leaf token off the load-order winner of another record; null means unresolvable.</summary>
