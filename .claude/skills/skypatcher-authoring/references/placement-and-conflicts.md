@@ -11,7 +11,7 @@ Sections: 1. The folder tree · 2. Subfolder casing · 3. The two filename behav
 
 ## 1. The folder tree
 
-<!-- generated:skypatcher.tree from the runtime-format source; edit the source and regenerate, not this text -->
+<!-- generated:skypatcher.tree -->
 ```
 Data/
 └── SKSE/
@@ -43,7 +43,7 @@ file systems are case-insensitive, but match the shipped casing.
 
 ## 3. The two INI filename behaviours
 
-<!-- generated:skypatcher.names from the runtime-format source; edit the source and regenerate, not this text -->
+<!-- generated:skypatcher.names -->
 SkyPatcher reads every file that has `.ini` anywhere in its name, so backups like
 `bandits.ini.bak` or `bandits.ini.off` are read too. Write the ending `.ini` in lower case: a file
 ending in `.INI` is not read.
@@ -71,7 +71,7 @@ other (same path). Always nest plugin-named INIs in a mod-specific subfolder:
 
 ## 5. Conflict resolution
 
-<!-- generated:skypatcher.conflict from the runtime-format source; edit the source and regenerate, not this text -->
+<!-- generated:skypatcher.conflict -->
 Each patcher reads its own type folder. First it reads the files of the type folder itself, then
 the files of its subfolders, then the subfolders inside those, level by level. Files in one folder
 are read in the order Windows lists them, which is A to Z on normal drives. When two lines set the
@@ -85,7 +85,7 @@ overwrite, so multiple INIs can add to the same record without conflict.
 
 `Data/SKSE/Plugins/SkyPatcher.ini` holds three sections:
 
-<!-- generated:skypatcher.switches from the runtime-format source; edit the source and regenerate, not this text -->
+<!-- generated:skypatcher.switches -->
 - **`[Patcher]`** — one `iEnable<Type>Patching=1|0` per record type. Without the key a patcher is
   **off**; only `iEnableLightPatching` is on without the key. Keep the shipped file installed:
   without it almost every patcher stays off. Turning a type off skips its whole subfolder.

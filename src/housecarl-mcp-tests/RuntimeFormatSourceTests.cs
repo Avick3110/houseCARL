@@ -30,7 +30,7 @@ public sealed class RuntimeFormatSourceTests
 
     static string SkillFile(string rel) => Path.Combine(HarnessPaths.RepoRoot, ".claude", "skills", rel);
 
-    // every committed region is what the generator prints now, and every printed region has a home
+    // every committed region is what the generator prints now, every printed region has a home, and no skill line says to regenerate
     [Fact]
     public void TheCommittedSkillRegionsMatchAFreshPrint()
     {
@@ -38,6 +38,7 @@ public sealed class RuntimeFormatSourceTests
         foreach (var (rel, text) in texts)
             Assert.True(RuntimeFormatSkillText.Rewrite(text, ShippedRegions, rel) == text, $"{rel}: a generated region differs from a fresh print. {Remedy}");
         Assert.Empty(RuntimeFormatSkillText.Unplaced(ShippedRegions, texts.Values));
+        Assert.All(texts, t => Assert.DoesNotContain("regenerate", t.Value));
     }
 
     // a printed paragraph speaks for SkyPatcher only: it names no tool of this server

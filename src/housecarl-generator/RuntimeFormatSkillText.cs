@@ -15,7 +15,7 @@ public static class RuntimeFormatSkillText
     };
 
     /// <summary>The opening marker of a region; the closing one is <see cref="End"/>.</summary>
-    public static string Begin(string tag) => $"<!-- generated:{tag} from the runtime-format source; edit the source and regenerate, not this text -->";
+    public static string Begin(string tag) => $"<!-- generated:{tag} -->";
 
     /// <summary>The closing marker of a region.</summary>
     public static string End(string tag) => $"<!-- end generated:{tag} -->";
