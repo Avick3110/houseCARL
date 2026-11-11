@@ -76,8 +76,9 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   With none of the three given and nothing landed it names no knob: the fresh folder was removed, so the next page
   cuts its own. Json carries it as `next_limit`, `next_offset` and `next_out_path`, `next_into` or `next_patch` (none
   of the three when no knob is named). An existing target
-  `.psc` is that script's row error and the rest still land. `max_chars=` cuts the listing only; every script in the
-  window is written, and no page is advised over them. `counts_only=` gives the totals, the notes and the next page,
+  `.psc` is that script's row error and the rest still land. `max_chars=` cuts the listing only: the counts include
+  the rows cut, a row counted OK or PARTIAL was written, one not decompiled wrote nothing or only part of its `.psc`
+  files, and no page is advised over the window. `counts_only=` gives the totals, the notes and the next page,
   with no `[accounting]` line (json: `total`, no accounting object). `to_file=` is refused: decompile writes `.psc`
   files, and its output is the folder.
 - The retired `pex=` is refused in one sentence naming `paths=`.
