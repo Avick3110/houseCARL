@@ -156,7 +156,7 @@ internal static class DecompileBatch
     static (string Name, string Value)? NextPageLane(Answer a, Call c) =>
         a.ChosenOutput ? ("out_path", c.OutPath!.Trim())
         : !string.IsNullOrWhiteSpace(c.Into) ? ("into", c.Into.Trim())
-        : a.Folder is { } f && a.AnyWritten ? ("into", Path.GetFileName(f.ModFolder))
+        : a.Folder is { } f && a.AnyWritten ? ("into", f.Stem)
         : !string.IsNullOrWhiteSpace(c.Patch) ? ("patch", c.Patch.Trim())
         : null;
 
