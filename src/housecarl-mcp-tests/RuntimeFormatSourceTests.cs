@@ -141,6 +141,24 @@ public sealed class RuntimeFormatSourceTests
         Assert.Contains("- `!` separates every segment", RuntimeFormatSkillText.Regions(piped)["skypatcher.segments"]);
     }
 
+    // the switch-off reason and the draft's name refusal spell the row's key shape and name token
+    [Fact]
+    public void TheOffReasonAndTheDraftRefusalSpellTheRow()
+    {
+        var edited = With(("\"keyPrefix\": \"iEnable\"", "\"keyPrefix\": \"bUse\""), ("\"keySuffix\": \"Patching\"", "\"keySuffix\": \"Patcher\""),
+                          ("\"nameToken\": \".ini\"", "\"nameToken\": \".cfg\""));
+        var off = new SkyPatcherDiscovery.Switches(new Dictionary<string, bool> { ["npc"] = false }, null);
+        var none = new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), null);
+        Assert.Equal("disables 'npc' patching (iEnable…Patching=0)", SkyPatcherDiscovery.SwitchOffReason(off, "npc"));
+        Assert.Equal("disables 'npc' patching (bUse…Patcher=0)", SkyPatcherDiscovery.SwitchOffReason(off, "npc", edited));
+        Assert.Equal("has no bUse…Patcher key for 'npc', which leaves that patcher off", SkyPatcherDiscovery.SwitchOffReason(none, "npc", edited));
+        var dir = Path.GetTempPath();
+        Assert.Contains("has no '.ini' in its name — SkyPatcher reads only files with '.ini' in the name",
+            SkyPatcherDraft.Prepare(Path.Combine(dir, "a.cfg"), "weapon", SkyPatcherCatalog.Load(), out _));
+        Assert.Contains("has no '.cfg' in its name — SkyPatcher reads only files with '.cfg' in the name",
+            SkyPatcherDraft.Prepare(Path.Combine(dir, "a.ini"), "weapon", SkyPatcherCatalog.Load(), out _, edited));
+    }
+
     // the version the source names is the catalog's
     [Fact]
     public void TheSourceAndTheCatalogNameOneVersion()

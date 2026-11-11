@@ -102,7 +102,7 @@ public static class SkyPatcherDraft
     public const string DraftProvider = "the draft (not placed in a mod)";
 
     /// <summary>Validate a draft pole expression into a <see cref="Plan"/>, returning the refusal sentence or null; a null <paramref name="subfolder"/> falls back to the file's parent directory name when that is a documented type folder.</summary>
-    public static string? Prepare(string? iniPath, string? subfolder, SkyPatcherCatalog catalog, out Plan? plan)
+    public static string? Prepare(string? iniPath, string? subfolder, SkyPatcherCatalog catalog, out Plan? plan, SkyPatcherFormat? format = null)
     {
         plan = null;
         var path = (iniPath ?? "").Trim();
@@ -113,8 +113,9 @@ public static class SkyPatcherDraft
             return notAbsolute;
         try { path = Path.GetFullPath(path); }
         catch (Exception ex) { return $"the draft INI path '{path}' is not a usable path: {ex.Message}"; }
-        if (!SkyPatcherDiscovery.HasIniName(Path.GetFileName(path)))
-            return $"the draft '{path}' has no '.ini' in its name — SkyPatcher reads only files with '.ini' in the name from its type folders.";
+        var token = (format ?? RuntimeFormats.SkyPatcher).NameToken;
+        if (!SkyPatcherDiscovery.HasIniName(Path.GetFileName(path), format))
+            return $"the draft '{path}' has no '{token}' in its name — SkyPatcher reads only files with '{token}' in the name from its type folders.";
         if (!File.Exists(path))
             return $"there is no file at '{path}' — the draft is read from disk, so it has to exist before it can be checked.";
 
