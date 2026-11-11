@@ -116,11 +116,12 @@ internal static class DecompileBatch
         }
         if (sel is not null) thin.AddRange(AddParentChains(sel.View, edges, objects, BaselineRoots.Value));
         hierarchy = hierarchy with { SiblingPexMissing = thin.Count > 0 ? string.Join(", and ", thin) : null };
-        // What the kept half of the hierarchy note may claim: only the sources this call read.
+        // What the kept half of the hierarchy note may claim: only the sources this call read. It renders only beside a
+        // written row, which is a file on disk or a Data path, so the list holds two sources or three.
         var read = new List<string> { "these scripts" };
         if (window.Any(r => r.OnDisk && r.Error is null)) read.Add("the .pex files beside each file on disk");
         if (sel is not null) read.Add("each parent script read off the load order");
-        var hierarchyRead = read.Count == 1 ? read[0] : string.Join(", ", read.Take(read.Count - 1)) + " and " + read[^1];
+        var hierarchyRead = string.Join(", ", read.SkipLast(1)) + " and " + read[^1];
 
         // Pass 2: decompile and write, row by row; a row that cannot land is that row's error, and the rest still land.
         var done = new List<Done>(window.Count);
@@ -141,7 +142,7 @@ internal static class DecompileBatch
 
         if (done.All(d => d.Written.Count == 0) && svc.RemoveOrNameRiderResidue(folder) is { } residue)
             notes.Add($"the freshly created mod folder at '{residue}' still holds partial output — delete it or retry with into=.");
-        return Render(new Answer(done, total, c.Window, provider, sourceProvider, folder, chosenOutput, notes, hierarchy, hierarchyRead), c);
+        return Render(new Answer(done, total, c.Window, provider, sourceProvider, folder, chosenOutput, notes, (hierarchy, hierarchyRead)), c);
     }
 
     static ToolAnswer Render(Answer a, Call c)
@@ -268,8 +269,8 @@ internal static class DecompileBatch
 
     /// <summary>Everything a render states.</summary>
     sealed record Answer(IReadOnlyList<Done> Rows, int Total, RowWindow Window, string Provider, string SourceProvider,
-                         OutputLocations.RiderFolder? Folder, bool ChosenOutput, IReadOnlyList<string> Notes, ClassParents? Hierarchy,
-                         string? HierarchyRead = null)
+                         OutputLocations.RiderFolder? Folder, bool ChosenOutput, IReadOnlyList<string> Notes,
+                         (ClassParents Parents, string Read)? Hierarchy)
     {
         internal int Ok => Rows.Count(d => d.Status == "ok");
         internal int Partial => Rows.Count(d => d.Status == "partial");
@@ -318,7 +319,7 @@ internal static class DecompileBatch
         if (a.AnyWritten)
         {
             if (a.Hierarchy is { } h)
-                sb.Append(DecompileTools.HierarchySentence(h, a.HierarchyRead ?? "these scripts"));
+                sb.Append(DecompileTools.HierarchySentence(h.Parents, h.Read));
             sb.Append('\n').Append(Losses);
             sb.Append(a.ChosenOutput
                 ? "\nthe .psc files are in the folder you named with out_path= (path above) — review them, edit them, and recompile with " + ToolNames.CompileScript + "."
