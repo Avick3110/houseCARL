@@ -49,8 +49,8 @@ public static class NifTools
                      "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif' or " +
                      "'meshes\\armor\\iron\\cuirass_1.nif', forward or back slashes, each read from its winning copy, " +
                      "loose or in an archive; or the full path to a .nif file on disk ('C:\\work\\out\\head.nif'), read " +
-                     "as that file, with no winner and no providers (one inside the mods tree also names its Data " +
-                     "path), read as the file it resolves to. A Data path with a '..' segment, or a drive-relative " +
+                     "as the file it resolves to, with no winner and no providers; one inside the mods tree also names " +
+                     "its Data path. A Data path with a '..' segment, or a drive-relative " +
                      "path, is an error on that path, never normalized. Optional when under=, provider= or formids= is given." + ListText.Paths)]
             ListArg? paths = null,
         [Description("Optional. Data-relative folder or glob selector(s), as " + ToolNames.AssetStatus + " under=: every " +
