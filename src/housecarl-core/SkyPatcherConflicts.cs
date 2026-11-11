@@ -174,7 +174,7 @@ public static class SkyPatcherConflicts
         foreach (var (seg, _) in shape.Direct)
             foreach (var v in seg.Values)
                 if (v.Address is { } a) { if (SkyPatcherTargets.FormKeyOf(a) is { } fk) forms.Add(fk); }
-                else if (SkyPatcherTargets.ByEditorId(v)) editorIds.Add(v.Raw);
+                else editorIds.Add(v.Raw);
         if (shape.HasFinderReach || shape.PatchesEveryRecord) broadLines++;
     }
 
