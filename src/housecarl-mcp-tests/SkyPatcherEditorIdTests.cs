@@ -88,7 +88,7 @@ public sealed class SkyPatcherEditorIdTests
         var both = Post(w, w.Both);
         Assert.Contains("Weight = 3", both);
         Assert.DoesNotContain("finds nothing", both);
-        Assert.Contains("whether Tweaks loads EditorIDs is UNKNOWN", SkyPatcherTools.SkyPatcherLayer(w.Svc));
+        Assert.Contains("whether Tweaks loads EditorIDs is UNKNOWN", SkyPatcherTools.Layer(w.Svc));
     }
 
     // the version modelled is data in the catalog, and the layer header and the overlay's source line both print it
@@ -96,7 +96,7 @@ public sealed class SkyPatcherEditorIdTests
     public void TheLayerAndTheOverlayNameTheModelledVersion()
     {
         using var w = new SkyPatcherRelevanceWorld(Inis);
-        Assert.StartsWith("SkyPatcher layer (SkyPatcher 8.0.1 model)", SkyPatcherTools.SkyPatcherLayer(w.Svc));
+        Assert.StartsWith("SkyPatcher layer (SkyPatcher 8.0.1 model)", SkyPatcherTools.Layer(w.Svc));
         Assert.Contains("the SkyPatcher INI layer replays (SkyPatcher 8.0.1 model)", Post(w, w.Heel));
     }
 }

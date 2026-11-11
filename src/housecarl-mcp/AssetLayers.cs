@@ -675,7 +675,7 @@ internal sealed partial class AssetLayers
     public SkyPatcherLayerData SkyPatcherLayer() => SkyPatcherLayer(d => d, lint: false);
 
     /// <summary>The layer scan handed to <paramref name="use"/> while its replay is open, so <see cref="SkyPatcherLayerData.Lint"/> resolves a line only when <paramref name="use"/> asks; the lookup is valid only inside it.</summary>
-    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true, CancellationToken ct = default)
+    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true, CancellationToken ct = default, SkyPatcherLineSelect? select = null)
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
@@ -766,15 +766,64 @@ internal sealed partial class AssetLayers
                 return c != 0 ? c : string.Compare(x.FieldPath, y.FieldPath, StringComparison.Ordinal);
             });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
-            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit EditorID target(s) did not resolve; {ToolNames.SkypatcherLayer} filter='<INI>' lists each under its line with why (a ~name~ target is counted here but named nowhere).");
+            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit EditorID target(s) did not resolve; {ToolNames.Layer} filter='<INI>' lists each under its line with why (a ~name~ target is counted here but named nowhere).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure / an EditorID lookup that could not be completed).");
             // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
             foreach (var msg in replay.Unreadable.Select(u => u.Message).Distinct())
                 noOpNotes.Add($"no-op scan: {msg} Lines naming a record it defines could not be resolved.");
         }
 
-        return use(new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
-            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null));
+        var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
+            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null);
+        return use(select is null ? data : LineSelection(data, select, view, replay));
+    }
+
+    /// <summary>The records selectors resolved against the pinned build: the per-line form match, or the refusal they earn.</summary>
+    static SkyPatcherLayerData LineSelection(SkyPatcherLayerData data, SkyPatcherLineSelect sel, LoadOrderResolver.IndexView view, SkyPatcherReplay replay)
+    {
+        foreach (var d in sel.Demands)
+            if (d.Epoch != view.Stamp.Epoch) return data with { SelectRefusal = "error: " + RecordReads.ArtifactEpochMismatch(d, view.Stamp.Epoch) };
+        HashSet<FormKey>? ids = null;
+        if (sel.FormIds is { } raw)
+        {
+            var door = FormIdDoor.On(view);
+            ids = new HashSet<FormKey>();
+            foreach (var t in raw)
+            {
+                try { ids.Add(door.Parse(t)); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    return data with { SelectRefusal = $"error: formids= entry '{t}' is not a FormID ('XXXXXX:Plugin.esp' or the runtime form): {ex.Message}" };
+                }
+            }
+        }
+        string[]? named = null;
+        string? note = null;
+        if (sel.Plugins is { } names)
+        {
+            var split = ScopeSplit.Of(view, names);
+            if (split.BlankRefusal is { } blank) return data with { SelectRefusal = "error: " + blank };
+            if (split.Present.Count == 0) return data with { SelectRefusal = "error: " + split.NothingToScanRefusal(view) };
+            if (split.Missing.Count > 0) note = split.ServedNote(view);
+            named = split.Present.ToArray();
+        }
+        // The records meaning: a plugin touches a form it defines or overrides; defined_in keeps the defining plugin only.
+        bool Wanted(FormKey fk) => (ids is null || ids.Contains(fk))
+            && (named is null || named.Any(p => sel.DefinedIn
+                ? string.Equals(fk.ModKey.FileName.String, p, StringComparison.OrdinalIgnoreCase)
+                : view.Touches(fk, p)));
+        var seen = new Dictionary<(string, string, int), IReadOnlyList<SkyPatcherOverlay.LineForm>>();
+        return data with
+        {
+            SelectNote = note,
+            Select = (folder, file, i) =>
+            {
+                var key = (folder.Subfolder, file.RelPath, i);
+                if (!seen.TryGetValue(key, out var hit))
+                    seen[key] = hit = replay.LineForms(folder, file.Lines[i]).Where(f => Wanted(f.Form)).ToList();
+                return hit;
+            },
+        };
     }
 
     /// <summary>A form-scope string to getter Types, or null when it names neither a type nor a link-interface group; see <see cref="TypeLookup.ResolveScope"/>.</summary>

@@ -316,7 +316,22 @@ public sealed record SkyPatcherLayerData(
     IReadOnlyList<string> AssetWarnings,
     string ProfileName,
     /// <summary>One line's lint by folder, file and line index, valid only inside the call that handed this data over; null when not asked for.</summary>
-    Func<HousecarlCore.SkyPatcherDiscovery.FolderScan, HousecarlCore.SkyPatcherDiscovery.IniFile, int, IReadOnlyList<string>>? Lint = null);
+    Func<HousecarlCore.SkyPatcherDiscovery.FolderScan, HousecarlCore.SkyPatcherDiscovery.IniFile, int, IReadOnlyList<string>>? Lint = null)
+{
+    /// <summary>The forms a line names that the call's records selectors select, by folder, file and line index, valid like <see cref="Lint"/>; null when no selector was given.</summary>
+    public Func<HousecarlCore.SkyPatcherDiscovery.FolderScan, HousecarlCore.SkyPatcherDiscovery.IniFile, int, IReadOnlyList<HousecarlCore.SkyPatcherOverlay.LineForm>>? Select { get; init; }
+
+    /// <summary>The refusal the selectors earned (a bad FormID, a stale artifact, no named plugin loaded), or null.</summary>
+    public string? SelectRefusal { get; init; }
+
+    /// <summary>What the answer leaves out of the selectors (named plugins the order does not carry), or null.</summary>
+    public string? SelectNote { get; init; }
+}
+
+/// <summary>The records selectors carried onto SkyPatcher lines: a line is selected by a form it names. Both given, a form must pass both, as on records.</summary>
+public sealed record SkyPatcherLineSelect(
+    IReadOnlyList<string>? FormIds, IReadOnlyList<string>? Plugins, bool DefinedIn,
+    IReadOnlyList<HousecarlCore.ArtifactDemand> Demands);
 
 /// <summary>One no-op write, the true-ITM class: a SET-class op that applied in the full replay but wrote the value <see cref="Already"/> there.</summary>
 public sealed record SkyPatcherNoOpWrite(

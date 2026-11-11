@@ -4,7 +4,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>housecarl_skypatcher_layer's notes after the report sections: they take a bounded share of max_chars charged
+/// <summary>housecarl_layer's notes after the report sections: they take a bounded share of max_chars charged
 /// before the body, a list that fits it is shown whole, and a cut note is counted, never dropped without a word (#894).</summary>
 [Trait("tier", "unit")]
 public sealed class SkyPatcherLayerNotesCutTests

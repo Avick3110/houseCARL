@@ -197,9 +197,9 @@ miss finds nothing, and those warnings decide the line when it would otherwise r
 (the line's verdict is recomputed with that finder passing). A narrower's missing token removes
 nothing.
 An unknown-key line always rides, and so does every warning from a draft INI, which no layer listing holds. Any other warning is a note, and the read prints one line per INI
-naming it, `note(s) on lines that do not reach these records — housecarl_skypatcher_layer
+naming it, `note(s) on lines that do not reach these records — housecarl_layer
 filter=<INI> lists them`; in json the same lines join the `skypatcher_warnings` member. Each line's
-lint lives under that line in `housecarl_skypatcher_layer filter=`: unknown keys and the filter form
+lint lives under that line in `housecarl_layer filter=`: unknown keys and the filter form
 tokens that resolve to nothing, resolved once per line, in the words a read uses.
 
 **On a records scan.** `housecarl_records` with the post-state overlay over a scan replays only the rows its
@@ -241,6 +241,28 @@ The replay and scan notes after the report sections are one list. It takes a qua
 caveat block leaves of `max_chars`, never more than the header and owed notices leave, charged
 before the body so the sections cannot spend it. A list that fits is shown whole; a cut one names
 only the notes that fit, none if the first does not, and is counted with the caveat block's marker.
+
+A filter or selector that matches nothing answers its zero count, what it was matched against and the scan notes (shadowed
+copies, undocumented folders: often why), never the overview. The no-op notes are about the whole layer's replay, so a
+zero answer leaves them out (#1286).
+
+### Selecting lines: `housecarl_layer`
+
+The tool is `housecarl_layer`, one tool for the runtime layers with a format selector (spec R3, R38). `distributor=`
+takes `skypatcher`, the one format read; omitted, every format read is read. `oar`, `ied`, `desc` and `dsd` are refused
+as not read, by name; `spid`, `kid`, `bos` and `flm` as not read yet. The old name `housecarl_skypatcher_layer` is
+refused by its `AliasTable` row, naming `housecarl_layer`.
+
+`formids=` and `plugins=` select lines with the records meaning (R42, R47): `formids=` takes the FormID door's two
+spellings and `@file`; `plugins=` keeps a form a named plugin defines or overrides (`IndexView.Touches`), and
+`defined_in: true` only a form it defines. Both given, a form must pass both. A line is selected when any form it names
+is: every `Plugin|FormID` sub-arg anywhere on the line, and each leading EditorID sub-arg of a segment the replay looks
+one up in, through the one target resolver and the call's EditorID table (`SkyPatcherOverlay.LineForms`, sharing
+`SegmentScopes` with the table's own scope list). Each match is labelled where it sits: `target` (a direct list),
+`filter` (any other filter, Excluded spellings included), `value` (an op), or `unknown key` (a key the catalog does not
+know, and every key of an undocumented folder, where only `|` forms are read). A `~name~` literal names no record, and
+a bare token in a segment with no lookup scope is not read as a form (#1334). `filter=` still selects files by folder,
+mod and path; beside a selector, a file must pass both, and only its selected lines expand.
 
 `SkyPatcherDraft` folds an INI that is not yet placed in a mod into the live scan, so a record can
 be read as the game would see it once placed. A draft that is already one of the layer's live
@@ -394,6 +416,6 @@ the field map; `SkyPatcherDiscovery.cs` the discovery and apply order; `SkyPatch
 one call's context (asset capture, catalog, field map, scan, draft fold) and `Replay` runs one record's winner through
 it, for both the layer tool and the overlay source. Both open it over an asset build taken in the same `_gate` hold as
 the index pin their answer is stamped with (`CapturePinAndAssets`), so a profile switch mid-call cannot replay one
-profile's INI layer onto another's winners. `src/housecarl-mcp/SkyPatcherTools.cs` is the tool front. Tool: `housecarl_skypatcher_layer`; the overlay and the
+profile's INI layer onto another's winners. `src/housecarl-mcp/SkyPatcherTools.cs` is the tool front. Tool: `housecarl_layer`; the overlay and the
 draft are also read through `housecarl_records`'s SkyPatcher overlay source.
 The result records are in `src/housecarl-mcp/AssetResults.cs` ([`assets.md`](assets.md)).

@@ -24,7 +24,7 @@ All 31 tools carry the `housecarl_` prefix.
 | NIF | `nif_inspect` `nif_set` |
 | Papyrus | `compile_script` `decompile_script` |
 | BSA | `bsa_list` `bsa_extract` `bsa_repack` |
-| SkyPatcher | `skypatcher_layer` |
+| SkyPatcher | `layer` |
 | SKSE | `skse` |
 | Nexus | `nexus_search` `nexus_mod` `nexus_graphql` `nexus_check_updates` `nexus_identify` |
 | Session | `set_mo2_instance` `set_tool_path` `load_order_status` `update_status` |

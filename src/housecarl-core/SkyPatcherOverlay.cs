@@ -236,17 +236,60 @@ public static class SkyPatcherOverlay
     {
         if (line.Kind != SkyPatcherLineKind.Patch) yield break;
         var classified = SkyPatcherClassifiedLine.Of(line, catalog, recordCatalog);
-        foreach (var (seg, cls) in classified.Filters)
+        foreach (var (seg, cls) in classified.Filters.Concat(classified.Ops))
+            if (HoldsName(seg))
+                foreach (var s in SegmentScopes(cls, fieldMap)) yield return s;
+    }
+
+    /// <summary>The scopes one classified segment's EditorID tokens are looked up among; none for a segment that names no forms by EditorID.</summary>
+    static IEnumerable<string?> SegmentScopes(SkyPatcherKeyClass cls, RecordMap? fieldMap)
+    {
+        if (cls.Role == SkyPatcherKeyRole.Filter)
         {
-            if (!HoldsName(seg)) continue;
             if (cls.Filter!.Kind == SkyPatcherFilterKind.Primary) yield return fieldMap?.RecordType;
             else if (FormTokens(cls, fieldMap) is { } ft) yield return ft.FormType;
+            yield break;
         }
-        foreach (var (seg, cls) in classified.Ops)
+        if (cls.Role != SkyPatcherKeyRole.Operation || fieldMap?.Ops.GetValueOrDefault(cls.Operation!.Name) is not { IsUnmapped: false } map) yield break;
+        yield return map.Semantic == SkyPatcherOpSemantic.RemoveByKeyword ? "Keyword" : map.LookupScope;
+        if (map.DonorType is { } donor) yield return donor;
+    }
+
+    /// <summary>Where on its line a form is named: a direct target, another filter, an operation's value, or a key the catalog does not know.</summary>
+    public enum FormPlace { Target, Filter, Value, UnknownKey }
+
+    /// <summary>One form a line names: where, under which key, the token as written, and the record it resolves to.</summary>
+    public sealed record LineForm(FormPlace Place, string Key, string Token, FormKey Form);
+
+    /// <summary>Every form a patch line names that resolves to a record: each <c>Plugin|FormID</c> sub-arg anywhere on
+    /// the line, and each leading EditorID sub-arg where the replay looks one up, by the one target resolver. A
+    /// <c>~name~</c> literal names no record; an undocumented folder's line (<paramref name="recordCatalog"/> null) gives its '|' forms only.</summary>
+    public static IEnumerable<LineForm> LineForms(SkyPatcherLine line, SkyPatcherCatalog catalog,
+        SkyPatcherRecordCatalog? recordCatalog, RecordMap? fieldMap, IFormResolver resolver)
+    {
+        if (line.Kind != SkyPatcherLineKind.Patch) yield break;
+        foreach (var seg in line.Segments)
         {
-            if (!HoldsName(seg) || fieldMap?.Ops.GetValueOrDefault(cls.Operation!.Name) is not { IsUnmapped: false } map) continue;
-            yield return map.Semantic == SkyPatcherOpSemantic.RemoveByKeyword ? "Keyword" : map.LookupScope;
-            if (map.DonorType is { } donor) yield return donor;
+            var cls = recordCatalog is null ? null : catalog.Classify(recordCatalog, seg.Key);
+            var place = cls?.Role switch
+            {
+                SkyPatcherKeyRole.Filter => cls.FilterRole == SkyPatcherFilterRole.Direct ? FormPlace.Target : FormPlace.Filter,
+                SkyPatcherKeyRole.Operation => FormPlace.Value,
+                _ => FormPlace.UnknownKey,
+            };
+            var scopes = cls is null ? Array.Empty<string?>() : SegmentScopes(cls, fieldMap).Where(s => s is not null).ToArray();
+            foreach (var v in seg.Values)
+            {
+                if (v.IsNameLiteral) continue;
+                for (int k = 0; k < v.SubArgs.Count; k++)
+                {
+                    var a = v.SubArgs[k];   // untrimmed: SkyPatcher keeps a space around '|', and so names nothing
+                    var fk = SkyPatcherParse.TryParseAddress(a) is { } addr ? SkyPatcherTargets.FormKeyOf(addr)
+                        : k == 0 ? SkyPatcherTargets.Resolve(a, scopes, resolver)   // the replay looks up only the leading sub-arg
+                        : null;
+                    if (fk is { } f) yield return new LineForm(place, seg.Key, a, f);
+                }
+            }
         }
     }
 

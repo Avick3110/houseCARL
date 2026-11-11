@@ -106,7 +106,7 @@ sealed class SkyPatcherRelevanceWorld : IDisposable
 }
 
 /// <summary>An overlay read carries the SkyPatcher warnings that bear on its records; a note from a line that cannot
-/// reach them is one pointer to housecarl_skypatcher_layer filter=, which lists it under its line (#1093).</summary>
+/// reach them is one pointer to housecarl_layer filter=, which lists it under its line (#1093).</summary>
 [Trait("tier", "integration")]
 public sealed class SkyPatcherWarningRelevanceTests : IDisposable
 {
@@ -134,7 +134,7 @@ public sealed class SkyPatcherWarningRelevanceTests : IDisposable
     {
         var text = Read(_w.Plain);
 
-        Assert.Contains($"[!] skypatcher: note(s) on lines that do not reach these records — {ToolNames.SkypatcherLayer} filter={IniName} lists them", text);
+        Assert.Contains($"[!] skypatcher: note(s) on lines that do not reach these records — {ToolNames.Layer} filter={IniName} lists them", text);
         Assert.DoesNotContain("HcNoSuchA", text);
         Assert.DoesNotContain("HcNoSuchC", text);
     }
@@ -187,7 +187,7 @@ public sealed class SkyPatcherWarningRelevanceTests : IDisposable
     [Fact]
     public void TheLayerFilterShowsTheLintUnderItsLine()
     {
-        var text = SkyPatcherTools.SkyPatcherLayer(_w.Svc, filter: IniName);
+        var text = SkyPatcherTools.Layer(_w.Svc, filter: IniName);
 
         int line1 = text.IndexOf(":1  filterByKeywordsOr", StringComparison.Ordinal);
         int lint = text.IndexOf("[!] keyword 'HcNoSuchA' (in a filterByKeywordsOr) resolves to nothing", StringComparison.Ordinal);
@@ -217,7 +217,7 @@ public sealed class SkyPatcherNotePointerRollUpTests : IDisposable
         var text = _w.Read(new[] { _w.Plain });
 
         Assert.Contains("filter=HcNote5.ini lists them", text);
-        Assert.Contains($"note(s) in 1 other INI(s) — {ToolNames.SkypatcherLayer} filter=<INI filename> lists each one's", text);
+        Assert.Contains($"note(s) in 1 other INI(s) — {ToolNames.Layer} filter=<INI filename> lists each one's", text);
         Assert.DoesNotContain("filter=HcNote6.ini", text);
     }
 
@@ -283,7 +283,7 @@ public sealed class SkyPatcherLineLevelWarningTests : IDisposable
         File.WriteAllBytes(_w.OtherPath, new byte[new FileInfo(_w.OtherPath).Length]);
         File.SetLastWriteTimeUtc(_w.OtherPath, stamp);
 
-        var text = SkyPatcherTools.SkyPatcherLayer(_w.Svc, filter: IniName);
+        var text = SkyPatcherTools.Layer(_w.Svc, filter: IniName);
 
         int first = text.IndexOf("EditorID table missing a plugin", StringComparison.Ordinal);
         Assert.True(first >= 0, text);

@@ -1,0 +1,1 @@
+- **`housecarl_skypatcher_layer` is now `housecarl_layer` (the old name is refused, naming it), and `formids=` / `plugins=` list the SkyPatcher lines naming those records, each marked target, filter or value; `distributor=` names the format.** Check: `housecarl_layer plugins={"names": ["X.esp"]}` lists X's lines.
