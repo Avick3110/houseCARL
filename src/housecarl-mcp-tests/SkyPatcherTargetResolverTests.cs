@@ -222,6 +222,39 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Contains("Items = [list: 2 item(s)]", Post(w, "000840:HcSpRel.esp", "Items"));
     }
 
+    // A call whose first lookup is a form-list item walks its scope and the call's other scopes in one sweep.
+    [Fact]
+    public void AFirstFormListItemLookupWalksOnce()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByArmors=HcPlainCuirass:value=3\r\n"),
+            ("../formList/HcList.ini", "filterByFormLists=HcSpRel.esp|840:formsToAdd=HcHeelBoots\r\n") }, records: AddList);
+        var before = w.Svc.Counters.EditorIdSweeps;
+        Assert.Contains("Items = [list: 2 item(s)]", Post(w, "000840:HcSpRel.esp", "Items"));
+        Assert.Equal(1, w.Svc.Counters.EditorIdSweeps - before);
+    }
+
+    // Without Tweaks a form-list item is looked up only among the types the game keeps names of (14 at most).
+    [Fact]
+    public void WithoutTweaksAFormListItemWalksOnlyKeptTypes()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByFormLists=HcSpRel.esp|840:formsToAdd=HcHeelKw\r\n") },
+            subfolder: "formList", tweaks: false, records: AddList);
+        var before = w.Svc.Counters.EditorIdTypesWalked;
+        Assert.Contains("Items = [list: 2 item(s)]", Post(w, "000840:HcSpRel.esp", "Items"));
+        Assert.InRange(w.Svc.Counters.EditorIdTypesWalked - before, 1, 14);
+    }
+
+    // Without Tweaks the game keeps no armor names, so the call's armor scope is never walked.
+    [Fact]
+    public void WithoutTweaksAGappedScopeIsNotWalked()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByArmors=HcPlainCuirass:value=3\r\nfilterByKeywords=HcHeelKw:weight=3\r\n") },
+            tweaks: false);
+        var before = w.Svc.Counters.EditorIdTypesWalked;
+        Post(w, w.Heel, "Weight");
+        Assert.Equal(1, w.Svc.Counters.EditorIdTypesWalked - before);
+    }
+
     // Without Tweaks a form-list item EditorID resolves for a type the game keeps names of, and a miss names those types.
     [Fact]
     public void WithoutTweaksAFormListItemEditorIdOfAKeptTypeResolves()
