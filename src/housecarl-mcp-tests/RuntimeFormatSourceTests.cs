@@ -67,6 +67,17 @@ public sealed class RuntimeFormatSourceTests
             RuntimeFormatSkillText.Begin("skypatcher.passes") + "\nx\n", ShippedRegions, "t"));
     }
 
+    // a Begin marker that is not the whole line opens no region: it is reported unplaced and the rewrite refuses it
+    [Fact]
+    public void AnIndentedOrMalformedMarkerIsUnplacedAndRefused()
+    {
+        var indented = "  " + RuntimeFormatSkillText.Begin("skypatcher.passes") + "\nx\n" + RuntimeFormatSkillText.End("skypatcher.passes");
+        Assert.Contains("skypatcher.passes", RuntimeFormatSkillText.Unplaced(ShippedRegions, new[] { indented }));
+        Assert.Throws<InvalidOperationException>(() => RuntimeFormatSkillText.Rewrite(indented, ShippedRegions, "t"));
+        var ex = Assert.Throws<InvalidOperationException>(() => RuntimeFormatSkillText.Rewrite("<!-- generated:skypatcher.passes-->\nx", ShippedRegions, "t"));
+        Assert.Contains("t: line 1", ex.Message);
+    }
+
     // a pass moved in the source moves the server's folder order and the printed run order
     [Fact]
     public void MovingAPassChangesTheFolderOrderAndTheSkillText()
