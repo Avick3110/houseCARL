@@ -266,8 +266,9 @@ say the state is unknown.
   their plugin winner, so a filter that would see another record's SkyPatcher change (a COBJ's
   created item patched by the Weapon patcher, an NPC's race patched by the Race patcher) answers
   from the pre-SkyPatcher record.
-- A FormID that names a record absent from the order still counts as resolved in the replay; the
-  layer listing says on its line that it names nothing.
+- A FormID that names a record absent from the order still counts as resolved in the replay. As a
+  direct or Excluded target the layer listing says on its line that it names nothing; as a filter
+  or op value it resolves to its FormKey and nothing reports it.
 - The game's map is one name space across every type, so a record of another type that loaded a
   name first can hide a typed lookup in game. houseCARL does not model that hiding: a scoped lookup
   takes the first loaded record of its scope, whatever other types share the name, so one line's
