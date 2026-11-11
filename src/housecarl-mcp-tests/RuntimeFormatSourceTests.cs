@@ -199,6 +199,66 @@ public sealed class RuntimeFormatSourceTests
         Assert.Contains("- `!` separates every segment", RuntimeFormatSkillText.Regions(piped)["skypatcher.segments"]);
     }
 
+    // every delimiter of an edited grammar row drives the file parse and the address parse
+    [Fact]
+    public void EveryDelimiterOfTheRowDrivesTheParse()
+    {
+        var g = With(("\"assign\": \"=\"", "\"assign\": \"@\""), ("\"item\": \",\"", "\"item\": \"+\""), ("\"compound\": \"~\"", "\"compound\": \"^\""),
+                     ("\"address\": \"|\"", "\"address\": \"/\""), ("\"comment\": \";\"", "\"comment\": \"%\""),
+                     ("\"commentLeads\": [\"#\"]", "\"commentLeads\": [\"&\"]"), ("\"labelLines\": true", "\"labelLines\": false")).Grammar;
+        var lines = SkyPatcherParse.ParseFile("% c\n& c\n[x]\nk@a+b\nn@^Iron Sword^\nf@Skyrim.esm/12^5", g);
+        Assert.Equal(new[] { SkyPatcherLineKind.Comment, SkyPatcherLineKind.Comment, SkyPatcherLineKind.Patch }, lines.Take(3).Select(l => l.Kind));
+        var items = Assert.Single(lines[3].Segments);
+        Assert.Equal("k", items.Key);
+        Assert.Equal(new[] { "a", "b" }, items.Values.Select(v => v.Raw));
+        Assert.Equal("Iron Sword", Assert.Single(Assert.Single(lines[4].Segments).Values).NameText);
+        var packed = Assert.Single(Assert.Single(lines[5].Segments).Values);
+        Assert.Equal(2, packed.SubArgs.Count);
+        Assert.Equal(new FormAddress("Skyrim.esm", 0x12, null), packed.Address);
+        Assert.Null(SkyPatcherParse.TryParseAddress("Skyrim.esm/12"));
+        Assert.NotNull(SkyPatcherParse.TryParseAddress("Skyrim.esm/12", g));
+        Assert.Equal(SkyPatcherLineKind.Label, SkyPatcherParse.ParseLine("[x]").Kind);
+    }
+
+    // an edited gate extension decides which file names gate on a plugin and which are never read
+    [Fact]
+    public void AnEditedGateExtensionGatesTheName()
+    {
+        var esx = With("\"extensions\": [\".esp\", \".esm\", \".esl\"]", "\"extensions\": [\".esx\", \".esm\", \".esl\"]");
+        Assert.Null(SkyPatcherDiscovery.GatePluginOf("Mod.esx.ini"));
+        Assert.Equal("Mod.esx", SkyPatcherDiscovery.GatePluginOf("Mod.esx.ini", esx));
+        Assert.Null(SkyPatcherDiscovery.NotReadReason("Mod.esx-extra.ini", _ => true));
+        Assert.Contains("names a plugin with more text after it", SkyPatcherDiscovery.NotReadReason("Mod.esx-extra.ini", _ => true, esx));
+    }
+
+    // an edited switches section and key shape decide which keys the scan reads and the printed switch rule; the scan parses with the row's grammar
+    [Fact]
+    public void TheSwitchesSectionAndKeyShapeOfTheRowDriveTheScanAndTheSkillText()
+    {
+        var edited = With(("\"section\": \"Patcher\"", "\"section\": \"Toggles\""), ("\"keyPrefix\": \"iEnable\"", "\"keyPrefix\": \"bUse\""),
+                          ("\"keySuffix\": \"Patching\"", "\"keySuffix\": \"On\""), ("\"assign\": \"=\"", "\"assign\": \"@\""));
+        var switches = RuntimeFormatSkillText.Regions(edited)["skypatcher.switches"];
+        Assert.Contains("**`[Toggles]`** — one `bUse<Type>On=1|0` per record type", switches);
+        Assert.Contains("only `bUseLightOn` is on without the key", switches);
+
+        var dir = Path.Combine(Path.GetTempPath(), "hc-runtime-keys-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var plugins = Path.Combine(dir, "mods", "A", "SKSE", "Plugins");
+            Directory.CreateDirectory(Path.Combine(plugins, "SkyPatcher", "weapon"));
+            File.WriteAllText(Path.Combine(plugins, "SkyPatcher", "weapon", "a.ini"), "attackDamage@1");
+            File.WriteAllText(Path.Combine(plugins, "SkyPatcher.ini"), "[Toggles]\nbUseWeaponOn=1\n");
+            foreach (var d in new[] { "overwrite", "Data" }) Directory.CreateDirectory(Path.Combine(dir, d));
+            using var r = AssetResolver.Build(Path.Combine(dir, "overwrite"), Path.Combine(dir, "mods"), Path.Combine(dir, "Data"), new[] { "A" }, Array.Empty<ActiveArchive>());
+            SkyPatcherDiscovery.FolderScan Weapon(SkyPatcherFormat? f) => Assert.Single(SkyPatcherDiscovery.Scan(r.Capture(), SkyPatcherCatalog.Load(), _ => false, format: f).Folders);
+            Assert.False(Weapon(null).PatchingEnabled);
+            var weapon = Weapon(edited);
+            Assert.True(weapon.PatchingEnabled);
+            Assert.Equal("attackDamage", Assert.Single(Assert.Single(Assert.Single(weapon.Files).Lines).Segments).Key);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
     // the switch-off reason and the draft's name refusal spell the row's key shape and name token
     [Fact]
     public void TheOffReasonAndTheDraftRefusalSpellTheRow()
