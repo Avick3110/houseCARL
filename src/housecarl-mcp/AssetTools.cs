@@ -259,16 +259,8 @@ public static class AssetTools
 
         // The FormID door parses the plugin-qualified form without touching the index; AssetStatus then reads each NPC, its templates and races.
         var door = FormIdDoor.For(svc);
-        var seeds = new List<FaceGenSeed>(idTokens?.Length ?? 0);
-        foreach (var raw in idTokens ?? Array.Empty<string>())
-        {
-            // Every token that is not a FormID answers as ONE error row, whatever the door threw: a runtime FormID on an order that cannot build would otherwise escape to Guard.
-            try { seeds.Add(new FaceGenSeed(raw, door.Parse(raw), null)); }
-            catch (Exception ex)
-            {
-                seeds.Add(new FaceGenSeed(raw, null, $"not a FormID: {Guard.Flatten(ex.Message)} Expected 'XXXXXX:Plugin.esp'."));
-            }
-        }
+        // Every token that is not a FormID answers as ONE error row, whatever the door threw: a runtime FormID on an order that cannot build would otherwise escape to Guard.
+        var seeds = (idTokens ?? Array.Empty<string>()).Select(raw => FaceGenSeed.Parse(door, raw, "Expected 'XXXXXX:Plugin.esp'.")).ToList();
 
         // A FORMIDS artifact is epoch-checked against the build answering now. A PATHS artifact is not, deliberately: a
         // path is a string answered live off the VFS, and gating it would refuse the sweep-fix-re-ask loop this exists

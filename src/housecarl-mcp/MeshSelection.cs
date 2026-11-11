@@ -34,9 +34,7 @@ internal sealed partial class AssetLayers
         MeshSelectionData Refused(string why) => new(capture.Captured, Array.Empty<MeshRow>(), 0, 0, chosen.Notes, why);
         if (chosen.Refusal is { } unknown) return Refused(unknown);
         if (chosen.StoppedAt is { } stoppedAt)
-            return Refused($"error: the selection names at least {stoppedAt:N0} paths, past the {MaxAssetPaths:N0}-path bound one " +
-                           "call is given, so nothing was read — narrow it with a tighter under= selector " +
-                           "(e.g. 'meshes/**/*.nif') or fewer paths= entries.");
+            return Refused(FileSelection.BoundRefusal(stoppedAt, MaxAssetPaths, "read", "meshes/**/*.nif"));
 
         // paths= entries as given, files on disk among them; the selection's first entries are the Data paths, one each, in order.
         var rows = new List<MeshRow>(chosen.Entries.Count + entries.Count);
@@ -63,7 +61,7 @@ internal sealed partial class AssetLayers
     /// winner or <paramref name="sourceProvider"/>'s copy. Every failure is that row's named error, never a throw.</summary>
     internal static NifInspectData InspectMesh(AssetResolver.AssetView? view, string? modsRoot, MeshRow row, string? sourceProvider, bool links)
     {
-        var rel = (row.Path ?? "").Trim();
+        var rel = row.Path.Trim();
         if (row.Error is { } bad) return NifInspectData.Fail(rel, bad);
         NifInspectData data;
         try { data = row.OnDisk ? InspectFile(view, modsRoot, rel, links) : NifInspectOne(view!.Value, rel, sourceProvider, links); }

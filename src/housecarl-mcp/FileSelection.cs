@@ -22,6 +22,12 @@ internal sealed record FileSelectionResult(IReadOnlyList<SelectedFile> Entries, 
 /// selects the same files with the same notes and the same refusal.</summary>
 internal static class FileSelection
 {
+    /// <summary>The refusal for a selection the path bound stopped, in the caller's words: what was not done, and a narrower selector to try.</summary>
+    internal static string BoundRefusal(int stoppedAt, int max, string notDone, string example) =>
+        $"error: the selection names at least {stoppedAt:N0} paths, past the {max:N0}-path bound one " +
+        $"call is given, so nothing was {notDone} — narrow it with a tighter under= selector " +
+        $"(e.g. '{example}') or fewer paths= entries.";
+
     /// <summary>The selection over <paramref name="capture"/>'s view: explicit paths first, never deduped; then each of
     /// its seeds' pair halves from its faces (or a row saying why it has none); then each <c>under=</c> selector's matches,
     /// deduped, or the whole provider when no other selector is given. <paramref name="maxPaths"/> (null: none) bounds

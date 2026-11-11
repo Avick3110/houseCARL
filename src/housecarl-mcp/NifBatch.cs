@@ -64,9 +64,10 @@ internal static class NifBatch
         if (c.CountsOnly) return Census(ctx, notes);
         if (c.ToFile is { } toFile) return ToFile(svc, ctx, notes, toFile);
 
-        var results = c.Window.Apply(sel.Rows).Select(ctx.Read).ToList();
+        var window = c.Window.Apply(sel.Rows);
+        var results = window.Select(ctx.Read).ToList();
         AddWonElsewhere(ctx, notes, results.Count(ctx.WonElsewhere));
-        return ToolAnswer.Served(c.Json ? InlineJson(svc, ctx, results, notes) : InlineText(svc, ctx, results, notes));
+        return ToolAnswer.Served(c.Json ? InlineJson(svc, ctx, window, results, notes) : InlineText(svc, ctx, window, results, notes));
     }
 
     /// <summary>The count of meshes another provider wins, with the knob that reads the provider's own copies.</summary>
@@ -94,7 +95,7 @@ internal static class NifBatch
 
     // ---- inline: one block per mesh, the [accounting] line, the spill past the ceiling ----
 
-    static string InlineText(LoadOrderService svc, Ctx ctx, List<NifInspectData> results, List<string> notes)
+    static string InlineText(LoadOrderService svc, Ctx ctx, IReadOnlyList<MeshRow> window, List<NifInspectData> results, List<string> notes)
     {
         var c = ctx.C;
         int total = ctx.Sel.Rows.Count;
@@ -107,23 +108,20 @@ internal static class NifBatch
         var spill = "";
         if (body != NifWire.Render(batch, c.Want, c.Unknown, int.MaxValue / 2, out _, 0, headerTail))
         {
-            var sb = new StringBuilder();
-            Artifacts.AppendSpillStateText(sb, Spill(svc, ctx, ctx.Sel.Rows, results, notes));
-            spill = sb.ToString().TrimEnd('\n');
+            spill = Wire.SpillText(Spill(svc, ctx, window, results, notes)).TrimEnd('\n');
             body = NifWire.Render(batch, c.Want, c.Unknown, c.Cap, out shown, reserve + spill.Length, headerTail);
         }
         var counts = TransportAccounting.Tally(total, results.Count, shown, c.Window, notes.Count);
         return body + tail + spill + TransportAccounting.Compose(counts, Noun, everySentence: false);
     }
 
-    static string InlineJson(LoadOrderService svc, Ctx ctx, List<NifInspectData> results, List<string> notes)
+    static string InlineJson(LoadOrderService svc, Ctx ctx, IReadOnlyList<MeshRow> window, List<NifInspectData> results, List<string> notes)
     {
         var c = ctx.C;
         int total = ctx.Sel.Rows.Count;
         // The rows that fit the ceiling, judged on each row's own json; the document closes with the accounting either way.
         var rowsJson = new List<string>();
         int used = 0, room = Math.Max(c.Cap - 4096 - notes.Sum(n => n.Length + 8), 0);
-        var window = c.Window.Apply(ctx.Sel.Rows);
         for (int i = 0; i < results.Count; i++)
         {
             var one = RowJson(window[i], results[i], c.Want);
@@ -131,7 +129,7 @@ internal static class NifBatch
             rowsJson.Add(one);
             used += one.Length;
         }
-        SpillState? spill = rowsJson.Count < results.Count ? Spill(svc, ctx, ctx.Sel.Rows, results, notes) : null;
+        SpillState? spill = rowsJson.Count < results.Count ? Spill(svc, ctx, window, results, notes) : null;
         var counts = TransportAccounting.Tally(total, results.Count, rowsJson.Count, c.Window, notes.Count);
         return Document(ctx, notes, w =>
         {
@@ -148,14 +146,13 @@ internal static class NifBatch
     }
 
     /// <summary>The window, written whole to the results directory: the spill a cut answer names.</summary>
-    static SpillState Spill(LoadOrderService svc, Ctx ctx, IReadOnlyList<MeshRow> all, List<NifInspectData> results, List<string> notes)
+    static SpillState Spill(LoadOrderService svc, Ctx ctx, IReadOnlyList<MeshRow> window, List<NifInspectData> results, List<string> notes)
     {
         var (order, noEpoch) = AssetTools.TryStamp(svc);
         using var target = ResultsStore.Reserve(svc.ResultsDir, ToolNames.NifInspect, order?.Epoch ?? "none");
-        var window = ctx.C.Window.Apply(all);
         using var writer = new ResultArtifact.Writer();
         for (int i = 0; i < results.Count; i++) { var (row, d) = (window[i], results[i]); writer.WriteRow((w, _) => Row(w, row, d, ctx.C.Want)); }
-        var (spill, err) = Save(writer, target, "ceiling", ctx, notes, all.Count, order, noEpoch);
+        var (spill, err) = Save(writer, target, "ceiling", ctx, notes, ctx.Sel.Rows.Count, order, noEpoch);
         return err is null ? SpillState.Spilled(spill!, manifestOnly: false) : SpillState.WriteFailed(err);
     }
 
@@ -199,7 +196,7 @@ internal static class NifBatch
             new("read_incomplete", ctx.Sel.Captured?.View.ReadIncomplete == true ? "true" : "false"),
         };
         if (writer.RowCount != total)
-            query.Add(new("window", $"rows {c.Window.Offset + 1}–{c.Window.Offset + writer.RowCount} of {total} (limit={c.Window.Limit}, offset={c.Window.Offset})"));
+            query.Add(new("window", $"window: rows {c.Window.Offset + 1}–{c.Window.Offset + writer.RowCount} of {total} (limit={c.Window.Limit}, offset={c.Window.Offset})"));
         var fileNotes = new List<string>
         {
             "One row per mesh, in selection order. 'read_from' is the copy whose bytes were read: the winner, or the " +
@@ -267,14 +264,10 @@ internal static class NifBatch
 
     // ---- shared pieces ----
 
-    static string Head(Ctx ctx, int count, string what)
-    {
-        var sb = new StringBuilder("nif inspect — profile '").Append(ctx.Profile.Length > 0 ? ctx.Profile : "(unconfigured)")
-            .Append("'  (").Append(count).Append(count == 1 ? " mesh" : " meshes").Append(what);
-        if (ctx.Provider.Length > 0) sb.Append(", provider \"").Append(ctx.Provider).Append('"');
-        if (ctx.Source.Length > 0) sb.Append(", source \"").Append(ctx.Source).Append('"');
-        return sb.Append(')').ToString();
-    }
+    /// <summary>The census and to_file= header: the inline one, counting the whole selection, with the source named.</summary>
+    static string Head(Ctx ctx, int count, string what) =>
+        NifWire.Header(ctx.Profile, count, what + (ctx.Provider.Length > 0 ? $", provider \"{ctx.Provider}\"" : "")
+                                             + (ctx.Source.Length > 0 ? $", source \"{ctx.Source}\"" : ""));
 
     /// <summary>The build-level alarms an ABSENT depends on, written whatever the budget.</summary>
     static void AppendAlarms(StringBuilder sb, Ctx ctx)
@@ -295,7 +288,7 @@ internal static class NifBatch
     static string Document(Ctx ctx, IReadOnlyList<string> notes, Action<Utf8JsonWriter>? body, Action<Utf8JsonWriter>? closing)
     {
         using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms))
+        using (var w = new Utf8JsonWriter(ms, JsonWire.Opts))
         {
             w.WriteStartObject();
             w.WriteString("tool", ToolNames.NifInspect);
@@ -314,17 +307,10 @@ internal static class NifBatch
         return Encoding.UTF8.GetString(ms.ToArray());
     }
 
-    static void Strings(Utf8JsonWriter w, string name, IReadOnlyList<string>? values)
-    {
-        w.WriteStartArray(name);
-        foreach (var v in values ?? Array.Empty<string>()) w.WriteStringValue(v);
-        w.WriteEndArray();
-    }
-
     static string RowJson(MeshRow row, NifInspectData d, HashSet<string> want)
     {
         using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms)) Row(w, row, d, want);
+        using (var w = new Utf8JsonWriter(ms, JsonTextEncoder.OneLine)) Row(w, row, d, want);
         return Encoding.UTF8.GetString(ms.ToArray());
     }
 
@@ -380,16 +366,17 @@ internal static class NifBatch
         }
         else
         {
-            foreach (var col in new[] { "version", "user_version", "stream_version", "skyrim_se", "block_count", "blocks",
-                                        "unknown_blocks", "unknown_block_types", "shapes", "node_count", "sections" })
-                w.WriteNull(col);
+            foreach (var col in MeshColumns) w.WriteNull(col);
             w.WriteString("error", d.Error ?? "unknown error");
         }
         w.WriteEndObject();
     }
 
-    static void Str(Utf8JsonWriter w, string name, string? v)
-    {
-        if (v is null) w.WriteNull(name); else w.WriteString(name, v);
-    }
+    /// <summary>The columns a mesh that read fills, null on one that did not: RowSchema from 'version' up to 'error'.</summary>
+    static readonly string[] MeshColumns = RowSchema[Array.IndexOf(RowSchema, "version")..^1];
+
+    static void Str(Utf8JsonWriter w, string name, string? v) => JsonWire.WriteNullable(w, name, v);
+
+    static void Strings(Utf8JsonWriter w, string name, IReadOnlyList<string>? values) =>
+        JsonWire.WriteStringArray(w, name, values ?? Array.Empty<string>());
 }
