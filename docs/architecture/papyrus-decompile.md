@@ -75,7 +75,9 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   `out_path=` or `into=` as given, else `into=` the stem of the patch this call wrote into, else `patch=` as given.
   Json carries it as `next_limit`, `next_offset` and `next_out_path`, `next_into` or `next_patch`. An existing target
   `.psc` is that script's row error and the rest still land. `max_chars=` cuts the listing only; every script in the
-  window is written, and no page is advised over them. `counts_only=` gives the totals and notes, and no next page. `to_file=` is refused: decompile writes `.psc` files, and its output is the folder.
+  window is written, and no page is advised over them. `counts_only=` gives the totals, the notes and the next page,
+  with no `[accounting]` line (json: `total`, no accounting object). `to_file=` is refused: decompile writes `.psc`
+  files, and its output is the folder.
 - The retired `pex=` is refused in one sentence naming `paths=`.
 
 ## Pinned by
@@ -106,7 +108,8 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   (`TheHierarchyNoteClaimsOnlyTheSourcesThisCallRead`); one file on disk alone answering as the one-file tool did,
   whole (`AFileOnDiskAloneAnswersAsTheOneFileToolDid`); `source_provider=` beside a file on disk saying the file is
   read as itself (`SourceProviderBesideAFileOnDiskSaysTheFileIsReadAsItself`); `counts_only=`
-  (`CountsOnlyListsNoRowsAndStillWritesEveryScript`); a `max_chars=` cut writing every script
+  (`CountsOnlyListsNoRowsAndStillWritesEveryScript`) and its next page, text and json
+  (`CountsOnlyAdvisesTheNextPageIntoTheSameFolder`); a `max_chars=` cut writing every script
   (`MaxCharsCutsTheListingAndEveryScriptIsStillWritten`) and advising no page over them, text and json
   (`AMaxCharsCutAdvisesNoPageOverScriptsAlreadyWritten`); the next page landing in the same folder: `into=` the stem
   of the patch written (`TheNextPageAdviceLandsInThePatchThisWindowWrote`, `TheJsonNextPageNamesTheFreshPatchByItsStem`),

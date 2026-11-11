@@ -477,6 +477,23 @@ public sealed class DecompileSelectionTests : IDisposable
     }
 
     [Fact]
+    public void CountsOnlyAdvisesTheNextPageIntoTheSameFolder()
+    {
+        var text = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1, ArchBase }, limit: 1, counts_only: true,
+                                                  out_path: _out);
+        var json = DecompileTools.DecompileScript(_svc, paths: new[] { LooseRel, Arch1, ArchBase }, limit: 1, offset: 1,
+                                                  counts_only: true, format: "json", out_path: _out);
+
+        Assert.EndsWith($"\nthe selection is longer than this window: re-call with out_path=\"{_out}\" limit=1 offset=1 for the next page.", text);
+        Assert.DoesNotContain("[accounting]", text);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.Equal(2, doc.RootElement.GetProperty("next_offset").GetInt32());
+        Assert.Equal(_out, doc.RootElement.GetProperty("next_out_path").GetString());
+        Assert.False(doc.RootElement.TryGetProperty("accounting", out _), json);
+        Assert.Equal(2, Directory.GetFiles(_out, "*.psc").Length);
+    }
+
+    [Fact]
     public void MaxCharsCutsTheListingAndEveryScriptIsStillWritten()
     {
         var r = DecompileTools.DecompileScript(_svc, provider: "Arch", max_chars: 1500, out_path: _out);
