@@ -65,6 +65,31 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Contains("[accounting] total=3 rendered=3 skipped=0 capped=0 truncated=0", r);
     }
 
+    /// <summary>An explicit path provider= did not pick is not counted as one of its meshes another provider wins.</summary>
+    [Fact]
+    public void AProviderBesideAnExplicitPathCountsNoMeshWonElsewhere()
+    {
+        var r = NifTools.NifInspect(_svc, provider: "Arch", paths: new[] { Shared });
+        var census = NifTools.NifInspect(_svc, provider: "Arch", paths: new[] { Shared }, counts_only: true);
+
+        Assert.Contains("read from: \"Fix\" (loose)", Block(r, Shared));
+        Assert.DoesNotContain("won by another provider", r);
+        Assert.DoesNotContain("won by another provider", census);
+    }
+
+    /// <summary>provider= reaches the same with a file on disk as with a Data path beside it: nothing more.</summary>
+    [Fact]
+    public void AProviderBesideAFileOnDiskSelectsNothingMoreAsBesideADataPath()
+    {
+        var disk = _p.Scratch("hcns-beside.nif", NifSetMeshes.Guard());
+
+        var besideDisk = NifTools.NifInspect(_svc, provider: "Arch", paths: new[] { disk });
+        var besideData = NifTools.NifInspect(_svc, provider: "Arch", paths: new[] { Arch1 });
+
+        Assert.Contains("[accounting] total=1 rendered=1", besideDisk);
+        Assert.Contains("[accounting] total=1 rendered=1", besideData);
+    }
+
     [Fact]
     public void SourceProviderReadsTheCopyThatDoesNotWin()
     {

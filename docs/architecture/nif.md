@@ -47,8 +47,9 @@ A `paths=` entry that is a full path (`Path.IsPathFullyQualified`) is a file on 
 the mods tree is read the same way, and its row names the Data path and mod folder (`paths=[…] source_provider=…`) that
 read the same copy through the load order: a note in the text block, `disk_note` on a json or `to_file=` row. Before #1081 such a path was refused with that address. Every other entry is
 a Data path. Each Data path is read from its winner, or from the copy `source_provider=` names. `provider=` picks which
-meshes; it does not pick whose copy is read. A note counts the meshes another provider wins and names
-`source_provider=` as the knob. A call that reads only files on disk, without `sections=paths`, needs no MO2
+meshes; it does not pick whose copy is read. Beside `paths=` (a Data path or a file on disk) or `formids=`, with no
+`under=`, it selects nothing, as on `decompile_script`. A note counts the meshes the `provider=` walk matched that
+another provider wins, and names `source_provider=` as the knob. A call that reads only files on disk, without `sections=paths`, needs no MO2
 instance and captures no view. With `sections=paths`, a file on disk's links resolve against the load order.
 
 Transport is SPEC §2.1's. `limit=` and `offset=` choose which meshes this call reads. `counts_only=` reads the whole
