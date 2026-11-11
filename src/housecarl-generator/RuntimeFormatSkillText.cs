@@ -3,7 +3,7 @@ using HousecarlCore;
 
 namespace HousecarlGenerator;
 
-/// <summary>Prints the skill paragraphs that state SkyPatcher's discovery, order, conflict and grammar rules from the runtime-format source, into marked regions of the committed skill files; EmitMatchGuardTests holds the committed text to a fresh print.</summary>
+/// <summary>Prints the skill paragraphs that state SkyPatcher's discovery, order, conflict and grammar rules from the runtime-format source, into marked regions of the committed skill files; RuntimeFormatSourceTests holds the committed text to a fresh print.</summary>
 public static class RuntimeFormatSkillText
 {
     /// <summary>The skill-relative files that hold generated regions, under <c>.claude/skills/</c>.</summary>
@@ -30,10 +30,8 @@ public static class RuntimeFormatSkillText
         var early = f.Passes.Where(p => p.Runs == SkyPatcherPassRuns.Early).ToList();
         var noEffect = f.Passes.Where(p => p.Runs == SkyPatcherPassRuns.NoEffect).ToList();
         string Key(string folder) => f.SwitchKeyPrefix + char.ToUpperInvariant(folder[0]) + folder[1..] + f.SwitchKeySuffix;
-        string Ticked(IEnumerable<string> xs, string last) => Join(xs.Select(x => $"`{x}`").ToList(), last);
-
-        var onWithout = Ticked(f.OnWithoutKey.Select(Key), "and");
-        var regions = new Dictionary<string, string>(StringComparer.Ordinal)
+        var onWithout = Join(f.OnWithoutKey.Select(k => $"`{Key(k)}`").ToList(), "and");
+        return new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["skypatcher.place"] =
                 $"The INI goes at `Data/{root}/<subfolder>/<name>{tok}`, with `<subfolder>` taken from\n" +
@@ -97,7 +95,6 @@ public static class RuntimeFormatSkillText
                 $"- A comment starts with `{g.Comment}`." +
                 (g.TrailingComment ? $" Since 8.0.1 a comment may also follow a rule on the same line\n  (`level{g.Assign}10 {g.Comment} Nazeem`)." : ""),
         };
-        return regions;
     }
 
     /// <summary>The folder tree: the root's parents, the DLL and the switches file beside the root, then example type folders.</summary>
@@ -163,22 +160,26 @@ public static class RuntimeFormatSkillText
         return string.Join(nl, output);
     }
 
+    /// <summary>The region tags no one of <paramref name="texts"/> opens.</summary>
+    public static IReadOnlyList<string> Unplaced(IReadOnlyDictionary<string, string> regions, IEnumerable<string> texts)
+    {
+        var all = texts.ToList();
+        return regions.Keys.Where(t => !all.Any(x => x.Contains(Begin(t), StringComparison.Ordinal))).ToList();
+    }
+
     /// <summary>Rewrite the regions in place under <paramref name="skillsDir"/>; returns how many files changed.</summary>
     public static int Apply(string skillsDir, SkyPatcherFormat format)
     {
         var regions = Regions(format);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        int changed = 0;
-        foreach (var rel in Files)
-        {
-            var path = Path.Combine(skillsDir, rel);
-            var text = File.ReadAllText(path);
-            var next = Rewrite(text, regions, rel);
-            foreach (var tag in regions.Keys) if (text.Contains(Begin(tag), StringComparison.Ordinal)) seen.Add(tag);
-            if (next != text) { File.WriteAllText(path, next); changed++; }
-        }
-        var unplaced = regions.Keys.Where(t => !seen.Contains(t)).ToList();
+        var texts = Files.ToDictionary(rel => rel, rel => File.ReadAllText(Path.Combine(skillsDir, rel)));
+        var unplaced = Unplaced(regions, texts.Values);
         if (unplaced.Count > 0) throw new InvalidOperationException($"no skill file holds region(s) {string.Join(", ", unplaced)}.");
+        int changed = 0;
+        foreach (var (rel, text) in texts)
+        {
+            var next = Rewrite(text, regions, rel);
+            if (next != text) { File.WriteAllText(Path.Combine(skillsDir, rel), next); changed++; }
+        }
         return changed;
     }
 

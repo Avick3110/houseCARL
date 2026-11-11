@@ -5,13 +5,14 @@ namespace HousecarlCore;
 /// <summary>The runtime-layer format source (runtime-formats.json): each format's discovery, order, conflict and grammar values, read by the server and printed into the skills by the build; contract in docs/architecture/runtime-formats.md.</summary>
 public static class RuntimeFormats
 {
+    static string? _text;
     static SkyPatcherFormat? _skyPatcher;
 
     /// <summary>SkyPatcher's row of the embedded source (memoized); throws loudly on a missing or malformed resource.</summary>
-    public static SkyPatcherFormat SkyPatcher => _skyPatcher ??= SkyPatcherFrom(EmbeddedJson.Read("runtime-formats.json", "runtime-format source"));
+    public static SkyPatcherFormat SkyPatcher => _skyPatcher ??= SkyPatcherFrom(SourceText());
 
-    /// <summary>The embedded source's text, for the build's skill-text generation.</summary>
-    public static string SourceText() => EmbeddedJson.Read("runtime-formats.json", "runtime-format source");
+    /// <summary>The embedded source's text (memoized), for the build's skill-text generation.</summary>
+    public static string SourceText() => _text ??= EmbeddedJson.Read("runtime-formats.json", "runtime-format source");
 
     /// <summary>Parse SkyPatcher's row from source text; a value the code has no rule for throws, naming the row and the value.</summary>
     public static SkyPatcherFormat SkyPatcherFrom(string json)
@@ -64,22 +65,24 @@ public static class RuntimeFormats
 
         return new SkyPatcherFormat(
             Str(row, "version", "SkyPatcher"),
-            Path(Str(d, "root", "discovery")),
+            AssetResolver.Normalize(Str(d, "root", "discovery")),
             Str(d, "nameToken", "discovery"),
-            gate.GetProperty("extensions").EnumerateArray().Select(x => x.GetString() ?? throw Unknown("discovery.gate", "extensions", "null")).ToArray(),
-            Path(Str(s, "file", "switches")), Str(s, "section", "switches"), Str(s, "keyPrefix", "switches"), Str(s, "keySuffix", "switches"),
-            s.GetProperty("onWithoutKey").EnumerateArray().Select(x => x.GetString() ?? throw Unknown("switches", "onWithoutKey", "null")).ToArray(),
+            Strs(gate, "extensions", "discovery.gate"),
+            AssetResolver.Normalize(Str(s, "file", "switches")), Str(s, "section", "switches"), Str(s, "keyPrefix", "switches"), Str(s, "keySuffix", "switches"),
+            Strs(s, "onWithoutKey", "switches"),
             passes, grammar);
     }
-
-    /// <summary>A source path (forward slashes) in the asset view's backslash form.</summary>
-    static string Path(string p) => p.Replace('/', '\\');
 
     static string Str(JsonElement el, string prop, string ctx)
         => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()!
             : throw new InvalidOperationException($"runtime-format source [{ctx}]: '{prop}' is missing or not a string.");
 
-    static string? OptStr(JsonElement el, string prop) => el.TryGetProperty(prop, out var v) ? v.GetString() : null;
+    static string? OptStr(JsonElement el, string prop) => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    static string[] Strs(JsonElement el, string prop, string ctx)
+        => el.TryGetProperty(prop, out var a) && a.ValueKind == JsonValueKind.Array && a.EnumerateArray().All(x => x.ValueKind == JsonValueKind.String)
+            ? a.EnumerateArray().Select(x => x.GetString()!).ToArray()
+            : throw new InvalidOperationException($"runtime-format source [{ctx}]: '{prop}' is missing or not a list of strings.");
 
     static void Known(JsonElement el, string prop, string ctx, string only)
     {
@@ -108,7 +111,11 @@ public sealed record SkyPatcherFormat(
     string SwitchKeySuffix,
     IReadOnlyList<string> OnWithoutKey,
     IReadOnlyList<SkyPatcherPass> Passes,
-    SkyPatcherGrammar Grammar);
+    SkyPatcherGrammar Grammar)
+{
+    /// <summary>Whether a type folder's patcher runs when SkyPatcher.ini has no key for it (case-insensitive, as folder names are).</summary>
+    public bool RunsWithoutKey(string folder) => OnWithoutKey.Contains(folder, StringComparer.OrdinalIgnoreCase);
+}
 
 /// <summary>One patcher in run order: its type folder, its display name, and when it runs.</summary>
 public sealed record SkyPatcherPass(string Folder, string Name, SkyPatcherPassRuns Runs, string? Note);

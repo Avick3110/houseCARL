@@ -16,7 +16,6 @@ public sealed class SkyPatcherCatalog
     /// <summary>The SkyPatcher version the catalog is transcribed from.</summary>
     public string Version { get; }
 
-
     readonly Dictionary<string, SkyPatcherRecordCatalog> _bySubfolder;   // subfolder (case-insensitive) → catalog
     readonly Dictionary<string, RecordLookup> _lookup;                    // subfolder (case-insensitive) → name maps
 

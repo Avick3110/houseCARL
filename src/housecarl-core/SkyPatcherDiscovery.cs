@@ -214,7 +214,7 @@ public static class SkyPatcherDiscovery
     public static bool PatcherRuns(Switches switches, string subfolder, SkyPatcherFormat? format = null)
         => switches.Unreadable is not null
            || (switches.Keys.TryGetValue(subfolder, out var on) ? on
-               : (format ?? Format).OnWithoutKey.Contains(subfolder, StringComparer.OrdinalIgnoreCase));
+               : (format ?? Format).RunsWithoutKey(subfolder));
 
     /// <summary>The clause naming why a patcher that does not run is off: its switch at 0, no switch in the file, or no loose file.</summary>
     public static string SwitchOffReason(Switches switches, string subfolder)
@@ -235,7 +235,7 @@ public static class SkyPatcherDiscovery
             {
                 if (noteMissing)
                 {
-                    var on = string.Join(", ", f.Passes.Where(p => f.OnWithoutKey.Contains(p.Folder, StringComparer.OrdinalIgnoreCase)).Select(p => p.Name));
+                    var on = string.Join(", ", f.Passes.Where(p => f.RunsWithoutKey(p.Folder)).Select(p => p.Name));
                     notes.Add($"no loose SkyPatcher.ini in this order{(winner is null ? "" : " (only inside a BSA)")} — without its keys every patcher but {on} is off.");
                 }
                 return new Switches(map, null, Loose: false);
