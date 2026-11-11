@@ -281,7 +281,7 @@ internal static class DecompileBatch
     const string Losses = "known format losses (every decompiler): a parameter default is not in the .pex, so it survives only where a call in the same script omitted the argument — a parameter with no such call comes back with its default missing; comments/layout are gone (docstrings survive).";
     const string OptimizerNote = "optimizer-compiled patterns detected (Caprica class) — source is correct; byte-identity vs the original .pex under the CK compiler is not expected.";
     const string PartialMeaning = "a FAILED function is a loud comment block with its raw bytecode in the .psc, which will NOT compile as-is.";
-    const string CutRows = "every script in this window was decompiled and written whatever max_chars cuts from the listing.";
+    const string CutRows = "every script in this window was decompiled whatever max_chars cuts from the listing, and the counts above include the rows cut; one not decompiled wrote nothing, or only part of its .psc files.";
 
     static string Head(Answer a)
     {
