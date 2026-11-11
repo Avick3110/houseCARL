@@ -12,12 +12,21 @@ public sealed class RuntimeFormatSourceTests
 
     static readonly string Shipped = RuntimeFormats.SourceText().Replace("\r\n", "\n");
 
-    /// <summary>The shipped source with one exact substring replaced.</summary>
-    static SkyPatcherFormat With(string from, string to)
+    static readonly IReadOnlyDictionary<string, string> ShippedRegions = RuntimeFormatSkillText.Regions(RuntimeFormats.SkyPatcher);
+
+    /// <summary>The shipped source with exact substrings replaced, each of which must be there.</summary>
+    static SkyPatcherFormat With(params (string From, string To)[] edits)
     {
-        Assert.Contains(from, Shipped);
-        return RuntimeFormats.SkyPatcherFrom(Shipped.Replace(from, to));
+        var json = Shipped;
+        foreach (var (from, to) in edits)
+        {
+            Assert.Contains(from, json);
+            json = json.Replace(from, to);
+        }
+        return RuntimeFormats.SkyPatcherFrom(json);
     }
+
+    static SkyPatcherFormat With(string from, string to) => With((from, to));
 
     static string SkillFile(string rel) => Path.Combine(HarnessPaths.RepoRoot, ".claude", "skills", rel);
 
@@ -25,20 +34,16 @@ public sealed class RuntimeFormatSourceTests
     [Fact]
     public void TheCommittedSkillRegionsMatchAFreshPrint()
     {
-        var regions = RuntimeFormatSkillText.Regions(RuntimeFormats.SkyPatcher);
-        foreach (var rel in RuntimeFormatSkillText.Files)
-        {
-            var text = File.ReadAllText(SkillFile(rel));
-            Assert.True(RuntimeFormatSkillText.Rewrite(text, regions, rel) == text, $"{rel}: a generated region differs from a fresh print. {Remedy}");
-        }
-        var placed = regions.Keys.Where(t => RuntimeFormatSkillText.Files.Any(f => File.ReadAllText(SkillFile(f)).Contains(RuntimeFormatSkillText.Begin(t)))).ToList();
-        Assert.Equal(regions.Keys.OrderBy(k => k), placed.OrderBy(k => k));
+        var texts = RuntimeFormatSkillText.Files.ToDictionary(rel => rel, rel => File.ReadAllText(SkillFile(rel)));
+        foreach (var (rel, text) in texts)
+            Assert.True(RuntimeFormatSkillText.Rewrite(text, ShippedRegions, rel) == text, $"{rel}: a generated region differs from a fresh print. {Remedy}");
+        Assert.Empty(RuntimeFormatSkillText.Unplaced(ShippedRegions, texts.Values));
     }
 
     // a printed paragraph speaks for SkyPatcher only: it names no tool of this server
     [Fact]
     public void NoPrintedRegionNamesTheServer()
-        => Assert.All(RuntimeFormatSkillText.Regions(RuntimeFormats.SkyPatcher),
+        => Assert.All(ShippedRegions,
             r => Assert.DoesNotContain("housecarl", r.Value, StringComparison.OrdinalIgnoreCase));
 
     // a hand edit inside a region is put back by the print
@@ -49,18 +54,17 @@ public sealed class RuntimeFormatSourceTests
         var text = File.ReadAllText(SkillFile(rel));
         var edited = text.Replace("Magic Effect,", "Weapon, Magic Effect,");
         Assert.NotEqual(text, edited);
-        Assert.Equal(text, RuntimeFormatSkillText.Rewrite(edited, RuntimeFormatSkillText.Regions(RuntimeFormats.SkyPatcher), rel));
+        Assert.Equal(text, RuntimeFormatSkillText.Rewrite(edited, ShippedRegions, rel));
     }
 
     // an opened region the generator has no text for, or one never closed, is refused
     [Fact]
     public void AnUnknownOrUnclosedRegionIsRefused()
     {
-        var regions = RuntimeFormatSkillText.Regions(RuntimeFormats.SkyPatcher);
         Assert.Throws<InvalidOperationException>(() => RuntimeFormatSkillText.Rewrite(
-            RuntimeFormatSkillText.Begin("skypatcher.nope") + "\nx\n" + RuntimeFormatSkillText.End("skypatcher.nope"), regions, "t"));
+            RuntimeFormatSkillText.Begin("skypatcher.nope") + "\nx\n" + RuntimeFormatSkillText.End("skypatcher.nope"), ShippedRegions, "t"));
         Assert.Throws<InvalidOperationException>(() => RuntimeFormatSkillText.Rewrite(
-            RuntimeFormatSkillText.Begin("skypatcher.passes") + "\nx\n", regions, "t"));
+            RuntimeFormatSkillText.Begin("skypatcher.passes") + "\nx\n", ShippedRegions, "t"));
     }
 
     // a pass moved in the source moves the server's folder order and the printed run order
@@ -71,7 +75,7 @@ public sealed class RuntimeFormatSourceTests
         var swapped = With(weapon + "\n    " + armor, armor + "\n    " + weapon);
         Assert.True(SkyPatcherDiscovery.FolderOrder().Compare("weapon", "armor") < 0);
         Assert.True(SkyPatcherDiscovery.FolderOrder(swapped).Compare("weapon", "armor") > 0);
-        Assert.Contains("Ammo, Weapon, Armor,", RuntimeFormatSkillText.Regions(RuntimeFormats.SkyPatcher)["skypatcher.passes"]);
+        Assert.Contains("Ammo, Weapon, Armor,", ShippedRegions["skypatcher.passes"]);
         Assert.Contains("Ammo, Armor, Weapon,", RuntimeFormatSkillText.Regions(swapped)["skypatcher.passes"]);
     }
 
@@ -84,7 +88,7 @@ public sealed class RuntimeFormatSourceTests
         Assert.False(SkyPatcherDiscovery.PatcherRuns(none, "book"));
         Assert.True(SkyPatcherDiscovery.PatcherRuns(none, "book", withBook));
         Assert.True(SkyPatcherDiscovery.PatcherRuns(none, "LIGHT"));
-        Assert.DoesNotContain("iEnableBookPatching", RuntimeFormatSkillText.Regions(RuntimeFormats.SkyPatcher)["skypatcher.switches"]);
+        Assert.DoesNotContain("iEnableBookPatching", ShippedRegions["skypatcher.switches"]);
         Assert.Contains("`iEnableLightPatching` and `iEnableBookPatching` are on", RuntimeFormatSkillText.Regions(withBook)["skypatcher.switches"]);
     }
 
@@ -108,9 +112,8 @@ public sealed class RuntimeFormatSourceTests
         var moved = With("\"root\": \"SKSE/Plugins/SkyPatcher\"", "\"root\": \"SKSE/Patcher\"");
         Assert.Equal("SKSE\\Patcher", moved.Root);
         Assert.Throws<InvalidOperationException>(() => RuntimeFormatSkillText.Regions(moved));
-        var both = RuntimeFormats.SkyPatcherFrom(Shipped
-            .Replace("\"root\": \"SKSE/Plugins/SkyPatcher\"", "\"root\": \"SKSE/Patcher\"")
-            .Replace("\"file\": \"SKSE/Plugins/SkyPatcher.ini\"", "\"file\": \"SKSE/Patcher.ini\""));
+        var both = With(("\"root\": \"SKSE/Plugins/SkyPatcher\"", "\"root\": \"SKSE/Patcher\""),
+                        ("\"file\": \"SKSE/Plugins/SkyPatcher.ini\"", "\"file\": \"SKSE/Patcher.ini\""));
         var printed = RuntimeFormatSkillText.Regions(both);
         Assert.Contains("`Data/SKSE/Patcher/<subfolder>/<name>.ini`", printed["skypatcher.place"]);
         Assert.Contains("    ├── Patcher.ini", printed["skypatcher.tree"]);
@@ -150,8 +153,7 @@ public sealed class RuntimeFormatSourceTests
     [InlineData("\"segment\": \":\"", "\"segment\": \"::\"")]
     public void AValueTheServerHasNoRuleForFailsTheLoad(string from, string to)
     {
-        Assert.Contains(from, Shipped);
-        var ex = Assert.Throws<InvalidOperationException>(() => RuntimeFormats.SkyPatcherFrom(Shipped.Replace(from, to)));
+        var ex = Assert.Throws<InvalidOperationException>(() => With(from, to));
         Assert.Contains(from.Split(':')[0].Trim('"'), ex.Message);
     }
 }
