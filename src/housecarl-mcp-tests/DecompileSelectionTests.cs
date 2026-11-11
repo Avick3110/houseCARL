@@ -424,6 +424,21 @@ public sealed class DecompileSelectionTests : IDisposable
     }
 
     [Fact]
+    public void TheHierarchyNoteClaimsOnlyTheSourcesThisCallRead()
+    {
+        // No instance: the mods tree is not read, so the note says what the hierarchy is. Files on disk alone read
+        // the .pex files beside them and no parent off a load order.
+        var a = _p.Scratch("HcDsDiskA.pex", Pex("HcDsDiskA", null, "AThing"));
+        var b = _p.Scratch("HcDsDiskB.pex", Pex("HcDsDiskB", null, "BThing"));
+        using var unconfigured = LoadOrderService.WithInstance(null, 0, new UserConfigStore(Path.Combine(_p.Root, "user.json")));
+
+        var r = DecompileTools.DecompileScript(unconfigured, paths: new[] { a, b }, out_path: _out);
+
+        Assert.Contains("2 OK", r);
+        Assert.Contains("plus what these scripts and the .pex files beside each file on disk declare, so", r);
+    }
+
+    [Fact]
     public void AFileOnDiskAloneAnswersAsTheOneFileToolDid()
     {
         var disk = _p.Scratch("HcDsDisk.pex", Pex("HcDsDisk", null, "DiskThing"));
