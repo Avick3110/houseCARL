@@ -5,11 +5,14 @@ namespace HousecarlCore;
 /// <summary>Structural tokenizer for one SkyPatcher patch line — grammar only, no key semantics; the productions, the address boundary and the delimiter limitation are in docs/architecture/skypatcher-layer.md.</summary>
 public static class SkyPatcherParse
 {
-    /// <summary>The delimiters, from SkyPatcher's row of the runtime-format source.</summary>
+    /// <summary>The shipped delimiters, from SkyPatcher's row of the runtime-format source; a parse given another row's grammar uses that.</summary>
     static readonly SkyPatcherGrammar G = RuntimeFormats.SkyPatcher.Grammar;
 
-    /// <summary>Parse one physical line. Never throws — a no-'=' or empty-key segment is still surfaced carrying a loud Note, while an empty ':'-segment is noted and skipped.</summary>
-    public static SkyPatcherLine ParseLine(string raw)
+    /// <summary>Parse one physical line with the shipped delimiters.</summary>
+    public static SkyPatcherLine ParseLine(string raw) => ParseLine(raw, G);
+
+    /// <summary>Parse one physical line with <paramref name="g"/>'s delimiters. Never throws — a no-'=' or empty-key segment is still surfaced carrying a loud Note, while an empty ':'-segment is noted and skipped.</summary>
+    public static SkyPatcherLine ParseLine(string raw, SkyPatcherGrammar g)
     {
         raw ??= "";
         // A stray U+FEFF is whitespace anywhere in the line; it is never a legal key/value character.
@@ -18,32 +21,32 @@ public static class SkyPatcherParse
         if (trimmed.Length == 0)
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Blank, Array.Empty<SkyPatcherSegment>(), null);
 
-        if (trimmed[0] == G.Comment || G.CommentLeads.Contains(trimmed[0]))
+        if (trimmed[0] == g.Comment || g.CommentLeads.Contains(trimmed[0]))
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Comment, Array.Empty<SkyPatcherSegment>(), null);
 
-        if (G.LabelLines && trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
+        if (g.LabelLines && trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Label, Array.Empty<SkyPatcherSegment>(), null);
 
         // Since 8.0.1 a comment may follow a rule: the text from the first ';' outside a ~name~ literal is dropped.
-        if (G.TrailingComment) trimmed = StripTrailingComment(trimmed);
+        if (g.TrailingComment) trimmed = StripTrailingComment(trimmed, g);
 
         var segments = new List<SkyPatcherSegment>();
         var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? note = null;
 
-        foreach (var rawSeg in trimmed.Split(G.Segment))
+        foreach (var rawSeg in trimmed.Split(g.Segment))
         {
             var seg = rawSeg.Trim();
             if (seg.Length == 0)
             {
-                note = Append(note, $"empty '{G.Segment}'-segment (stray or doubled '{G.Segment}')");
+                note = Append(note, $"empty '{g.Segment}'-segment (stray or doubled '{g.Segment}')");
                 continue;
             }
 
-            int eq = seg.IndexOf(G.Assign);
+            int eq = seg.IndexOf(g.Assign);
             if (eq < 0)
             {
-                note = Append(note, $"segment '{seg}' has no '{G.Assign}' (not key{G.Assign}value)");
+                note = Append(note, $"segment '{seg}' has no '{g.Assign}' (not key{g.Assign}value)");
                 segments.Add(new SkyPatcherSegment(seg, null, Array.Empty<SkyPatcherValue>()));
                 continue;
             }
@@ -63,30 +66,30 @@ public static class SkyPatcherParse
                 note = Append(note, $"key '{key}' appears twice; SkyPatcher ignores the second copy ('{seg}')");
                 continue;
             }
-            segments.Add(new SkyPatcherSegment(key, rawValue, ParseValueList(rawValue, ref note)));
+            segments.Add(new SkyPatcherSegment(key, rawValue, ParseValueList(rawValue, g, ref note)));
         }
 
         return new SkyPatcherLine(raw, SkyPatcherLineKind.Patch, segments, note);
     }
 
     /// <summary>The line up to its first ';' that is not inside a <c>=~…~</c> name literal, trimmed; a compound's '~' never opens one.</summary>
-    static string StripTrailingComment(string line)
+    static string StripTrailingComment(string line, SkyPatcherGrammar g)
     {
         bool inName = false;
         for (int i = 0; i < line.Length; i++)
         {
-            if (line[i] == G.Compound)
+            if (line[i] == g.Compound)
             {
                 if (inName) inName = false;
-                else if (line[..i].TrimEnd() is { Length: > 0 } before && before[^1] == G.Assign) inName = true;
+                else if (line[..i].TrimEnd() is { Length: > 0 } before && before[^1] == g.Assign) inName = true;
             }
-            else if (line[i] == G.Comment && !inName) return line[..i].TrimEnd();
+            else if (line[i] == g.Comment && !inName) return line[..i].TrimEnd();
         }
         return line;
     }
 
     /// <summary>Parse a whole INI file's text into its lines (blank/comment/patch), in order.</summary>
-    public static IReadOnlyList<SkyPatcherLine> ParseFile(string text)
+    public static IReadOnlyList<SkyPatcherLine> ParseFile(string text, SkyPatcherGrammar? grammar = null)
     {
         var lines = new List<SkyPatcherLine>();
         if (string.IsNullOrEmpty(text)) return lines;
@@ -94,48 +97,48 @@ public static class SkyPatcherParse
         if (text[0] == '\uFEFF') text = text[1..];
         // Empties are kept so line indices track the source file.
         foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
-            lines.Add(ParseLine(raw));
+            lines.Add(ParseLine(raw, grammar ?? G));
         return lines;
     }
 
     /// <summary>Comma-split a segment's raw value into items; an empty item is skipped with a loud note.</summary>
-    static IReadOnlyList<SkyPatcherValue> ParseValueList(string rawValue, ref string? note)
+    static IReadOnlyList<SkyPatcherValue> ParseValueList(string rawValue, SkyPatcherGrammar g, ref string? note)
     {
         if (rawValue.Length == 0) return Array.Empty<SkyPatcherValue>();
         var items = new List<SkyPatcherValue>();
-        foreach (var rawItem in rawValue.Split(G.Item))
+        foreach (var rawItem in rawValue.Split(g.Item))
         {
             var item = rawItem.Trim();
             if (item.Length == 0)
             {
-                note = Append(note, $"empty '{G.Item}'-item in '{rawValue}' (stray or doubled '{G.Item}')");
+                note = Append(note, $"empty '{g.Item}'-item in '{rawValue}' (stray or doubled '{g.Item}')");
                 continue;
             }
-            items.Add(ParseValue(item));
+            items.Add(ParseValue(item, g));
         }
         return items;
     }
 
     /// <summary>Parse one comma-item: a <c>~…~</c> rename name-literal, or a <c>~</c>-packed compound whose first sub-arg is address-parsed.</summary>
-    static SkyPatcherValue ParseValue(string item)
+    static SkyPatcherValue ParseValue(string item, SkyPatcherGrammar g)
     {
-        if (item.Length >= 2 && item[0] == G.Compound && item[^1] == G.Compound)
+        if (item.Length >= 2 && item[0] == g.Compound && item[^1] == g.Compound)
         {
             var name = item[1..^1];
             return new SkyPatcherValue(item, IsNameLiteral: true, NameText: name,
                 SubArgs: new[] { item }, Address: null);
         }
 
-        var subArgs = item.Split(G.Compound);
-        var address = TryParseAddress(subArgs[0]);
+        var subArgs = item.Split(g.Compound);
+        var address = TryParseAddress(subArgs[0], g);
         return new SkyPatcherValue(item, IsNameLiteral: false, NameText: null, SubArgs: subArgs, Address: address);
     }
 
     /// <summary>Resolve the unambiguous <c>Plugin.esp|FormID</c> address form; null for anything else, including a bare EditorID.</summary>
-    public static FormAddress? TryParseAddress(string token)
+    public static FormAddress? TryParseAddress(string token, SkyPatcherGrammar? grammar = null)
     {
         if (string.IsNullOrEmpty(token)) return null;
-        int bar = token.IndexOf(G.Address);
+        int bar = token.IndexOf((grammar ?? G).Address);
         if (bar <= 0 || bar == token.Length - 1) return null;
 
         var plugin = token[..bar].Trim();

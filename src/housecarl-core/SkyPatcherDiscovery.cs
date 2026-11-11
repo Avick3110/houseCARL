@@ -57,19 +57,20 @@ public static class SkyPatcherDiscovery
         }
     }
 
-    /// <summary>Scan the SkyPatcher layer off one pinned asset view; <paramref name="pluginPresent"/> answers the filename gate and <paramref name="cache"/> skips re-parsing unchanged INIs.</summary>
-    public static LayerScan Scan(AssetResolver.AssetView view, SkyPatcherCatalog catalog, Func<string, bool> pluginPresent, ParseCache? cache = null)
+    /// <summary>Scan the SkyPatcher layer off one pinned asset view; <paramref name="pluginPresent"/> answers the filename gate, <paramref name="cache"/> skips re-parsing unchanged INIs, and <paramref name="format"/> replaces the shipped row (uncached).</summary>
+    public static LayerScan Scan(AssetResolver.AssetView view, SkyPatcherCatalog catalog, Func<string, bool> pluginPresent, ParseCache? cache = null, SkyPatcherFormat? format = null)
     {
+        var f = format ?? Format;
         var notes = new List<string>();
         var byFolder = new Dictionary<string, List<IniFile>>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var rel in view.EnumerateUnder(Root))
+        foreach (var rel in view.EnumerateUnder(f.Root))
         {
             var name = Path.GetFileName(rel);
-            if (!HasIniName(name)) continue;
+            if (!HasIniName(name, f)) continue;
 
             // Subfolder = the first component under the root; deeper nesting is organisation only.
-            var underRoot = rel.Substring(Root.Length + 1);
+            var underRoot = rel.Substring(f.Root.Length + 1);
             int slash = underRoot.IndexOf('\\');
             if (slash < 0)
             {
@@ -93,11 +94,11 @@ public static class SkyPatcherDiscovery
             }
             else
             {
-                notApplied = NotReadReason(name, pluginPresent);
+                notApplied = NotReadReason(name, pluginPresent, f);
                 try
                 {
-                    lines = cache is null
-                        ? SkyPatcherParse.ParseFile(File.ReadAllText(winner.LooseFilePath!))
+                    lines = cache is null || format is not null
+                        ? SkyPatcherParse.ParseFile(File.ReadAllText(winner.LooseFilePath!), f.Grammar)
                         : cache.GetOrParse(winner.LooseFilePath!);
                 }
                 catch (Exception ex)
@@ -109,25 +110,25 @@ public static class SkyPatcherDiscovery
 
             var file = new IniFile(rel, subfolder, sortKey, winner?.ProviderName,
                                    winner?.Kind == AssetKind.Loose ? winner.LooseFilePath : null,
-                                   shadowed, GatePluginOf(name), notApplied, lines);
+                                   shadowed, GatePluginOf(name, f), notApplied, lines);
             (byFolder.TryGetValue(subfolder, out var list) ? list : byFolder[subfolder] = new()).Add(file);
 
             if (shadowed.Count > 0)
                 notes.Add($"'{rel}' is shipped by {looseSources.Count} mods — only '{winner!.ProviderName}' wins the VFS; the cop(ies) from {string.Join(", ", shadowed)} are SHADOWED and never read (the same-path collision the reference warns about — nest plugin-named INIs in a mod-specific subfolder).");
         }
 
-        var switches = ReadSwitches(view, notes, noteMissing: byFolder.Count > 0);
+        var switches = ReadSwitches(view, notes, noteMissing: byFolder.Count > 0, f);
 
         var folders = new List<FolderScan>();
-        foreach (var (subfolder, files) in byFolder.OrderBy(kv => kv.Key, FolderOrder()))
+        foreach (var (subfolder, files) in byFolder.OrderBy(kv => kv.Key, FolderOrder(f)))
         {
             var cat = catalog.ForSubfolder(subfolder);
             if (cat is null)
                 notes.Add($"subfolder '{subfolder}' is not a documented SkyPatcher record type — its {files.Count} INI(s) are listed but cannot be interpreted (not in the grammar reference; verify the folder name or the reference version).");
-            bool enabled = PatcherRuns(switches, subfolder);
+            bool enabled = PatcherRuns(switches, subfolder, f);
             if (!enabled)
-                notes.Add($"SkyPatcher.ini {SwitchOffReason(switches, subfolder)} — its {files.Count} INI(s) are present but the DLL skips the whole subfolder.");
-            folders.Add(new FolderScan(subfolder, cat, enabled, files.OrderBy(f => f.SortKey, FileOrder).ToList(),
+                notes.Add($"SkyPatcher.ini {SwitchOffReason(switches, subfolder, f)} — its {files.Count} INI(s) are present but the DLL skips the whole subfolder.");
+            folders.Add(new FolderScan(subfolder, cat, enabled, files.OrderBy(x => x.SortKey, FileOrder).ToList(),
                                        SwitchUnknown: switches.Unreadable is not null));
         }
 
@@ -155,30 +156,32 @@ public static class SkyPatcherDiscovery
         => fileName.Contains((format ?? Format).NameToken, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Why SkyPatcher does not read a file of this name, or null when it does: a name ending in '.ini' spelt in any case but lower ('.INI', '.Ini'), a gate that is not exactly a plugin name, or a gate plugin not in the active order.</summary>
-    public static string? NotReadReason(string fileName, Func<string, bool> pluginPresent)
+    public static string? NotReadReason(string fileName, Func<string, bool> pluginPresent, SkyPatcherFormat? format = null)
     {
-        var token = Format.NameToken;
+        var f = format ?? Format;
+        var token = f.NameToken;
         if (fileName.EndsWith(token, StringComparison.OrdinalIgnoreCase) && !fileName.EndsWith(token, StringComparison.Ordinal))
             return $"the name ends in '{fileName[^token.Length..]}', and SkyPatcher reads only a lower-case '{token}' ending";
-        var stem = Stem(fileName);
-        if (GatePluginOf(fileName) is { } gate)
+        var stem = Stem(fileName, f);
+        if (GatePluginOf(fileName, f) is { } gate)
             return pluginPresent(gate) ? null : $"filename-gated on plugin '{gate}', which is not in the active load order";
-        return Format.GateExtensions.Any(e => stem.Contains(e, StringComparison.OrdinalIgnoreCase))
+        return f.GateExtensions.Any(e => stem.Contains(e, StringComparison.OrdinalIgnoreCase))
             ? $"the name before '{token}' ('{stem}') names a plugin with more text after it, and SkyPatcher reads a plugin-named file only when that name is exactly the plugin's"
             : null;
     }
 
     /// <summary>The plugin a filename gates on — the name before '.ini' when it ends in a plugin extension ('Skyrim.esm.ini' and 'Skyrim.esm.ini.bak' to "Skyrim.esm"); null when ungated.</summary>
-    public static string? GatePluginOf(string relPath)
+    public static string? GatePluginOf(string relPath, SkyPatcherFormat? format = null)
     {
-        var stem = Stem(Path.GetFileName(relPath));
-        return Format.GateExtensions.Any(e => stem.EndsWith(e, StringComparison.OrdinalIgnoreCase)) ? stem : null;
+        var f = format ?? Format;
+        var stem = Stem(Path.GetFileName(relPath), f);
+        return f.GateExtensions.Any(e => stem.EndsWith(e, StringComparison.OrdinalIgnoreCase)) ? stem : null;
     }
 
     /// <summary>The name before the first name token ('.ini').</summary>
-    static string Stem(string fileName)
+    static string Stem(string fileName, SkyPatcherFormat f)
     {
-        int at = fileName.IndexOf(Format.NameToken, StringComparison.OrdinalIgnoreCase);
+        int at = fileName.IndexOf(f.NameToken, StringComparison.OrdinalIgnoreCase);
         return at < 0 ? fileName : fileName[..at];
     }
 
@@ -227,10 +230,9 @@ public static class SkyPatcherDiscovery
     }
 
     /// <summary>Read the winning loose SkyPatcher.ini's [Patcher] section; no loose copy means every key is missing, and an unreadable one is named, and <see cref="PatcherRuns"/> replays every patcher as running.</summary>
-    static Switches ReadSwitches(AssetResolver.AssetView view, List<string> notes, bool noteMissing)
+    static Switches ReadSwitches(AssetResolver.AssetView view, List<string> notes, bool noteMissing, SkyPatcherFormat f)
     {
         var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        var f = Format;
         try
         {
             var place = view.ResolveForPlacement(f.SwitchesFile);
