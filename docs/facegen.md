@@ -43,7 +43,7 @@ things Mutagen does not do:
     these NPCs (vanilla ships `Skyrim.esm\000F9644.nif` for `AudioTemplateHorse`).
 
   A FormID no plugin in the order defines, or one that is not an NPC, is a reason too. Each tool shows a reason
-  where it would show the pair: a `formids=` or `npc=` row, a walk note, a `place` refusal, a counted exclusion
+  where it would show the pair: an `asset_status` or `nif_inspect` `formids=` row, a walk note, a `place` refusal, a counted exclusion
   here.
 
 The file layer therefore answers for a whole order in one call: `housecarl_asset_status` with `formids=` a list
