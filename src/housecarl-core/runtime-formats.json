@@ -1,0 +1,81 @@
+{
+"_about": "One row per runtime-layer format: where its files are found, the order they apply in, who wins a conflict and how a line is split. The server reads these values and the build generates the skill paragraphs from them (docs/architecture/runtime-formats.md). Each block's 'source' names the upstream text it is taken from; 'reading' marks a rule upstream does not state.",
+"formats": [
+ {
+  "format": "SkyPatcher",
+  "version": "8.0.1",
+  "discovery": {
+   "source": "Nexus 6085 General Information; 8.0.1 changelog (lower-case '.ini', upper-case plugin ending)",
+   "root": "SKSE/Plugins/SkyPatcher",
+   "typeFolder": "firstComponent",
+   "nameToken": ".ini",
+   "tokenMatch": "anywhere",
+   "endingCase": "lower",
+   "gate": { "kind": "pluginStem", "extensions": [".esp", ".esm", ".esl"], "moreText": "neverRead" },
+   "reading": { "rootFiles": "notRead", "looseOnly": true }
+  },
+  "switches": {
+   "source": "Nexus 6085; LIGH 12456 (Light runs without its key)",
+   "file": "SKSE/Plugins/SkyPatcher.ini",
+   "section": "Patcher",
+   "keyPrefix": "iEnable",
+   "keySuffix": "Patching",
+   "missing": "off",
+   "onWithoutKey": ["light"],
+   "value": "leadingInteger"
+  },
+  "order": {
+   "source": "Nexus 6085 (patcher order, breadth-first); ARR 7.0.x SkyPatcher.log (same order)",
+   "files": "breadthFirst",
+   "compare": "ordinalIgnoreCase",
+   "passes": [
+    { "folder": "raceHook", "name": "Race Hook", "runs": "early", "note": "runs earlier, while the races load" },
+    { "folder": "magicEffect", "name": "Magic Effect" },
+    { "folder": "ammo", "name": "Ammo" },
+    { "folder": "weapon", "name": "Weapon" },
+    { "folder": "armor", "name": "Armor" },
+    { "folder": "race", "name": "Race" },
+    { "folder": "npc", "name": "NPC" },
+    { "folder": "ingestible", "name": "Alchemy" },
+    { "folder": "ingredient", "name": "Ingredient" },
+    { "folder": "spell", "name": "Spell" },
+    { "folder": "enchantment", "name": "Enchantment" },
+    { "folder": "projectile", "name": "Projectile" },
+    { "folder": "light", "name": "Light" },
+    { "folder": "outfit", "name": "Outfit" },
+    { "folder": "scroll", "name": "Scroll" },
+    { "folder": "misc", "name": "Misc" },
+    { "folder": "soulGem", "name": "Soul Gem" },
+    { "folder": "faction", "name": "Faction" },
+    { "folder": "constructibleObject", "name": "Constructible Object" },
+    { "folder": "book", "name": "Book" },
+    { "folder": "movementType", "name": "Movement Type" },
+    { "folder": "leveledList", "name": "Leveled List" },
+    { "folder": "container", "name": "Container" },
+    { "folder": "formList", "name": "FormList" },
+    { "folder": "reference", "name": "Reference" },
+    { "folder": "cell", "name": "Cell" },
+    { "folder": "location", "name": "Location" },
+    { "folder": "encounterzone", "name": "Encounter Zone" },
+    { "folder": "objectModification", "name": "Object Modification", "runs": "noEffect" }
+   ]
+  },
+  "conflict": {
+   "source": "Nexus 6085",
+   "set": "lastReadWins",
+   "add": "accumulate"
+  },
+  "grammar": {
+   "source": "Nexus 6085; 8.0.1 changelog (trailing comments)",
+   "segment": ":",
+   "assign": "=",
+   "item": ",",
+   "compound": "~",
+   "address": "|",
+   "comment": ";",
+   "trailingComment": true,
+   "reading": { "commentLeads": ["#"], "labelLines": true }
+  }
+ }
+]
+}

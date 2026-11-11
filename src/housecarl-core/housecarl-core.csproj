@@ -42,6 +42,9 @@
     <!-- The asset walk's part fields (walk=true's default follow): hand-listed domain data, each field checked to
          exist on its type by WalkPartsTests. -->
     <EmbeddedResource Include="walk-parts.json" />
+    <!-- The runtime-layer format source: discovery, order, conflict and grammar values per format, read by the
+         server and printed into the skills by the generator (EmitMatchGuardTests holds the printed text). -->
+    <EmbeddedResource Include="runtime-formats.json" />
   </ItemGroup>
 
 </Project>

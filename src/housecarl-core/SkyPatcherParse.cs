@@ -5,6 +5,9 @@ namespace HousecarlCore;
 /// <summary>Structural tokenizer for one SkyPatcher patch line — grammar only, no key semantics; the productions, the address boundary and the delimiter limitation are in docs/architecture/skypatcher-layer.md.</summary>
 public static class SkyPatcherParse
 {
+    /// <summary>The delimiters, from SkyPatcher's row of the runtime-format source.</summary>
+    static readonly SkyPatcherGrammar G = RuntimeFormats.SkyPatcher.Grammar;
+
     /// <summary>Parse one physical line. Never throws — a no-'=' or empty-key segment is still surfaced carrying a loud Note, while an empty ':'-segment is noted and skipped.</summary>
     public static SkyPatcherLine ParseLine(string raw)
     {
@@ -15,32 +18,32 @@ public static class SkyPatcherParse
         if (trimmed.Length == 0)
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Blank, Array.Empty<SkyPatcherSegment>(), null);
 
-        if (trimmed[0] is ';' or '#')
+        if (trimmed[0] == G.Comment || G.CommentLeads.Contains(trimmed[0]))
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Comment, Array.Empty<SkyPatcherSegment>(), null);
 
-        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
+        if (G.LabelLines && trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Label, Array.Empty<SkyPatcherSegment>(), null);
 
         // Since 8.0.1 a comment may follow a rule: the text from the first ';' outside a ~name~ literal is dropped.
-        trimmed = StripTrailingComment(trimmed);
+        if (G.TrailingComment) trimmed = StripTrailingComment(trimmed);
 
         var segments = new List<SkyPatcherSegment>();
         var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? note = null;
 
-        foreach (var rawSeg in trimmed.Split(':'))
+        foreach (var rawSeg in trimmed.Split(G.Segment))
         {
             var seg = rawSeg.Trim();
             if (seg.Length == 0)
             {
-                note = Append(note, "empty ':'-segment (stray or doubled ':')");
+                note = Append(note, $"empty '{G.Segment}'-segment (stray or doubled '{G.Segment}')");
                 continue;
             }
 
-            int eq = seg.IndexOf('=');
+            int eq = seg.IndexOf(G.Assign);
             if (eq < 0)
             {
-                note = Append(note, $"segment '{seg}' has no '=' (not key=value)");
+                note = Append(note, $"segment '{seg}' has no '{G.Assign}' (not key{G.Assign}value)");
                 segments.Add(new SkyPatcherSegment(seg, null, Array.Empty<SkyPatcherValue>()));
                 continue;
             }
@@ -72,12 +75,12 @@ public static class SkyPatcherParse
         bool inName = false;
         for (int i = 0; i < line.Length; i++)
         {
-            if (line[i] == '~')
+            if (line[i] == G.Compound)
             {
                 if (inName) inName = false;
-                else if (line[..i].TrimEnd() is { Length: > 0 } before && before[^1] == '=') inName = true;
+                else if (line[..i].TrimEnd() is { Length: > 0 } before && before[^1] == G.Assign) inName = true;
             }
-            else if (line[i] == ';' && !inName) return line[..i].TrimEnd();
+            else if (line[i] == G.Comment && !inName) return line[..i].TrimEnd();
         }
         return line;
     }
@@ -100,12 +103,12 @@ public static class SkyPatcherParse
     {
         if (rawValue.Length == 0) return Array.Empty<SkyPatcherValue>();
         var items = new List<SkyPatcherValue>();
-        foreach (var rawItem in rawValue.Split(','))
+        foreach (var rawItem in rawValue.Split(G.Item))
         {
             var item = rawItem.Trim();
             if (item.Length == 0)
             {
-                note = Append(note, $"empty ','-item in '{rawValue}' (stray or doubled ',')");
+                note = Append(note, $"empty '{G.Item}'-item in '{rawValue}' (stray or doubled '{G.Item}')");
                 continue;
             }
             items.Add(ParseValue(item));
@@ -116,14 +119,14 @@ public static class SkyPatcherParse
     /// <summary>Parse one comma-item: a <c>~…~</c> rename name-literal, or a <c>~</c>-packed compound whose first sub-arg is address-parsed.</summary>
     static SkyPatcherValue ParseValue(string item)
     {
-        if (item.Length >= 2 && item[0] == '~' && item[^1] == '~')
+        if (item.Length >= 2 && item[0] == G.Compound && item[^1] == G.Compound)
         {
             var name = item[1..^1];
             return new SkyPatcherValue(item, IsNameLiteral: true, NameText: name,
                 SubArgs: new[] { item }, Address: null);
         }
 
-        var subArgs = item.Split('~');
+        var subArgs = item.Split(G.Compound);
         var address = TryParseAddress(subArgs[0]);
         return new SkyPatcherValue(item, IsNameLiteral: false, NameText: null, SubArgs: subArgs, Address: address);
     }
@@ -132,7 +135,7 @@ public static class SkyPatcherParse
     public static FormAddress? TryParseAddress(string token)
     {
         if (string.IsNullOrEmpty(token)) return null;
-        int bar = token.IndexOf('|');
+        int bar = token.IndexOf(G.Address);
         if (bar <= 0 || bar == token.Length - 1) return null;
 
         var plugin = token[..bar].Trim();

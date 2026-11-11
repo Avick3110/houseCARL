@@ -30,11 +30,13 @@ toggles in `SkyPatcher.ini` (`placement-and-conflicts.md` §6). This corpus docu
 types (Light is new in 7.1.0); Object Modification (OMOD) has a toggle but "has no effect in
 Skyrim" — see `object-modification.md`.
 
+<!-- generated:skypatcher.passes from the runtime-format source; edit the source and regenerate, not this text -->
 Patchers run in a fixed order, and a later patcher sees the changes of an earlier one: Magic Effect,
 Ammo, Weapon, Armor, Race, NPC, Alchemy, Ingredient, Spell, Enchantment, Projectile, Light, Outfit,
 Scroll, Misc, Soul Gem, Faction, Constructible Object, Book, Movement Type, Leveled List, Container,
 FormList, Reference, Cell, Location, Encounter Zone. The Race Hook patcher runs earlier, while the
 races load.
+<!-- end generated:skypatcher.passes -->
 
 ---
 
@@ -48,6 +50,7 @@ conflict resolution (the type folder's own files, then each depth of subfolders,
 
 ## 3. Patch string structure
 
+<!-- generated:skypatcher.segments from the runtime-format source; edit the source and regenerate, not this text -->
 One line = one patch string, built from a **filter** part and an **operation** part, joined
 by `:` segments:
 
@@ -63,6 +66,7 @@ filter1=val1 : filter2=val2 : op1=val1 : op2=val2
 - Write each key once per line: a second copy of the same key is ignored.
 - A comment starts with `;`. Since 8.0.1 a comment may also follow a rule on the same line
   (`level=10 ; Nazeem`).
+<!-- end generated:skypatcher.segments -->
 - `null`, `true` and `false` work in any case. `false`, `no`, `0` and `off` stay off. A value that
   is not a number skips only its own key, not the whole line (8.0.1).
 - A key the patcher does not know is ignored without a message, so a misspelled filter does

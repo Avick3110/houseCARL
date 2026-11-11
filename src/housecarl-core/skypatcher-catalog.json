@@ -1,5 +1,4 @@
 {"version": "8.0.1",
-"patcherOrder": ["raceHook", "magicEffect", "ammo", "weapon", "armor", "race", "npc", "ingestible", "ingredient", "spell", "enchantment", "projectile", "light", "outfit", "scroll", "misc", "soulGem", "faction", "constructibleObject", "book", "movementType", "leveledList", "container", "formList", "reference", "cell", "location", "encounterzone", "objectModification"],
 "records": [
  {
   "recordType": "NPC",
@@ -5790,8 +5789,7 @@
     "shape": "flags",
     "tractability": "CLEAN"
    }
-  ],
-  "enabledWithoutSwitch": true
+  ]
  }
 ]
 }
