@@ -2,9 +2,10 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>One mesh a nif_inspect call reads: its Data path or file on disk, on a formids= row the FormID, and the
-/// row's own error or face line.</summary>
-internal readonly record struct MeshRow(string Path, bool OnDisk, string? FormId = null, string? Error = null, string? FaceNote = null);
+/// <summary>One mesh a nif_inspect call reads: its Data path or file on disk, on a formids= row the FormID, the row's
+/// own error or face line, and whether an under= or provider= walk matched it.</summary>
+internal readonly record struct MeshRow(string Path, bool OnDisk, string? FormId = null, string? Error = null, string? FaceNote = null,
+                                        bool Matched = false);
 
 /// <summary>A mesh selection: the call's asset capture (null when only files on disk are read and nothing needs the
 /// load order), the rows in order, how many matched files were not meshes, how many formids= tints were left out, the
@@ -30,7 +31,7 @@ internal sealed partial class AssetLayers
             return new MeshSelectionData(needView ? _host.CaptureAssets() : null, onlyDisk, 0, 0, Array.Empty<string>());
         }
         var capture = CaptureForSelection(seeds, faceSources);
-        var chosen = FileSelection.Select(capture, dataPaths, under, provider, MaxAssetPaths);
+        var chosen = FileSelection.Select(capture, dataPaths, under, provider, MaxAssetPaths, filesOnDisk: dataPaths.Count < entries.Count);
         MeshSelectionData Refused(string why) => new(capture.Captured, Array.Empty<MeshRow>(), 0, 0, chosen.Notes, why);
         if (chosen.Refusal is { } unknown) return Refused(unknown);
         if (chosen.StoppedAt is { } stoppedAt)
@@ -52,7 +53,7 @@ internal sealed partial class AssetLayers
                 continue;
             }
             if (!f.Path.EndsWith(".nif", StringComparison.OrdinalIgnoreCase)) { notMeshes++; continue; }
-            rows.Add(new MeshRow(f.Path, false));
+            rows.Add(new MeshRow(f.Path, false, Matched: true));
         }
         return new MeshSelectionData(capture.Captured, rows, notMeshes, tints, chosen.Notes);
     }

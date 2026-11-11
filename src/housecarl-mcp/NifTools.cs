@@ -61,7 +61,7 @@ public static class NifTools
             ListArg? under = null,
         [Description("Optional. WHICH meshes: one provider, as " + ToolNames.AssetStatus + " provider= spells it (an " +
                      "enabled mod folder, 'overwrite', 'Data', or one active archive's filename). Alone, every .nif it " +
-                     "ships; with under=, only those beneath the selectors. A name not in the active load order is " +
+                     "ships; with under=, only those beneath the selectors; beside paths= or formids= alone, it selects nothing. A name not in the active load order is " +
                      "refused. Each mesh is still read from its winning copy, and a note counts the ones another " +
                      "provider wins: that is source_provider=.")]
             string? provider = null,

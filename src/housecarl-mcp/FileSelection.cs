@@ -33,13 +33,15 @@ internal static class FileSelection
     /// deduped, or the whole provider when no other selector is given. <paramref name="maxPaths"/> (null: none) bounds
     /// only that <c>under=</c> or whole-provider enumeration, which stops once the selection would cross it and sets
     /// <see cref="FileSelectionResult.StoppedAt"/>; explicit and seed rows are never cut, only leave it less room. The
-    /// caller words the stop.</summary>
+    /// caller words the stop. <paramref name="filesOnDisk"/>: the caller reads files on disk beside the selection, which
+    /// are explicit paths to the whole-provider test.</summary>
     internal static FileSelectionResult Select(
         SelectionCapture capture,
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under,
         string? provider,
-        int? maxPaths)
+        int? maxPaths,
+        bool filesOnDisk = false)
     {
         var (view, seeds, faces, noOrder) = (capture.Captured.View, capture.Seeds, capture.Faces, capture.NoOrder);
         provider = provider?.Trim() is { Length: > 0 } named ? named : null;
@@ -84,7 +86,7 @@ internal static class FileSelection
 
         bool overBound = false;
         // A provider with no other selector walks everything it ships: '**', narrowed to that provider.
-        bool wholeProvider = provider is not null && under is not { Count: > 0 } && relPaths.Count == 0 && seeds is not { Count: > 0 };
+        bool wholeProvider = provider is not null && under is not { Count: > 0 } && relPaths.Count == 0 && !filesOnDisk && seeds is not { Count: > 0 };
         // The walk's own count of what MO2 hid in scope, never a guess from the selector's spelling.
         string NoMatchNote(string sel, HiddenTally hidden)
         {

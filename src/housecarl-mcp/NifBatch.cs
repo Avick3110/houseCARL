@@ -32,9 +32,9 @@ internal static class NifBatch
         internal NifInspectData Read(MeshRow r) =>
             AssetLayers.InspectMesh(Sel.Captured?.View, ModsRoot, r, Source.Length > 0 ? Source : null, C.Want.Contains("paths"));
 
-        /// <summary>A mesh read from a copy that is not <see cref="Provider"/>'s: provider= picked it, its winner was read.</summary>
-        internal bool WonElsewhere(NifInspectData d) =>
-            Provider.Length > 0 && Source.Length == 0 && !d.OnDisk && d.Inspected is { } p
+        /// <summary>A mesh the provider= walk matched whose winner, not <see cref="Provider"/>'s copy, was chosen.</summary>
+        internal bool WonElsewhere(MeshRow r, NifInspectData d) =>
+            r.Matched && Provider.Length > 0 && Source.Length == 0 && d.Inspected is { } p
             && !AssetSourceSelection.NameMatches(p.Name, p.OwningMod, Provider);
 
         internal NifInspectBatchData Batch(IReadOnlyList<NifInspectData> results) =>
@@ -69,7 +69,7 @@ internal static class NifBatch
 
         var window = c.Window.Apply(sel.Rows);
         var results = window.Select(ctx.Read).ToList();
-        AddWonElsewhere(ctx, notes, results.Count(ctx.WonElsewhere));
+        AddWonElsewhere(ctx, notes, results.Where((d, i) => ctx.WonElsewhere(window[i], d)).Count());
         return ToolAnswer.Served(c.Json ? InlineJson(svc, ctx, window, results, notes) : InlineText(svc, ctx, window, results, notes));
     }
 
@@ -170,7 +170,7 @@ internal static class NifBatch
         foreach (var row in ctx.Sel.Rows)
         {
             var d = ctx.Read(row);
-            if (ctx.WonElsewhere(d)) wonElsewhere++;
+            if (ctx.WonElsewhere(row, d)) wonElsewhere++;
             writer.WriteRow((w, _) => Row(w, row, d, ctx.C.Want));
         }
         AddWonElsewhere(ctx, notes, wonElsewhere);
@@ -234,7 +234,7 @@ internal static class NifBatch
         foreach (var row in ctx.Sel.Rows)
         {
             var d = ctx.Read(row);
-            if (ctx.WonElsewhere(d)) wonElsewhere++;
+            if (ctx.WonElsewhere(row, d)) wonElsewhere++;
             if (d.Inspect is not { } nif) { errors++; if (d.Absent) absent++; continue; }
             read++;
             if (d.OnDisk) disk++; else if (d.Inspected!.SourceKind == AssetKind.Bsa) bsa++; else loose++;
