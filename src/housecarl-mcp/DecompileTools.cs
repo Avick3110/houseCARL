@@ -19,7 +19,8 @@ public static class DecompileTools
          "script name is refused. The .psc files land in Source\\Scripts of a new houseCARL patch-mod folder, or in the " +
          "folder out_path= names. Originals are untouched and an existing .psc is never overwritten: that script's row " +
          "says so and the rest land. One row per script, then the [accounting] line (counts_only=: the totals and notes); " +
-         "one file on disk alone answers in one result, as before. Needs your MO2 instance, except " +
+         "one file on disk with no other selector and no source_provider=, format=json, limit=, offset=, counts_only= or " +
+         "max_chars= answers in one result, with no rows and no [accounting] line. Needs your MO2 instance, except " +
          "for files on disk with out_path=; needs no external tool.\n\n" +
          "Names, types, properties, states, events and docstrings survive; control flow is reconstructed and proven. Losses " +
          "every decompiler shares: .pex has no parameter defaults, so a '= None' default comes back only where a call in the " +
