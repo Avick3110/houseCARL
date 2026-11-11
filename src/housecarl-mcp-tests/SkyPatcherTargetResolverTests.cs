@@ -246,7 +246,7 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Equal(1, w.Svc.Counters.EditorIdSweeps - before);
     }
 
-    // Without Tweaks a form-list item is looked up only among the types the game keeps names of (14 at most).
+    // Without Tweaks a form-list item is looked up only among the 12 types the game keeps names of.
     [Fact]
     public void WithoutTweaksAFormListItemWalksOnlyKeptTypes()
     {
@@ -254,7 +254,7 @@ public sealed class SkyPatcherTargetResolverTests
             subfolder: "formList", tweaks: false, records: AddList);
         var before = w.Svc.Counters.EditorIdTypesWalked;
         Assert.Contains("Items = [list: 2 item(s)]", Post(w, "000840:HcSpRel.esp", "Items"));
-        Assert.InRange(w.Svc.Counters.EditorIdTypesWalked - before, 1, 14);
+        Assert.Equal(12, w.Svc.Counters.EditorIdTypesWalked - before);
     }
 
     // Without Tweaks the game keeps no armor names, so the call's armor scope is never walked.
