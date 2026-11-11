@@ -21,7 +21,7 @@ if (args.Length > 0 && args[0] == "skill-text") return RuntimeFormatSkillText.Ru
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
 // SkyPatcher harness: the whole-layer scan + INI-vs-INI conflict report off a LIVE MO2 instance, rendered
-// exactly as housecarl_skypatcher_layer returns it.
+// exactly as housecarl_layer returns it.
 if (args.Length > 0 && args[0] == "skypatcher-layer") return SkyPatcherHarness.RunLayer(args[1..]);
 
 // Index-build resilience: is group enumeration resumable past a parse throw?

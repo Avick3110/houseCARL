@@ -143,6 +143,15 @@ internal sealed partial class AssetLayers
             return (lint, lint.Count > 0 && _formResolver.ConsumedIncompleteTable);
         }
 
+        /// <summary>Every form one line names, across every record type its folder holds, each once.</summary>
+        internal IReadOnlyList<SkyPatcherOverlay.LineForm> LineForms(SkyPatcherDiscovery.FolderScan folder, SkyPatcherLine line)
+        {
+            IReadOnlyList<RecordMap> maps = folder.Catalog is null ? Array.Empty<RecordMap>() : FieldMap.ForSubfolder(folder.Subfolder);
+            return (maps.Count == 0 ? new RecordMap?[] { null } : maps.Select(m => (RecordMap?)m))
+                .SelectMany(m => SkyPatcherOverlay.LineForms(line, Catalog, folder.Catalog, m, _formResolver))
+                .Distinct().ToList();
+        }
+
         /// <summary>Plugins an EditorID sweep could not open during this call.</summary>
         internal IReadOnlyList<PluginUnreadableException> Unreadable => _formResolver.Unreadable;
 

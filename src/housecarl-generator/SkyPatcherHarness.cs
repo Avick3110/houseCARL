@@ -35,7 +35,7 @@ public static class SkyPatcherHarness
 
     /// <summary>
     /// The whole SkyPatcher layer + conflict report off a live MO2 instance, rendered by the SAME Wire the
-    /// housecarl_skypatcher_layer tool uses (internals-visible), so what prints is what the tool returns.
+    /// housecarl_layer tool uses (internals-visible), so what prints is what the tool returns.
     /// Run: dotnet run --project src/housecarl-generator skypatcher-layer --instance &lt;MO2 instance dir&gt; [--filter x]
     /// </summary>
     public static int RunLayer(string[] args)

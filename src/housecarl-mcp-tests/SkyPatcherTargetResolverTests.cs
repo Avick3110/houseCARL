@@ -34,7 +34,7 @@ public sealed class SkyPatcherTargetResolverTests
     {
         using var w = DuplicateWorld("filterByArmors=HcPlainCuirass:value=42\r\n");
         Assert.Contains("target 'HcPlainCuirass' (in a filterByArmors) names 2 Armor records; the replay takes the first loaded, 000811:HcSpRel.esp from HcSpRel.esp.",
-            SkyPatcherTools.SkyPatcherLayer(w.Svc, filter: Ini));
+            SkyPatcherTools.Layer(w.Svc, filter: Ini));
     }
 
     // HcSpRelOther.esp overrides HcHeelBoots and renames it: the game's map keeps the name the master loaded first.
@@ -54,7 +54,7 @@ public sealed class SkyPatcherTargetResolverTests
             + "filterByArmors=HcSpRel.esp|zz:value=6\r\n"
             + "filterByArmors=HcGone.esp|800:value=7\r\n"
             + "filterByArmors=HcSpRel.esp|899:value=8\r\n") });
-        var layer = SkyPatcherTools.SkyPatcherLayer(w.Svc, filter: Ini);
+        var layer = SkyPatcherTools.Layer(w.Svc, filter: Ini);
         Assert.Contains("target 'HcNoSuchArmor' (in a filterByArmors) finds no record by that EditorID among Armor records in the active order.", layer);
         Assert.Contains("target 'HcSpRel.esp|zz' (in a filterByArmors) is not a FormID SkyPatcher can read", layer);
         Assert.Contains("target 'HcGone.esp|800' (in a filterByArmors) names plugin 'HcGone.esp', which is not in the active order, so it names nothing.", layer);
@@ -76,7 +76,7 @@ public sealed class SkyPatcherTargetResolverTests
     public void A0xFormIdTargetIsNotReportedAsAMiss()
     {
         using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByArmors=HcSpRel.esp|0x000810:value=9\r\n") });
-        Assert.DoesNotContain("target '", SkyPatcherTools.SkyPatcherLayer(w.Svc, filter: Ini));
+        Assert.DoesNotContain("target '", SkyPatcherTools.Layer(w.Svc, filter: Ini));
         Assert.Contains("Value = 9", Post(w, w.Heel, "Value"));
     }
 
@@ -88,7 +88,7 @@ public sealed class SkyPatcherTargetResolverTests
             "filterByArmors=HcPlainCuirass:value=3\r\n"
             + "filterByKeywords=HcHeelKw:keywordsToAdd=HcAddKw\r\n") });
         var before = w.Svc.Counters.EditorIdSweeps;
-        SkyPatcherTools.SkyPatcherLayer(w.Svc, filter: Ini);
+        SkyPatcherTools.Layer(w.Svc, filter: Ini);
         Assert.Equal(1, w.Svc.Counters.EditorIdSweeps - before);
         before = w.Svc.Counters.EditorIdSweeps;
         RecordsTools.Records(w.Svc, formids: new[] { w.Plain, w.Heel, w.Both }, source: SkyPatcherRelevanceWorld.Post(),
@@ -165,7 +165,7 @@ public sealed class SkyPatcherTargetResolverTests
     {
         using var w = new SkyPatcherRelevanceWorld(new[] { ("HcA.ini", "filterByArmors=HcPlainCuirass:value=3\r\n"),
             ("HcB.ini", "filterByArmors=HcSpRel.esp|811:value=4\r\n") });
-        Assert.Contains("1 set-conflict(s)", SkyPatcherTools.SkyPatcherLayer(w.Svc));
+        Assert.Contains("1 set-conflict(s)", SkyPatcherTools.Layer(w.Svc));
     }
 
     // addToLLs carries no form type: its item is looked up among every item type, as SkyPatcher's untyped lookup finds it.
@@ -228,7 +228,7 @@ public sealed class SkyPatcherTargetResolverTests
         using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByFormLists=HcSpRel.esp|840:formsToAdd=HcHeelBoots\r\n") },
             subfolder: "formList", records: AddList);
         var before = w.Svc.Counters.EditorIdTypesWalked;
-        var layer = SkyPatcherTools.SkyPatcherLayer(w.Svc);
+        var layer = SkyPatcherTools.Layer(w.Svc);
         Assert.Contains("0 no-op write(s)", layer);
         Assert.DoesNotContain("could not be replayed", layer);
         Assert.Equal(0, w.Svc.Counters.EditorIdTypesWalked - before);

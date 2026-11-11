@@ -51,7 +51,7 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
     public void TheUntickedPluginAdvisorysOtherCall_FormidsOverANamedPlugin_IsServed() =>
         Served(RecordsTools.Records(Svc, source: Plugin(W.OldName), formids: new[] { Fid(W.Weapons[0]) }));
 
-    /// <summary>`housecarl_skypatcher_layer`'s own tool DESCRIPTION, and its no-op-scan note: "For ONE record's
+    /// <summary>`housecarl_layer`'s own tool DESCRIPTION, and its no-op-scan note: "For ONE record's
     /// computed post-SkyPatcher state use housecarl_records formids=["&lt;FormID&gt;"] source={overlay…}".</summary>
     [Fact]
     public void TheSkyPatcherDescriptionsCall_FormidsOverTheOverlayPole_IsServed() =>
@@ -86,7 +86,7 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
     static readonly string[] SelectTerms =
         { "formids=", "types=", "plugins=", "where=", "references=", "conflicts_only=" };
 
-    /// <summary>`housecarl_skypatcher_layer`'s PUBLISHED description, read off the same attribute the SDK
+    /// <summary>`housecarl_layer`'s PUBLISHED description, read off the same attribute the SDK
     /// builds the schema from. Where it tells a caller to reach for `housecarl_records` with a source pole it
     /// must also name a selection.</summary>
     [Fact]
@@ -94,7 +94,7 @@ public sealed class SourcePoleRemedyTests : RecordsTestBase
     {
         var m = typeof(SkyPatcherTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Single(x => x.GetCustomAttribute<ModelContextProtocol.Server.McpServerToolAttribute>() is { } a
-                      && a.Name == ToolNames.SkypatcherLayer);
+                      && a.Name == ToolNames.Layer);
         var desc = m.GetCustomAttribute<DescriptionAttribute>()!.Description;
 
         Assert.Contains(ToolNames.Records + " ", desc);

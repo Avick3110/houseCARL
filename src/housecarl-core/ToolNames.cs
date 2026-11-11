@@ -18,6 +18,7 @@ public static class ToolNames
     public const string CreatePlugin = "housecarl_create_plugin";
     public const string DecompileScript = "housecarl_decompile_script";
     public const string Forward = "housecarl_forward";
+    public const string Layer = "housecarl_layer";
     public const string LoadOrderStatus = "housecarl_load_order_status";
     public const string MergePlugins = "housecarl_merge_plugins";
     public const string NexusCheckUpdates = "housecarl_nexus_check_updates";
@@ -33,7 +34,6 @@ public static class ToolNames
     public const string SetMo2Instance = "housecarl_set_mo2_instance";
     public const string SetToolPath = "housecarl_set_tool_path";
     public const string Skse = "housecarl_skse";
-    public const string SkypatcherLayer = "housecarl_skypatcher_layer";
     public const string UpdateStatus = "housecarl_update_status";
     public const string WriteSeq = "housecarl_write_seq";
 }

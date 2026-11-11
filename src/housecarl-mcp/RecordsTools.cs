@@ -87,10 +87,10 @@ public static partial class RecordsTools
     static List<string> SkyPatcherNotePointers(IReadOnlyList<string> files)
     {
         var lines = files.Take(NotePointerFiles)
-            .Select(f => $"note(s) on lines that do not reach these records — {ToolNames.SkypatcherLayer} filter={f} lists them")
+            .Select(f => $"note(s) on lines that do not reach these records — {ToolNames.Layer} filter={f} lists them")
             .ToList();
         if (files.Count > NotePointerFiles)
-            lines.Add($"note(s) in {files.Count - NotePointerFiles} other INI(s) — {ToolNames.SkypatcherLayer} filter=<INI filename> lists each one's");
+            lines.Add($"note(s) in {files.Count - NotePointerFiles} other INI(s) — {ToolNames.Layer} filter=<INI filename> lists each one's");
         return lines;
     }
 
@@ -2007,7 +2007,7 @@ public static partial class RecordsTools
         var route = $"run a plain scan of {terms}{(call.NamedSource ? " on the same source=" : "")} with to_file=, " +
                     $"then re-run this call with formids=[\"@<file>\"] in place of {terms}{tree}";
         return $"error: an overlay pole on a scan replays the SkyPatcher layer over the limit= window of a reading form, and {what}. " +
-               $"The list lane serves it: {route}; or read the whole layer via {ToolNames.SkypatcherLayer}.";
+               $"The list lane serves it: {route}; or read the whole layer via {ToolNames.Layer}.";
     }
 
     /// <summary>A comparison form over a scan takes no overlay pole; the pre state's sentence says what it is instead.</summary>

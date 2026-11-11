@@ -34,6 +34,10 @@ internal static class AliasTable
         ("housecarl_skse_config_audit",
          "absorbed into " + ToolNames.Skse + ": findings=\"config\". filter= and max_chars= are unchanged; peek= belongs to findings=\"inventory\" and is refused here."),
 
+        // The runtime layers: one tool with a format selector, SkyPatcher the first format it reads.
+        ("housecarl_skypatcher_layer",
+         "absorbed into " + ToolNames.Layer + ": distributor=\"skypatcher\" names the format, and omitting it reads every format read. filter= and max_chars= are unchanged; formids= and plugins= select the lines naming a record."),
+
         // The write side; each redirect names the parameter migration too.
         ("housecarl_set_field",
          "absorbed into " + ToolNames.Apply + ": one op is a set of one — ops=[{formid, field_path, value}] (verb= is op=). patch_name= is patch=, full_readback= is readback=, and the target=+in_place=true pair is in_place=\"X.esp\" (the file being overwritten)."),

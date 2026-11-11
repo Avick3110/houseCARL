@@ -4,7 +4,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>housecarl_skypatcher_layer's filter=. A filter that matches no INI must say so; returning the
+/// <summary>housecarl_layer's filter=. A filter that matches no INI must say so; returning the
 /// unfiltered overview instead is indistinguishable from a call that passed no filter at all.</summary>
 [Trait("tier", "unit")]
 public sealed class SkyPatcherLayerFilterTests
@@ -382,8 +382,10 @@ public sealed class SkyPatcherLayerFilterTests
         Assert.DoesNotContain("INI(s) match", text);
     }
 
+    /// <summary>The scan notes are often why a filter matched nothing, so they stay; the no-op notes are about the whole
+    /// layer's replay, so a zero answer leaves them to the overview (#1286).</summary>
     [Fact]
-    public void ZeroMatchStillRendersTheScanNotes()
+    public void ZeroMatchKeepsTheScanNotesAndDropsTheNoOpNotes()
     {
         var d = OneNpcFolder();
         var withNotes = d with
@@ -397,7 +399,8 @@ public sealed class SkyPatcherLayerFilterTests
         var text = SkyPatcherWire.RenderLayer(withNotes, "weapon", 80_000);
 
         Assert.Contains("not a documented SkyPatcher record type", text);
-        Assert.Contains("a replay note", text);
+        Assert.DoesNotContain("a replay note", text);
+        Assert.Contains("a replay note", SkyPatcherWire.RenderLayer(withNotes, "npc", 80_000));   // a match still carries them
     }
 
     [Fact]

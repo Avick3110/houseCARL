@@ -1,5 +1,5 @@
 {
-  "_what": "What the 2.0 surface publishes in tools/list, spelled as LITERALS. This is the rename oracle for the 2.0-era names: every other assertion about them in the test project reads a ToolNames constant, so it follows a change to that constant's VALUE and cannot notice a typo. These literals do not follow. The 1.9 capture beside this one does the same job for the 45 names 1.9 shipped, and it anchors 39 of the 46 here; seven - housecarl_apply, _check, _copy, _create, _forward, _records, _remove - post-date 1.9 and had no literal anchor outside the retiring guard harness until this file.",
+  "_what": "What the 2.0 surface publishes in tools/list, spelled as LITERALS. This is the rename oracle for the 2.0-era names: every other assertion about them in the test project reads a ToolNames constant, so it follows a change to that constant's VALUE and cannot notice a typo. These literals do not follow. The 1.9 capture beside this one does the same job for the 45 names 1.9 shipped, and it anchors 38 of the 46 here; eight - housecarl_apply, _check, _copy, _create, _forward, _layer, _records, _remove - post-date 1.9 and had no literal anchor outside the retiring guard harness until this file.",
   "_source": "The server built from this repo, not a release asset. Provenance is the build, so this file is re-captured deliberately rather than trusted from an earlier one.",
   "_method": "The built housecarl-mcp.exe driven over stdio against a fresh empty HOUSECARL_DATA_DIR: initialize -> notifications/initialized -> tools/list, names sorted ordinal. Same method as the 1.9 capture. Not reconstructed from source and not read off the [McpServerTool] attributes - the attributes are the side this is here to check.",
   "_serverInfo": {
@@ -22,6 +22,7 @@
     "housecarl_create_plugin",
     "housecarl_decompile_script",
     "housecarl_forward",
+    "housecarl_layer",
     "housecarl_load_order_status",
     "housecarl_merge_plugins",
     "housecarl_nexus_check_updates",
@@ -37,7 +38,6 @@
     "housecarl_set_mo2_instance",
     "housecarl_set_tool_path",
     "housecarl_skse",
-    "housecarl_skypatcher_layer",
     "housecarl_update_status",
     "housecarl_write_seq"
   ]

@@ -111,7 +111,7 @@ public sealed class SkyPatcherLayerGroupReadTests : IDisposable
     [Fact]
     public void TheTargetsGroupIsReadOnce()
     {
-        var d = GroupReadDelta.Of(_w.Svc, () => SkyPatcherTools.SkyPatcherLayer(_w.Svc), "HcTargets.ini");
+        var d = GroupReadDelta.Of(_w.Svc, () => SkyPatcherTools.Layer(_w.Svc), "HcTargets.ini");
         Assert.Equal(new Dictionary<(string, string), int> { [("HcSpRel.esp", "Armors")] = 1 }, d);
     }
 }
@@ -132,7 +132,7 @@ public sealed class SkyPatcherNoOpOrderTests : IDisposable
     [Fact]
     public void NoOpRowsListInLineOrder()
     {
-        var r = SkyPatcherTools.SkyPatcherLayer(_w.Svc);
+        var r = SkyPatcherTools.Layer(_w.Svc);
         int first = r.IndexOf("HcNoOpOrder.ini:1 ", StringComparison.Ordinal), second = r.IndexOf("HcNoOpOrder.ini:2 ", StringComparison.Ordinal);
         Assert.True(first >= 0 && second >= 0, r);
         Assert.True(first < second, r);
