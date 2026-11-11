@@ -170,6 +170,11 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
                                        from_source: new[] { AssetWalkWorld.Plugin }, to_file: f);
         Assert.Contains("walk.max_nodes=1", w);
         AssertLeadsCut(f, "walk.max_nodes=1");
+        // It leads a selector's own note too.
+        var (_, notes) = Json(AssetTools.AssetStatus(_w.Svc, provider: Mod, under: new[] { "meshes/nowhere" }, exclude: new[] { "@" + f },
+                                                     format: "json", max_chars: Big));
+        Assert.StartsWith($"exclude= file '{f}' is a lower bound", notes[0]);
+        Assert.StartsWith("under 'meshes/nowhere' matched no file", notes[1]);
     }
 
     /// <summary>Q3 (a): a walk stopped at the path bound is a lower bound too.</summary>
