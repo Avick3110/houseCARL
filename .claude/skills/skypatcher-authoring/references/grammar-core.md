@@ -30,7 +30,7 @@ toggles in `SkyPatcher.ini` (`placement-and-conflicts.md` §6). This corpus docu
 types (Light is new in 7.1.0); Object Modification (OMOD) has a toggle but "has no effect in
 Skyrim" — see `object-modification.md`.
 
-<!-- generated:skypatcher.passes from the runtime-format source; edit the source and regenerate, not this text -->
+<!-- generated:skypatcher.passes -->
 Patchers run in a fixed order, and a later patcher sees the changes of an earlier one: Magic Effect,
 Ammo, Weapon, Armor, Race, NPC, Alchemy, Ingredient, Spell, Enchantment, Projectile, Light, Outfit,
 Scroll, Misc, Soul Gem, Faction, Constructible Object, Book, Movement Type, Leveled List, Container,
@@ -50,7 +50,7 @@ conflict resolution (the type folder's own files, then each depth of subfolders,
 
 ## 3. Patch string structure
 
-<!-- generated:skypatcher.segments from the runtime-format source; edit the source and regenerate, not this text -->
+<!-- generated:skypatcher.segments -->
 One line = one patch string, built from a **filter** part and an **operation** part, joined
 by `:` segments:
 

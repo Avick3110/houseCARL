@@ -22,7 +22,7 @@ them. Only SkyPatcher has a row today; SPID, KID, BOS and FLM join as rows when 
   stays in `SkyPatcherReach` and the field map, tested per filter.
 - **Readings are marked.** A `reading` block holds a rule upstream does not state (an INI in the root is not read,
   loose only, `#` comments, `[label]` lines). The server applies it; no generated skill paragraph prints it.
-- **Generated regions are committed.** Each region sits between `<!-- generated:<tag> … -->` and
+- **Generated regions are committed.** Each region sits between `<!-- generated:<tag> -->` and
   `<!-- end generated:<tag> -->`; the text between is the print, byte for byte, in the file's own line ending. Edit the
   source, then `dotnet run --project src/housecarl-generator -c Release -- skill-text` from the repo root. The plugin
   build copies the skill files as they are, with no step of its own.
