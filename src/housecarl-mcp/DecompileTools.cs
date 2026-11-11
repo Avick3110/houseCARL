@@ -63,7 +63,7 @@ public static class DecompileTools
         [Description("Optional. Where in the selection this call starts decompiling, for taking a large selection in " +
                      "windows (pass into= the first window's patch to keep one folder). 0 = the beginning.")]
             int offset = 0,
-        [Description("Optional. Return the totals and notes instead of one row per script; every script in the window is still decompiled and written.")]
+        [Description("Optional. Return the totals, the notes and the next page instead of one row per script; the window is still decompiled and written as without it.")]
             bool counts_only = false,
         [Description("Optional. 'text' (default) | 'json' (the same rows, machine-readable, accounting in-band; with counts_only=, the totals, 'total' and the next page, no accounting object).")]
             string? format = null,
