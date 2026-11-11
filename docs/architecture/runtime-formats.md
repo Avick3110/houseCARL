@@ -36,14 +36,17 @@ them. Only SkyPatcher has a row today; SPID, KID, BOS and FLM join as rows when 
     `SkyPatcher.ini` mention; grammar-core.md's `iEnable<Type>Patching`, its read-order sentence, its `SkyPatcher.ini`
     toggles sentence and its §8 heading; placement-and-conflicts.md's example paths (`SkyPatcher/npc/…`), its `;`
     comment bullet, its contents line's and §6 heading's `SkyPatcher.ini` and its `Data/SKSE/Plugins/SkyPatcher.ini`
-    line; object-modification.md's `iEnableObjectModificationPatching` and `SkyPatcher/objectModification/`; each
-    per-type reference's header line (`SkyPatcher/<folder>/`, `iEnable<Type>Patching`, and light.md's "on unless").
+    line, grammar-core.md's §6 pointer's `[Patcher]`; object-modification.md's `iEnableObjectModificationPatching`,
+    `SkyPatcher/objectModification/` and its toggle line's `SkyPatcher.ini`; each per-type reference's header line
+    (`SkyPatcher/<folder>/`, `iEnable<Type>Patching`, and light.md's "on unless").
   - `kid-authoring`: SKILL.md's two SkyPatcher folder paths, grammar-core.md's one, and
     `references/_CORPUS_STATUS.md`'s `SKSE\Plugins\` per-type subfolders.
   - The server: the layer tool's two empty-layer answers spell `Data\SKSE\Plugins\SkyPatcher` and its folder
     lines' switch-off and unreadable marks spell `SkyPatcher.ini` (`SkyPatcherTools`); the draft's not-absolute
     refusal's example path spells `SkyPatcher\weapon\` (`SkyPatcherDraft.Prepare`); the overlay's packed-value unpack
-    and two item splits use literal `=` and `,` (`SkyPatcherOverlay`).
+    and two item splits use literal `=` and `,` (`SkyPatcherOverlay`); the records tool's source parameter text and
+    its malformed-overlay error spell `.ini` (`RecordsTools`); the merge reminder's donor-named config spells
+    `Plugin.esp.ini` (`WriteSentences`).
 
 ## Pinned by
 - `RuntimeFormatSourceTests.TheCommittedSkillRegionsMatchAFreshPrint` — the committed regions are the print, and
