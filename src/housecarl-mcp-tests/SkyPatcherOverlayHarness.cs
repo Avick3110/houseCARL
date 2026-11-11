@@ -38,10 +38,10 @@ static class SkyPatcherOverlayHarness
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
         {
-            if (EditorIdGap(mutagenType) is not null) return null;
+            // An untyped lookup misses, as IFormResolver.ResolveEditorId says.
+            if (mutagenType is null || EditorIdGap(mutagenType) is not null) return null;
             if (!EditorIds.TryGetValue(editorId, out var fk)) return null;
-            if (EditorIdTypes.TryGetValue(editorId, out var t) && mutagenType is not null
-                && !t.Equals(mutagenType, StringComparison.OrdinalIgnoreCase))
+            if (EditorIdTypes.TryGetValue(editorId, out var t) && !t.Equals(mutagenType, StringComparison.OrdinalIgnoreCase))
                 return null;
             return fk;
         }

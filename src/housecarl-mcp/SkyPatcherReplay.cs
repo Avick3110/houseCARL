@@ -294,8 +294,11 @@ internal sealed partial class AssetLayers
         string? GroupGap(string? mutagenType)
         {
             if (mutagenType is null || SkyPatcherEditorIds.Gap(_tweaksMissing, mutagenType) is null || Kept(mutagenType) is not { Count: > 0 } kept) return null;
-            return $"{_tweaksMissing}, so of {mutagenType} records the game keeps EditorIDs only of {string.Join(", ", kept)} records";
+            return $"{_tweaksMissing}, so of the record types of the {mutagenType} group the game keeps EditorIDs only of {string.Join(", ", kept)} records";
         }
+
+        /// <summary>A scope in words: its records for one type, the group's record types for a group (TypeLookup.ResolveScope).</summary>
+        string RecordsOf(string scope) => Scope(scope) is { Count: > 1 } ? $"records of the {scope} group" : $"{scope} records";
 
         /// <summary>The display names in a scope whose EditorIDs the game keeps here.</summary>
         IReadOnlyList<string>? Kept(string mutagenType)
@@ -318,7 +321,7 @@ internal sealed partial class AssetLayers
 
         public string? EditorIdNote(string editorId, string? mutagenType)
             => Find(editorId, mutagenType) is { Count: > 1 } holders
-                ? $"names {holders.Count} {mutagenType} records; the replay takes the first loaded, {FormIdToken.Of(holders[0].Record)} from {holders[0].Plugin}"
+                ? $"names {holders.Count} {RecordsOf(mutagenType!)}; the replay takes the first loaded, {FormIdToken.Of(holders[0].Record)} from {holders[0].Plugin}"
                 : null;
 
         /// <summary>The records loaded under a name within the scope, first loaded first, covering the call's scopes at the first lookup; empty for a blank name, no scope, a type the game keeps no names of here, or a scope that names no type.</summary>
