@@ -108,7 +108,8 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   (`AParentTheBaselineAlreadyNamesIsNotRead`), a window script that declares no parent not read again
   (`AWindowScriptThatDeclaresNoParentIsNotReadAgainAsOne`) and one table read per archive per call
   (`ACallReadsEachArchiveOnce`); the hierarchy note claiming only the sources the call read
-  (`TheHierarchyNoteClaimsOnlyTheSourcesThisCallRead`); one file on disk alone answering as the one-file tool did,
+  (`TheHierarchyNoteClaimsOnlyTheSourcesThisCallRead`, and for a Data path alone
+  `ADataPathCallsHierarchyNoteNamesTheParentsReadAndNoFileOnDisk`); one file on disk alone answering as the one-file tool did,
   whole (`AFileOnDiskAloneAnswersAsTheOneFileToolDid`); `source_provider=` beside a file on disk saying the file is
   read as itself (`SourceProviderBesideAFileOnDiskSaysTheFileIsReadAsItself`); `counts_only=`
   (`CountsOnlyListsNoRowsAndStillWritesEveryScript`) and its next page, text and json
