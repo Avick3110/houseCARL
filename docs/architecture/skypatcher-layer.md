@@ -106,8 +106,8 @@ nothing; a scope the first walk missed is walked once more, its types only, and 
 that loaded first still comes first. The one scope of every record type (form-list items) is left
 out of the first walk unless the first lookup is one, and is otherwise walked at its own first
 lookup, so a call that looks up no form-list item never walks the whole order. A post read of a form
-list with an EditorID item does look one up, as does the layer listing under `filter=` naming a
-form-list INI (its line notes); the listing otherwise does not, since its no-op scan compares only
+list with an EditorID item does look one up, as does the layer listing under any `filter=` whose
+match expands a form-list INI's lines, by its folder, mod or path (its line notes); the listing otherwise does not, since its no-op scan compares only
 set-class ops and leaves form-list items unresolved. Without po3 Tweaks a walk covers
 only the types the game keeps names of. `CostCounters.EditorIdSweeps` counts the walks,
 `EditorIdTypesWalked` the types they covered.
@@ -296,8 +296,9 @@ say the state is unknown.
   order, then later walks), not by their order in the file, so the duplicate note can name the
   other one, and which one wins can change with the other lines the layer holds.
 - A post read of a form list with an EditorID item walks every record type once in its call (about
-  24 s on a large order such as ARR), as does the layer listing under `filter=` naming a form-list
-  INI with one; the listing otherwise does not.
+  24 s on a large order such as ARR; without po3 Tweaks only the types the game keeps names of), as
+  does the layer listing under any `filter=` whose match expands a form-list INI with one (its
+  folder, mod or path); the listing otherwise does not.
 - An unknown key still skips its line loud; the game drops the key silently and the line can widen
   to every record of its type. houseCARL keeps refusing to guess.
 - `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the
