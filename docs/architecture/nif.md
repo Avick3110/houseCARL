@@ -50,7 +50,8 @@ a Data path. Each Data path is read from its winner, or from the copy `source_pr
 meshes; it does not pick whose copy is read. Beside `paths=` (a Data path or a file on disk) or `formids=`, with no
 `under=`, it selects nothing, as on `decompile_script`. A note counts the meshes the `provider=` walk matched that
 another provider wins, and names `source_provider=` as the knob. A call that reads only files on disk, without `sections=paths`, needs no MO2
-instance and captures no view. With `sections=paths`, a file on disk's links resolve against the load order.
+instance, and its inline answer captures no view; a spill or `to_file=` stamps the epoch (`AssetTools.TryStamp`),
+which captures one on a configured instance. With `sections=paths`, a file on disk's links resolve against the load order.
 
 Transport is SPEC §2.1's. `limit=` and `offset=` choose which meshes this call reads. `counts_only=` reads the whole
 selection and returns the census: read and not read (absent among them), loose, BSA and file on disk, SE stream or not,
