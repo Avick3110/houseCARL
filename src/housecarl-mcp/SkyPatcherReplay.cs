@@ -287,13 +287,14 @@ internal sealed partial class AssetLayers
                 ? $"names {holders.Count} records; the game uses the first loaded, {FormIdToken.Of(holders[0].Record)} from {holders[0].Plugin}"
                 : null;
 
-        /// <summary>The records loaded under a name within the scope, first loaded first, covering the call's scopes at the first lookup; empty for a blank name, a type the game keeps no names of here, or a scope that names no type.</summary>
+        /// <summary>The records loaded under a name within the scope, first loaded first, covering the call's scopes at the first lookup; empty for a blank name, no scope, a type the game keeps no names of here, or a scope that names no type.</summary>
         IReadOnlyList<SkyPatcherEditorIdTable.Holder> Find(string editorId, string? mutagenType)
         {
-            IReadOnlyList<Type>? scope = null;
-            if (string.IsNullOrWhiteSpace(editorId)) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
+            IReadOnlyList<Type>? scope;
+            // An untyped lookup misses: contract in docs/architecture/skypatcher-layer.md.
+            if (mutagenType is null || string.IsNullOrWhiteSpace(editorId)) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if (EditorIdGap(mutagenType) is not null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();   // the game cannot see this name, so neither does the replay
-            if (mutagenType is not null && (scope = Scope(mutagenType)) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
+            if ((scope = Scope(mutagenType)) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if (!_covered)
             {
                 // The first lookup walks once for every scope the call's lines name, so later lookups walk nothing.

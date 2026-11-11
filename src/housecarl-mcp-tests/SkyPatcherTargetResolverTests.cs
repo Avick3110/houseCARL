@@ -126,4 +126,22 @@ public sealed class SkyPatcherTargetResolverTests
             records: m => m.LeveledItems.Add(new LeveledItem(new FormKey(m.ModKey, 0x820), SkyrimRelease.SkyrimSE) { EditorID = "HcLvl" }));
         Assert.Contains("Entries = [list: 1 item(s)]", Post(w, "000820:HcSpRel.esp", "Entries"));
     }
+
+    // HcList holds HcPlainCuirass.
+    static void AddList(SkyrimMod m) => m.FormLists.Add(new FormList(new FormKey(m.ModKey, 0x840), SkyrimRelease.SkyrimSE)
+    {
+        EditorID = "HcList",
+        Items = new() { new FormLink<ISkyrimMajorRecordGetter>(new FormKey(m.ModKey, 0x811)) },
+    });
+
+    // formsToReplace has no lookup scope, so its EditorIDs miss whatever other lines the layer walks, as on main.
+    [Fact]
+    public void AnUnscopedOpEditorIdMissesBesideAScopedOne()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini,
+            "filterByFormLists=HcSpRel.esp|840:formsToAdd=HcHeelBoots:formsToReplace=HcPlainCuirass=HcBothBoots\r\n") },
+            subfolder: "formList", records: AddList);
+        Assert.Contains("formList\\HcTargets.ini:1: 'formsToReplace=HcPlainCuirass=HcBothBoots' — form(s) not resolvable; skipped.",
+            Post(w, "000840:HcSpRel.esp", "Items"));
+    }
 }
