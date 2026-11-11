@@ -14,6 +14,9 @@ using HousecarlGenerator;
 // pass cost on a real order. Needs a live MO2 instance (or --plugin), so it is a manual harness, not a CI probe.
 if (args.Length > 0 && args[0] == "parent-in-hand") return ParentInHandProbe.Run(args[1..]);
 
+// Print the skill paragraphs generated from the runtime-format source into their committed regions (EmitMatchGuardTests holds them).
+if (args.Length > 0 && args[0] == "skill-text") return RuntimeFormatSkillText.Run(args[1..]);
+
 // Maintenance diagnostic: re-verify the mutable-collection whitelist on a Mutagen bump.
 if (args.Length > 0 && args[0] == "vocab") return Probe.RunVocab();
 
