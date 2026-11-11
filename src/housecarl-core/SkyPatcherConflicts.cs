@@ -52,9 +52,10 @@ public static class SkyPatcherConflicts
     /// <summary>All records of the type — the target token a primary-filter-less line writes.</summary>
     const string Broad = "*";
 
-    /// <summary>Detect the same-field set collisions and the intra-file dead lines in one folder's ordered, game-visible union.</summary>
+    /// <summary>Detect the same-field set collisions and the intra-file dead lines in one folder's ordered, game-visible union; with <paramref name="resolver"/>, a target named by EditorID groups with the record it resolves to.</summary>
     public static Report Detect(
-        SkyPatcherDiscovery.FolderScan folder, SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap)
+        SkyPatcherDiscovery.FolderScan folder, SkyPatcherCatalog catalog, SkyPatcherFieldMap fieldMap,
+        SkyPatcherOverlay.IFormResolver? resolver = null)
     {
         var conflicts = new List<SkyPatcherConflict>();
         var itms = new List<SkyPatcherItm>();
@@ -71,7 +72,7 @@ public static class SkyPatcherConflicts
             var ops = classified.Ops;
             if (classified.UnknownKey || ops.Count == 0) continue;   // an unresolvable line can't be honestly grouped (the overlay warns on it)
 
-            var targets = TargetsOf(classified.Shape);
+            var targets = TargetsOf(classified.Shape, maps, resolver);
             if (targets.Count == 0) continue;   // a filterless line in a patcher that then patches nothing
             foreach (var (seg, cls) in ops)
             {
@@ -172,8 +173,8 @@ public static class SkyPatcherConflicts
         var shape = classified.Shape;
         foreach (var (seg, _) in shape.Direct)
             foreach (var v in seg.Values)
-                if (v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var fk)) forms.Add(fk);
-                else editorIds.Add(v.Raw);
+                if (v.Address is { } a) { if (SkyPatcherTargets.FormKeyOf(a) is { } fk) forms.Add(fk); }
+                else if (SkyPatcherTargets.ByEditorId(v)) editorIds.Add(v.Raw);
         if (shape.HasFinderReach || shape.PatchesEveryRecord) broadLines++;
     }
 
@@ -187,14 +188,19 @@ public static class SkyPatcherConflicts
     }
 
     /// <summary>The line's target tokens: each direct-list record, unconditional unless a gate or the patcher's direct-list narrowers can stop it, and BROAD for what its finders reach (conditional) or for a filterless line (conditional only when narrowed); none for a filterless line in a patcher that then patches nothing.</summary>
-    static IReadOnlyList<(string Token, bool Conditional)> TargetsOf(SkyPatcherLineShape shape)
+    static IReadOnlyList<(string Token, bool Conditional)> TargetsOf(SkyPatcherLineShape shape, IReadOnlyList<RecordMap> maps,
+        SkyPatcherOverlay.IFormResolver? resolver)
     {
         var tokens = new List<(string, bool)>();
         foreach (var (seg, _) in shape.Direct)
             foreach (var v in seg.Values)
-                tokens.Add((v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var fk)
-                    ? FormIdToken.Of(fk)
-                    : v.Raw.ToLowerInvariant(), shape.DirectConditional));
+            {
+                // One record per target, by the one resolver, so a record named by FormID on one line and by EditorID on another is one target.
+                var fk = v.Address is { } a ? SkyPatcherTargets.FormKeyOf(a)
+                    : resolver is null ? null
+                    : maps.Select(m => SkyPatcherTargets.Resolve(v, m.RecordType, resolver)).FirstOrDefault(k => k is not null);
+                tokens.Add((fk is { } k ? FormIdToken.Of(k) : v.Raw.ToLowerInvariant(), shape.DirectConditional));
+            }
         if (shape.HasFinderReach)
             tokens.Add((Broad, true));
         else if (shape.PatchesEveryRecord)

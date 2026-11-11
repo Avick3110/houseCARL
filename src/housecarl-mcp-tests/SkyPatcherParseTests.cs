@@ -96,15 +96,15 @@ public sealed class SkyPatcherParseTests
         Assert.Equal(0x1C08Au, v.Address?.FormId);
     }
 
-    // first-'=' split keeps 'form=rank' intact in the value; 'form=rank' item is deliberately un-addressed at 0a
+    // first-'=' split keeps 'form=rank' intact in the value; the item's address reads its FormID up to the '=', as SkyPatcher's stoul does
     [Fact]
-    public void OnlyTheFirstEqualsSplitsAndFormRankStaysUnaddressed()
+    public void OnlyTheFirstEqualsSplitsAndFormRankReadsItsFormId()
     {
         var s = SkyPatcherParse.ParseLine("filterByNpcs=Skyrim.esm|13BBF:factionsToAdd=Skyrim.esm|1BE1B=5").Segments[1];
 
         Assert.Equal("factionsToAdd", s.Key);
         Assert.Equal("Skyrim.esm|1BE1B=5", s.RawValue);
-        Assert.Null(s.Values[0].Address);
+        Assert.Equal(0x1BE1Bu, s.Values[0].Address?.FormId);   // SkyPatcher's stoul stops at the first non-hex character
     }
 
     // doubled ',' ⇒ 2 items + a loud note naming the empty ','-item
@@ -154,12 +154,31 @@ public sealed class SkyPatcherParseTests
     public void AnEmptyKeyIsNoted() =>
         Assert.Contains("empty key", SkyPatcherParse.ParseLine("=99").Note);
 
-    // TryParseAddress rejects non-hex right side; TryParseAddress rejects a bare identifier (no '|')
+    // a bare identifier (no '|') is not an address
+    [Fact]
+    public void TryParseAddressRejectsABareIdentifier() => Assert.Null(SkyPatcherParse.TryParseAddress("IronSword"));
+
+    // a '|' token is read as SkyPatcher's base-16 stoul reads it: 0x optional, leading space, up to the first non-hex; the plugin name untrimmed
+    [Theory]
+    [InlineData("Skyrim.esm|0x013261", "Skyrim.esm", 0x13261u)]
+    [InlineData("Skyrim.esm|0X1F", "Skyrim.esm", 0x1Fu)]
+    [InlineData("Skyrim.esm| 012", "Skyrim.esm", 0x12u)]
+    [InlineData("Skyrim.esm |12", "Skyrim.esm ", 0x12u)]
+    [InlineData("Skyrim.esm|0x", "Skyrim.esm", 0x0u)]
+    public void APipeTokenReadsItsFormIdAsSkyPatcherDoes(string raw, string plugin, uint formId)
+    {
+        var a = SkyPatcherParse.TryParseAddress(raw)!;
+        Assert.Equal(plugin, a.Plugin);
+        Assert.Equal(formId, a.FormId);
+    }
+
+    // a '|' token with no hex digit, or past 32 bits, names nothing and is never an EditorID
     [Theory]
     [InlineData("Skyrim.esm|NotHex")]
-    [InlineData("IronSword")]
-    public void TryParseAddressRejectsANonAddress(string raw) =>
-        Assert.Null(SkyPatcherParse.TryParseAddress(raw));
+    [InlineData("Skyrim.esm|1FFFFFFFF")]
+    [InlineData("Skyrim.esm|")]
+    public void APipeTokenSkyPatcherCannotReadIsMalformed(string raw)
+        => Assert.True(SkyPatcherParse.TryParseAddress(raw)!.IsMalformed);
 
     // file parse ⇒ 2 patch, 1 comment, 1 label, ≥1 blank (the label is not a patch)
     [Fact]

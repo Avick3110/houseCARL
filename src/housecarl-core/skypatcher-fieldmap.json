@@ -823,7 +823,7 @@
                                                                     }
                                                                 ]
                                                  },
-                                     "note":  "form~level~count; entry target spans every item type (IItemGetter) so no formType — bare EditorIDs resolve unscoped"
+                                     "editorIdScope": "Item", "note":  "form~level~count; entry target spans every item type (IItemGetter) so no formType — bare EditorIDs resolve among editorIdScope"
                                  },
                     "addOnceToLLs":  {
                                          "semantic":  "addEntryOnce",
@@ -957,7 +957,7 @@
                                                                     }
                                                                 ]
                                                  },
-                                     "note":  "form~level~count; entry target is Npc or LeveledNpc (INpcSpawnGetter) so no formType — bare EditorIDs resolve unscoped"
+                                     "editorIdScope": "NpcSpawn", "note":  "form~level~count; entry target is Npc or LeveledNpc (INpcSpawnGetter) so no formType — bare EditorIDs resolve among editorIdScope"
                                  },
                     "addOnceToLLs":  {
                                          "semantic":  "addEntryOnce",
@@ -1068,7 +1068,7 @@
                     "formsToAdd":  {
                                        "semantic":  "addForm",
                                        "path":  "Items",
-                                       "note":  "FLST items can be ANY record type (ISkyrimMajorRecordGetter) — no formType, bare EditorIDs resolve unscoped"
+                                       "editorIdScope": "SkyrimMajorRecord", "note":  "FLST items can be ANY record type (ISkyrimMajorRecordGetter) — no formType, bare EditorIDs resolve among editorIdScope"
                                    },
                     "formsToRemove":  {
                                           "semantic":  "removeForm",
@@ -1090,13 +1090,13 @@
         "subfolder":  "outfit",
         "recordType":  "Outfit",
         "filters":  {
-                        "filterByForms":  {"eval": "formInList", "path": "Items", "note": "matches outfits CONTAINING the listed object(s); items are Armor or LeveledItem, so a bare EditorID resolves unscoped and warns"}
+                        "filterByForms":  {"eval": "formInList", "path": "Items", "editorIdScope": "OutfitTarget", "note": "matches outfits CONTAINING the listed object(s); items are Armor or LeveledItem, so a bare EditorID resolves among editorIdScope"}
                     },
         "ops":  {
                     "formsToAdd":  {
                                        "semantic":  "addForm",
                                        "path":  "Items",
-                                       "note":  "OTFT items are Armor or LeveledItem (IOutfitTargetGetter) — no formType, bare EditorIDs resolve unscoped"
+                                       "editorIdScope": "OutfitTarget", "note":  "OTFT items are Armor or LeveledItem (IOutfitTargetGetter) — no formType, bare EditorIDs resolve among editorIdScope"
                                    },
                     "formsToRemove":  {
                                           "semantic":  "removeForm",
@@ -1223,7 +1223,7 @@
         "subfolder":  "constructibleObject",
         "recordType":  "ConstructibleObject",
         "filters":  {
-                        "filterByIngredients":  {"eval": "formInList", "path": "Items", "keyPath": "Item.Item", "note": "an ingredient present in the recipe's item list; ingredients can be ANY item type, so a bare EditorID resolves unscoped and warns"},
+                        "filterByIngredients":  {"eval": "formInList", "path": "Items", "keyPath": "Item.Item", "editorIdScope": "Item", "note": "an ingredient present in the recipe's item list; ingredients can be ANY item type, so a bare EditorID resolves among editorIdScope"},
                         "filterByWorkBenchKeywords":  {"eval": "formEquals", "path": "WorkbenchKeyword", "formType": "Keyword"},
                         "filterWorkbenchKeywords":  {"eval": "formEquals", "path": "WorkbenchKeyword", "formType": "Keyword", "note": "the Excluded-only spelling (no 'By') - same field"},
                         "filterByKeywords":  {"eval": "donorKeywords", "linkPath": "CreatedObject", "note": "the documented semantics match the CREATED OBJECT's keywords, not the recipe's (COBJ has no keyword list) - overrides the built-in keyword walk"}

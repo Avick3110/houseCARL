@@ -49,6 +49,9 @@ public sealed class CostCounters
     /// <summary>SkyPatcher layers an overlay read opened for replay.</summary>
     public long ReplayOpens;
 
+    /// <summary>Load-order walks the SkyPatcher EditorID table made to fill itself.</summary>
+    public long EditorIdSweeps;
+
     /// <summary>Off-order files a comparison pole swept.</summary>
     public long OffOrderSweeps;
 

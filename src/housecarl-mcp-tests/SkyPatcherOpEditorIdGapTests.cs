@@ -102,13 +102,16 @@ public sealed class SkyPatcherOpEditorIdGapTests
         Assert.Contains("'HcDonorNpc' is a Npc, not a Armor", Assert.Single(Run("npc", "Npc", "skin=HcDonorNpc", tweaks: true).Warnings));
     }
 
-    [Theory] // pins unchanged behaviour: an outfit op has no form type, so without Tweaks its EditorID miss keeps the op's wording (#1334)
-    [InlineData("formsToReplace=HcItem=HcItem2", "form(s) not resolvable; skipped")]
-    [InlineData("formsToAdd=HcItem", "form not resolvable (EditorID 'HcItem' not found); that item skipped")]
-    public void AnUntypedOpEditorIdDoesNotNameTweaks(string line, string wording)
+    [Fact] // pins unchanged behaviour: formsToReplace has no form type or lookup scope, so without Tweaks its EditorID miss keeps the op's wording (#1334)
+    public void AnUnscopedOpEditorIdDoesNotNameTweaks()
     {
-        var w = Assert.Single(Run("outfit", "Outfit", line, tweaks: false).Warnings);
-        Assert.Contains(wording, w);
+        var w = Assert.Single(Run("outfit", "Outfit", "formsToReplace=HcItem=HcItem2", tweaks: false).Warnings);
+        Assert.Contains("form(s) not resolvable; skipped", w);
         Assert.DoesNotContain("powerofthree", w);
     }
+
+    [Fact] // formsToAdd looks its EditorIDs up among outfit items (Armor, LeveledItem), which the game keeps no names of without Tweaks
+    public void AnOutfitItemEditorIdNamesTweaks()
+        => Assert.Equal($"g.ini:1: 'formsToAdd=HcItem' — EditorID 'HcItem' finds nothing: {Missing}, so the game keeps no EditorIDs of OutfitTarget records; not applied.",
+            Assert.Single(Run("outfit", "Outfit", "formsToAdd=HcItem", tweaks: false).Warnings));
 }

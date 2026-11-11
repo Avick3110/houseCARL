@@ -41,7 +41,7 @@ public sealed class SkyPatcherLineIndexTests : IDisposable
     public void ALineNamingByEditorIdOrA0xValueStillApplies()
     {
         Assert.Contains("Keywords = [list: 1 item(s)]", Post(_w.Plain));   // HcAddKw, by EditorID
-        Assert.Contains("Keywords = [list: 1 item(s)]", Post(_w.Heel));    // its own HcHeelKw only: 0x000810 names nothing
+        Assert.Contains("Keywords = [list: 2 item(s)]", Post(_w.Heel));    // its own HcHeelKw and HcAddKw: 0x000810 names it, as SkyPatcher reads 0x
     }
 }
 

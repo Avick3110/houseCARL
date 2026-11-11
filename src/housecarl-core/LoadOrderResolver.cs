@@ -707,6 +707,9 @@ public sealed class LoadOrderResolver : IDisposable
 
         public int PluginCount => _r._paths.Length;
 
+        /// <summary>The counters of the resolver this view reads through.</summary>
+        public CostCounters Counters => _r.Counters;
+
         /// <summary>Every plugin this build indexed, in load order, MINUS the ones it excluded — the scope a whole-order walk can name plugin by plugin.</summary>
         public IReadOnlyList<string> ScannablePluginNames
         {
@@ -846,6 +849,14 @@ public sealed class LoadOrderResolver : IDisposable
         public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(
             IReadOnlyList<Type> getterTypes, ICollection<PluginUnreadableException>? unreadable = null)
             => _r.WinnerRecordsOfType(getterTypes, _s, unreadable);
+
+        /// <summary>Every instance of every record of the given type(s), plugin by plugin in load order, with the plugin's load position and name; a plugin that cannot be read is collected and skipped.</summary>
+        public IEnumerable<(FormKey fk, IMajorRecordGetter body, int position, string plugin)> RecordVersionsOfType(
+            IReadOnlyList<Type> getterTypes, ICollection<PluginUnreadableException> unreadable)
+        {
+            var names = _r._names;
+            return _r.RecordsOfType(getterTypes, _s, unreadable, winnersOnly: false).Select(x => (x.fk, x.body, x.plugin, names[x.plugin]));
+        }
 
         public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
             IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
@@ -1093,6 +1104,11 @@ public sealed class LoadOrderResolver : IDisposable
 
     IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body)> WinnerRecordsOfType(
         IReadOnlyList<Type> getterTypes, IndexSnapshot s, ICollection<PluginUnreadableException>? unreadable)
+        => RecordsOfType(getterTypes, s, unreadable, winnersOnly: true).Select(x => (x.fk, x.depth, x.body));
+
+    /// <summary>Every record of the given type(s) plugin by plugin in load order: only the winning instance, or with <paramref name="winnersOnly"/> false every instance, each with the index of the plugin it was read from.</summary>
+    IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, int plugin)> RecordsOfType(
+        IReadOnlyList<Type> getterTypes, IndexSnapshot s, ICollection<PluginUnreadableException>? unreadable, bool winnersOnly)
     {
         for (int i = 0; i < _paths.Length; i++)
         {
@@ -1125,8 +1141,8 @@ public sealed class LoadOrderResolver : IDisposable
                         unreadable.Add(fault);
                         break;
                     }
-                    if (s.Index.TryGetValue(rec.FormKey, out var e) && e.winner == i)   // this overlay's instance wins
-                        yield return (rec.FormKey, e.count, rec);
+                    if (s.Index.TryGetValue(rec.FormKey, out var e) && (!winnersOnly || e.winner == i))   // this overlay's instance wins
+                        yield return (rec.FormKey, e.count, rec, i);
                 }
             }
             finally { (ov as IDisposable)?.Dispose(); }

@@ -68,15 +68,50 @@ houseCARL's reading, not a rule SkyPatcher documents.
 
 ### Addressing: `Plugin.esp|FormID`
 
-The tokenizer resolves only the unambiguous `Plugin.esp|FormID` form. A bare identifier is left
+A token holding `|` is `Plugin.esp|FormID` and never an EditorID, as in SkyPatcher's own resolver
+(`GetFormFromIdentifier`, `utility.cpp`, SkyPatcher `48d17799`). A bare identifier is left
 un-addressed, because an EditorID (`filterByWeapons=IronSword`) and an enum scalar
 (`armorType=heavy`) are lexically identical — telling them apart needs the catalog's knowledge of
 whether the key is form-valued, so EditorID resolution belongs to the overlay. The catalog
 classifies keys; it does not resolve values.
 
-The FormID side is hex with trimmable leading zeros. A full load-indexed ESL FormID (`FExxxYYY`)
-keeps only its 12-bit local id; anything else keeps the low 24 bits. That normalization lives in
-`FormIdRange`, shared with the SKSE config audit, because getting it wrong inverts every verdict.
+The FormID side is read as SkyPatcher's base-16 `stoul` reads it: leading whitespace, an optional
+`0x`, then hex up to the first non-hex character (`Skyrim.esm|0x013261` is `013261`;
+`Skyrim.esm|1BE1B=5` reads `1BE1B`). No hex digit, or a value past 32 bits, is a malformed address:
+it names nothing, and is still never read as an EditorID. The plugin name is taken untrimmed, as
+SkyPatcher's mod lookup takes it, so `Skyrim.esm |123` names no loaded plugin. Each comma item and
+each `~` sub-arg is trimmed, as SkyPatcher's list split trims them (`parsetable.h` `pushCommaList`,
+`applyArr2D`). A full load-indexed ESL FormID (`FExxxYYY`) keeps only its 12-bit local id; anything
+else keeps the low 24 bits. That normalization lives in `FormIdRange`, shared with the SKSE config
+audit, because getting it wrong inverts every verdict.
+
+### One target resolver
+
+Every site that turns a target token into a record (the direct lists and their Excluded spelling,
+filter values, op values and sub-args, the conflict detector's target grouping, the no-op scan)
+goes through `SkyPatcherTargets`. A FormID resolves by `FormIdRange`; an EditorID through the
+call's one EditorID table (`SkyPatcherEditorIdTable`), kept as the game keeps its map: one
+case-insensitive name space across every type, the first record loaded under a name keeping it
+(po3 Tweaks inserts with `emplace`, so a later record never replaces a name; a renaming override
+leaves the master's name in the map). The table walks every instance of a type, plugin by plugin in
+load order, not only winners, so a name a later override drops still names the record. A lookup
+scoped to a type finds nothing when a record of another type holds the name first. A direct-list
+EditorID names that one record, as SkyPatcher resolves it before comparing FormIDs, never every
+record whose own EditorID matches.
+
+The table lives on the call context and is dropped with the call: nothing is kept between calls.
+Its first lookup walks once over every scope the call's lines can look an EditorID up among
+(`SkyPatcherOverlay.EditorIdScopes`), so later lookups and the call's other replay contexts walk
+nothing; a scope the first walk missed is walked once more, its types only, and a record it finds
+that loaded before a name's holder takes the name. `CostCounters.EditorIdSweeps` counts the walks.
+An op with no form type looks its EditorIDs up among the field map's `editorIdScope` (`Item` for
+leveled item entries and recipe ingredients, `NpcSpawn` for leveled NPC entries, `OutfitTarget` for
+outfit items, every record type for form-list items).
+
+A target that names nothing says why on its line in the layer listing: a malformed address, a
+plugin not in the order (or one with a space SkyPatcher keeps), a FormID no plugin defines, an
+EditorID found nowhere, hidden by the po3 Tweaks gap, or held first by another type. A target whose
+EditorID names several records says so, and which one the game uses.
 
 ### The per-type subfolder rule and the filename gate
 
@@ -212,9 +247,9 @@ EditorIDs`) off. When it is missing, an EditorID value of any other type resolve
 record's own EditorID matches no direct-list name or `filterByEditorIdContains`, and the warning
 names po3 Tweaks. Every op miss words it the same way: an EditorID value or entry key of a typed op
 is not applied and its warning names po3 Tweaks, and an op with a donor type (npc `skin`) names the
-donor type too. An op with no form type (the leveled item and leveled NPC entry ops, and the outfit
-and form-list item ops, `formsToReplace` among them) never resolves an EditorID, Tweaks or not
-(#1334), so its miss does not name Tweaks. The ten kept types answer as before. A `po3_Tweaks.ini`
+donor type too. An op with no form type looks its EditorIDs up among its `editorIdScope`, so its
+miss names Tweaks the same way; one with neither (`formsToReplace`) never resolves an EditorID,
+Tweaks or not (#1334), so its miss does not name Tweaks. The ten kept types answer as before. A `po3_Tweaks.ini`
 that cannot be read is replayed as the DLL's default (EditorIDs load), and the read and the layer
 say the state is unknown.
 
@@ -224,8 +259,11 @@ say the state is unknown.
   their plugin winner, so a filter that would see another record's SkyPatcher change (a COBJ's
   created item patched by the Weapon patcher, an NPC's race patched by the Race patcher) answers
   from the pre-SkyPatcher record.
-- A FormID that names a record absent from the order still counts as resolved; only EditorIDs and
-  unparseable addresses resolve to nothing.
+- A FormID that names a record absent from the order still counts as resolved in the replay; the
+  layer listing says on its line that it names nothing.
+- The EditorID table holds only the types the call's lines look names up among, so a record of an
+  unlooked-up type holding a name first does not hide it. For the ten types the engine keeps names
+  of itself, the first-loaded rule is po3 Tweaks', not read from the game executable.
 - An unknown key still skips its line loud; the game drops the key silently and the line can widen
   to every record of its type. houseCARL keeps refusing to guess.
 - `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the
@@ -253,9 +291,16 @@ hardened.
   and still surfaced, a doubled `,` is noted and skipped, a comment after a rule is not part of the value
   (`ATrailingCommentIsNotPartOfTheValue`), and a duplicate key's second copy is ignored and noted
   (`ADuplicateKeysSecondCopyIsIgnored`).
-- *Addressing*: `SkyPatcherParseTests` — a bare EditorID is left un-addressed, and the FormID side trims leading
-  zeros; `SkyPatcherOverlayWeaponReplayTests.AFullEslFormIdWithANonZeroSlotKeepsOnlyTheLocalId` (`FE001800`) — a
+- *Addressing*: `SkyPatcherParseTests` — a bare EditorID is left un-addressed, the FormID side trims leading
+  zeros, a `|` token reads `0x` and stops at the first non-hex character with its plugin untrimmed
+  (`APipeTokenReadsItsFormIdAsSkyPatcherDoes`), and one with no hex digit is malformed
+  (`APipeTokenSkyPatcherCannotReadIsMalformed`); `SkyPatcherLineIndexTests.ALineNamingByEditorIdOrA0xValueStillApplies`
+  — a `0x` target applies; `SkyPatcherOverlayWeaponReplayTests.AFullEslFormIdWithANonZeroSlotKeepsOnlyTheLocalId` (`FE001800`) — a
   full ESL FormID keeps its 12-bit local id.
+- *One target resolver*: `SkyPatcherTargetResolverTests` — a duplicated EditorID patches only the first loaded
+  record and says so on its line, a name a renaming override drops still names the record, a later walk gives a
+  name to the record loaded first, each kind of miss is reported on its line, a `0x` target is no miss, an
+  untyped op finds its EditorID, and one call walks once (`EditorIdsAreWalkedOncePerCall`).
 - *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryTests` —
   the breadth-first order (`FilesAreReadBreadthFirst`), the name rules (`TheFileNameRulesReadIniAnywhereAndRefuseTheRest`),
   `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a missing switch off and Light on, no

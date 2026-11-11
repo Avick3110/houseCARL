@@ -121,7 +121,8 @@ public sealed class SkyPatcherFieldMap
             EidSubstring: el.TryGetProperty("eidSubstring", out var es) && es.ValueKind == JsonValueKind.True,
             ValueMap: valueMap,
             Note: OptStr(el, "note"),
-            Unmapped: null);
+            Unmapped: null,
+            EditorIdScope: OptStr(el, "editorIdScope"));
     }
 
     static SkyPatcherFilterEval ParseFilterEval(string s, string ctx) => s switch
@@ -197,7 +198,8 @@ public sealed class SkyPatcherFieldMap
             Element: element,
             Key: OptStr(el, "key"),
             Note: OptStr(el, "note"),
-            Unmapped: null);
+            Unmapped: null,
+            EditorIdScope: OptStr(el, "editorIdScope"));
     }
 
     static string Str(JsonElement el, string prop)
@@ -340,7 +342,8 @@ public sealed record FilterSpec(
     bool EidSubstring,
     IReadOnlyDictionary<string, string>? ValueMap,
     string? Note,
-    string? Unmapped)
+    string? Unmapped,
+    string? EditorIdScope = null)
 {
     internal static FilterSpec MakeUnmapped(string reason)
         => new(SkyPatcherFilterEval.FormEquals, Array.Empty<string>(), null, null, null, false, null, false, null, null, reason);
@@ -361,8 +364,12 @@ public sealed record OpMap(
     ElementMap? Element,
     string? Key,
     string? Note,
-    string? Unmapped)
+    string? Unmapped,
+    string? EditorIdScope = null)
 {
+    /// <summary>The type or type group a bare EditorID in this op is looked up among: its form type, else the scope an untyped op names.</summary>
+    public string? LookupScope => FormType ?? EditorIdScope;
+
     internal static OpMap MakeUnmapped(string reason)
         => new(SkyPatcherOpSemantic.Set, "", null, null, null, null, null, false, null, null, null, null, reason);
     public bool IsUnmapped => Unmapped is not null;

@@ -693,7 +693,7 @@ internal sealed partial class AssetLayers
         var duplicates = new List<SkyPatcherConflicts.SkyPatcherDuplicate>();
         foreach (var folder in scan.Folders)
         {
-            var report = SkyPatcherConflicts.Detect(folder, catalog, fieldMap);
+            var report = SkyPatcherConflicts.Detect(folder, catalog, fieldMap, replay.Forms);
             conflicts.AddRange(report.Conflicts);
             itms.AddRange(report.Itms);
             duplicates.AddRange(report.Duplicates);
@@ -728,7 +728,7 @@ internal sealed partial class AssetLayers
                 foreach (var eid in eids)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var rfk = folderTypes.Select(t => replay.ResolveEditorId(eid, t)).FirstOrDefault(x => x is not null);
+                    var rfk = folderTypes.Select(t => replay.Forms.ResolveEditorId(eid, t)).FirstOrDefault(x => x is not null);
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }
@@ -765,7 +765,7 @@ internal sealed partial class AssetLayers
                 return c != 0 ? c : string.Compare(x.FieldPath, y.FieldPath, StringComparison.Ordinal);
             });
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
-            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them; read one with {ToolNames.Records} formids=[\"<FormID>\"] source={{\"overlay\": \"skypatcher\", \"state\": \"post\"}}).");
+            if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit EditorID target(s) did not resolve; each is named, with why, on its line.");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure / an EditorID lookup that could not be completed).");
             // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
             foreach (var msg in replay.Unreadable.Select(u => u.Message).Distinct())

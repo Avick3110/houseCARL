@@ -134,22 +134,27 @@ public static class SkyPatcherParse
         return new SkyPatcherValue(item, IsNameLiteral: false, NameText: null, SubArgs: subArgs, Address: address);
     }
 
-    /// <summary>Resolve the unambiguous <c>Plugin.esp|FormID</c> address form; null for anything else, including a bare EditorID.</summary>
+    /// <summary>A token holding the grammar's address separator as SkyPatcher reads it: <c>Plugin|FormID</c>, never an EditorID; null for a token without one. A FormID side SkyPatcher cannot read leaves <see cref="FormAddress.FormId"/> null.</summary>
     public static FormAddress? TryParseAddress(string token, SkyPatcherGrammar? grammar = null)
     {
         if (string.IsNullOrEmpty(token)) return null;
         int bar = token.IndexOf((grammar ?? G).Address);
-        if (bar <= 0 || bar == token.Length - 1) return null;
+        if (bar < 0) return null;
+        // The plugin name is taken as written, untrimmed, as SkyPatcher's mod lookup takes it.
+        return new FormAddress(token[..bar], ParseFormId(token[(bar + 1)..]), EditorId: null);
+    }
 
-        var plugin = token[..bar].Trim();
-        var hex = token[(bar + 1)..].Trim();
-        if (plugin.Length == 0 || hex.Length == 0) return null;
-
-        // FormID is hex with trimmable leading zeros; a right side that is not clean hex is not this form.
-        if (!uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var formId))
-            return null;
-
-        return new FormAddress(plugin, formId, EditorId: null);
+    /// <summary>The FormID side read as SkyPatcher's base-16 <c>stoul</c> reads it: leading whitespace, an optional <c>0x</c>, then hex up to the first non-hex character; null when no digit is read or the value passes 32 bits.</summary>
+    static uint? ParseFormId(string side)
+    {
+        int i = 0;
+        while (i < side.Length && char.IsWhiteSpace(side[i])) i++;
+        if (i + 2 < side.Length && side[i] == '0' && side[i + 1] is 'x' or 'X' && Uri.IsHexDigit(side[i + 2])) i += 2;
+        int start = i;
+        while (i < side.Length && Uri.IsHexDigit(side[i])) i++;
+        if (i == start) return null;
+        return ulong.TryParse(side[start..i], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) && v <= uint.MaxValue
+            ? (uint)v : null;
     }
 
     static string Append(string? note, string add) => note is null ? add : note + "; " + add;
@@ -189,11 +194,13 @@ public sealed record SkyPatcherValue(
     IReadOnlyList<string> SubArgs,
     FormAddress? Address);
 
-/// <summary>A resolved form address; the tokenizer produces only the FormID form, and <see cref="EditorId"/> is the overlay engine's to fill.</summary>
+/// <summary>A resolved form address; the tokenizer produces only the '|' form, and <see cref="EditorId"/> is the overlay engine's to fill.</summary>
 public sealed record FormAddress(string? Plugin, uint? FormId, string? EditorId)
 {
     /// <summary>True when this is the <c>Plugin.esp|FormID</c> form.</summary>
     public bool IsFormId => Plugin is not null && FormId is not null;
+    /// <summary>True for a '|' token whose FormID side SkyPatcher cannot read: it names nothing, and is never an EditorID.</summary>
+    public bool IsMalformed => Plugin is not null && FormId is null;
     /// <summary>True when this addresses a form by EditorID.</summary>
     public bool IsEditorId => EditorId is not null;
 }

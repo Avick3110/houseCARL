@@ -22,6 +22,9 @@ internal sealed class CallContext
     /// <summary>The call's roots, once it holds a view.</summary>
     internal Mo2Roots Roots => Build!.Roots;
 
+    /// <summary>The call's SkyPatcher EditorID table, made at its first EditorID lookup and dropped with the call.</summary>
+    internal SkyPatcherEditorIdTable? SkyPatcherEditorIds { get; set; }
+
     /// <summary>True once a write took its view inside the write gate; every later read in the call serves it.</summary>
     internal bool WriteViewTaken { get; private set; }
 
