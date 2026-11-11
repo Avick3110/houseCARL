@@ -191,7 +191,8 @@ public sealed class NifSelectionTests : IDisposable
         Assert.Null(_svc.SelectMeshes(new[] { (good, true) }, Array.Empty<string>(), null, Array.Empty<FaceGenSeed>(), null, needView: false).Captured);
     }
 
-    /// <summary>A mods-tree path read alone on a configured instance takes the mods root from the roots, not from an asset view.</summary>
+    /// <summary>Pins unchanged behaviour: a mods-tree path read alone on a configured instance takes the mods root from the
+    /// roots, not from an asset view.</summary>
     [Fact]
     public void AModsTreePathAloneTakesNoAssetView()
     {
