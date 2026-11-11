@@ -299,9 +299,19 @@ internal sealed partial class AssetLayers
 
         /// <summary>The display names in a scope whose EditorIDs the game keeps here.</summary>
         IReadOnlyList<string>? Kept(string mutagenType)
-            => Scope(mutagenType) is { } types && TypeLookup.DisplayNames(types) is { } names
-                ? names.Where(n => SkyPatcherEditorIds.Gap(_tweaksMissing, n) is null).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
-                : null;
+            => TypeLookup.DisplayNames(Walked(mutagenType))?.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        readonly Dictionary<string, IReadOnlyList<Type>?> _walked = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>A scope's types whose EditorIDs the game keeps here, the only ones a lookup walks; null when none, once per context.</summary>
+        IReadOnlyList<Type>? Walked(string scope)
+        {
+            if (_walked.TryGetValue(scope, out var walked)) return walked;
+            var types = Scope(scope);
+            if (types is not null && _tweaksMissing is not null)
+                types = types.Where(t => SkyPatcherEditorIds.Gap(_tweaksMissing, RecordNaming.StripGetterInterface(t.Name)) is null).ToList();
+            return _walked[scope] = types is { Count: > 0 } ? types : null;
+        }
 
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
             => Find(editorId, mutagenType) is { Count: > 0 } holders ? holders[0].Record : null;
@@ -314,21 +324,22 @@ internal sealed partial class AssetLayers
         /// <summary>The records loaded under a name within the scope, first loaded first, covering the call's scopes at the first lookup; empty for a blank name, no scope, a type the game keeps no names of here, or a scope that names no type.</summary>
         IReadOnlyList<SkyPatcherEditorIdTable.Holder> Find(string editorId, string? mutagenType)
         {
-            IReadOnlyList<Type>? scope;
+            IReadOnlyList<Type>? scope, walked;
             // An untyped lookup misses: contract in docs/architecture/skypatcher-layer.md.
             if (mutagenType is null || string.IsNullOrWhiteSpace(editorId)) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if ((scope = Scope(mutagenType)) is null || (!EveryTypeLookups && EveryType(scope))) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
-            // The game cannot see this name, so neither does the replay; a group with a kept type is gated per type by the table.
-            if (EditorIdGap(mutagenType) is not null && GroupGap(mutagenType) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
+            // The game cannot see a name of a type it keeps none of, so neither does the replay, and that type is never walked.
+            if ((walked = Walked(mutagenType)) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if (!_covered)
             {
-                // The first lookup walks once for every scope the call's lines name, so later lookups walk nothing;
-                // a scope of every type is left to its own first lookup, so a call that never looks one up never walks it.
+                // The first lookup walks once for its own scope and every scope the call's lines name, so later lookups walk nothing;
+                // another scope of every type is left to its own first lookup, so a call that never looks one up never walks it.
                 _covered = true;
                 _table.Cover(_callScopes().OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Select(Scope).OfType<IReadOnlyList<Type>>().Where(s => !EveryType(s)).SelectMany(s => s));
+                    .Where(s => Scope(s) is { } t && !EveryType(t)).Select(Walked).OfType<IReadOnlyList<Type>>().SelectMany(s => s)
+                    .Concat(walked));
             }
-            var e = _table.Find(editorId, scope, out var incomplete);
+            var e = _table.Find(editorId, walked, out var incomplete);
             if (incomplete) _consumedIncomplete = true;
             return e;
         }
