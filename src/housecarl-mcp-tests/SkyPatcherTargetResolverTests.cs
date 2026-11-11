@@ -208,6 +208,20 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Contains("Items = [list: 2 item(s)]", Post(w, "000840:HcSpRel.esp", "Items"));
     }
 
+    // The layer's no-op scan compares only set-class ops, so a form-list item it replays is not looked up; a post read still resolves it.
+    [Fact]
+    public void TheLayersNoOpScanWalksNoEveryTypeScope()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByFormLists=HcSpRel.esp|840:formsToAdd=HcHeelBoots\r\n") },
+            subfolder: "formList", records: AddList);
+        var before = w.Svc.Counters.EditorIdTypesWalked;
+        var layer = SkyPatcherTools.SkyPatcherLayer(w.Svc);
+        Assert.Contains("0 no-op write(s)", layer);
+        Assert.DoesNotContain("could not be replayed", layer);
+        Assert.Equal(0, w.Svc.Counters.EditorIdTypesWalked - before);
+        Assert.Contains("Items = [list: 2 item(s)]", Post(w, "000840:HcSpRel.esp", "Items"));
+    }
+
     // Without Tweaks a form-list item EditorID resolves for a type the game keeps names of, and a miss names those types.
     [Fact]
     public void WithoutTweaksAFormListItemEditorIdOfAKeptTypeResolves()

@@ -739,7 +739,8 @@ internal sealed partial class AssetLayers
                 foreach (var fk in asked)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var r = replay.Replay(fk, bodies.GetValueOrDefault(fk));
+                    // Only set-class ops are compared and no lookup among every type feeds one, so the scan skips those walks.
+                    var r = replay.Replay(fk, bodies.GetValueOrDefault(fk), everyTypeLookups: false);
                     // An unpatchable type has nothing to replay, so it counts with the failures as it always has.
                     if (r.Error is not null || r.IsUnpatchable) { failedReplays++; continue; }
                     foreach (var fo in r.Folders)

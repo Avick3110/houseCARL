@@ -146,8 +146,16 @@ internal sealed partial class AssetLayers
         /// <summary>Plugins an EditorID sweep could not open during this call.</summary>
         internal IReadOnlyList<PluginUnreadableException> Unreadable => _formResolver.Unreadable;
 
-        /// <summary>Replay one record's winner through the layer: the patched copy, the winner itself for a type the layer cannot touch, or the named reason it cannot be replayed.</summary>
-        internal SkyPatcherReplayResult Replay(FormKey fk, IMajorRecordGetter? read = null)
+        /// <summary>Replay one record's winner through the layer: the patched copy, the winner itself for a type the layer cannot touch, or the named reason it cannot be replayed.
+        /// <paramref name="everyTypeLookups"/> false leaves a value looked up among every record type (a form-list item) unresolved, for a caller that never reads the field it lands on.</summary>
+        internal SkyPatcherReplayResult Replay(FormKey fk, IMajorRecordGetter? read = null, bool everyTypeLookups = true)
+        {
+            _formResolver.EveryTypeLookups = everyTypeLookups;
+            try { return ReplayCore(fk, read); }
+            finally { _formResolver.EveryTypeLookups = true; }
+        }
+
+        SkyPatcherReplayResult ReplayCore(FormKey fk, IMajorRecordGetter? read)
         {
             var winner = _view.ResolveWinner(fk);
             if (winner is null)
@@ -260,6 +268,9 @@ internal sealed partial class AssetLayers
 
         public void WatchLookups() => _consumedIncomplete = false;
 
+        /// <summary>Whether a lookup among every record type walks; false makes it miss unwalked.</summary>
+        internal bool EveryTypeLookups { get; set; } = true;
+
         readonly string? _tweaksMissing;
 
         public SkyPatcherServiceResolver(AssetLayers layers, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
@@ -306,7 +317,7 @@ internal sealed partial class AssetLayers
             IReadOnlyList<Type>? scope;
             // An untyped lookup misses: contract in docs/architecture/skypatcher-layer.md.
             if (mutagenType is null || string.IsNullOrWhiteSpace(editorId)) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
-            if ((scope = Scope(mutagenType)) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
+            if ((scope = Scope(mutagenType)) is null || (!EveryTypeLookups && EveryType(scope))) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             // The game cannot see this name, so neither does the replay; a group with a kept type is gated per type by the table.
             if (EditorIdGap(mutagenType) is not null && GroupGap(mutagenType) is null) return Array.Empty<SkyPatcherEditorIdTable.Holder>();
             if (!_covered)
