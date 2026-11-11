@@ -59,6 +59,17 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Contains("target 'HcSpRel.esp|zz' (in a filterByArmors) is not a FormID SkyPatcher can read", layer);
         Assert.Contains("target 'HcGone.esp|800' (in a filterByArmors) names plugin 'HcGone.esp', which is not in the active order, so it names nothing.", layer);
         Assert.Contains("target 'HcSpRel.esp|899' (in a filterByArmors) names 000899:HcSpRel.esp, which no plugin in the active order defines, so it names nothing.", layer);
+        Assert.Contains("no-op scan: 1 explicit EditorID target(s) did not resolve", layer);   // the malformed address is no EditorID
+    }
+
+    // HcSpRel.esp's keyword HcKw2 loads the name before HcSpRelOther.esp's armor of the same name, and the keyword line
+    // puts keywords in the call's walk: the armor lookup still finds the armor, whatever other lines the layer holds.
+    [Fact]
+    public void ANameAnotherTypeAlsoHoldsStillNamesTheScopedRecord()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByArmors=HcKw2:value=44\r\nfilterByKeywords=HcKw2:weight=3\r\n") }, otherPlugin: true,
+            otherRecords: o => o.Armors.Add(new Armor(new FormKey(o.ModKey, 0x810), SkyrimRelease.SkyrimSE) { EditorID = "HcKw2" }));
+        Assert.Contains("Value = 44", Post(w, "000810:HcSpRelOther.esp", "Value"));
     }
 
     [Fact]
@@ -83,9 +94,14 @@ public sealed class SkyPatcherTargetResolverTests
         RecordsTools.Records(w.Svc, formids: new[] { w.Plain, w.Heel, w.Both }, source: SkyPatcherRelevanceWorld.Post(),
             project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Value", "Keywords" } });
         Assert.Equal(1, w.Svc.Counters.EditorIdSweeps - before);
+        // a comparison of two replayed poles opens two replay contexts; they share the call's one table
+        before = w.Svc.Counters.EditorIdSweeps;
+        RecordsTools.Records(w.Svc, formids: new[] { w.Plain }, source: SkyPatcherRelevanceWorld.Post(), versus: SkyPatcherRelevanceWorld.Post(),
+            project: new RecordsTools.RecordsProject { form = "delta", fields = new[] { "Value" } });
+        Assert.Equal(1, w.Svc.Counters.EditorIdSweeps - before);
     }
 
-    // A later walk of another type that finds an earlier-loaded holder of a name gives the name to it: HcDupName is an armor in
+    // A later walk of another type that finds an earlier-loaded holder of a name puts it first: HcDupName is an armor in
     // HcSpRel.esp and a keyword in HcSpRelOther.esp, and the keyword is walked first.
     [Fact]
     public void ALaterWalkGivesANameToTheRecordLoadedFirst()
@@ -95,9 +111,10 @@ public sealed class SkyPatcherTargetResolverTests
             otherRecords: o => o.Keywords.Add(new Keyword(new FormKey(o.ModKey, 0x830), SkyrimRelease.SkyrimSE) { EditorID = "HcDupName" }));
         var table = SkyPatcherEditorIdTable.For(w.Svc.CaptureView(), null);
         table.Cover(new[] { typeof(IKeywordGetter) });
-        var entry = table.Find("HcDupName", new[] { typeof(IArmorGetter) }, out _)!;
-        Assert.Equal(new FormKey(ModKey.FromFileName("HcSpRel.esp"), 0x830), entry.First);
-        Assert.True(entry.In(new[] { typeof(IArmorGetter) }));
+        table.Cover(new[] { typeof(IArmorGetter) });
+        var holders = table.Find("HcDupName", null, out _);
+        Assert.Equal(new FormKey(ModKey.FromFileName("HcSpRel.esp"), 0x830), holders[0].Record);
+        Assert.Equal(2, holders.Count);
     }
 
     // addToLLs carries no form type: its item is looked up among every item type, as SkyPatcher's untyped lookup finds it.

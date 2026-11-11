@@ -90,28 +90,27 @@ audit, because getting it wrong inverts every verdict.
 Every site that turns a target token into a record (the direct lists and their Excluded spelling,
 filter values, op values and sub-args, the conflict detector's target grouping, the no-op scan)
 goes through `SkyPatcherTargets`. A FormID resolves by `FormIdRange`; an EditorID through the
-call's one EditorID table (`SkyPatcherEditorIdTable`), kept as the game keeps its map: one
-case-insensitive name space across every type, the first record loaded under a name keeping it
-(po3 Tweaks inserts with `emplace`, so a later record never replaces a name; a renaming override
-leaves the master's name in the map). The table walks every instance of a type, plugin by plugin in
-load order, not only winners, so a name a later override drops still names the record. A lookup
-scoped to a type finds nothing when a record of another type holds the name first. A direct-list
-EditorID names that one record, as SkyPatcher resolves it before comparing FormIDs, never every
-record whose own EditorID matches.
+call's one EditorID table (`SkyPatcherEditorIdTable`), case-insensitive, where the first record
+loaded under a name keeps it, as the game's map does (po3 Tweaks inserts with `emplace`, so a later
+record never replaces a name; a renaming override leaves the master's name in the map). The table
+walks every instance of a type, plugin by plugin in load order, not only winners, so a name a later
+override drops still names the record. A lookup scoped to a type takes the first loaded record of
+that scope. A direct-list EditorID names that one record, as SkyPatcher resolves it before comparing
+FormIDs, never every record whose own EditorID matches.
 
 The table lives on the call context and is dropped with the call: nothing is kept between calls.
 Its first lookup walks once over every scope the call's lines can look an EditorID up among
 (`SkyPatcherOverlay.EditorIdScopes`), so later lookups and the call's other replay contexts walk
 nothing; a scope the first walk missed is walked once more, its types only, and a record it finds
-that loaded before a name's holder takes the name. `CostCounters.EditorIdSweeps` counts the walks.
+that loaded first still comes first. `CostCounters.EditorIdSweeps` counts the walks.
 An op with no form type looks its EditorIDs up among the field map's `editorIdScope` (`Item` for
 leveled item entries and recipe ingredients, `NpcSpawn` for leveled NPC entries, `OutfitTarget` for
 outfit items, every record type for form-list items).
 
 A target that names nothing says why on its line in the layer listing: a malformed address, a
 plugin not in the order (or one with a space SkyPatcher keeps), a FormID no plugin defines, an
-EditorID found nowhere, hidden by the po3 Tweaks gap, or held first by another type. A target whose
-EditorID names several records says so, and which one the game uses.
+EditorID found nowhere, or hidden by the po3 Tweaks gap. A target whose EditorID names several
+records says so, and which one the game uses.
 
 ### The per-type subfolder rule and the filename gate
 
@@ -261,9 +260,11 @@ say the state is unknown.
   from the pre-SkyPatcher record.
 - A FormID that names a record absent from the order still counts as resolved in the replay; the
   layer listing says on its line that it names nothing.
-- The EditorID table holds only the types the call's lines look names up among, so a record of an
-  unlooked-up type holding a name first does not hide it. For the ten types the engine keeps names
-  of itself, the first-loaded rule is po3 Tweaks', not read from the game executable.
+- The game's map is one name space across every type, so a record of another type that loaded a
+  name first can hide a typed lookup in game. houseCARL does not model that hiding: a scoped lookup
+  takes the first loaded record of its scope, whatever other types share the name, so one line's
+  answer never depends on which other lines the layer holds. For the ten types the engine keeps
+  names of itself, the first-loaded rule is po3 Tweaks', not read from the game executable.
 - An unknown key still skips its line loud; the game drops the key silently and the line can widen
   to every record of its type. houseCARL keeps refusing to guess.
 - `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the
@@ -298,8 +299,8 @@ hardened.
   — a `0x` target applies; `SkyPatcherOverlayWeaponReplayTests.AFullEslFormIdWithANonZeroSlotKeepsOnlyTheLocalId` (`FE001800`) — a
   full ESL FormID keeps its 12-bit local id.
 - *One target resolver*: `SkyPatcherTargetResolverTests` — a duplicated EditorID patches only the first loaded
-  record and says so on its line, a name a renaming override drops still names the record, a later walk gives a
-  name to the record loaded first, each kind of miss is reported on its line, a `0x` target is no miss, an
+  record and says so on its line, a name a renaming override drops still names the record, a later walk puts the
+  record loaded first first, a name another type shares still names the scoped record, each kind of miss is reported on its line, a `0x` target is no miss, an
   untyped op finds its EditorID, and one call walks once (`EditorIdsAreWalkedOncePerCall`).
 - *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryTests` —
   the breadth-first order (`FilesAreReadBreadthFirst`), the name rules (`TheFileNameRulesReadIniAnywhereAndRefuseTheRest`),
