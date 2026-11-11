@@ -110,9 +110,11 @@ An op with no form type looks its EditorIDs up among the field map's `editorIdSc
 leveled item entries and recipe ingredients, `NpcSpawn` for leveled NPC entries, `OutfitTarget` for
 outfit items, every record type for form-list items).
 
-A target that names nothing says why on its line in the layer listing: a malformed address, a
+A direct or Excluded target that names nothing says why on its line in the layer listing, which
+expands a file's lines only under `filter=`: a malformed address, a
 plugin not in the order (or one with a space SkyPatcher keeps), a FormID no plugin defines, an
-EditorID found nowhere, or hidden by the po3 Tweaks gap. A target whose EditorID names several
+EditorID found nowhere, or hidden by the po3 Tweaks gap. The no-op scan's count of unresolved
+EditorID targets also counts a `~name~` literal, which no line names. A target whose EditorID names several
 records says so, and which one the game uses.
 
 ### The per-type subfolder rule and the filename gate
