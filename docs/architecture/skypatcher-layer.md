@@ -276,6 +276,18 @@ say the state is unknown.
   names of itself, the first-loaded rule is po3 Tweaks', not read from the game executable.
 - `Plugin|+hex` and `Plugin|-hex` are read as malformed; SkyPatcher's `stoul` takes the sign.
   Main read them the same way.
+- A `|` FormID over 32 bits is reported as naming nothing; SkyPatcher builds older than 2026-09-24
+  throw there instead of skipping.
+- An element sub-arg `Plugin|zz` (malformed) is written raw, not reported.
+- In conflicts, a malformed `|` target is grouped by its raw text, and the section does not say when
+  an EditorID lookup missed a plugin; the layer's no-op note does.
+- An EditorID that starts with `_` or a digit costs one more walk in the call.
+- In the shared leveledList folder a line's lint runs once per field map, so under `filter=` a
+  direct target named by an LVLI EditorID is also reported as finding no LeveledNpc record, though
+  the line applies. FormID targets are unaffected.
+- Two records of one scope that share a name in one plugin tie by walk order (types in scope
+  order, then later walks), not by their order in the file, so the duplicate note can name the
+  other one.
 - An unknown key still skips its line loud; the game drops the key silently and the line can widen
   to every record of its type. houseCARL keeps refusing to guess.
 - `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the
@@ -315,7 +327,11 @@ hardened.
   untyped op finds its EditorID, an op with no scope misses beside one that walks every type
   (`AnUnscopedOpEditorIdMissesBesideAScopedOne`), one call walks once (`EditorIdsAreWalkedOncePerCall`), a call
   that looks up no form-list item walks only its own scopes (`ACallThatLooksUpNoFormListItemWalksOnlyItsScopes`), and
-  without Tweaks a form-list item of a kept type resolves (`WithoutTweaksAFormListItemEditorIdOfAKeptTypeResolves`).
+  without Tweaks a form-list item of a kept type resolves (`WithoutTweaksAFormListItemEditorIdOfAKeptTypeResolves`);
+  holders sort by load position alone, each view in a call gets its own table, a digit-first name resolves, the
+  Excluded spelling leaves out only the first loaded record, and the conflict detector resolves EditorID targets
+  (`ARecordNamedByEditorIdAndByFormIdConflictsWithItself`); `SkyPatcherOpEditorIdGapTests.AMalformedOpAddressSaysItIsNoFormId`
+  — a malformed op address says so.
 - *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryTests` —
   the breadth-first order (`FilesAreReadBreadthFirst`), the name rules (`TheFileNameRulesReadIniAnywhereAndRefuseTheRest`),
   `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a missing switch off and Light on, no
