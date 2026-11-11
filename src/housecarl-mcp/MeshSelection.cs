@@ -41,13 +41,7 @@ internal sealed partial class AssetLayers
 
         // paths= entries as given, files on disk among them; a Data path exclude= removed has no row.
         var rows = new List<MeshRow>(chosen.Entries.Count + entries.Count);
-        var given = chosen.Entries.Where(f => f.Given >= 0).ToDictionary(f => f.Given, f => f.Path);
-        int next = 0;
-        foreach (var e in entries)
-        {
-            if (e.OnDisk) rows.Add(new MeshRow(e.Path, true));
-            else if (given.TryGetValue(next++, out var kept)) rows.Add(new MeshRow(kept, false));
-        }
+        rows.AddRange(FileSelection.KeptAsGiven(entries, e => e.OnDisk, chosen.Entries).Select(e => new MeshRow(e.Path, e.OnDisk)));
         int notMeshes = 0, tints = 0;
         foreach (var f in chosen.Entries.Where(f => f.Given < 0))
         {

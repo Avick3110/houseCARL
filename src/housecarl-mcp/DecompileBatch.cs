@@ -44,27 +44,15 @@ internal static class DecompileBatch
         if (!chosenOutput && LaneSentences.PatchIntoFolderRefusal(c.Patch, c.Into, ".psc") is { } patchInto)
             return ToolAnswer.Refusal(json, "error: " + patchInto);
 
-        FileExclusion? exclude = null;
-        if (c.Exclude is not null)
-        {
-            var (ex, exErr) = FileExclusion.Read(c.Exclude, svc);
-            if (exErr is not null) return ToolAnswer.Refusal(json, exErr);
-            exclude = ex;
-        }
+        var (exclude, exErr) = FileExclusion.Read(c.Exclude, svc);
+        if (exErr is not null) return ToolAnswer.Refusal(json, exErr);
         ScriptSelectionData? sel = selecting ? svc.SelectScripts(dataPaths, c.Under, provider.Length > 0 ? provider : null, exclude) : null;
         if (sel?.Refusal is { } refused) return ToolAnswer.Refusal(json, refused);
 
         // Rows in the order given: paths= entries as written (files on disk among them), then the selectors' matches.
-        // The selection's first entries are the explicit Data paths, one each, in the order given.
         // An explicit Data path exclude= removed has no row.
-        var rows = new List<Row>();
-        var given = sel?.Scripts.Where(f => f.Given >= 0).ToDictionary(f => f.Given, f => f.Path);
-        int nextExplicit = 0;
-        foreach (var e in c.Entries)
-        {
-            if (e.OnDisk) rows.Add(new Row(e.Path, true));
-            else if (given!.TryGetValue(nextExplicit++, out var kept)) rows.Add(new Row(kept, false));
-        }
+        var rows = FileSelection.KeptAsGiven(c.Entries, e => e.OnDisk, sel?.Scripts ?? Array.Empty<SelectedFile>())
+                                .Select(e => new Row(e.Path, e.OnDisk)).ToList();
         if (sel is not null) rows.AddRange(sel.Scripts.Where(f => f.Given < 0).Select(f => new Row(f.Path, false)));
         int total = rows.Count;
         var window = c.Window.Apply(rows).Select(r => Locate(sel?.View, r, sourceProvider)).ToList();
