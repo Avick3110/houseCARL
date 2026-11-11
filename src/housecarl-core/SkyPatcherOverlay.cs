@@ -259,7 +259,7 @@ public static class SkyPatcherOverlay
     public enum FormPlace { Target, Filter, Value, UnknownKey }
 
     /// <summary>One form a line names: where, under which key, the token as written, and the record it resolves to.</summary>
-    public sealed record LineForm(FormPlace Place, string Key, string Token, FormKey Form);
+    public sealed record LineForm(FormPlace Place, string Key, string Token, FormKey Form, bool ByEditorId);
 
     /// <summary>Every form a patch line names that resolves to a record: each <c>Plugin|FormID</c> sub-arg anywhere on
     /// the line, and each leading EditorID sub-arg where the replay looks one up, by the one target resolver. A
@@ -284,10 +284,11 @@ public static class SkyPatcherOverlay
                 for (int k = 0; k < v.SubArgs.Count; k++)
                 {
                     var a = v.SubArgs[k];   // untrimmed: SkyPatcher keeps a space around '|', and so names nothing
-                    var fk = SkyPatcherParse.TryParseAddress(a) is { } addr ? SkyPatcherTargets.FormKeyOf(addr)
+                    var addr = SkyPatcherParse.TryParseAddress(a);
+                    var fk = addr is not null ? SkyPatcherTargets.FormKeyOf(addr)
                         : k == 0 ? SkyPatcherTargets.Resolve(a, scopes, resolver)   // the replay looks up only the leading sub-arg
                         : null;
-                    if (fk is { } f) yield return new LineForm(place, seg.Key, a, f);
+                    if (fk is { } f) yield return new LineForm(place, seg.Key, a, f, ByEditorId: addr is null);
                 }
             }
         }

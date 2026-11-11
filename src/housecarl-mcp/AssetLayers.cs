@@ -688,6 +688,16 @@ internal sealed partial class AssetLayers
         var catalog = replay.Catalog;
         var fieldMap = replay.FieldMap;
         var scan = replay.Scan;
+        // The selectors need only the build, so a refusal answers before the conflict and no-op scans run.
+        Func<FormKey, bool>? wanted = null;
+        string? selectNote = null;
+        if (select is not null)
+        {
+            (wanted, selectNote, var refusal) = LineSelection(select, view);
+            if (refusal is not null)
+                return use(new SkyPatcherLayerData(scan, [], [], [], [], [], assets.RootFailures, scan.ReadIncomplete || assets.ReadIncomplete,
+                    replay.AssetWarnings, replay.ProfileName) { SelectRefusal = refusal });
+        }
         var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
         var itms = new List<SkyPatcherConflicts.SkyPatcherItm>();
         var duplicates = new List<SkyPatcherConflicts.SkyPatcherDuplicate>();
@@ -775,14 +785,15 @@ internal sealed partial class AssetLayers
 
         var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
             scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null);
-        return use(select is null ? data : LineSelection(data, select, view, replay));
+        if (wanted is null) return use(data);
+        return use(data with { SelectNote = selectNote, Select = (folder, file, i) => replay.LineForms(folder, file.Lines[i]).Where(f => wanted(f.Form)).ToList() });
     }
 
-    /// <summary>The records selectors resolved against the pinned build: the per-line form match, or the refusal they earn.</summary>
-    static SkyPatcherLayerData LineSelection(SkyPatcherLayerData data, SkyPatcherLineSelect sel, LoadOrderResolver.IndexView view, SkyPatcherReplay replay)
+    /// <summary>The records selectors resolved against the pinned build into a form predicate, with the note they owe, or the refusal they earn.</summary>
+    static (Func<FormKey, bool>? Wanted, string? Note, string? Refusal) LineSelection(SkyPatcherLineSelect sel, LoadOrderResolver.IndexView view)
     {
         foreach (var d in sel.Demands)
-            if (d.Epoch != view.Stamp.Epoch) return data with { SelectRefusal = "error: " + RecordReads.ArtifactEpochMismatch(d, view.Stamp.Epoch) };
+            if (d.Epoch != view.Stamp.Epoch) return (null, null, "error: " + RecordReads.ArtifactEpochMismatch(d, view.Stamp.Epoch));
         HashSet<FormKey>? ids = null;
         if (sel.FormIds is { } raw)
         {
@@ -793,37 +804,27 @@ internal sealed partial class AssetLayers
                 try { ids.Add(door.Parse(t)); }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    return data with { SelectRefusal = $"error: formids= entry '{t}' is not a FormID ('XXXXXX:Plugin.esp' or the runtime form): {ex.Message}" };
+                    return (null, null, $"error: formids= entry '{t}' is not a FormID ('XXXXXX:Plugin.esp' or the runtime form): {ex.Message}");
                 }
             }
         }
         string[]? named = null;
+        HashSet<ModKey>? definers = null;
         string? note = null;
         if (sel.Plugins is { } names)
         {
             var split = ScopeSplit.Of(view, names);
-            if (split.BlankRefusal is { } blank) return data with { SelectRefusal = "error: " + blank };
-            if (split.Present.Count == 0) return data with { SelectRefusal = "error: " + split.NothingToScanRefusal(view) };
+            if (split.BlankRefusal is { } blank) return (null, null, "error: " + blank);
+            if (split.Present.Count == 0) return (null, null, "error: " + split.NothingToScanRefusal(view));
             if (split.Missing.Count > 0) note = split.ServedNote(view);
             named = split.Present.ToArray();
+            // As records' defined_in: the defining plugin is the FormKey's own ModKey.
+            if (sel.DefinedIn) definers = named.Select(n => ModKey.FromFileName(n)).ToHashSet();
         }
         // The records meaning: a plugin touches a form it defines or overrides; defined_in keeps the defining plugin only.
         bool Wanted(FormKey fk) => (ids is null || ids.Contains(fk))
-            && (named is null || named.Any(p => sel.DefinedIn
-                ? string.Equals(fk.ModKey.FileName.String, p, StringComparison.OrdinalIgnoreCase)
-                : view.Touches(fk, p)));
-        var seen = new Dictionary<(string, string, int), IReadOnlyList<SkyPatcherOverlay.LineForm>>();
-        return data with
-        {
-            SelectNote = note,
-            Select = (folder, file, i) =>
-            {
-                var key = (folder.Subfolder, file.RelPath, i);
-                if (!seen.TryGetValue(key, out var hit))
-                    seen[key] = hit = replay.LineForms(folder, file.Lines[i]).Where(f => Wanted(f.Form)).ToList();
-                return hit;
-            },
-        };
+            && (named is null || (definers is not null ? definers.Contains(fk.ModKey) : named.Any(p => view.Touches(fk, p))));
+        return (Wanted, note, null);
     }
 
     /// <summary>A form-scope string to getter Types, or null when it names neither a type nor a link-interface group; see <see cref="TypeLookup.ResolveScope"/>.</summary>
