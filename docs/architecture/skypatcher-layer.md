@@ -301,7 +301,8 @@ hardened.
 - *One target resolver*: `SkyPatcherTargetResolverTests` — a duplicated EditorID patches only the first loaded
   record and says so on its line, a name a renaming override drops still names the record, a later walk puts the
   record loaded first first, a name another type shares still names the scoped record, each kind of miss is reported on its line, a `0x` target is no miss, an
-  untyped op finds its EditorID, and one call walks once (`EditorIdsAreWalkedOncePerCall`).
+  untyped op finds its EditorID, an op with no scope misses beside one that walks every type
+  (`AnUnscopedOpEditorIdMissesBesideAScopedOne`), and one call walks once (`EditorIdsAreWalkedOncePerCall`).
 - *The per-type subfolder rule and the filename gate*: `SkyPatcherDiscoveryTests` —
   the breadth-first order (`FilesAreReadBreadthFirst`), the name rules (`TheFileNameRulesReadIniAnywhereAndRefuseTheRest`),
   `<Plugin>.esp.ini` gated and still inspectable, the `[Patcher]` toggle, a missing switch off and Light on, no
