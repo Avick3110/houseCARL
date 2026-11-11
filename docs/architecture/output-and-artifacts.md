@@ -93,8 +93,8 @@ asset walk checks `formids=` and `records=` each, `nif_inspect formids=` and `ch
 `nexus_check_updates mods=`, `nexus_identify md5=` and `nif_inspect sections=`, have their own separators and take
 no `@file`. Neither does an op's `values=` inside `ops=`, which is data written to a record.
 
-**Error rows are not identity-bearing.** A row carrying an `error` member documents a failure and does not name a
-record, so extraction SKIPS them: re-entering an artifact means "the records this file resolved". An all-error
+**Error rows are not identity-bearing.** A row carrying a non-null `error` member documents a failure and does not
+name a record, so extraction SKIPS them (a null `error`, which the asset walk writes on every node, is no error: #1319): re-entering an artifact means "the records this file resolved". An all-error
 artifact refuses by its real cause, never by accusing the file; the "was it edited?" refusal is reserved for a
 SUCCESS row missing the identity column, which a server-written artifact never contains.
 

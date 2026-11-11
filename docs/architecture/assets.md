@@ -301,6 +301,24 @@ meshes"), with `formids=` too, and words its own stop. `paths=` is the one name 
 `asset_status` keeps the capture, the window, the declared-cost refusal and the resolve; the walk takes its seeds from
 `asset_status`'s rows, so it selects through the same component.
 
+`exclude=` is the selection's one minus term (`FileExclusion`, #1319), SPEC §2.2's exclusion under the name `check`
+uses, on all three callers. Its entries are Data paths (a file, or a folder and everything beneath it, as an `under=`
+plain path is) and globs (`AssetGlob.Matcher`), or one `@file`, matched ignoring case and slash direction; it removes
+every row it names after the selectors ran, an explicit `paths=` row included (`SelectedFile.Given` keeps an explicit
+row's place in the list given, so `nif_inspect` and `decompile_script` drop exactly that row). A row with an error is
+never removed. It does not narrow the path bound: the enumeration it subtracts from is bounded first. "What a mod ships
+that a walk does not reach" is two calls: the walk writes its nodes with `to_file=`, then `provider=X
+exclude=["@<that file>"]`. It departs from `check`'s refusals, by Aaron's ruling (DECISIONS 2026-11-11 (20)): an entry
+the selection does not hold is counted in a note ("exclude= removed N of the M selected path(s); K of its E entries
+matched no selected path"), because most of a reached set is other mods' files, and an exclusion that empties the
+selection answers zero rows. A blank or non-Data-path entry is refused, and the list door's own refusals hold (an
+`@file` beside inline entries). A `path` artifact with no rows, a walk that reached no file, is the empty set here
+(`ListKind.Exclusion`), not the door's no-rows refusal. What the file's paths cannot say leads the selection's notes,
+read off its manifest: a walk note that says the walk was cut (`WalkCut`: `walk.max_nodes`, `walk.depth`, the path
+bound) makes the file a lower bound, and an epoch other than this build's (or none, or a build that cannot be read)
+says the file may be stale; either way the rows still come (DECISIONS 2026-11-11 (20), Q3 (a)). With no load-order
+selector at all (a file on disk, a walk seeded by `records=` alone) the note still says it removed nothing.
+
 The `counts_only=` census has two layer tables: the layers that **win** paths and the layers that ship a copy another
 layer wins over (**shadowed**), each layer counted once per path, so a mod's loose copy beside its own archive's copy
 is one layer that wins. What a layer provides is its winning count plus its shadowed count. With `provider=` the
@@ -726,6 +744,13 @@ provided either; the generic lane does not, because it legitimately answers for 
   each select exactly their own files; an unknown name is refused; `under=` narrows a provider; each row's standing
   (wins, shadowed by the named winner, not provided) on the text, json and artifact lanes; the census's
   `provides / wins / shadowed` line and the shadowed-layers table, with a layer's own archive copy not shadowing it.
+- *Selecting a set of paths*, `exclude=`: `FileExclusionTests` — a walk's file re-enters `paths=`
+  (`AWalkFileReEntersAsAPathsList`); a provider minus its walk's file is what it ships that the walk does not reach
+  (`AProviderMinusItsWalkFileIsWhatItShipsThatTheWalkDoesNotReach`); case, slash, folder and glob matching; an entry
+  the selection does not hold counted in a note; an emptied selection answering zero rows; `nif_inspect` and
+  `decompile_script` taking it, an explicit path it removes having no row; the note with no load-order selector; the
+  cut-walk notes for `walk.max_nodes` and the path bound, and `FileExclusionDepthTests` for `walk.depth` (whose file
+  has no rows, so the empty set); the other-epoch note; the mixed and blank refusals.
 - *Selecting a set of paths*: `FileSelectionTests` — a second caller of `FileSelection.Select` gets `asset_status`'s
   entries, each with its error and face line, and notes for one input with every selector kind, a template root's pair
   among them (`ASecondCallerSelectsWhatAssetStatusSelects`); a capture
