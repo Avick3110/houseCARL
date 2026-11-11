@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-04
+updated: 2026-11-11
 covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherReach.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-core/SkyPatcherEditorIds.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/SkyPatcherReplay.cs]
 ---
 # The SkyPatcher layer
@@ -21,7 +21,9 @@ carries its **role** on a line (direct, finder, narrower, gate, all; an `Exclude
 connective always narrows), and each record row the patcher's differences from the filters
 article: a filterless line that patches nothing, keys it does not read, keys that also narrow the
 direct list, which finders can find the player and which narrowers never remove him, and other
-records whose keywords its keyword filters read. The catalog also holds the patcher run order. Its record dimension (name,
+records whose keywords its keyword filters read. The patcher run order, the file rules and the delimiters are not
+the catalog's: they come from SkyPatcher's row of the runtime-format source ([`runtime-formats.md`](runtime-formats.md)),
+which also prints them into the skill. Its record dimension (name,
 sig, subfolder, primaryFilter) is cross-checked in CI against the router table in that skill's
 `SKILL.md` — `SkyPatcherCatalogTests.TheCatalogMatchesTheSkillRouterTable` requires the row count to equal the
 loaded record count and matches recordType and signature per subfolder. That is the one contract
@@ -86,7 +88,7 @@ name is listed but not interpreted, never guessed.
 Within a type folder, files apply breadth-first: the folder's own files, then each depth of
 subfolders, A to Z case-insensitive by path component within a level (8.0.1's General Information
 article; ARR's 7.0.x log shows the same apply order). Folders are listed in the patcher run order
-the catalog holds. One rule set in `SkyPatcherDiscovery` decides this for the scan and the draft
+the runtime-format source holds. One rule set in `SkyPatcherDiscovery` decides this for the scan and the draft
 fold alike.
 
 A file is read when `.ini` appears anywhere in its name (`x.ini.bak` too), except a name whose

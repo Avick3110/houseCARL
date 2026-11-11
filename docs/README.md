@@ -54,6 +54,7 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | [`architecture/assets.md`](architecture/assets.md) | Which copy of a file the game uses: loose beats BSA-packed, the overwrite-then-mods-then-Data walk, and the archive tie-break. |
 | [`architecture/skse-layer.md`](architecture/skse-layer.md) | What an SKSE DLL declares and the static-load rule: everything in the layer is what a file declares, never what a DLL does. |
 | [`architecture/skypatcher-layer.md`](architecture/skypatcher-layer.md) | SkyPatcher edits records from INI files at load, so a plugin read alone does not say what the game sees; houseCARL reads that layer in four tiers. |
+| [`architecture/runtime-formats.md`](architecture/runtime-formats.md) | One data file holds each runtime-layer format's discovery, order, conflict and grammar rules; the server reads it and the build prints the skill paragraphs from it. |
 | [`architecture/nif.md`](architecture/nif.md) | Reading mesh values and the two write gates: `NifService` is pure format logic, and the service layer resolves the winning bytes. |
 
 ### Output, render, wire, schema, shim
