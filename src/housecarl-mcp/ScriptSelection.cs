@@ -25,9 +25,7 @@ internal sealed partial class AssetLayers
         ScriptSelectionData Refused(string why) => new(view, Array.Empty<string>(), 0, chosen.Notes, why);
         if (chosen.Refusal is { } unknown) return Refused(unknown);
         if (chosen.StoppedAt is { } stoppedAt)
-            return Refused($"error: the selection names at least {stoppedAt:N0} paths, past the {MaxAssetPaths:N0}-path bound one " +
-                           "call is given, so nothing was decompiled — narrow it with a tighter under= selector " +
-                           "(e.g. 'scripts/**/*.pex') or fewer paths= entries.");
+            return Refused(FileSelection.BoundRefusal(stoppedAt, MaxAssetPaths, "decompiled", "scripts/**/*.pex"));
         var scripts = new List<string>(chosen.Entries.Count);
         int notScripts = 0;
         for (int i = 0; i < chosen.Entries.Count; i++)

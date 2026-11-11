@@ -21,7 +21,7 @@ static class JsonWire
 
     static string Finish(MemoryStream ms) => Encoding.UTF8.GetString(ms.ToArray());
 
-    static void WriteNullable(Utf8JsonWriter w, string name, string? v)
+    internal static void WriteNullable(Utf8JsonWriter w, string name, string? v)
     {
         if (v is null) w.WriteNull(name); else w.WriteString(name, v);
     }
@@ -174,7 +174,7 @@ static class JsonWire
         w.WriteNumber(name + "_omitted", cut.Omitted);
     }
 
-    static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)
+    internal static void WriteStringArray(Utf8JsonWriter w, string name, IReadOnlyList<string> items)
     {
         w.WriteStartArray(name);
         foreach (var s in items) w.WriteStringValue(s);

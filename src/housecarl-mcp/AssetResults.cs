@@ -35,7 +35,16 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
 public sealed record ResolvedNifLink(NifLink Link, AssetHit? Hit);
 
 /// <summary>One entry of <c>asset_status</c>'s <c>formids=</c> SELECT: the caller's raw token, the FormKey it parsed to, or the sentence to report instead. A malformed token is ONE error row, never a failed call.</summary>
-public sealed record FaceGenSeed(string Token, FormKey? Key, string? Error);
+public sealed record FaceGenSeed(string Token, FormKey? Key, string? Error)
+{
+    /// <summary>One <c>formids=</c> token through the door: the seed, or, whatever the door threw, one error seed that
+    /// answers as its own row, ending with <paramref name="expected"/>.</summary>
+    internal static FaceGenSeed Parse(FormIdDoor door, string raw, string expected)
+    {
+        try { return new FaceGenSeed(raw, door.Parse(raw), null); }
+        catch (Exception ex) { return new FaceGenSeed(raw, null, $"not a FormID: {Guard.Flatten(ex.Message)} {expected}"); }
+    }
+}
 
 /// <summary>The data behind housecarl_asset_status: one <see cref="AssetPathResult"/> per queried path, the build-level caveats that make an Exists=false answer provisional, what each <c>under=</c> selector had to say, the paging window (a negative <see cref="Total"/> means nothing paged), <see cref="Refusal"/>, the declared-cost or unknown-provider refusal under which nothing was resolved and no other member carries an answer, and the <see cref="Provider"/> every row is read against.</summary>
 public sealed record AssetStatusData(

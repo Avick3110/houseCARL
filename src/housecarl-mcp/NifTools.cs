@@ -190,19 +190,8 @@ public static class NifTools
             return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));
 
         // A token that is not a FormID is that token's own error row, whatever the door threw.
-        var seeds = new List<FaceGenSeed>(ids.Count);
-        if (ids.Count > 0)
-        {
-            var door = FormIdDoor.For(svc);
-            foreach (var raw in ids)
-            {
-                try { seeds.Add(new FaceGenSeed(raw, door.Parse(raw), null)); }
-                catch (Exception ex)
-                {
-                    seeds.Add(new FaceGenSeed(raw, null, $"not a FormID: {Guard.Flatten(ex.Message)} Expected 'XXXXXX:Plugin.esp' or a runtime FormID."));
-                }
-            }
-        }
+        var door = ids.Count > 0 ? FormIdDoor.For(svc) : null;
+        var seeds = ids.Select(raw => FaceGenSeed.Parse(door!, raw, "Expected 'XXXXXX:Plugin.esp' or a runtime FormID.")).ToList();
 
         return NifBatch.Run(svc, new NifBatch.Call(entries, underTokens, provider, seeds, source_provider, want, unknownTokens,
                                                    needView, pathsIn, underIn, idsIn, wantFile ? RowWindow.All : window, counts_only, json,
@@ -447,10 +436,7 @@ static class NifWire
     public static string Render(NifInspectBatchData d, HashSet<string> want, IReadOnlyList<string> unknownSections, int cap,
                                 out int shown, int reserve = 0, string headerTail = "")
     {
-        var header = new StringBuilder("nif inspect — profile '")
-            .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
-            .Append("'  (").Append(d.Results.Count).Append(" mesh").Append(d.Results.Count == 1 ? "" : "es")
-            .Append(headerTail).Append(')').ToString();
+        var header = Header(d.ProfileName, d.Results.Count, headerTail);
 
         bool readIncomplete = d.BsaFailures.Count > 0, rootIncomplete = d.RootFailures.Count > 0,
              discoveryIncomplete = d.Warnings.Count > 0;
@@ -481,6 +467,10 @@ static class NifWire
         AppendSections(sb, d, want, new RenderCap(int.MaxValue / 2, int.MaxValue / 2));
         return sb.ToString();
     }
+
+    /// <summary>The one header line every nif_inspect answer opens with: the profile and the mesh count, then <paramref name="tail"/> inside the parentheses.</summary>
+    internal static string Header(string profile, int count, string tail) =>
+        $"nif inspect — profile '{(profile.Length > 0 ? profile : "(unconfigured)")}'  ({count} mesh{(count == 1 ? "" : "es")}{tail})";
 
     /// <summary>Where a mesh's bytes came from, as its "read from" line names it.</summary>
     static string ReadFrom(NifInspectData d) => d.OnDisk ? "the file on disk" : d.Inspected!.Text;
