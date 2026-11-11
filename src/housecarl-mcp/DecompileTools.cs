@@ -18,7 +18,7 @@ public static class DecompileTools
          "an archive, with no extract step; source_provider= reads another mod's copy (a disabled mod's too). A bare " +
          "script name is refused. The .psc files land in Source\\Scripts of a new houseCARL patch-mod folder, or in the " +
          "folder out_path= names. Originals are untouched and an existing .psc is never overwritten: that script's row " +
-         "says so and the rest land. One row per script, then the [accounting] line (counts_only=: the totals and notes); " +
+         "says so and the rest land. One row per script, then the [accounting] line (counts_only=: the totals, notes and next page); " +
          "one file on disk with no other selector and no source_provider=, format=json, limit=, offset=, counts_only= or " +
          "max_chars= answers in one result, with no rows and no [accounting] line. Needs your MO2 instance, except " +
          "for files on disk with out_path=; needs no external tool.\n\n" +
@@ -65,7 +65,7 @@ public static class DecompileTools
             int offset = 0,
         [Description("Optional. Return the totals and notes instead of one row per script; every script in the window is still decompiled and written.")]
             bool counts_only = false,
-        [Description("Optional. 'text' (default) | 'json' (the same rows, machine-readable, accounting in-band; with counts_only=, the totals and 'total', no accounting object).")]
+        [Description("Optional. 'text' (default) | 'json' (the same rows, machine-readable, accounting in-band; with counts_only=, the totals, 'total' and the next page, no accounting object).")]
             string? format = null,
         [Description("Optional. Character ceiling on the listing; rows past it are left out and counted in the " +
                      "[accounting] line, while their .psc files are still written. 0 = the server default (~40k).")]

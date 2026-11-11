@@ -172,13 +172,16 @@ internal static class DecompileBatch
     {
         var composed = TransportAccounting.Compose(c, "script(s)", everySentence: false);
         int lineEnd = composed.IndexOf('\n', 2);
-        var sb = new StringBuilder(lineEnd < 0 ? composed : composed[..lineEnd]);
-        if (c.Remaining > 0)
-            sb.Append("\nthe selection is longer than this window: re-call with").Append(LaneArg(lane)).Append(" limit=")
-              .Append(c.NextLimit).Append(" offset=").Append(c.Offset + windowed).Append(" for the next page.");
+        var sb = new StringBuilder(lineEnd < 0 ? composed : composed[..lineEnd]).Append(NextPage(c, windowed, lane));
         if (TransportAccounting.PastEnd(c)) sb.Append('\n').Append(TransportAccounting.PastEndSentence(c, "script(s)"));
         return sb.ToString();
     }
+
+    /// <summary>The next page after the window, into this call's folder, while scripts remain.</summary>
+    static string NextPage(TransportCounts c, int windowed, (string Name, string Value)? lane) =>
+        c.Remaining > 0
+            ? $"\nthe selection is longer than this window: re-call with{LaneArg(lane)} limit={c.NextLimit} offset={c.Offset + windowed} for the next page."
+            : "";
 
     static Done NotDone(Row r, string? error) => new(r, Array.Empty<string>(), 0, 0, Array.Empty<string>(), false, error);
 
@@ -332,7 +335,7 @@ internal static class DecompileBatch
     static string RenderText(Answer a, bool countsOnly, int cap, (string Name, string Value)? lane)
     {
         var head = Head(a);
-        if (countsOnly) return head + Tail(a, false);
+        if (countsOnly) return head + Tail(a, false) + NextPage(Counts(a, 0), a.Rows.Count, lane);
         int notes = a.Notes.Count;
         var tailCut = Tail(a, true);
         int room = cap - head.Length - tailCut.Length - TransportAccounting.Reserve(a.Total, a.Rows.Count, a.Window, notes, "script(s)")
@@ -384,15 +387,14 @@ internal static class DecompileBatch
             foreach (var line in Tail(a, !countsOnly && rowsJson.Count < a.Rows.Count).Split('\n', StringSplitOptions.RemoveEmptyEntries))
                 w.WriteStringValue(line.StartsWith("note: ", StringComparison.Ordinal) ? line[6..] : line);
             w.WriteEndArray();
-            if (!countsOnly)
-            {
-                var counts = Counts(a, rowsJson.Count);
-                TransportAccounting.WriteJson(w, counts);
-                // The next page starts after the window, not after the rows listed; offset_note never sits beside it.
+            var counts = Counts(a, rowsJson.Count);
+            if (countsOnly) w.WriteNumber("total", a.Total);
+            else TransportAccounting.WriteJson(w, counts);
+            // The next page starts after the window, not after the rows listed; offset_note never sits beside it.
+            // counts_only= gives the next page too, and nothing else of the accounting.
+            if (!countsOnly || counts.Remaining > 0)
                 TransportAccounting.WritePageAdviceJson(w, counts with { Rendered = a.Rows.Count }, "script(s)");
-                if (counts.Remaining > 0 && lane is { } l) w.WriteString("next_" + l.Name, l.Value);
-            }
-            else w.WriteNumber("total", a.Total);
+            if (counts.Remaining > 0 && lane is { } l) w.WriteString("next_" + l.Name, l.Value);
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(ms.ToArray());
