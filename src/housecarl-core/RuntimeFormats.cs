@@ -11,7 +11,7 @@ public static class RuntimeFormats
     /// <summary>SkyPatcher's row of the embedded source (memoized); throws loudly on a missing or malformed resource.</summary>
     public static SkyPatcherFormat SkyPatcher => _skyPatcher ??= SkyPatcherFrom(SourceText());
 
-    /// <summary>The embedded source's text (memoized), for the tests that edit a row.</summary>
+    /// <summary>The embedded source's text (memoized): the shipped row parses from it, and the tests edit a copy of it.</summary>
     public static string SourceText() => _text ??= EmbeddedJson.Read("runtime-formats.json", "runtime-format source");
 
     /// <summary>Parse SkyPatcher's row from source text; a value the code has no rule for throws, naming the row and the value.</summary>
