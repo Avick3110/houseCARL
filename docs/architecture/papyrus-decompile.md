@@ -62,10 +62,13 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   keeps no parsed file, so memory does not grow with the selection.
 - The class hierarchy adds every script in the window and the `.pex` files beside each file on disk; when the call
   has a Data-path selection (`paths=` Data paths, `under=` or `provider=`), it also climbs each script's parent chain
-  off the load order (`scripts\<parent>.pex`, the winner, loose or archived) up to a class with an edge or a root
-  class of the vanilla baseline (Form, Alias, ActiveMagicEffect, ...), which is not read. So a mod class that only
-  mods-tree `.psc` headers name as a parent (MCM Helper's `MCM_ConfigBase`, SkyUI's `SKI_ConfigBase`) is read from
-  its `.pex`. A parent that will not read is named in the hierarchy note.
+  off the load order. It follows an edge it already has and keeps climbing; only a class with no edge is read, from
+  `scripts\<class>.pex` (the winner, loose or archived), and never one of the window's own scripts, which were read
+  already. The climb stops at a root class of the vanilla baseline (Form, Alias, ActiveMagicEffect, ...), which is not
+  read; at a parent the order does not ship (an MCM script with SkyUI disabled); at a path the view refuses; or at a
+  read that fails. So a mod class that only mods-tree `.psc` headers name as a parent (MCM Helper's `MCM_ConfigBase`,
+  SkyUI's `SKI_ConfigBase`) is read from its `.pex`. Only a failed read is named in the hierarchy note: a parent the
+  order does not ship ends the climb unnamed, and its children keep explicit casts.
 - `limit=`/`offset=` window what is decompiled, not only what is listed (SPEC §2.1's list-driven offset); taking a
   large selection in windows keeps one folder with `into=`. An existing target `.psc` is that script's row error and
   the rest still land. `max_chars=` cuts the listing only; every script in the window is written. `counts_only=`
