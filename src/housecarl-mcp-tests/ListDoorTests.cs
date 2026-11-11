@@ -132,8 +132,8 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
     public void NifMeshPathsFromAFileAnswerOneRowPerMesh()
     {
         var meshes = new[] { AssetWalkWorld.CapeNif, AssetWalkWorld.HairNif };
-        var inline = NifTools.NifInspect(_w.Svc, mesh_paths: meshes);
-        var fromFile = NifTools.NifInspect(_w.Svc, mesh_paths: new[] { Lines(meshes) });
+        var inline = NifTools.NifInspect(_w.Svc, paths: meshes);
+        var fromFile = NifTools.NifInspect(_w.Svc, paths: new[] { Lines(meshes) });
 
         Assert.Contains("cape.nif", fromFile);
         Assert.DoesNotContain("list.txt", fromFile);
@@ -145,10 +145,10 @@ public sealed class ListDoorTests : IClassFixture<AssetWalkWorld>
     public void NifNpcTakesAFormidArtifactEpochChecked()
     {
         var ids = Ids("HcWalkHero");
-        Same(NifTools.NifInspect(_w.Svc, npc: ids),
-                     NifTools.NifInspect(_w.Svc, npc: new[] { Artifact("formid", Epoch, ids) }));
+        Same(NifTools.NifInspect(_w.Svc, formids: ids),
+                     NifTools.NifInspect(_w.Svc, formids: new[] { Artifact("formid", Epoch, ids) }));
 
-        var stale = NifTools.NifInspect(_w.Svc, npc: new[] { Artifact("formid", "e2-deadbeef", ids) });
+        var stale = NifTools.NifInspect(_w.Svc, formids: new[] { Artifact("formid", "e2-deadbeef", ids) });
         Assert.StartsWith("error:", stale);
         Assert.Contains("e2-deadbeef", stale);
         Assert.Contains(Epoch, stale);

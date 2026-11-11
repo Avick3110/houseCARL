@@ -371,7 +371,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public SkyPatcherLayerData SkyPatcherLayer() => _assetLayers.SkyPatcherLayer();
     public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, CancellationToken ct = default) => _assetLayers.SkyPatcherLayer(use, ct: ct);
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(relPaths, sourceProvider, links);
-    public NifInspectBatchData NifInspect(IReadOnlyList<NifTarget> targets, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(targets, sourceProvider, links);
+    internal MeshSelectionData SelectMeshes(IReadOnlyList<(string Path, bool OnDisk)> entries, IReadOnlyList<string>? under, string? provider,
+                                            IReadOnlyList<FaceGenSeed>? seeds, FaceSources? faceSources, bool needView)
+        => _assetLayers.SelectMeshes(entries, under, provider, seeds, faceSources, needView);
     public (IReadOnlyDictionary<FormKey, NpcFaceAnswer>? Faces, string? Error) NpcFaces(IReadOnlyCollection<FormKey> keys, FaceSources? sources = null) => _assetLayers.NpcFaces(keys, sources);
     public FaceSources? IntoFaceSources(string? into) => _assetLayers.IntoFaceSources(into);
     public FaceSources? ProviderFaceSources(string? provider) => _assetLayers.ProviderFaceSources(provider);

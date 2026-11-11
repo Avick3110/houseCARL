@@ -169,11 +169,11 @@ public sealed class MalformedMeshWorld : IDisposable
     }
 
     public string Inspect(string meshPath)
-        => _server.Call(ToolNames.NifInspect, $$"""{"mesh_paths": [{{JsonSerializer.Serialize(meshPath)}}]}""").Text;
+        => _server.Call(ToolNames.NifInspect, $$"""{"paths": [{{JsonSerializer.Serialize(meshPath)}}]}""").Text;
 
     public string Set(string meshPath)
         => _server.Call(ToolNames.NifSet,
-            $$"""{"mesh_path": {{JsonSerializer.Serialize(meshPath)}}, "op": "set_scale", "target": "GuardShape", "scale": "2"}""").Text;
+            $$"""{"paths": [{{JsonSerializer.Serialize(meshPath)}}], "op": "set_scale", "target": "GuardShape", "scale": "2"}""").Text;
 
     static byte[] Edit(params (int Pos, byte Val)[] edits)
     {

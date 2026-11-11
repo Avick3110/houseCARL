@@ -82,16 +82,19 @@ public sealed class RawModsPathRefusalTests : IClassFixture<AssetSelectWorld>
         Assert.DoesNotContain("no single source= names", text);
     }
 
+    /// <summary>Q2 (a): a full path is a file on disk, read as that file, a full path into a mod folder too (as
+    /// decompile_script reads one); its row names the Data path and mod folder that read the copy through the load order.</summary>
     [Fact]
-    public void NifInspectRefusesARawModsPathOnThatPathAndStillReadsTheRest()
+    public void NifInspectReadsARawModsPathAsThatFileAndNamesItsLoadOrderAddress()
     {
         var raw = InFaceBase(_w.Rel("0001.nif"));
 
-        var text = NifTools.NifInspect(_w.Svc, mesh_paths: new[] { raw, _w.Rel("0002.nif") });
+        var text = NifTools.NifInspect(_w.Svc, paths: new[] { raw, _w.Rel("0002.nif") });
 
-        Assert.Contains("raw path into MO2's mods folder", text);
-        Assert.Contains("source_provider='FaceBase'", text);
-        Assert.Contains("mesh_paths='" + _w.Rel("0001.nif") + "'", text);
+        Assert.DoesNotContain("raw path into MO2's mods folder", text);
+        Assert.Contains("\n" + raw + "\n", text);
+        Assert.DoesNotContain("ABSENT", text[text.IndexOf("\n" + raw + "\n", StringComparison.Ordinal)..text.IndexOf("\n" + _w.Rel("0002.nif"), StringComparison.OrdinalIgnoreCase)]);
+        Assert.Contains($"paths=[\"{_w.Rel("0001.nif")}\"] source_provider=\"FaceBase\" reads that copy through the load order", text);
         // Per-path isolation holds: the second path is still answered.
         Assert.Contains(_w.Rel("0002.nif"), text);
     }

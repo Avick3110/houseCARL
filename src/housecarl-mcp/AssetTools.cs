@@ -343,7 +343,7 @@ public static class AssetTools
 
     /// <summary>The order's stamp for an artifact, or why it could not be read. What READING the order can throw, and
     /// nothing else: a held profile file, a denied read, an order with no active plugins; anything else is a bug.</summary>
-    static (OrderStamp? Order, string? NoEpochBecause) TryStamp(LoadOrderService svc)
+    internal static (OrderStamp? Order, string? NoEpochBecause) TryStamp(LoadOrderService svc)
     {
         try { return (svc.CaptureView().Stamp, null); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)

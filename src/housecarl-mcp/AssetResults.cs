@@ -330,6 +330,9 @@ public sealed record NifProvider(string Name, string Kind, bool OffOrder = false
 
     /// <summary>The spelling every listing prints, through the one formatter the asset surface uses; the printed token is the token <c>source_provider=</c> accepts, so a caller can copy it back verbatim (#340).</summary>
     public string Text => HousecarlCore.AssetSourceSelection.Describe(Name, Kind);
+
+    /// <summary>The MO2 layer an archive provider ships from, so a provider= name matches its archives' copies; null for a loose one.</summary>
+    public string? OwningMod { get; init; }
 }
 
 /// <summary>The per-path data behind housecarl_nif_inspect: one mesh path's VFS resolution — the <see cref="Inspected"/> provider whose bytes were parsed, the full winner-to-loser chain, contention and <see cref="Absent"/> flags — joined to exactly one of <see cref="Inspect"/> and a named <see cref="Error"/>. The batch-level caveats live on <see cref="NifInspectBatchData"/>.</summary>
@@ -351,12 +354,16 @@ public sealed record NifInspectData(
     /// <summary>Why the paths section could not read this mesh's links; null when it did or was not asked.</summary>
     public string? LinksError { get; init; }
 
-    /// <summary>On an npc= mesh that is a template root's, the face door's line naming it; null otherwise.</summary>
+    /// <summary>On a formids= mesh that is a template root's, the face door's line naming it; null otherwise.</summary>
     public string? FaceNote { get; init; }
+
+    /// <summary>A paths= entry that is a file on disk, read as that file: no winner and no providers.</summary>
+    public bool OnDisk { get; init; }
+
+    /// <summary>On a file on disk inside the mods tree, the line naming its Data path and mod folder; null otherwise.</summary>
+    public string? DiskNote { get; init; }
 }
 
-/// <summary>One nif_inspect target: a path, an npc= row's reason it has no mesh (answered as that row), or the face line its mesh carries.</summary>
-public sealed record NifTarget(string Path, string? Error = null, string? FaceNote = null);
 
 /// <summary>The batch behind housecarl_nif_inspect: per-path <see cref="Results"/> in INPUT ORDER, plus the build-level caveats one asset capture pins for the whole batch, which is what makes an ABSENT result provisional.</summary>
 public sealed record NifInspectBatchData(

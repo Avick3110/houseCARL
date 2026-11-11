@@ -781,40 +781,17 @@ internal sealed partial class AssetLayers
 
     // ---- NIF layer: read the data values inside one or many meshes (housecarl_nif_inspect) ----
 
-    /// <summary>Inspect the data values inside one or many Skyrim meshes: capture the resolver once under the gate,
-    /// then per path and outside it resolve through the VFS to the winning copy (or <paramref name="mod"/>'s), read the
+    /// <summary>Inspect the data values inside Data-path meshes: capture the resolver once under the gate, then per path
+    /// and outside it resolve through the VFS to the winning copy (or <paramref name="sourceProvider"/>'s), read the
     /// bytes in process — a loose file, or one BSA entry, no disk extraction — and hand them to
-    /// <see cref="NifService.Inspect"/>. A per-path failure never aborts the batch; the build-level caveats ride it.</summary>
+    /// <see cref="NifService.Inspect"/>. A per-path failure never aborts the batch; the build-level caveats ride it.
+    /// The tool's selection lane is <see cref="SelectMeshes"/> with <see cref="InspectMesh"/>.</summary>
     /// <param name="links">Read the files the copy names too, through <see cref="NifLinks"/>, which only the paths section reads.</param>
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false)
-        => NifInspect(relPaths.Select(p => new NifTarget(p)).ToList(), sourceProvider, links);
-
-    /// <summary>The batch over <paramref name="targets"/>: a target with an error answers as that row, one with a face
-    /// line carries it on its row.</summary>
-    public NifInspectBatchData NifInspect(IReadOnlyList<NifTarget> targets, string? sourceProvider, bool links = false)
     {
-        var captured = _host.CaptureAssets();   // build/refresh the asset resolver under the gate, once per batch
-        var view = captured.View; var warnings = captured.Warnings; var profileName = captured.ProfileName;
-
-        var modsRoot = captured.ModsRootOrNull;   // the same build as the view, so a raw mods path is judged against the tree the view describes
-        var results = new List<NifInspectData>(targets.Count);
-        foreach (var target in targets)
-        {
-            var rel = (target.Path ?? "").Trim();
-            if (target.Error is { } bad) { results.Add(NifInspectData.Fail(rel, bad)); continue; }
-            // A raw path into the mods tree reads past the VFS, so it is this path's own refusal with the address form.
-            if (ModsPathAddress.Split(rel, modsRoot) is { } hit)
-            {
-                results.Add(NifInspectData.Fail(rel, ModsPathAddress.Refusal("", rel,
-                    ModsPathAddress.Address(hit.ModFolder, hit.RelPath, "mesh_paths", "source_provider"))));
-                continue;
-            }
-            // Per-path isolation by construction: anything unexpected becomes that path's named error.
-            try { results.Add(NifInspectOne(view, rel, sourceProvider, links)); }
-            catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
-            if (target.FaceNote is { } note) results[^1] = results[^1] with { FaceNote = note };
-        }
-        return new NifInspectBatchData(results, view.BsaFailures, view.RootFailures, warnings, profileName);
+        var captured = _host.CaptureAssets();
+        var results = relPaths.Select(p => InspectMesh(captured.View, captured.ModsRootOrNull, new MeshRow(p ?? "", false), sourceProvider, links)).ToList();
+        return new NifInspectBatchData(results, captured.View.BsaFailures, captured.View.RootFailures, captured.Warnings, captured.ProfileName);
     }
 
     /// <summary>One path's inspect against the already-captured view. Every failure is a named per-path outcome, never a throw.</summary>
@@ -865,7 +842,7 @@ internal sealed partial class AssetLayers
 
     /// <summary>The provider record for a CHOSEN source, carrying the off-order provenance only the copy actually read can have.</summary>
     static NifProvider NifProviderFor(PlacementSource s)
-        => new(s.ProviderName, KindLabel(s.Kind), s.OffOrder, s.OwnerEnabled, s.Kind);
+        => new(s.ProviderName, KindLabel(s.Kind), s.OffOrder, s.OwnerEnabled, s.Kind) { OwningMod = s.OwningMod };
 
     /// <summary>Answer <c>source_provider=</c> for the NIF surface through the ONE source policy every asset caller
     /// rides, or hand back the refusal sentence. Shared by nif_inspect and nif_set, which have drifted once before.</summary>

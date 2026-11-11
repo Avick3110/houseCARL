@@ -142,11 +142,11 @@ public sealed class AssetLinkDataPathTests : IDisposable
     [Fact]
     public void SlotsAreNotResolvedUnlessThePathsSectionIsAsked()
     {
-        var text = NifTools.NifInspect(_svc, mesh_paths: new[] { Mesh }, sections: "shapes");
+        var text = NifTools.NifInspect(_svc, paths: new[] { Mesh }, sections: "shapes");
 
         Assert.DoesNotContain("data path:", text, StringComparison.Ordinal);
         Assert.Null(_svc.NifInspect(new[] { Mesh }, null).Results[0].Links);
-        Assert.Contains("data path: ", NifTools.NifInspect(_svc, mesh_paths: new[] { Mesh }, sections: "paths"), StringComparison.Ordinal);
+        Assert.Contains("data path: ", NifTools.NifInspect(_svc, paths: new[] { Mesh }, sections: "paths"), StringComparison.Ordinal);
     }
 
     [Fact]

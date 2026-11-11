@@ -16,7 +16,7 @@ public sealed class NifSourceLaneNpcTests : IClassFixture<NifSourceLaneWorld>
     [Fact]
     public void AnNpcFormIdAloneDerivesItsFacegeomNifAndReadsIt()
     {
-        var text = NifTools.NifInspect(_w.Svc, null, npc: new[] { W.NpcFormId });
+        var text = NifTools.NifInspect(_w.Svc, null, formids: new[] { W.NpcFormId });
 
         Assert.Contains(W.FaceRel, text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("read from:", text);
@@ -25,26 +25,39 @@ public sealed class NifSourceLaneNpcTests : IClassFixture<NifSourceLaneWorld>
     // Probe: "mesh_paths and npc compose in ONE call".
     [Fact]
     public void MeshPathsAndNpcComposeInOneCall()
-        => Assert.Contains("(2 meshes)", NifTools.NifInspect(_w.Svc, new[] { W.FaceRel }, npc: new[] { W.NpcFormId }));
+        => Assert.Contains("(2 meshes)", NifTools.NifInspect(_w.Svc, new[] { W.FaceRel }, formids: new[] { W.NpcFormId }));
 
-    // Probe: "neither selector is a named refusal that names both".
+    // Q1 (a): formids= names both halves of the pair, as on asset_status; nif_inspect reads the head mesh and counts the tint.
     [Fact]
-    public void NeitherSelectorIsANamedRefusalThatNamesBoth()
+    public void FormIdsReadsTheHeadMeshAndCountsTheTintInANote()
+    {
+        var text = NifTools.NifInspect(_w.Svc, formids: new[] { W.NpcFormId });
+
+        Assert.Contains("(1 mesh)", text);
+        Assert.DoesNotContain(".dds\n", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("note: 1 FaceGen tint(s) the formids= NPCs name are textures, not meshes, and were not read; " +
+                        ToolNames.AssetStatus + " formids= reads them.", text);
+    }
+
+    // Probe: "no selector is a named refusal that names every one".
+    [Fact]
+    public void NoSelectorIsANamedRefusalThatNamesEveryOne()
     {
         var text = NifTools.NifInspect(_w.Svc, null, null);
 
         Assert.StartsWith("error:", text);
-        Assert.Contains("mesh_paths", text);
-        Assert.Contains("npc", text);
+        foreach (var knob in new[] { "paths=", "under=", "provider=", "formids=" }) Assert.Contains(knob, text);
     }
 
-    // Probe: "a malformed npc FormID is refused by name".
+    // Q1 (a): a malformed FormID is its own error row, as on asset_status formids=, and the other FormIDs still read.
     [Fact]
-    public void AMalformedNpcFormIdIsRefusedByName()
+    public void AMalformedFormIdIsOneErrorRowAndTheRestRead()
     {
-        var text = NifTools.NifInspect(_w.Svc, null, npc: new[] { "not-a-formid" });
+        var text = NifTools.NifInspect(_w.Svc, null, formids: new[] { "not-a-formid", W.NpcFormId });
 
-        Assert.StartsWith("error:", text);
-        Assert.Contains("not-a-formid", text);
+        Assert.DoesNotContain("error:", text.Split('\n')[0]);
+        Assert.Contains("\nnot-a-formid\n  not a FormID:", text);
+        Assert.Contains(W.FaceRel, text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("[accounting] total=2 rendered=2", text);
     }
 }
