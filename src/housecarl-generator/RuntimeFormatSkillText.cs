@@ -137,20 +137,29 @@ public static class RuntimeFormatSkillText
         return sb.ToString();
     }
 
-    /// <summary>Replace every marked region of one file's text with its printed text, keeping the file's line ending; an unknown tag or an unclosed region throws.</summary>
+    const string Open = "<!-- generated:";
+
+    /// <summary>The tag a line opens a region for: the whole line is <see cref="Begin"/> of it; null for any other line.</summary>
+    static string? Opens(string line)
+    {
+        if (!line.StartsWith(Open, StringComparison.Ordinal)) return null;
+        int end = line.IndexOf(' ', Open.Length);
+        var tag = end < 0 ? "" : line[Open.Length..end];
+        return line == Begin(tag) ? tag : null;
+    }
+
+    /// <summary>Replace every marked region of one file's text with its printed text, keeping the file's line ending; a marker that is not a whole-line opener, an unknown tag or an unclosed region throws.</summary>
     public static string Rewrite(string text, IReadOnlyDictionary<string, string> regions, string label)
     {
         var nl = text.Contains("\r\n") ? "\r\n" : "\n";
         var lines = text.Split(nl);
         var output = new List<string>();
-        const string open = "<!-- generated:";
         for (int i = 0; i < lines.Length; i++)
         {
             output.Add(lines[i]);
-            if (!lines[i].StartsWith(open, StringComparison.Ordinal)) continue;
-            var tag = lines[i][open.Length..lines[i].IndexOf(' ', open.Length)];
-            if (lines[i] != Begin(tag) || !regions.TryGetValue(tag, out var body))
-                throw new InvalidOperationException($"{label}: line {i + 1} opens a region the generator has no text for: '{lines[i]}'.");
+            if (!lines[i].Contains(Open, StringComparison.Ordinal)) continue;
+            if (Opens(lines[i]) is not { } tag || !regions.TryGetValue(tag, out var body))
+                throw new InvalidOperationException($"{label}: line {i + 1} opens a region the generator has no text for, or is not a whole-line region marker: '{lines[i]}'.");
             int close = Array.IndexOf(lines, End(tag), i + 1);
             if (close < 0) throw new InvalidOperationException($"{label}: region '{tag}' opened at line {i + 1} is never closed.");
             output.AddRange(body.Split('\n'));
@@ -160,11 +169,11 @@ public static class RuntimeFormatSkillText
         return string.Join(nl, output);
     }
 
-    /// <summary>The region tags no one of <paramref name="texts"/> opens.</summary>
+    /// <summary>The region tags no line of <paramref name="texts"/> opens, by the rule <see cref="Rewrite"/> uses.</summary>
     public static IReadOnlyList<string> Unplaced(IReadOnlyDictionary<string, string> regions, IEnumerable<string> texts)
     {
-        var all = texts.ToList();
-        return regions.Keys.Where(t => !all.Any(x => x.Contains(Begin(t), StringComparison.Ordinal))).ToList();
+        var opened = texts.SelectMany(x => x.Split('\n')).Select(l => Opens(l.TrimEnd('\r'))).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        return regions.Keys.Where(t => !opened.Contains(t)).ToList();
     }
 
     /// <summary>Rewrite the regions in place under <paramref name="skillsDir"/>; returns how many files changed.</summary>
