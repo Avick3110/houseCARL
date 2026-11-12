@@ -248,6 +248,9 @@ public sealed record ClassParents(
 internal sealed record PluginFacts(IReadOnlyList<PluginCopy> Copies, PluginCopy? HeaderFrom, HousecarlCore.PluginHeaderFacts? Header,
                                    ServingCopyMove? Moved = null)
 {
+    /// <summary>Mod folders that would not open, read only when no copy was found: the file may be in one of them.</summary>
+    public IReadOnlyList<string> Unopened { get; init; } = [];
+
     public HousecarlCore.LocalizedFlagRead Localized => HousecarlCore.WriteEngine.LocalizedFlag(Header);
 }
 

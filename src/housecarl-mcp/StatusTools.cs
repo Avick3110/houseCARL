@@ -261,7 +261,7 @@ static class StatusWire
 
         // A name the profile lists as a plugin: its copies, then the header facts and the LOCALIZED flag the in-place write lanes refuse on.
         if (facts is null) return;
-        AppendCopies(sb, facts.Copies);
+        AppendCopies(sb, facts.Copies, facts.Unopened);
         if (facts.Moved is { } m)
             sb.Append("  index:       had the copy in ").Append(m.Indexed)
               .Append(m.NotRefreshed is { } held ? $"; not refreshed: {held}\n" : "; refreshed now, so later calls read the served copy\n");
@@ -289,20 +289,22 @@ static class StatusWire
                 "no (header flag clear) — its text is inside the plugin.",
             _ when facts.HeaderFrom is not null =>
                 "UNKNOWN — houseCARL could not read this plugin's header, so neither answer is established.",
-            _ => "UNKNOWN — " + (facts.Copies.Count == 0 ? "no file of this name" : "several copies and none served") +
+            _ => "UNKNOWN — " + (facts.Unopened.Count > 0 ? "no folder houseCARL could open holds it"
+                                : facts.Copies.Count == 0 ? "no file of this name" : "several copies and none served") +
                  ", so no header was read.",
         }).Append('\n');
     }
 
     /// <summary>Which folder serves the plugin, then every other same-named copy with its layer state and size.</summary>
-    static void AppendCopies(StringBuilder sb, IReadOnlyList<PluginCopy> copies)
+    static void AppendCopies(StringBuilder sb, IReadOnlyList<PluginCopy> copies, IReadOnlyList<string> unopened)
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         string Line(PluginCopy x) => x.Where + " · " + (x.Bytes is { } b ? b.ToString("N0", inv) + " bytes" : "size unreadable")
                                      + (x.Served == OutputLocations.ServedStanding.Shadowed ? " · shadowed" : "");
         var served = copies.FirstOrDefault(x => x.Served == OutputLocations.ServedStanding.Serves);
         sb.Append("  served from: ").Append(served is null
-            ? (copies.Count == 0 ? "none — no folder holds a file of this name" : "none — no enabled folder holds this file")
+            ? (unopened.Count > 0 ? $"unknown — {unopened.Count} mod folder(s) could not be opened ({HousecarlCore.Mo2LoadOrder.Named(unopened)}), and it may be in one of them"
+               : copies.Count == 0 ? "none — no folder holds a file of this name" : "none — no enabled folder holds this file")
             : Line(served)).Append('\n');
         foreach (var x in copies)
             if (x != served) sb.Append("  also in:     ").Append(Line(x)).Append('\n');

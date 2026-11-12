@@ -32,7 +32,11 @@ public static class ArchiveDiscovery
             if (!inactive.Contains(name)) activeOrdered.Add(name);
 
         // archive filename → WINNING physical path (overwrite > enabled mods highest-priority-first > Data).
-        var archiveMap = BuildArchiveMap(comp.EnabledMods, modsDir, dataDir, overwriteDir);
+        var unopened = new List<string>();
+        var archiveMap = BuildArchiveMap(comp.EnabledMods, modsDir, dataDir, overwriteDir, unopened);
+        if (unopened.Count > 0)
+            warnings.Add($"{unopened.Count} enabled mod folder(s) could not be opened, so their BSAs are not in the asset " +
+                         $"scan: {Mo2LoadOrder.Named(unopened)}. An asset only they provide reads as absent until they can be opened.");
 
         var archives = new List<ActiveArchive>();
         int rank = 0;
@@ -61,34 +65,37 @@ public static class ArchiveDiscovery
     /// <summary>Build archive-filename to the winning real path AND the MO2 layer it came from, the .bsa twin of
     /// <see cref="Mo2LoadOrder"/>'s plugin filename map.</summary>
     static Dictionary<string, (string Path, string OwningMod)> BuildArchiveMap(
-        IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
+        IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir, List<string> unopened)
     {
         var map = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (fn, full) in EnumerateArchives(overwriteDir))   // overwrite — beats every mod
+        foreach (var (fn, full) in EnumerateArchives(overwriteDir) ?? [])   // overwrite — beats every mod
             map[fn] = (full, "overwrite");
 
         foreach (var mod in enabledModsByPriority)                    // highest priority first
-            foreach (var (fn, full) in EnumerateArchives(LooseListings.OnDisk(modsDir, mod)))
+        {
+            if (EnumerateArchives(LooseListings.OnDisk(modsDir, mod)) is not { } archives) { unopened.Add(mod); continue; }
+            foreach (var (fn, full) in archives)
                 if (!map.ContainsKey(fn)) map[fn] = (full, mod);      // first (highest-priority) wins
+        }
 
-        foreach (var (fn, full) in EnumerateArchives(dataDir))        // base game / vanilla — lowest priority
+        foreach (var (fn, full) in EnumerateArchives(dataDir) ?? [])  // base game / vanilla — lowest priority
             if (!map.ContainsKey(fn)) map[fn] = (full, "Data");
 
         return map;
     }
 
-    /// <summary>Top-level *.bsa in one folder, as (filename, full path). Silent on a missing folder; the explicit extension check guards Windows' short-name quirk.</summary>
-    static IEnumerable<(string fn, string full)> EnumerateArchives(string dir)
+    /// <summary>Top-level *.bsa in one folder, as (filename, full path); empty on a missing folder, null on one that exists and will not open. The explicit extension check guards Windows' short-name quirk.</summary>
+    static List<(string fn, string full)>? EnumerateArchives(string dir)
     {
-        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) yield break;
-        var opts = new EnumerationOptions { RecurseSubdirectories = false, IgnoreInaccessible = true };
-        IEnumerable<string> files;
-        try { files = Directory.EnumerateFiles(dir, "*.bsa", opts); }
-        catch { yield break; }
-        foreach (var f in files)
-            if (Path.GetExtension(f).Equals(".bsa", StringComparison.OrdinalIgnoreCase))
-                yield return (Path.GetFileName(f), f);
+        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) return [];
+        try
+        {
+            return Directory.EnumerateFiles(dir, "*.bsa", new EnumerationOptions { IgnoreInaccessible = false })
+                .Where(f => Path.GetExtension(f).Equals(".bsa", StringComparison.OrdinalIgnoreCase))
+                .Select(f => (Path.GetFileName(f), f)).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>The always-loaded base archive filenames from the [Archive] lists of the INI the game reads, list 1 then

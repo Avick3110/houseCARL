@@ -868,6 +868,10 @@ internal sealed class OutputLocations
             return new(cand, $"mod '{mod.Trim()}'", modServed, JudgeTick(comp, fn), modDetail, true, null, null);
         }
         var hits = Mo2LoadOrder.LocatePlugin(comp, modsDir, dataDir, overwriteDir, plugin);
+        if (hits.Count == 0 && Mo2LoadOrder.UnopenedModFolders(comp, modsDir) is { Count: > 0 } unopened)
+            return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null,
+                $"'{Path.GetFileName(plugin)}' is in no folder houseCARL could open, and {unopened.Count} mod folder(s) could not be " +
+                $"opened ({Mo2LoadOrder.Named(unopened)}): it may be in one of them. Make those folders readable and run this again.");
         if (hits.Count == 0)
             return new(null, "", ServedStanding.NotAnInstallCopy, TickStanding.Unregistered, null, false, null,
                 $"'{Path.GetFileName(plugin)}' is in no mod folder (enabled, disabled, or not-yet-listed in MO2), the overwrite folder, or the game Data folder. Check the filename, pass an absolute path"

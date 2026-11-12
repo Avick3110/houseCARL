@@ -29,8 +29,9 @@ internal sealed class CallContext
     internal bool WriteViewTaken { get; private set; }
 
     /// <summary>What a call's view was taken against: the roots, the live order (null before any index), the profile read
-    /// behind it (null when none was kept) and the profile's name.</summary>
-    internal sealed record CallBuild(Mo2Roots Roots, LoadOrderResolver? Order, Mo2Composition? Composition, string ProfileName);
+    /// behind it (null when none was kept), the profile's name, and the line every answer off it leads with, if any.</summary>
+    internal sealed record CallBuild(Mo2Roots Roots, LoadOrderResolver? Order, Mo2Composition? Composition, string ProfileName,
+                                     string? OrderNote = null);
 
     /// <summary>The asset build a call holds once it first asks a file question, with what was read beside it: a frozen
     /// copy, and the live build it was taken from.</summary>
@@ -49,6 +50,9 @@ internal sealed class CallContext
     {
         /// <summary>The context this call reads through.</summary>
         public CallContext Context => context;
+
+        /// <summary>True for the outermost call, the one whose answer goes back to the caller.</summary>
+        public bool Owns => owns;
 
         public void Dispose() { if (owns) Current.Value = null; }
     }
