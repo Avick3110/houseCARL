@@ -265,8 +265,8 @@ know, and every key of an undocumented folder, where only `|` forms are read). A
 a bare token in a segment with no lookup scope is not read as a form (#1334). `filter=` still selects files by folder,
 mod and path; beside a selector, a file must pass both, and only its selected lines expand. A cut listing under a
 selector says to narrow `formids=`/`plugins=`. A zero answer, from `filter=` or a selector, drops the whole-layer
-no-op notes but keeps the scan notes and the note naming a plugin an EditorID sweep could not open, which may be why
-nothing matched.
+no-op notes but keeps the scan notes and the note naming a plugin an EditorID sweep could not open. That note may be
+why a selector matched nothing; a `filter=` zero matches folder, mod and path names only, so it is not the cause there.
 
 `SkyPatcherDraft` folds an INI that is not yet placed in a mod into the live scan, so a record can
 be read as the game would see it once placed. A draft that is already one of the layer's live
