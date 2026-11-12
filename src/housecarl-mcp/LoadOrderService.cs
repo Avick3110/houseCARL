@@ -221,6 +221,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                         // A profile it could not re-read is refused here rather than answered off a superseded index.
                         if (_profileHeld is { } held) throw new ProfileUnreadableException(held.ProfilePath, held);
                         _resolver.RefreshIfStale();   // plugin-CONTENT freshness: cheap stat sweep; rebuilds if a plugin's bytes changed
+                        if (UnopenedFoldersMovedLocked()) ReResolve(RootsLocked());
                     }
                     finally { Monitor.Exit(_writeGate); }
                 }
@@ -230,6 +231,25 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                 return call.Pin!.Resolver;
             }
         }
+    }
+
+    /// <summary>Whether a mod folder the order could not open now opens, or a folder it read stopped opening (it holds a
+    /// plugin the index could not reopen); either way the order is read again. Caller holds <see cref="_gate"/>.</summary>
+    bool UnopenedFoldersMovedLocked()
+    {
+        if (_order is not { } o || string.IsNullOrWhiteSpace(_modsDir)) return false;
+        if (o.UnreadableMods.Any(m => !Mo2LoadOrder.WillNotOpen(LooseListings.OnDisk(_modsDir, m)))) return true;
+        var excluded = _resolver!.Capture().ExcludedPlugins;
+        if (excluded.Count == 0) return false;
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_modsDir)) + Path.DirectorySeparatorChar;
+        foreach (var path in _resolvedPaths)
+        {
+            var full = Path.GetFullPath(path);
+            if (!excluded.ContainsKey(Path.GetFileName(path)) || !full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) continue;
+            var mod = full[root.Length..].Split(Path.DirectorySeparatorChar)[0];
+            if (!o.UnreadableMods.Contains(mod, StringComparer.OrdinalIgnoreCase) && Mo2LoadOrder.WillNotOpen(root + mod)) return true;
+        }
+        return false;
     }
 
     /// <summary>Hold the current build as the call's pin, keeping the one it holds when the build has not moved; a call

@@ -134,8 +134,11 @@ public static class Mo2LoadOrder
 
     /// <summary>The mod folders, enabled or not, that exist but will not open: where a file no other folder holds may be. One open per mod folder, so it is asked only once nothing else was found.</summary>
     public static IReadOnlyList<string> UnopenedModFolders(Mo2Composition comp, string modsDir) =>
-        string.IsNullOrWhiteSpace(modsDir) ? [] :
-        comp.EnabledMods.Concat(comp.DisabledMods).Where(m => WillNotOpen(LooseListings.OnDisk(modsDir, m))).ToList();
+        UnopenedModFolders(comp.EnabledMods.Concat(comp.DisabledMods), modsDir);
+
+    /// <summary>As the composition overload, over the mod folders named.</summary>
+    public static IReadOnlyList<string> UnopenedModFolders(IEnumerable<string> mods, string modsDir) =>
+        string.IsNullOrWhiteSpace(modsDir) ? [] : mods.Where(m => WillNotOpen(LooseListings.OnDisk(modsDir, m))).ToList();
 
     /// <summary>An enumeration that throws on a folder that will not open, rather than reading it as empty, and skips no entry.</summary>
     static readonly EnumerationOptions Strict = new() { RecurseSubdirectories = false, IgnoreInaccessible = false, AttributesToSkip = 0 };

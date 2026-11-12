@@ -59,6 +59,13 @@ internal static class FileSelection
         var (view, seeds, faces, noOrder) = (capture.Captured.View, capture.Seeds, capture.Faces, capture.NoOrder);
         provider = provider?.Trim() is { Length: > 0 } named ? named : null;
         // A provider the build does not have would walk nothing and read every row as not provided, so it is refused by name.
+        // Off a mod folder that would not open, the provider may be in it, so the name is not called wrong.
+        if (provider is not null && !view.HasProvider(provider)
+            && HousecarlCore.Mo2LoadOrder.UnopenedModFolders(capture.Captured.EnabledMods, capture.Captured.Roots.ModsDir) is { Count: > 0 } unopened)
+            return new FileSelectionResult(Array.Empty<SelectedFile>(), Array.Empty<string>(), provider,
+                                           Refusal: $"error: provider '{provider}' is in no folder houseCARL could open, and {unopened.Count} " +
+                                                    $"enabled mod folder(s) could not be opened ({HousecarlCore.Mo2LoadOrder.Named(unopened)}): " +
+                                                    "it may be in one of them. Make those folders readable and run this again.");
         if (provider is not null && !view.HasProvider(provider))
             return new FileSelectionResult(Array.Empty<SelectedFile>(), Array.Empty<string>(), provider,
                                            Refusal: $"error: provider '{provider}' is not in the active load order — name an " +
