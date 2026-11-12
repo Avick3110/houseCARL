@@ -140,12 +140,12 @@ public sealed class WinnerScanCoverageTests
         using var world = new ScanWorld();
 
         var open = world.Svc.SkyPatcherLayer();
-        Assert.DoesNotContain(open.NoOpNotes, n => n.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(open.UnreadableNotes, n => n.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
 
         using var hold = HeldOpen.Hold(world.HeldPath);
         var locked = world.Svc.SkyPatcherLayer();
 
-        Assert.Contains(locked.NoOpNotes, n => n.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(locked.UnreadableNotes, n => n.Contains(ScanWorld.HeldName, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>A quest input fans out over the winning topics, so a plugin the sweep cannot open takes its topics
