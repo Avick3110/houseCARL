@@ -342,8 +342,8 @@ say the state is unknown.
 - `plugins=` selects lines by the forms they name. A mod-name filter (`filterByModNames=X.esp`) or an `X.esp.ini`
   filename gate does not select a line for X.
 - When `filter=` matches no file the answer is that zero, and the selectors are not evaluated.
-- In a folder holding two record types, an EditorID naming a record under each gives two rows on its line, as the
-  replay applies it per type.
+- In a folder holding two record types, an EditorID naming a record under each is two forms: its line is listed
+  once, with one `↳` label per form the selector keeps, as the replay applies it per type.
 - An `@artifact` list in `plugins.names` is not epoch-checked, as on `housecarl_records`.
 - The conflict detector takes a direct EditorID's first resolving type; the selector takes every type the folder
   holds.
