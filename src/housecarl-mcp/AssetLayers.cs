@@ -778,13 +778,14 @@ internal sealed partial class AssetLayers
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
             if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit EditorID target(s) did not resolve; {ToolNames.Layer} filter='<INI>' lists each under its line with why (a ~name~ target is counted here but named nowhere).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure / an EditorID lookup that could not be completed).");
-            // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
-            foreach (var msg in replay.Unreadable.Select(u => u.Message).Distinct())
-                noOpNotes.Add($"no-op scan: {msg} Lines naming a record it defines could not be resolved.");
         }
+        // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
+        var unreadableNotes = replay.Unreadable.Select(u => u.Message).Distinct()
+            .Select(msg => $"no-op scan: {msg} Lines naming a record it defines could not be resolved.").ToList();
 
         var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
-            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null);
+            scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null)
+            { UnreadableNotes = unreadableNotes };
         if (wanted is null) return use(data);
         return use(data with { SelectNote = selectNote, Select = (folder, file, i) => replay.LineForms(folder, file.Lines[i]).Where(f => wanted(f.Form)).ToList() });
     }

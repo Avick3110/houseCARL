@@ -326,6 +326,9 @@ public sealed record SkyPatcherLayerData(
 
     /// <summary>What the answer leaves out of the selectors (named plugins the order does not carry), or null.</summary>
     public string? SelectNote { get; init; }
+
+    /// <summary>The plugins an EditorID sweep could not open, one note each; kept on a zero answer, unlike <see cref="NoOpNotes"/>.</summary>
+    public IReadOnlyList<string> UnreadableNotes { get; init; } = [];
 }
 
 /// <summary>The records selectors carried onto SkyPatcher lines: a line is selected by a form it names. Both given, a form must pass both, as on records.</summary>

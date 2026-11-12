@@ -158,6 +158,25 @@ public sealed class LayerSelectTests : IDisposable
         Assert.DoesNotContain("no-op scan", text);
     }
 
+    // Main's ZeroMatch kept the unreadable-plugin note: a plugin the sweep cannot open may be why nothing matched.
+    [Fact]
+    public void AZeroAnswerKeepsTheUnreadablePluginNote()
+    {
+        // HcSpRelOther.esp here overrides nothing a line names, so only the unresolved EditorID's sweep opens it.
+        using var w = new SkyPatcherRelevanceWorld(new[] { (Ini, "filterByArmors=HcNoSuchArmor:value=1\r\n") }, otherPlugin: true);
+        SkyPatcherTools.Layer(w.Svc);
+        // same size and write time, so the index keeps the plugin and only the EditorID sweep finds it unreadable
+        var stamp = File.GetLastWriteTimeUtc(w.OtherPath);
+        File.WriteAllBytes(w.OtherPath, new byte[new FileInfo(w.OtherPath).Length]);
+        File.SetLastWriteTimeUtc(w.OtherPath, stamp);
+
+        foreach (var text in new[] { SkyPatcherTools.Layer(w.Svc, filter: "NoSuchIni"), SkyPatcherTools.Layer(w.Svc, formids: new[] { "000899:HcSpRel.esp" }) })
+        {
+            Assert.Contains("Lines naming a record it defines could not be resolved.", text);
+            Assert.DoesNotContain("explicit EditorID target(s) did not resolve", text);
+        }
+    }
+
     [Fact]
     public void FormidsReadFromAFile()
     {

@@ -314,9 +314,9 @@ static class SkyPatcherWire
     /// <summary>The line every layer render closes with, spelled once so it is charged before the body.</summary>
     const string Hint = "\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' for just the type folders holding a match, each listed in full apply order with the matching files expanded to their lines.";
 
-    /// <summary>The replay notes (with <paramref name="noOps"/>), the selectors' note and the scan notes as one list, cut to <paramref name="room"/> and counted by the shared caveat cut.</summary>
+    /// <summary>The replay notes (with <paramref name="noOps"/>), the unreadable-plugin notes, the selectors' note and the scan notes as one list, cut to <paramref name="room"/> and counted by the shared caveat cut.</summary>
     static string NoteLines(SkyPatcherLayerData d, int room, bool noOps) =>
-        BatchRender.CutLines(new BatchRender.CaveatList((noOps ? d.NoOpNotes : Enumerable.Empty<string>())
+        BatchRender.CutLines(new BatchRender.CaveatList((noOps ? d.NoOpNotes : Enumerable.Empty<string>()).Concat(d.UnreadableNotes)
             .Concat(d.SelectNote is { } s ? new[] { s } : Array.Empty<string>()).Concat(d.Scan.Notes).ToList(), "[!] ", "note(s)"), room);
 
     const string FileCut = "  ... [cut at max_chars]\n";
@@ -429,8 +429,8 @@ static class SkyPatcherWire
         return CloseZero(d, sb, cap, caveats);
     }
 
-    /// <summary>A zero answer's close: the scan notes, which are often why nothing matched, and the caveats. The no-op
-    /// notes are about the whole layer's replay, so a zero answer leaves them to the overview.</summary>
+    /// <summary>A zero answer's close: the unreadable-plugin and scan notes, which are often why nothing matched, and the
+    /// caveats. The no-op notes are about the whole layer's replay, so a zero answer leaves them to the overview.</summary>
     static string CloseZero(SkyPatcherLayerData d, StringBuilder sb, int cap, string caveats)
     {
         // With no caveats the notes close the reply, and their last newline is trimmed, so it is not charged.
