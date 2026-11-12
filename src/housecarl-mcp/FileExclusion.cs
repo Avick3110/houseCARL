@@ -16,8 +16,11 @@ public sealed class FileExclusion
         "in a note; an exclusion that removes everything answers zero rows. What a mod ships that a walk does not reach " +
         "is two calls: " + ToolNames.AssetStatus + " walk=true records=[...] source_provider=\"<mod>\" " +
         "to_file=\"<abs>/reached.jsonl\", then this tool with provider=\"<mod>\" exclude=[\"@<abs>/reached.jsonl\"]. " +
-        "A file from a walk that was cut (walk.max_nodes, walk.depth or the path bound) or written on another build " +
-        "is still used, and the answer opens with a note saying so." + ListText.Paths;
+        "A file whose walk's rows are short of what it reaches (cut at walk.max_nodes, walk.depth or the path bound, " +
+        "rows hidden by walk.through's edge kinds, or a mesh's links or a script's parent not read), or whose epoch is " +
+        "not this build's or cannot be compared, is still used, and the answer opens with a note saying so. Takes " +
+        "[\"@<absolute path>\"] in place of the list: a file of paths, one per line or a JSON array, or a " +
+        ToolNames.AssetStatus + " to_file= artifact (identity column 'path'), whose epoch is compared into that note, never refused.";
 
     readonly HashSet<string> _plain;
     readonly List<Func<string, bool>> _globs;
