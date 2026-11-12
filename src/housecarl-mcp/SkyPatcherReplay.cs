@@ -74,9 +74,8 @@ internal sealed partial class AssetLayers
         IEnumerable<string?> CallScopes()
             => Scan.Folders.Where(f => f.Catalog is not null).SelectMany(f =>
             {
-                var maps = FieldMap.ForSubfolder(f.Subfolder);
-                return Lines(f).SelectMany(l => (maps.Count == 0 ? new RecordMap?[] { null } : maps.Select(m => (RecordMap?)m))
-                    .SelectMany(m => SkyPatcherOverlay.EditorIdScopes(l.Parsed, Catalog, f.Catalog!, m)));
+                var maps = MapsOf(f).ToList();
+                return Lines(f).SelectMany(l => maps.SelectMany(m => SkyPatcherOverlay.EditorIdScopes(l.Parsed, Catalog, f.Catalog!, m)));
             });
 
         /// <summary>One folder's lines in apply order, built once per context.</summary>
