@@ -57,7 +57,12 @@ static class CheckTextRender
         if (p.MissingMasters.Count > 0 && p.InstalledButInactiveMasters is { } inactive)
         {
             var notInstalled = p.MissingMasters.Where(m => !inactive.Contains(m, StringComparer.OrdinalIgnoreCase)).ToList();
-            if (notInstalled.Count > 0)
+            // A folder that would not open may hold the master, so "not installed" is not established.
+            if (notInstalled.Count > 0 && p.UnopenedFolders.Count > 0)
+                fixedPart.Append("  missing master(s) not in any folder houseCARL could open: ").Append(string.Join(", ", notInstalled))
+                         .Append("   [").Append(p.UnopenedFolders.Count).Append(" mod folder(s) could not be opened (")
+                         .Append(Mo2LoadOrder.Named(p.UnopenedFolders)).Append(") and they may be there — make those folders readable]\n");
+            else if (notInstalled.Count > 0)
                 fixedPart.Append("  missing master(s) NOT installed anywhere in the MO2 install: ").Append(string.Join(", ", notInstalled))
                          .Append("   [install them — this plugin's refs into them dangle until you do]\n");
             if (inactive.Count > 0)

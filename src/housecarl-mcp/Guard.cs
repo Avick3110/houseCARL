@@ -11,25 +11,36 @@ internal static class Guard
     public static string Tool(string tool, Func<ToolCall, ToolAnswer> body, CancellationToken ct = default)
     {
         using var call = new ToolCall();
-        try { var answer = body(call); return Render(Changed(call) ?? answer); }
+        try { var answer = body(call); return Render(call, Changed(call) ?? answer); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception ex) { return Render(Caught(tool, call, ex)); }
+        catch (Exception ex) { return Render(call, Caught(tool, call, ex)); }
     }
 
     /// <summary>The async twin, for tool bodies that await.</summary>
     public static async Task<string> Tool(string tool, Func<ToolCall, Task<ToolAnswer>> body, CancellationToken ct = default)
     {
         using var call = new ToolCall();
-        try { var answer = await body(call); return Render(Changed(call) ?? answer); }
+        try { var answer = await body(call); return Render(call, Changed(call) ?? answer); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception ex) { return Render(Caught(tool, call, ex)); }
+        catch (Exception ex) { return Render(call, Caught(tool, call, ex)); }
     }
 
-    /// <summary>The one render: the answer's text, and a refusal marked on the call's result.</summary>
-    static string Render(ToolAnswer answer)
+    /// <summary>The one render: the answer's text led by the order's note when the call read an order that carries one, and a refusal marked on the call's result.</summary>
+    static string Render(ToolCall call, ToolAnswer answer)
     {
         if (answer.Refused) CallVerdict.MarkRefused();
-        return answer.Render();
+        var text = answer.Render();
+        return call.Owns && call.Context.Build?.OrderNote is { } note ? Lead(text, note) : text;
+    }
+
+    /// <summary><paramref name="note"/> ahead of <paramref name="text"/>: its first line, or a JSON object's first member.</summary>
+    static string Lead(string text, string note)
+    {
+        if (!text.StartsWith('{')) return note + "\n" + text;
+        if (System.Text.Json.Nodes.JsonNode.Parse(text) is not System.Text.Json.Nodes.JsonObject body) return text;
+        var led = new System.Text.Json.Nodes.JsonObject { ["order_note"] = note };
+        foreach (var (k, v) in body.ToList()) { body.Remove(k); led[k] = v; }
+        return led.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = JsonTextEncoder.Encoder });
     }
 
     /// <summary>The Guard's own refusals, each text on every transport.</summary>
@@ -77,6 +88,9 @@ internal sealed class ToolCall : IDisposable
 
     /// <summary>The call's context.</summary>
     internal CallContext Context => _context.Context;
+
+    /// <summary>True for the outermost call, whose answer goes back to the caller.</summary>
+    internal bool Owns => _context.Owns;
 
     public void Dispose() { _context.Dispose(); _language.Dispose(); Mark.Dispose(); }
 }

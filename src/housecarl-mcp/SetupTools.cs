@@ -75,6 +75,11 @@ public static class SetupTools
         sb.Append("configured houseCARL -> MO2 instance '").Append(p.InstanceDir).Append("'\n");
         sb.Append("active profile: ").Append(p.ProfileName).Append("  (auto-detected from ModOrganizer.ini)\n");
         sb.Append("  mods folder: ").Append(p.ModsDir).Append('\n');
+        var modsFailure = Mo2LoadOrder.ModsFolderFailure(p.ModsDir);
+        if (modsFailure is not null)
+            sb.Append("[!] houseCARL could not open the mods folder (").Append(modsFailure).Append("), so no mod's plugins or files can be read: ")
+              .Append("record, check, asset and write calls refuse until it can be opened, and ").Append(ToolNames.LoadOrderStatus)
+              .Append(" shows what was read.\n");
         sb.Append("  game Data  : ").Append(p.DataDir).Append('\n');
         // MO2 does not create the overwrite folder until a tool writes there, so an absent one is annotated.
         sb.Append("  overwrite  : ").Append(p.OverwriteDir)
@@ -98,7 +103,9 @@ public static class SetupTools
             ? "saved to houseCARL.user.json — persists across restarts."
             : $"NOTE: could not save the choice ({persistError}) — it works this session, but you'll need to set it again after a restart.");
         if (persistNote is not null) sb.Append("\nRECOVERED: ").Append(persistNote);   // corrupt prior config — never silent
-        sb.Append("\nthe load order resolves on the next read/write (first build ~10s).");
+        sb.Append(modsFailure is null
+            ? "\nthe load order resolves on the next read/write (first build ~10s)."
+            : "\nthe load order will not resolve until the mods folder can be opened.");
         return sb.ToString();
     }
 }

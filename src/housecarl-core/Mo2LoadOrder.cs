@@ -15,7 +15,13 @@ public sealed record Mo2OrderResult(
     public IReadOnlyList<string> UnreadableMods { get; init; } = [];
 
     /// <summary><see cref="UnreadableMods"/> as one quoted, comma-joined phrase.</summary>
-    public string UnreadableModsNamed => string.Join(", ", UnreadableMods.Select(m => $"'{m}'"));
+    public string UnreadableModsNamed => Mo2LoadOrder.Named(UnreadableMods);
+
+    /// <summary>The line every answer off this order leads with while some enabled mod folder would not open, else null.</summary>
+    public string? UnreadableNote => UnreadableMods.Count == 0 ? null :
+        $"[!] {UnreadableMods.Count} enabled mod folder(s) could not be opened, so their plugins and files were not read: " +
+        $"{UnreadableModsNamed}. {ResolvedCount:N0} of {ActiveCount:N0} active plugins resolved; this answer is read without " +
+        "the rest. Make those folders readable and run this again.";
 }
 
 /// <summary>The MO2 profile's enabled/disabled composition, parsed from the three profile text files only, so it is cheap to re-read on demand; names are verbatim from the files.</summary>
@@ -119,6 +125,17 @@ public static class Mo2LoadOrder
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         { return System.Text.RegularExpressions.Regex.Replace(ex.Message, @"\s*'[^']*'", "").TrimEnd('.', ' '); }
     }
+
+    /// <summary>Names quoted and comma-joined, for a sentence.</summary>
+    public static string Named(IEnumerable<string> names) => string.Join(", ", names.Select(m => $"'{m}'"));
+
+    /// <summary>Whether <paramref name="dir"/> exists but will not open; a missing folder is not unopened.</summary>
+    public static bool WillNotOpen(string dir) => ListPlugins(dir) is null;
+
+    /// <summary>The mod folders, enabled or not, that exist but will not open: where a file no other folder holds may be. One open per mod folder, so it is asked only once nothing else was found.</summary>
+    public static IReadOnlyList<string> UnopenedModFolders(Mo2Composition comp, string modsDir) =>
+        string.IsNullOrWhiteSpace(modsDir) ? [] :
+        comp.EnabledMods.Concat(comp.DisabledMods).Where(m => WillNotOpen(LooseListings.OnDisk(modsDir, m))).ToList();
 
     /// <summary>An enumeration that throws on a folder that will not open, rather than reading it as empty, and skips no entry.</summary>
     static readonly EnumerationOptions Strict = new() { RecurseSubdirectories = false, IgnoreInaccessible = false, AttributesToSkip = 0 };
@@ -311,12 +328,15 @@ public static class Mo2LoadOrder
 
     /// <summary>Every plugin filename the install provides, walking <see cref="CandidateFolders"/> — the did-you-mean pool and the declared-master split's is-it-installed discriminant. It lists each folder, so it is read once per call and then asked many times.</summary>
     public static IReadOnlyCollection<string> AllPluginFileNames(
-        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir)
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, List<string>? unopened = null)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (dir, _, _) in CandidateFolders(comp, modsDir, dataDir, overwriteDir))
-            foreach (var (fn, _) in EnumeratePlugins(dir))
+        {
+            if (ListPlugins(dir) is not { } plugins) { unopened?.Add(Path.GetFileName(dir)); continue; }   // named, so its absence is not read as "not installed"
+            foreach (var (fn, _) in plugins)
                 names.Add(fn);
+        }
         return names;
     }
 

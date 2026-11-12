@@ -182,6 +182,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                 // A call reads one pinned build: checked once at its first record read, re-taken once inside the write gate.
                 if (HeldPinLocked() is { } pinned) return pinned.Pin!.Resolver;   // its language was bound when it was pinned
                 var call = CallContext.Open;
+                // A mods folder that stops opening after the build refuses as it does at the first build; the build is kept for its return.
+                if (_resolver is not null && Mo2LoadOrder.ModsFolderFailure(_modsDir) is not null)
+                    Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
                 if (_resolver is null)
                 {
                     EnsurePathsDerived();                         // instance mode: derive ProfileDir/ModsDir/DataDir + active profile from ModOrganizer.ini
@@ -247,7 +250,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     }
 
     /// <summary>The build as it stands, against <paramref name="order"/>. Caller holds <see cref="_gate"/>.</summary>
-    CallContext.CallBuild BuildLocked(LoadOrderResolver? order) => new(RootsLocked(), order, _profileRead?.Composition, _profileName);
+    CallContext.CallBuild BuildLocked(LoadOrderResolver? order) => new(RootsLocked(), order, _profileRead?.Composition, _profileName, _order?.UnreadableNote);
 
     /// <summary>True on the write's own thread once it took its view inside the gate: nothing refreshes until the call ends. Caller holds <see cref="_gate"/>.</summary>
     bool WriteViewHeldLocked(CallContext? call) => call is { WriteViewTaken: true } && Monitor.IsEntered(_writeGate);
@@ -853,7 +856,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         lock (_gate) indexed = (HeldPinLocked()?.Pin!.View ?? _resolver?.Capture())?.PluginPath(pluginName);
         var roots = new Mo2Roots(ProfileDir: d.ProfileDir, DataDir: d.DataDir, ModsDir: d.ModsDir, OverwriteDir: d.OverwriteDir);   // the roots the locate searched
         var moved = indexed is null || roots.ProfileDir.Length == 0 ? null : ServingCopyMoved(pluginName, indexed, comp, roots, hits);
-        return new PluginFacts(copies, from, from is null ? null : PluginFile.ReadHeader(from.Path), moved);
+        return new PluginFacts(copies, from, from is null ? null : PluginFile.ReadHeader(from.Path), moved)
+            { Unopened = copies.Count == 0 ? Mo2LoadOrder.UnopenedModFolders(comp, d.ModsDir) : [] };
 
         static long? SizeOf(string path) { try { return new FileInfo(path).Length; } catch { return null; } }
     }
@@ -1139,6 +1143,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();
             if (HeldPinLocked() is { } call) return new OutputRoots(call.Roots, call.Pin!.Resolver.PluginNames);
+            // A write rooted in an unopenable mods folder would miss every mod; the order read refuses it with its counts.
+            if (Mo2LoadOrder.ModsFolderFailure(_modsDir) is not null) Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
             GameLanguage.Bind(_text);
             return new OutputRoots(HeldBuildLocked()?.Roots ?? RootsLocked(), _resolver?.PluginNames);
         }

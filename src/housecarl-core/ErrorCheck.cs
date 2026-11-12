@@ -442,6 +442,9 @@ public sealed record PluginErrors(
 {
     /// <summary>The record each of <see cref="UnscannableSamples"/> is about, in the same order.</summary>
     public IReadOnlyList<FormKey> UnscannableSampleKeys { get; init; } = Array.Empty<FormKey>();
+
+    /// <summary>Folders that would not open when the masters were split, so a master "not installed" may be in one of them.</summary>
+    public IReadOnlyList<string> UnopenedFolders { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>The result of <see cref="ErrorCheck.Run"/>: the per-plugin reports (only plugins WITH findings), the sweep
