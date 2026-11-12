@@ -321,7 +321,10 @@ boundaries and unfollowed form links are the walk's own definition of reached an
 into a note, never refused: none says whether it is this build's is unknown, an order this call cannot read says it
 could not compare, an epoch an older houseCARL wrote says it cannot be compared, and another build's says the file may
 not hold what its call answers now; either way the rows still come (DECISIONS 2026-11-11 (20), Q3 (a)). With no load-order
-selector at all (a file on disk, a walk seeded by `records=` alone) the note still says it removed nothing.
+selector at all (a file on disk, a walk seeded by `records=` alone) the note still says it removed nothing. An empty
+`exclude=[]` is unset, as the other selectors read an empty list. The `to_file=` and spilled files of `asset_status`
+(rows and walk) and `nif_inspect` record it in their query echo as `exclude`, the `@file` or the inline count; a
+call without it writes no such key.
 
 The `counts_only=` census has two layer tables: the layers that **win** paths and the layers that ship a copy another
 layer wins over (**shadowed**), each layer counted once per path, so a mod's loose copy beside its own archive's copy
