@@ -97,8 +97,11 @@ public sealed class FileExclusion
             if (f.Error is not null || !Matches(f.Path, hitPlain, hitGlob)) kept.Add(f);
         int entries = _plain.Count + _globs.Count;
         int unmatched = entries - hitPlain.Count - hitGlob.Count(h => h);
+        // A formids= row with no pair counts among the selected, its path the token it was given (FileSelection.Select).
+        int errors = selected.Count(f => f.Error is not null);
         notes.InsertRange(0, _leading);
         notes.Add($"exclude= removed {selected.Count - kept.Count:N0} of the {selected.Count:N0} selected path(s)"
+                  + (errors > 0 ? $" ({errors:N0} of them error rows, which it never removes)" : "")
                   + (unmatched > 0 ? $"; {unmatched:N0} of its {entries:N0} entries matched no selected path, so removed nothing." : "."));
         return kept;
     }
