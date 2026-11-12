@@ -231,6 +231,28 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         Assert.DoesNotContain(Json(Status(new[] { "@" + f })).Notes, n => n.Contains("another build"));
     }
 
+    /// <summary>A file's manifest query echo, by key.</summary>
+    static Dictionary<string, string> Query(string file)
+        => JsonDocument.Parse(System.IO.File.ReadLines(file).First()).RootElement.GetProperty("query").EnumerateObject()
+               .ToDictionary(p => p.Name, p => p.Value.ToString());
+
+    /// <summary>F1-a: a provider-minus file records its exclusion, the '@file' as given or the inline count; a file of a
+    /// call without exclude= has no exclude key.</summary>
+    [Fact]
+    public void AnExcludeCallsFileRecordsTheExclusion()
+    {
+        var f = CapeWalk();
+        var minus = File("minus");
+        Assert.DoesNotContain("error:", AssetTools.AssetStatus(_w.Svc, provider: Mod, exclude: new[] { "@" + f }, to_file: minus));
+        Assert.Equal("@" + f, Query(minus)["exclude"]);
+        var inline = File("inline");
+        AssetTools.AssetStatus(_w.Svc, provider: Mod, exclude: new[] { AssetWalkWorld.CapeNif, "scripts/*.pex" }, to_file: inline);
+        Assert.Equal("2 inline path(s)", Query(inline)["exclude"]);
+        var plain = File("plain");
+        AssetTools.AssetStatus(_w.Svc, provider: Mod, to_file: plain);
+        Assert.DoesNotContain("exclude", Query(plain).Keys);
+    }
+
     /// <summary>The list door's own refusal for an '@file' beside inline entries, and a blank entry, refused.</summary>
     [Fact]
     public void MixedFileAndInlineAndABlankEntryAreRefused()
