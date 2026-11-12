@@ -201,6 +201,22 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         }
         Assert.Equal(Pex(null), Pex(none));
         Assert.Equal(Status(null), Status(none));
+
+        // Files on disk need no instance, so an unconfigured one reads them with exclude=[] too, not the config prompt.
+        using var unconfigured = LoadOrderService.WithInstance(null, 0, new UserConfigStore(Path.Combine(_w.Root, "user-" + Guid.NewGuid().ToString("N") + ".json")));
+        var prompt = unconfigured.ConfigPromptOrNull();
+        Assert.NotNull(prompt);
+        var nif = NifTools.NifInspect(unconfigured, paths: new[] { diskNif }, exclude: none);
+        Assert.NotEqual(prompt, nif);
+        Assert.Equal(NifTools.NifInspect(unconfigured, paths: new[] { diskNif }), nif);
+        string Batch(string[]? e)
+        {
+            var dir = "psc-" + Guid.NewGuid().ToString("N");
+            return DecompileTools.DecompileScript(unconfigured, paths: new[] { diskPex }, exclude: e, out_path: Path.Combine(_w.Root, dir), format: "json").Replace(dir, "");
+        }
+        var batch = Batch(none);
+        Assert.NotEqual(prompt, batch);
+        Assert.Equal(Batch(null), batch);
     }
 
     /// <summary>Q3 (a): a walk cut at walk.max_nodes leads the answer with a note naming the fix; the rows still come.</summary>
