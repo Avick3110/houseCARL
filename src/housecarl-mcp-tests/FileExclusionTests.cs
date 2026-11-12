@@ -265,6 +265,19 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         Assert.DoesNotContain("exclude", Query(plain).Keys);
     }
 
+    /// <summary>Row 5: nif_inspect's file records the exclusion; one without does not.</summary>
+    [Fact]
+    public void NifInspectsFileRecordsTheExclusion()
+    {
+        var walked = CapeWalk();
+        var f = File("nif-minus");
+        Assert.DoesNotContain("error:", NifTools.NifInspect(_w.Svc, provider: Mod, exclude: new[] { "@" + walked }, to_file: f));
+        Assert.Equal("@" + walked, Query(f)["exclude"]);
+        var plain = File("nif-plain");
+        NifTools.NifInspect(_w.Svc, provider: Mod, to_file: plain);
+        Assert.DoesNotContain("exclude", Query(plain).Keys);
+    }
+
     /// <summary>The list door's own refusal for an '@file' beside inline entries, and a blank entry, refused.</summary>
     [Fact]
     public void MixedFileAndInlineAndABlankEntryAreRefused()

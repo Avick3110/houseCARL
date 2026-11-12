@@ -198,6 +198,8 @@ internal static class NifBatch
             new("sections", c.Want.Count > 0 ? string.Join(",", c.Want.Order(StringComparer.Ordinal)) : "<summary>"),
             new("read_incomplete", ctx.Sel.Captured?.View.ReadIncomplete == true ? "true" : "false"),
         };
+        // Only when given, so a file of a call without it is main's.
+        if (c.Exclude is not null) query.Insert(4, new("exclude", c.Exclude.Echo));
         if (writer.RowCount != total)
             query.Add(new("window", $"window: rows {c.Window.Offset + 1}–{c.Window.Offset + writer.RowCount} of {total} (limit={c.Window.Limit}, offset={c.Window.Offset})"));
         var fileNotes = new List<string>
