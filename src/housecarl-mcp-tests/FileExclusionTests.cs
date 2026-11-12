@@ -118,10 +118,13 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         var f = CapeWalk();
         var r = NifTools.NifInspect(_w.Svc, provider: Mod, exclude: new[] { "@" + f }, counts_only: true);
         var all = NifTools.NifInspect(_w.Svc, provider: Mod, counts_only: true);
-        // The walk's three files leave the cape mod's other files, of which two are meshes.
-        Assert.True(r.Contains("exclude= removed 3 of the"), r);
-        Assert.True(r.Contains("2 mesh"), r);
-        Assert.True(all.Contains("3 mesh"), all);
+        // The walk's three files leave the cape mod's other files, of which two are meshes; whole lines, so a count in the tens fails.
+        var shipped = Json(Status(null)).Paths.Length;
+        var lines = r.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+        Assert.True(lines[0].EndsWith("(2 meshes selected, provider \"Cape\")"), r);
+        Assert.Contains($"note: exclude= removed 3 of the {shipped} selected path(s).", lines);
+        Assert.Contains($"note: {shipped - 3 - 2} file(s) the selectors matched are not .nif meshes and were left out; under=[\"meshes/**/*.nif\"] selects only meshes.", lines);
+        Assert.True(all.Split('\n')[0].TrimEnd('\r').EndsWith("(3 meshes selected, provider \"Cape\")"), all);
         Assert.DoesNotContain("exclude=", all);
 
         var two = NifTools.NifInspect(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif, AssetWalkWorld.FxNif },
