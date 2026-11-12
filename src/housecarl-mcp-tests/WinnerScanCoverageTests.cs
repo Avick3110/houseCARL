@@ -131,11 +131,11 @@ public sealed class WinnerScanCoverageTests
         Assert.Contains(ScanWorld.HeldName, locked.ScanNote!, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>The layer's no-op scan resolves a line's EditorID target by sweeping the order's winners, so a
-    /// plugin it cannot open leaves that target unresolved. Counting it with the ordinary unresolved targets would
-    /// blame the INI for a file lock.</summary>
+    /// <summary>The layer's EditorID-lookup note, read from the call's resolver after the replays, names a plugin
+    /// an EditorID sweep could not open; here the no-op scan's resolve is the sweep that meets the held plugin.
+    /// Counting it with the ordinary unresolved targets would blame the INI for a file lock.</summary>
     [Fact]
-    public void TheSkyPatcherNoOpScanNamesAPluginItCouldNotRead()
+    public void TheSkyPatcherEditorIdLookupNoteNamesAPluginItCouldNotRead()
     {
         using var world = new ScanWorld();
 
