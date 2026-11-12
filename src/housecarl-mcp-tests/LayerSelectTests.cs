@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Reflection;
 using HousecarlCore;
 using HousecarlMcp;
 using Mutagen.Bethesda;
@@ -343,4 +345,20 @@ public sealed class LayerSelectTests : IDisposable
         Assert.NotNull(hint);
         Assert.StartsWith("error: housecarl_skypatcher_layer is not on this surface — absorbed into housecarl_layer:", hint);
     }
+}
+
+/// <summary>The layer's description and filter= text against what the selector renders and what omitting filter= lists.</summary>
+[Trait("tier", "unit")]
+public sealed class LayerSelectDescriptionTests
+{
+    static MethodInfo Layer() => typeof(SkyPatcherTools).GetMethod(nameof(SkyPatcherTools.Layer), BindingFlags.Public | BindingFlags.Static)!;
+
+    [Fact]
+    public void TheDescriptionNamesAllFourLabels() =>
+        Assert.Contains("each match labelled target, filter, value or unknown key", Layer().GetCustomAttribute<DescriptionAttribute>()!.Description);
+
+    [Fact]
+    public void TheFilterTextSaysTheOverviewNeedsTheSelectorsOmittedToo() =>
+        Assert.Contains("Omit it, formids= and plugins= for the whole-layer overview.",
+            Layer().GetParameters().Single(p => p.Name == "filter").GetCustomAttribute<DescriptionAttribute>()!.Description);
 }
