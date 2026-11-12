@@ -107,7 +107,8 @@ that loaded first still comes first. The one scope of every record type (form-li
 out of the first walk unless the first lookup is one, and is otherwise walked at its own first
 lookup, so a call that looks up no form-list item never walks the whole order. A post read of a form
 list with an EditorID item does look one up, as does the layer listing under any `filter=` whose
-match expands a form-list INI's lines, by its folder, mod or path (its line notes); the listing otherwise does not, since its no-op scan compares only
+match expands a form-list INI's lines, by its folder, mod or path (its line notes), and any `formids=` or `plugins=`
+call whose kept files hold such a line, since the selector reads every line of them; the listing otherwise does not, since its no-op scan compares only
 set-class ops and leaves form-list items unresolved. Without po3 Tweaks a walk covers
 only the types the game keeps names of. `CostCounters.EditorIdSweeps` counts the walks,
 `EditorIdTypesWalked` the types they covered.
@@ -255,14 +256,17 @@ refused by its `AliasTable` row, naming `housecarl_layer`.
 
 `formids=` and `plugins=` select lines with the records meaning (R42, R47): `formids=` takes the FormID door's two
 spellings and `@file`; `plugins=` keeps a form a named plugin defines or overrides (`IndexView.Touches`), and
-`defined_in: true` only a form it defines. Both given, a form must pass both. A line is selected when any form it names
+`defined_in: true` only a form it defines and holds (a FormID its plugin lacks is kept by neither). Both given, a form must pass both. A line is selected when any form it names
 is: every `Plugin|FormID` sub-arg anywhere on the line, and each leading EditorID sub-arg of a segment the replay looks
 one up in, through the one target resolver and the call's EditorID table (`SkyPatcherOverlay.LineForms`, sharing
 `SegmentScopes` with the table's own scope list). Each match is labelled where it sits: `target` (a direct list),
 `filter` (any other filter, Excluded spellings included), `value` (an op), or `unknown key` (a key the catalog does not
 know, and every key of an undocumented folder, where only `|` forms are read). A `~name~` literal names no record, and
 a bare token in a segment with no lookup scope is not read as a form (#1334). `filter=` still selects files by folder,
-mod and path; beside a selector, a file must pass both, and only its selected lines expand.
+mod and path; beside a selector, a file must pass both, and only its selected lines expand. A cut listing under a
+selector says to narrow `formids=`/`plugins=`. A zero answer, from `filter=` or a selector, drops the whole-layer
+no-op notes but keeps the scan notes and the note naming a plugin an EditorID sweep could not open, which may be why
+nothing matched.
 
 `SkyPatcherDraft` folds an INI that is not yet placed in a mod into the live scan, so a record can
 be read as the game would see it once placed. A draft that is already one of the layer's live
@@ -320,7 +324,8 @@ say the state is unknown.
 - A post read of a form list with an EditorID item walks every record type once in its call (about
   24 s on a large order such as ARR; without po3 Tweaks only the types the game keeps names of), as
   does the layer listing under any `filter=` whose match expands a form-list INI with one (its
-  folder, mod or path); the listing otherwise does not.
+  folder, mod or path), and any `formids=` or `plugins=` call whose kept files hold one; the listing
+  otherwise does not.
 - An unknown key still skips its line loud; the game drops the key silently and the line can widen
   to every record of its type. houseCARL keeps refusing to guess.
 - `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the
