@@ -161,6 +161,23 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         Assert.Contains(none, walk);
     }
 
+    /// <summary>Row 11: exclude=[] is unset, as the other selectors read an empty list: each tool answers as without it.</summary>
+    [Fact]
+    public void AnEmptyExcludeIsUnset()
+    {
+        var none = Array.Empty<string>();
+        var diskNif = Path.Combine(_w.ModsDir, Mod, AssetWalkWorld.CapeNif);
+        Assert.Equal(NifTools.NifInspect(_w.Svc, paths: new[] { diskNif }), NifTools.NifInspect(_w.Svc, paths: new[] { diskNif }, exclude: none));
+        var diskPex = Path.Combine(_w.ModsDir, Mod, AssetWalkWorld.ChildPex);
+        string Pex(string[]? e)
+        {
+            var dir = "psc-" + Guid.NewGuid().ToString("N");
+            return DecompileTools.DecompileScript(_w.Svc, paths: new[] { diskPex }, exclude: e, out_path: Path.Combine(_w.Root, dir)).Replace(dir, "");
+        }
+        Assert.Equal(Pex(null), Pex(none));
+        Assert.Equal(Status(null), Status(none));
+    }
+
     /// <summary>Q3 (a): a walk cut at walk.max_nodes leads the answer with a note naming the fix; the rows still come.</summary>
     [Fact]
     public void ACutWalksFileLeadsWithANoteAndTheRowsStillCome()
