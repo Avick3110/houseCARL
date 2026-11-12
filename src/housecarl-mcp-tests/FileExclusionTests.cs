@@ -86,8 +86,10 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         var all = Json(Status(null)).Paths;
         var noMeshes = Json(Status(new[] { "MESHES" })).Paths;
         Assert.Equal(all.Where(p => !p.StartsWith(@"meshes\", StringComparison.OrdinalIgnoreCase)), noMeshes);
-        var noPex = Json(Status(new[] { "scripts/*.PEX" })).Paths;
+        var (noPex, pexNotes) = Json(Status(new[] { "scripts/*.PEX" }));
         Assert.Equal(all.Where(p => !p.EndsWith(".pex", StringComparison.OrdinalIgnoreCase)), noPex);
+        // A glob that removed a path is not counted as matching nothing.
+        Assert.Equal($"exclude= removed {all.Length - noPex.Length} of the {all.Length} selected path(s).", Assert.Single(pexNotes));
     }
 
     /// <summary>Q2 (a): an entry the selection does not hold is counted in a note, not refused.</summary>
