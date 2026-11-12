@@ -348,7 +348,7 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         Assert.Equal("@" + f, Query(minus)["exclude"]);
         var inline = File("inline");
         AssetTools.AssetStatus(_w.Svc, provider: Mod, exclude: new[] { AssetWalkWorld.CapeNif, "scripts/*.pex" }, to_file: inline);
-        Assert.Equal("2 inline path(s)", Query(inline)["exclude"]);
+        Assert.Equal("2 inline entries", Query(inline)["exclude"]);
         var plain = File("plain");
         AssetTools.AssetStatus(_w.Svc, provider: Mod, to_file: plain);
         Assert.DoesNotContain("exclude", Query(plain).Keys);
@@ -360,7 +360,7 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
     {
         var f = File("walk-minus");
         Assert.DoesNotContain("error:", AssetTools.AssetStatus(_w.Svc, provider: Mod, exclude: new[] { "scripts" }, walk: Walks.On, to_file: f));
-        Assert.Equal("1 inline path(s)", Query(f)["exclude"]);
+        Assert.Equal("1 inline entry", Query(f)["exclude"]);
         var plain = File("walk-plain");
         AssetTools.AssetStatus(_w.Svc, provider: Mod, walk: Walks.On, to_file: plain);
         Assert.DoesNotContain("exclude", Query(plain).Keys);
