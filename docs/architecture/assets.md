@@ -317,8 +317,10 @@ selection answers zero rows. A blank or non-Data-path entry is refused, and the 
 read off its manifest: a walk note that says its rows are short of what it reaches (`WalkCut`: `walk.max_nodes`,
 `walk.depth`, the path bound, a `walk.through` left-out line counting edge-kind rows, a mesh whose links or a script
 whose parent was not read) makes the file a lower bound, while a left-out line counting record types only, NPC
-boundaries and unfollowed form links are the walk's own definition of reached and say nothing; an epoch other than this build's (or none, or a build that cannot be read)
-says the file may be stale; either way the rows still come (DECISIONS 2026-11-11 (20), Q3 (a)). With no load-order
+boundaries and unfollowed form links are the walk's own definition of reached and say nothing. The epoch is compared
+into a note, never refused: none says whether it is this build's is unknown, an order this call cannot read says it
+could not compare, an epoch an older houseCARL wrote says it cannot be compared, and another build's says the file may
+not hold what its call answers now; either way the rows still come (DECISIONS 2026-11-11 (20), Q3 (a)). With no load-order
 selector at all (a file on disk, a walk seeded by `records=` alone) the note still says it removed nothing.
 
 The `counts_only=` census has two layer tables: the layers that **win** paths and the layers that ship a copy another
