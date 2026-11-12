@@ -319,10 +319,10 @@ read off its manifest: a walk note that says its rows are short of what it reach
 whose parent was not read) makes the file a lower bound, while a left-out line counting record types only, NPC
 boundaries and unfollowed form links are the walk's own definition of reached and say nothing. Two known limits
 (DECISIONS 2026-11-12 (6), calls C and D): a record the walk could not read, or whose links, children or voice it
-could not read, writes no note `WalkCut.Says` matches, so its file is read as whole; and a file with many cut notes leads with one
-lower-bound note per cut note. The epoch is compared
-into a note, never refused: a file with no epoch says it carries none, so whether it was written on this build is
-unknown, an order this call cannot read says it could not compare, an epoch an older houseCARL wrote says it cannot be compared, and another build's says the file may
+could not read, writes no note `WalkCut.Says` matches, so its file is read as whole; and a file with many cut notes
+leads with one lower-bound note per cut note. The epoch is compared into a note, never refused: a file with no epoch
+says it carries none, so whether it was written on this build is unknown, an order this call cannot read says it
+could not compare, an epoch an older houseCARL wrote says it cannot be compared, and another build's says the file may
 not hold what its call answers now; either way the rows still come (DECISIONS 2026-11-11 (20), Q3 (a)). With no load-order
 selector at all (a file on disk, a walk seeded by `records=` alone) the note still says it removed nothing. An empty
 `exclude=[]` is unset, as the other selectors read an empty list. The `to_file=` and spilled files of `asset_status`
