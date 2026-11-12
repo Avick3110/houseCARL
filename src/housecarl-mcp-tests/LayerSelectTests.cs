@@ -162,6 +162,20 @@ public sealed class LayerSelectTests : IDisposable
         Assert.DoesNotContain("patch line(s)", text);   // never the overview
     }
 
+    // Plain is named in both type folders, so some max_chars cuts the second; the notice names what narrows the listing.
+    [Fact]
+    public void ASelectorCutNamesTheSelectorsAndAFilterCutReadsAsBefore()
+    {
+        string? Cut(Func<int, string> call) => Enumerable.Range(10, 300).Select(i => call(i * 10))
+            .FirstOrDefault(t => t.Contains("remaining matching folders omitted at max_chars"));
+        var selected = Cut(m => SkyPatcherTools.Layer(_w.Svc, formids: new[] { _w.Plain }, max_chars: m));
+        Assert.NotNull(selected);
+        Assert.Contains("raise it or narrow formids=/plugins=]", selected);
+        var filtered = Cut(m => SkyPatcherTools.Layer(_w.Svc, filter: "Hc", max_chars: m));
+        Assert.NotNull(filtered);
+        Assert.Contains("raise it or narrow filter=]", filtered);
+    }
+
     [Fact]
     public void AFilterMatchingNothingCarriesNoNoOpNote()
     {

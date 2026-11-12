@@ -219,7 +219,9 @@ static class SkyPatcherWire
 
         string folderCut = !narrowed
             ? "... [remaining folders omitted at max_chars — raise it or pass filter=]\n"
-            : "... [remaining matching folders omitted at max_chars — raise it or narrow filter=]\n";
+            : picked is not null
+                ? "... [remaining matching folders omitted at max_chars — raise it or narrow formids=/plugins=]\n"
+                : "... [remaining matching folders omitted at max_chars — raise it or narrow filter=]\n";
         // The header above is already in sb; the hint is advice, so it is written only where it fits beside what is owed.
         int sectionsOwed = SectionsMissed(ReportNames, maxChars).Length;
         int owed = sectionsOwed + (folders.Count > 0 ? folderCut.Length : 0);
