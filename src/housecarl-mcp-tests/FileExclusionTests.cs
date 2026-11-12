@@ -253,7 +253,9 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         var (paths, notes) = Json(Status(new[] { "@" + file }));
         Assert.StartsWith($"exclude= file '{file}' is a lower bound of what its walk reaches — ", notes[0]);
         Assert.Contains(said, notes[0]);
-        Assert.EndsWith("re-walk with to_file= and pass the new file.", notes[0]);
+        Assert.EndsWith("re-walk with to_file= past what cut it (raise the walk.max_nodes or walk.depth the note names, seed fewer " +
+                        "records under the path bound, name the left-out edge kinds in walk.through, or make the unread file " +
+                        "readable) and pass the new file.", notes[0]);
         Assert.Equal(plain.Length - Rows(file).Count(p => plain.Contains(p, StringComparer.OrdinalIgnoreCase)), paths.Length);
     }
 
