@@ -83,6 +83,18 @@ public sealed class LayerSelectTests : IDisposable
         Assert.Equal(2, text.Split("↳ target filterByArmors: " + _w.Heel).Length - 1);   // :1 and :10
     }
 
+    /// <summary>Pins unchanged behaviour: leveledList reads a line under two field maps, and a form both give is labelled once.</summary>
+    [Fact]
+    public void AFormInATwoMapFolderIsLabelledOnce()
+    {
+        using var w = new SkyPatcherRelevanceWorld(new[] { ("HcLvl.ini", "filterByLLs=HcSpRel.esp|820:addToLLs=HcSpRel.esp|811~1~1\r\n") },
+            subfolder: "leveledList",
+            records: m => m.LeveledItems.Add(new LeveledItem(new FormKey(m.ModKey, 0x820), SkyrimRelease.SkyrimSE) { EditorID = "HcLvl" }));
+        var text = SkyPatcherTools.Layer(w.Svc, formids: new[] { "000811:HcSpRel.esp" });
+        Assert.Contains(":1  filterByLLs=", text);
+        Assert.Equal(1, text.Split("↳ value addToLLs: 000811:HcSpRel.esp").Length - 1);
+    }
+
     /// <summary>Pins unchanged behaviour: a selection that lists lines carries the whole layer's no-op notes, as the overview does.</summary>
     [Fact]
     public void ANonZeroSelectionCarriesTheNoOpNotes()
