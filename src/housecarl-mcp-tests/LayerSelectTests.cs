@@ -225,6 +225,14 @@ public sealed class LayerSelectTests : IDisposable
         Assert.DoesNotContain("no-op scan", text);
     }
 
+    [Fact]
+    public void AFilterMatchingNothingBesideASelectorSaysWhatOmittingFilterLists()
+    {
+        var text = Layer(filter: "NoSuchIni", formids: new[] { _w.Plain });
+        Assert.Contains("Omit filter= for every line the selectors name; omit it, formids= and plugins= for the whole-layer overview.", text);
+        Assert.DoesNotContain("Omit filter= for the whole-layer overview.", text);
+    }
+
     // Main's ZeroMatch kept the unreadable-plugin note: a plugin the sweep cannot open may be why nothing matched.
     [Fact]
     public void AZeroAnswerKeepsTheUnreadablePluginNote()

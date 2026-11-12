@@ -412,7 +412,8 @@ static class SkyPatcherWire
                   .Concat(folders.SelectMany(f => f.Files).Select(x => x.WinningProvider).Where(p => p is not null)!)
                   .Concat(folders.SelectMany(f => f.Files).Select(x => x.SortKey))))
               .Append(" The type folder(s) present are: ").Append(string.Join(", ", folders.Select(f => f.Subfolder)))
-              .Append(". Omit filter= for the whole-layer overview.\n");
+              .Append(d.Select is null ? ". Omit filter= for the whole-layer overview.\n"
+                  : ". Omit filter= for every line the selectors name; omit it, formids= and plugins= for the whole-layer overview.\n");
         }
         return CloseZero(d, sb, cap, caveats);
     }
