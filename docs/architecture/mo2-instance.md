@@ -41,20 +41,26 @@ drop, and the warning names only the places actually searched.
 ### A folder that will not open
 
 A folder that is not there and a folder that is there but will not open are two facts (#1385).
-A folder that stats but will not list (a junction whose target is gone, a drive gone offline) used to read as empty,
-so its plugins went missing under the stale-profile warning. The listings now throw rather than skip
-(`IgnoreInaccessible = false`), and an `IOException` or `UnauthorizedAccessException` marks the folder unopened. A
-folder that does not stat is still missing and still silent, since a `modlist.txt` entry can lack a real folder.
+A folder that stats but will not list (a junction whose target is gone, a folder that denies listing) used to read as
+empty, so its plugins went missing under the stale-profile warning. The listings of the mods folder itself and of
+each enabled mod's folder in `Build`, and of every folder `AllPluginFileNames` walks, now throw rather than skip
+(`IgnoreInaccessible = false`; hidden and system files are still skipped), and an `IOException` or
+`UnauthorizedAccessException` marks the folder unopened. `Build`'s overwrite and game Data listings still read a
+folder that will not open as empty. A folder that does not stat (removed, or on a drive that is offline) is missing
+and still silent, since a `modlist.txt` entry can lack a real folder; a mods folder that does not stat reads as an
+empty one, as before.
 
 - **The whole mods folder.** `Mo2LoadOrder.ModsFolderFailure` reads one entry of `base\mods`. When it throws,
-  `Build` resolves the order from overwrite and Data only, adds no per-plugin warning, and throws
+  `Build` resolves the order from the folders outside it only (overwrite, when given, and Data), adds no per-plugin
+  warning, and throws
   `ModsFolderUnreadableException` carrying that order: its message names the folder, the reason, and how many of the
   active plugins resolved. Every order read refuses with it (the record index, a call's first file read, a write's
   output roots), and the service asks again on each of those reads, so a mods folder that stops opening after the
   build refuses the next call. `load_order_status` catches it and answers off the order it carries, leading with
   the sentence and printing no containment line; with `filter=` it says where the plugin is served from is unknown
   and reads no copies. `set_mo2_instance` says the folder will not open, that those calls refuse, and that the
-  order will not resolve until it opens.
+  order will not resolve until it opens. The judgement is the mods folder's own listing, so a mods folder that will
+  not list is refused whole even when each enabled mod's folder opens by name.
 - **Some mod folders.** An enabled mod whose folder will not list goes on `Mo2OrderResult.UnreadableMods` and the
   order answers without it. `Guard.Render` puts `UnreadableNote` (the mods named, resolved of active) at the head of
   every answer whose call read that order: the first line of text, or `order_note` as a JSON object's first member,
@@ -66,8 +72,10 @@ folder that does not stat is still missing and still silent, since a `modlist.tx
   file absent: the plugin locate and the status `served from:` and `localized:` lines ask `UnopenedModFolders` over
   every mod the profile lists, `asset_status provider=` over the enabled ones, and the absence explainer reads the
   order's `UnreadableMods`. Each says the file may be in the folders named, not that it does not exist or the name
-  is wrong. `AllPluginFileNames` names the folders it could not list, so a master it did not find is "not in any
-  folder houseCARL could open", in the check text and its `to_file=` fix column, never "not installed". The BSA scan's own twin is in [`assets.md`](assets.md).
+  is wrong. `AllPluginFileNames` names every folder it could not list (overwrite, Data, and enabled, disabled or
+  unlisted mods), so a master it did not find is "not in any folder houseCARL could open", with "N folder(s) could
+  not be opened" naming them, in the check text and its `to_file=` fix column, never "not installed". The BSA
+  scan's own twin is in [`assets.md`](assets.md).
 
 ### The status verdict for one plugin
 

@@ -104,6 +104,11 @@ not asked and the render must fall back to the unqualified remedy.
 
 The install-vs-enable split for missing masters is filled in by the layer that reads the MO2 composition, because
 the core sweep knows the active order and stops there; a composition that cannot be read leaves that subset null.
+The same layer sets `PluginErrors.UnopenedFolders` on a report with missing masters: the folders the install-wide
+plugin-name read (`AllPluginFileNames`) could not list. A master that is installed but inactive is still told to
+enable; one not found while any folder would not open is "not in any folder houseCARL could open", naming those
+folders, in the text render and the `to_file=` fix column, not "not installed" (the third case; see
+[`mo2-instance.md`](mo2-instance.md), *A folder that will not open*).
 
 The sweep pins its view and its MO2 roots together, in one `_gate` hold (`CapturePinAndRoots`), so the off-order
 locate, the `implicit` group and this split all read the profile the swept build came from; the dialogue sweep takes
