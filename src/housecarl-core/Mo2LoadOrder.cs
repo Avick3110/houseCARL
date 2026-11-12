@@ -11,36 +11,11 @@ public sealed record Mo2OrderResult(
 {
     public int ResolvedCount => OrderedPaths.Count;
 
-    /// <summary>Why the mods folder itself would not list, or null when it listed or is absent; no mod's plugins were read.</summary>
-    public string? ModsFolderFailure { get; init; }
-
-    /// <summary>Enabled mods the mods folder lists whose own folder would not open, in priority order.</summary>
+    /// <summary>Enabled mod folders that exist but would not open, in priority order; their plugins were not read.</summary>
     public IReadOnlyList<string> UnreadableMods { get; init; } = [];
 
-    /// <summary>The sentence an answer leads with while the mods folder cannot be listed, or null when it can.</summary>
-    public string? ModsFolderSentence(string modsDir) => ModsFolderFailure is null ? null :
-        $"houseCARL could not open the mods folder '{modsDir}' ({ModsFolderFailure}), so no mod's plugins or files " +
-        $"were read: only {ResolvedCount:N0} of {ActiveCount:N0} active plugins resolved, from the game Data and overwrite " +
-        "folders. Make the folder readable (a junction whose target is gone, or a drive that is offline?) and run this again.";
-}
-
-/// <summary>The mods folder's own listing: its folder names, or why it would not list; both null when it does not exist.</summary>
-public sealed record ModsFolderListing(IReadOnlySet<string>? Names, string? Failure)
-{
-    /// <summary>List <paramref name="modsDir"/> once; a folder that exists but will not list is a failure, never an empty folder.</summary>
-    public static ModsFolderListing Read(string modsDir)
-    {
-        if (string.IsNullOrWhiteSpace(modsDir) || !Directory.Exists(modsDir)) return new(null, null);
-        try
-        {
-            var names = Directory.EnumerateDirectories(modsDir, "*", new EnumerationOptions { IgnoreInaccessible = false })
-                                 .Select(Path.GetFileName).OfType<string>();
-            return new(new HashSet<string>(names, StringComparer.OrdinalIgnoreCase), null);
-        }
-        // The sentence names the folder itself, so the reason drops the quoted path the message repeats.
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { return new(null, System.Text.RegularExpressions.Regex.Replace(ex.Message, @"\s*'[^']*'", "").TrimEnd('.', ' ')); }
-    }
+    /// <summary><see cref="UnreadableMods"/> as one quoted, comma-joined phrase.</summary>
+    public string UnreadableModsNamed => string.Join(", ", UnreadableMods.Select(m => $"'{m}'"));
 }
 
 /// <summary>The MO2 profile's enabled/disabled composition, parsed from the three profile text files only, so it is cheap to re-read on demand; names are verbatim from the files.</summary>
@@ -66,7 +41,10 @@ public sealed class ProfileUnreadableException : IOException
 }
 
 /// <summary>The mods folder exists but would not list, so any answer off the order would miss every mod; carries the order read, for status.</summary>
-public sealed class ModsFolderUnreadableException(string message, Mo2OrderResult order) : Exception(message)
+public sealed class ModsFolderUnreadableException(string modsDir, string reason, Mo2OrderResult order) : Exception(
+    $"houseCARL could not open the mods folder '{modsDir}' ({reason}), so no mod's plugins or files were read: only " +
+    $"{order.ResolvedCount:N0} of {order.ActiveCount:N0} active plugins resolved, from the game Data and overwrite folders. " +
+    "Make the folder readable (a junction whose target is gone, or a drive that is offline?) and run this again.")
 {
     /// <summary>The order as far as it resolved without the mods folder.</summary>
     public Mo2OrderResult Order { get; } = order;
@@ -80,8 +58,6 @@ public static class Mo2LoadOrder
     /// <summary>Test seam: raised with the profile folder on every <see cref="ReadComposition"/>, never for <see cref="Build"/>'s own parse; null in the product.</summary>
     internal static event Action<string>? CompositionRead;
 
-    static readonly string[] PluginExts = PluginFile.Extensions;   // the shared plugin extensions (HousecarlCore.PluginFile); SkyPatcher's filename gate reads its own list from runtime-formats.json
-
     /// <summary>Read the active order from <paramref name="profileDir"/>'s three profile files, resolving each active plugin to its winning real path; the returned paths are in load order, winner last.</summary>
     public static Mo2OrderResult Build(string profileDir, string modsDir, string dataDir, string overwriteDir = "")
     {
@@ -91,24 +67,21 @@ public static class Mo2LoadOrder
         var comp = ParseComposition(profileDir, warnings);
 
         // filename → WINNING real path: overwrite first, then highest-priority enabled mod (first-seen wins), data folder as base.
-        var mods = ModsFolderListing.Read(modsDir);
+        var modsFailure = ModsFolderFailure(modsDir);
         var unreadableMods = new List<string>();
-        var winningPath = BuildFilenameMap(comp.EnabledMods, modsDir, mods, dataDir, overwriteDir, unreadableMods);
+        var winningPath = BuildFilenameMap(modsFailure is null ? comp.EnabledMods : [], modsDir, dataDir, overwriteDir, unreadableMods);
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
-
-        if (unreadableMods.Count > 0)
-            warnings.Add($"{unreadableMods.Count} enabled mod folder(s) under '{modsDir}' could not be opened, so their " +
-                         $"plugins were not read: {string.Join(", ", unreadableMods.Select(m => $"'{m}'"))}.");
+        int unreadableAt = warnings.Count;                          // the unopened-folders line goes ahead of the plugins it explains
 
         // The can't-resolve warning names only the places actually searched: explicit-paths mode passes no overwrite dir.
         var searchedPlaces = string.IsNullOrWhiteSpace(overwriteDir)
             ? "no enabled mod or the game Data folder"
             : "no enabled mod, the overwrite folder, or the game Data folder";
         // A plugin lost to a folder that would not open is not a stale profile, so it is not blamed on one.
+        const string resort = "trigger an MO2 refresh / re-sort so it re-writes the profile files.";
         var cause = unreadableMods.Count > 0
-            ? "it may be in one of the mod folders that could not be opened (above); otherwise the loadorder.txt is stale — " +
-              "trigger an MO2 refresh / re-sort so it re-writes the profile files."
-            : "stale loadorder.txt? trigger an MO2 refresh / re-sort so it re-writes the profile files.";
+            ? "it may be in one of the mod folders that could not be opened (above); otherwise the loadorder.txt is stale — " + resort
+            : "stale loadorder.txt? " + resort;
 
         // loadorder.txt order → drop unchecked plugins; resolve the rest to their winning path (winner last).
         var orderedPaths = new List<string>(comp.OrderedPluginNames.Count);
@@ -119,13 +92,36 @@ public static class Mo2LoadOrder
             active++;
             if (winningPath.TryGetValue(name, out var path))
                 orderedPaths.Add(path);
-            else if (mods.Failure is null)                          // an unlistable mods folder is said once, by the sentence
+            else if (modsFailure is null)                           // an unlistable mods folder is said once, by the refusal
                 warnings.Add($"load order lists '{name}' but {searchedPlaces} provides it ({cause})");
         }
 
-        return new Mo2OrderResult(orderedPaths, warnings, active, comp)
-            { ModsFolderFailure = mods.Failure, UnreadableMods = unreadableMods };
+        var result = new Mo2OrderResult(orderedPaths, warnings, active, comp) { UnreadableMods = unreadableMods };
+        if (unreadableMods.Count > 0)
+            warnings.Insert(unreadableAt, $"{unreadableMods.Count} enabled mod folder(s) under '{modsDir}' could not be opened, " +
+                                          $"so their plugins were not read: {result.UnreadableModsNamed}.");
+        // Every winner off this order would miss every mod, so no caller gets it as an order.
+        if (modsFailure is not null) throw new ModsFolderUnreadableException(modsDir, modsFailure, result);
+        return result;
     }
+
+    /// <summary>Why <paramref name="modsDir"/> exists but will not open, or null when it opens or is absent; one entry is read, not the folder.</summary>
+    public static string? ModsFolderFailure(string modsDir)
+    {
+        if (string.IsNullOrWhiteSpace(modsDir) || !Directory.Exists(modsDir)) return null;
+        try
+        {
+            using var e = Directory.EnumerateFileSystemEntries(modsDir, "*", Strict).GetEnumerator();
+            e.MoveNext();
+            return null;
+        }
+        // The refusal names the folder itself, so the reason drops the quoted path the message repeats.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { return System.Text.RegularExpressions.Regex.Replace(ex.Message, @"\s*'[^']*'", "").TrimEnd('.', ' '); }
+    }
+
+    /// <summary>An enumeration that throws on a folder that will not open, rather than reading it as empty, and skips no entry.</summary>
+    static readonly EnumerationOptions Strict = new() { RecurseSubdirectories = false, IgnoreInaccessible = false, AttributesToSkip = 0 };
 
     /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; <see cref="Build"/> adds the physical-path resolution on top.</summary>
     public static Mo2Composition ReadComposition(string profileDir, List<string>? warnings = null)
@@ -176,7 +172,7 @@ public static class Mo2LoadOrder
     }
 
     /// <summary>Build filename to winning real path: overwrite, then enabled mods highest-priority first with the first sighting winning, then the game Data folder.</summary>
-    static Dictionary<string, string> BuildFilenameMap(IReadOnlyList<string> enabledModsByPriority, string modsDir, ModsFolderListing mods,
+    static Dictionary<string, string> BuildFilenameMap(IReadOnlyList<string> enabledModsByPriority, string modsDir,
                                                        string dataDir, string overwriteDir, List<string> unreadableMods)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -184,21 +180,10 @@ public static class Mo2LoadOrder
         foreach (var (fn, full) in EnumeratePlugins(overwriteDir))  // MO2's overwrite layer — beats every mod
             map[fn] = full;                                         // (map is empty here; plain set keeps the rule obvious)
 
-        foreach (var mod in mods.Failure is null ? enabledModsByPriority : [])   // highest priority first
+        foreach (var mod in enabledModsByPriority)                  // highest priority first
         {
-            var modRoot = LooseListings.OnDisk(modsDir, mod);
-            // A folder the listing names that will not open is unreadable; one it does not name is missing, as before.
-            if (mods.Names is { } names && names.Contains(mod))
-            {
-                try
-                {
-                    foreach (var f in Directory.EnumerateFiles(modRoot, "*.es*", new EnumerationOptions { IgnoreInaccessible = false }))
-                        if (IsPluginFile(f) && !map.ContainsKey(Path.GetFileName(f))) map[Path.GetFileName(f)] = f;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { unreadableMods.Add(mod); }
-                continue;
-            }
-            foreach (var (fn, full) in EnumeratePlugins(modRoot))
+            if (ListPlugins(LooseListings.OnDisk(modsDir, mod)) is not { } plugins) { unreadableMods.Add(mod); continue; }
+            foreach (var (fn, full) in plugins)
                 if (!map.ContainsKey(fn)) map[fn] = full;           // first (highest-priority) wins
         }
 
@@ -209,22 +194,14 @@ public static class Mo2LoadOrder
     }
 
     /// <summary>Top-level *.esp/.esm/.esl in one folder, as (filename, full path); silent on a missing or inaccessible folder, since a modlist entry can lack a real folder.</summary>
-    static IEnumerable<(string fn, string full)> EnumeratePlugins(string dir)
-    {
-        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) yield break;
-        var opts = new EnumerationOptions { RecurseSubdirectories = false, IgnoreInaccessible = true };
-        IEnumerable<string> files;
-        try { files = Directory.EnumerateFiles(dir, "*.es*", opts); }
-        catch { yield break; }
-        foreach (var f in files)
-            if (IsPluginFile(f))
-                yield return (Path.GetFileName(f), f);
-    }
+    static IEnumerable<(string fn, string full)> EnumeratePlugins(string dir) => ListPlugins(dir) ?? [];
 
-    static bool IsPluginFile(string f)
+    /// <summary>As <see cref="EnumeratePlugins"/>, but null for a folder that exists and will not open; a missing one is empty.</summary>
+    static List<(string fn, string full)>? ListPlugins(string dir)
     {
-        var ext = Path.GetExtension(f);
-        return Array.Exists(PluginExts, e => e.Equals(ext, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) return [];
+        try { return Directory.EnumerateFiles(dir, "*.es*", Strict).Where(PluginFile.IsPlugin).Select(f => (Path.GetFileName(f), f)).ToList(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>plugins.txt to the active set (the <c>*</c> stripped) and the inactive list; the implicit masters are not listed there at all and are classified in <see cref="ReadComposition"/>.</summary>
