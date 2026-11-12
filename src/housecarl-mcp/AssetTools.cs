@@ -211,8 +211,6 @@ public static class AssetTools
         var sourcesIn = from_source.Read("from_source", ListKind.Plugin);
         foreach (var listErr in new[] { pathsIn.Error, underIn.Error, idsIn.Error, recordsIn.Error, sourcesIn.Error })
             if (listErr is not null) return ToolAnswer.Refusal(json, listErr);
-        var (exclusion, exErr) = FileExclusion.Read(exclude, svc);
-        if (exErr is not null) return ToolAnswer.Refusal(json, exErr);
         var underTokens = underIn.Tokens;
         if (WalkGrammar.ReadAssetWalk(svc.Types, walk, out var walkValues) is { } walkErr) return ToolAnswer.Refusal(json, walkErr);
         bool walking = walkValues is not null;
@@ -250,6 +248,9 @@ public static class AssetTools
         if (counts_only && offset > 0)
             return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only="));
         if (walking && links) return ToolAnswer.Refusal(json, ReadSentences.WalkWithLinks);
+        // After the cheap refusals: an '@file' with an epoch captures the view to compare it.
+        var (exclusion, exErr) = FileExclusion.Read(exclude, svc);
+        if (exErr is not null) return ToolAnswer.Refusal(json, exErr);
         // to_file= covers the whole walk, so limit= is ignored under it, as on the row lane.
         if (walking) return Walk(svc, walkValues!, pathsIn, underTokens, idsIn, provider, recordsIn, sourcesIn.Tokens, source_provider,
                               wantFile ? RowWindow.All : window, wantFile ? toFile : null, counts_only, json, cap, exclusion);
