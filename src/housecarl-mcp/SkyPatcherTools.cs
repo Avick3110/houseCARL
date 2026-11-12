@@ -65,13 +65,9 @@ public static class SkyPatcherTools
          "re-covers every target of an earlier set, whatever the value; partial or conditional-only overwrites are not " +
          "flagged), cross-INI duplicates (two files set the same field and target to the same value), and no-op writes " +
          "(the replay shows the set writes the value the record already has). An entry whose applicability also " +
-         "depends on other filters is flagged conditional, not guessed. filter= narrows to the type folders holding a " +
-         "match and lists each matching INI's lines with their notes, where a direct or Excluded target that names " +
-         "nothing says why (an unreadable FormID, a plugin not in the order or spelt with a space, a FormID no plugin defines, " +
-         "an EditorID found nowhere or of a type the game keeps no names of), and an EditorID naming several records says which " +
-         "the replay takes; a post read warns on such a hidden direct EditorID too. Which lines touch a record or plugin: " +
-         "formids= and plugins= select the lines naming a form they select, as on " + ToolNames.Records + ", each match " +
-         "labelled target, filter or value. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
+         "depends on other filters is flagged conditional, not guessed. filter= lists the matching INIs' lines with their " +
+         "notes. Which lines touch a record or plugin: formids= and plugins= select the lines naming a form they select, " +
+         "as on " + ToolNames.Records + ", each match labelled target, filter or value. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
          "source={\"overlay\": \"skypatcher\", \"state\": \"post\"} over formids= or a scan. Read-only.")]
     public static string Layer(
         LoadOrderService svc,
@@ -80,7 +76,11 @@ public static class SkyPatcherTools
             ListArg? distributor = null,
         [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive). " +
             "Lists only the type folders holding a match, each in full apply order so the files sorting around a match " +
-            "stay visible, with the matching files expanded to their individual patch lines. Omit for the whole-layer overview.")]
+            "stay visible, with the matching files expanded to their individual patch lines and their notes: a direct or " +
+            "Excluded target that names nothing says why (an unreadable FormID, a plugin not in the order or spelt with a " +
+            "space, a FormID no plugin defines, an EditorID found nowhere or of a type the game keeps no names of), and an " +
+            "EditorID naming several records says which the replay takes; a post read warns on such a hidden direct EditorID " +
+            "too. Omit for the whole-layer overview.")]
             string? filter = null,
         [Description("Optional. Lines naming these records ('XXXXXX:Plugin.esp' or the runtime form), anywhere on the line: " +
             "a target, a filter form or an op value, by Plugin|FormID or by an EditorID the replay looks up." + ListText.FormIds)]
