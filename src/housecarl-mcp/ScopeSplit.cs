@@ -30,7 +30,10 @@ sealed record ScopeSplit(IReadOnlyList<string> Present, IReadOnlyList<string> Mi
         $"plugins= names nothing the load order carries, so there is nothing to scan: {Causes(view)} "
       + "Drop the name(s), or scope to plugins that are loaded.";
 
-    internal string ServedNote(LoadOrderResolver.IndexView view) =>
-        $"note: this answer covers the {Present.Count} named plugin(s) the load order carries, and nothing from the "
+    internal string ServedNote(LoadOrderResolver.IndexView view) => "note: " + MissingNote(view);
+
+    /// <summary>The served note without its "note: " lead, for a lane that writes its own.</summary>
+    internal string MissingNote(LoadOrderResolver.IndexView view) =>
+        $"this answer covers the {Present.Count} named plugin(s) the load order carries, and nothing from the "
       + $"{Missing.Count} it does not: {Causes(view)}";
 }
