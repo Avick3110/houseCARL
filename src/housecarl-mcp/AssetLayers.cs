@@ -781,7 +781,7 @@ internal sealed partial class AssetLayers
         }
         // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
         var unreadableNotes = replay.Unreadable.Select(u => u.Message).Distinct()
-            .Select(msg => $"no-op scan: {msg} Lines naming a record it defines could not be resolved.").ToList();
+            .Select(msg => $"EditorID lookup: {msg} Lines naming a record it defines could not be resolved.").ToList();
 
         var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
             scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null)

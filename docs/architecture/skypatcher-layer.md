@@ -312,7 +312,7 @@ say the state is unknown.
   throw there instead of skipping.
 - An element sub-arg `Plugin|zz` (malformed) is written raw, not reported.
 - In conflicts, a malformed `|` target is grouped by its raw text, and the section does not say when
-  an EditorID lookup missed a plugin; the layer's no-op note does.
+  an EditorID lookup missed a plugin; the layer's unreadable-plugin note does.
 - An EditorID that starts with `_` or a digit costs one more walk in the call.
 - In the shared leveledList folder a line's lint runs once per field map, so under `filter=` a
   direct target named by an LVLI EditorID is also reported as finding no LeveledNpc record, and one

@@ -241,6 +241,7 @@ public sealed class LayerSelectTests : IDisposable
         {
             Assert.Contains("Lines naming a record it defines could not be resolved.", text);
             Assert.DoesNotContain("explicit EditorID target(s) did not resolve", text);
+            Assert.DoesNotContain("no-op scan", text);
         }
     }
 
