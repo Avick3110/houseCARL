@@ -67,7 +67,7 @@ public static class SkyPatcherTools
          "(the replay shows the set writes the value the record already has). An entry whose applicability also " +
          "depends on other filters is flagged conditional, not guessed. filter= lists the matching INIs' lines with their " +
          "notes. Which lines touch a record or plugin: formids= and plugins= select the lines naming a form they select, " +
-         "as on " + ToolNames.Records + ", each match labelled target, filter or value. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
+         "as on " + ToolNames.Records + ", each match labelled target, filter, value or unknown key. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
          "source={\"overlay\": \"skypatcher\", \"state\": \"post\"} over formids= or a scan. Read-only.")]
     public static string Layer(
         LoadOrderService svc,
