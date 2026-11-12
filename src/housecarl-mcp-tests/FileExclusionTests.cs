@@ -278,6 +278,31 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         Assert.DoesNotContain("exclude", Query(plain).Keys);
     }
 
+    /// <summary>F1-b: a call refused for a bad window, no selector, records= without a walk, a bad to_file= or counts_only=
+    /// with to_file= answers that refusal before an '@file' with an epoch captures the view to compare it.</summary>
+    [Fact]
+    public void ACheapRefusalComesBeforeTheExclusionFileIsRead()
+    {
+        var f = CapeWalk();
+        var ex = new[] { "@" + f };
+        var calls = new Func<string[]?, string>[]
+        {
+            e => AssetTools.AssetStatus(_w.Svc, provider: Mod, exclude: e, offset: -1),
+            e => AssetTools.AssetStatus(_w.Svc, exclude: e),
+            e => AssetTools.AssetStatus(_w.Svc, provider: Mod, records: new[] { _w.Id("HcWalkHero") }, exclude: e),
+            e => AssetTools.AssetStatus(_w.Svc, provider: Mod, exclude: e, to_file: "relative.jsonl"),
+            e => AssetTools.AssetStatus(_w.Svc, provider: Mod, exclude: e, counts_only: true, to_file: File("counts")),
+        };
+        foreach (var call in calls)
+        {
+            var without = call(null);
+            Assert.StartsWith("error:", without);
+            var checks = _w.Svc.Counters.ProfileFreshnessChecks;
+            Assert.Equal(without, call(ex));
+            Assert.Equal(checks, _w.Svc.Counters.ProfileFreshnessChecks);
+        }
+    }
+
     /// <summary>The list door's own refusal for an '@file' beside inline entries, and a blank entry, refused.</summary>
     [Fact]
     public void MixedFileAndInlineAndABlankEntryAreRefused()
