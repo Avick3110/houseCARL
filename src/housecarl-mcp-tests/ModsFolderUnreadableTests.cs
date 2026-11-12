@@ -227,6 +227,56 @@ public sealed class ModsFolderUnreadableTests : IClassFixture<ModsUnreadableWorl
         Assert.Contains("BSAs are not in the asset scan", text);
         Assert.Contains(ModsUnreadableWorld.BrokenMod, text);
     }
+
+    [Fact]
+    public void AModFolderThatOpensAgainIsReadOnTheNextCall()
+    {
+        var (svcOwner, target) = _w.PartialToggle(liveAtStart: false);
+        using var svc = svcOwner;
+        Assert.StartsWith("[!]", RecordsTools.Records(svc, formids: new[] { _w.MasterWeapon }));
+
+        _w.PutLostPlugin(target);
+        var text = RecordsTools.Records(svc, formids: new[] { _w.MasterWeapon });
+
+        Assert.DoesNotContain(ModsUnreadableWorld.BrokenMod, text);
+        Assert.Contains("winner=", text);
+    }
+
+    [Fact]
+    public void AModFolderThatStopsOpeningAfterTheBuildIsNamedOnTheNextCall()
+    {
+        var (svcOwner, target) = _w.PartialToggle(liveAtStart: true);
+        using var svc = svcOwner;
+        Assert.DoesNotContain(ModsUnreadableWorld.BrokenMod, RecordsTools.Records(svc, formids: new[] { _w.MasterWeapon }));
+
+        Directory.Move(target, target + "-away");
+        var text = RecordsTools.Records(svc, formids: new[] { _w.MasterWeapon });
+
+        Assert.Contains(ModsUnreadableWorld.BrokenMod, text.Split('\n')[0]);
+        Assert.DoesNotContain("could not be parsed", text);
+    }
+
+    [Fact]
+    public void ASavedFindingsFileDoesNotSayInstallAMasterBehindAnUnopenedFolder()
+    {
+        using var svc = _w.Partial();
+        var file = Path.Combine(_w.Scratch, "dep-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        CheckTools.CheckTool(svc, plugins: new[] { ModsUnreadableWorld.DepPlugin }, to_file: file);
+        var row = File.ReadAllLines(file).Single(l => l.Contains("\"missing_master\""));
+
+        Assert.Contains("could not be", row);
+        Assert.DoesNotContain("install it", row);
+    }
+
+    [Fact]
+    public void AProviderBehindAnUnopenedModFolderIsNotCalledOutOfTheOrder()
+    {
+        using var svc = _w.Partial();
+        var text = AssetTools.AssetStatus(svc, paths: new[] { "meshes/x.nif" }, provider: "HcMuLost.bsa");
+
+        Assert.Contains("may be in one of them", text);
+        Assert.DoesNotContain("not in the active load order", text);
+    }
 }
 
 /// <summary>Instances over one game Data folder: one whose mods folder is a junction to a folder that is gone, one whose
@@ -239,8 +289,9 @@ public sealed class ModsUnreadableWorld : IDisposable
     public const string DepPlugin = "HcMuDep.esp";
     public const string BrokenMod = "BrokenMod";
 
-    readonly string _root, _partial, _modFile, _depFile;
+    readonly string _root, _partial, _modFile, _depFile, _lostFile;
     int _toggles;
+    public string Scratch => _root;
     public string WholePath { get; }
     public string MasterWeapon { get; }
     public ToolPathResolver Tools { get; }
@@ -271,6 +322,8 @@ public sealed class ModsUnreadableWorld : IDisposable
         dep.Weapons.GetOrAddAsOverride(lostWeapon).EditorID = "HcMuW2b";
         _depFile = Path.Combine(_root, DepPlugin);
         dep.BeginWrite.ToPath(_depFile).WithLoadOrder(new ISkyrimModGetter[] { lost }).Write();
+        _lostFile = Path.Combine(_root, LostPlugin);
+        lost.BeginWrite.ToPath(_lostFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         WholePath = MakeInstance("whole", new[] { MasterName, ModPlugin, LostPlugin }, new[] { "+ModA" });
         Junction(Path.Combine(WholePath, "mods"), Path.Combine(_root, "gone-whole"));
@@ -298,6 +351,27 @@ public sealed class ModsUnreadableWorld : IDisposable
         File.Copy(_modFile, Path.Combine(target, "ModA", ModPlugin));
         Junction(Path.Combine(inst, "mods"), target, keepTarget: true);
         return (LoadOrderService.WithInstance(inst, 0, _store), target);
+    }
+
+    /// <summary>A fresh partial instance whose broken mod folder is a junction to a folder that holds the lost plugin
+    /// (<paramref name="liveAtStart"/>) or does not exist yet, and that folder.</summary>
+    public (LoadOrderService Svc, string ModTarget) PartialToggle(bool liveAtStart)
+    {
+        var inst = MakeInstance("ptoggle" + Interlocked.Increment(ref _toggles), new[] { MasterName, ModPlugin, LostPlugin },
+                                new[] { "+" + BrokenMod, "+ModA" });
+        Directory.CreateDirectory(Path.Combine(inst, "mods", "ModA"));
+        File.Copy(_modFile, Path.Combine(inst, "mods", "ModA", ModPlugin));
+        var target = Path.Combine(_root, Path.GetFileName(inst) + "-broken");
+        Junction(Path.Combine(inst, "mods", BrokenMod), target, keepTarget: liveAtStart);
+        if (liveAtStart) PutLostPlugin(target);
+        return (LoadOrderService.WithInstance(inst, 0, _store), target);
+    }
+
+    /// <summary>Make <paramref name="dir"/> hold the lost plugin.</summary>
+    public void PutLostPlugin(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        File.Copy(_lostFile, Path.Combine(dir, LostPlugin), overwrite: true);
     }
 
     string MakeInstance(string name, string[] order, string[] mods)
