@@ -62,7 +62,7 @@ public sealed class FileExclusion
         var lead = new List<string>();
         foreach (var n in d.Notes ?? Array.Empty<string>())
             if (n.StartsWith(AssetWalkWire.NotePrefix, StringComparison.Ordinal) && n[AssetWalkWire.NotePrefix.Length..] is var said && WalkCut.Says(said))
-                lead.Add($"exclude= file '{d.Path}' is a lower bound of what its walk reaches — {said} So a path listed here " +
+                lead.Add($"exclude= file '{d.Path}' is a lower bound of what its walk reaches — {said.TrimEnd('.')}. So a path listed here " +
                          "may be one a whole walk reaches; re-walk with to_file= and pass the new file.");
         const string Redo = "re-run the call that wrote it with to_file= and pass the new file.";
         if (d.Epoch.Length == 0)

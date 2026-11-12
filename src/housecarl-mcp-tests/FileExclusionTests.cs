@@ -199,6 +199,47 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         Assert.Equal(plain.Length - Rows(file).Count(p => plain.Contains(p, StringComparer.OrdinalIgnoreCase)), paths.Length);
     }
 
+    /// <summary>Call A (b): a walk.through file that hid edge-kind rows, a walk that could not read a script's parent, and
+    /// one that could not read a mesh's links each lead with the lower-bound note; a left-out line counting record types
+    /// only, or no rows, does not.</summary>
+    [Fact]
+    public void AWalkFileShortOfItsReachedSetLeadsWithTheLowerBoundNote()
+    {
+        string Walked(string tag, Func<string, string> walk)
+        {
+            var f = File(tag);
+            Assert.DoesNotContain("error:", walk(f));
+            return f;
+        }
+        string Lead(string f) => Json(Status(new[] { "@" + f })).Notes[0];
+        string Bound(string f) => $"exclude= file '{f}' is a lower bound of what its walk reaches — ";
+
+        var hid = Walked("through", f => AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.Of("{\"through\": [\"texture\"]}"), to_file: f));
+        Assert.StartsWith(Bound(hid) + "left out, not in walk.through: 1 smp row. So a path", Lead(hid));
+
+        var parent = Walked("parent", f => AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.BadPex }, walk: Walks.On, to_file: f));
+        Assert.StartsWith(Bound(parent) + AssetWalkWorld.BadPex + ": its parent class was not read — ", Lead(parent), StringComparison.OrdinalIgnoreCase);
+
+        // A mesh whose links cannot be read: the walk's note as it writes it, put into a whole walk's file.
+        var cape = CapeWalk();
+        var lines = System.IO.File.ReadAllLines(cape);
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(lines[0])!.AsObject();
+        if (manifest["notes"] is not System.Text.Json.Nodes.JsonArray notes) manifest["notes"] = notes = new System.Text.Json.Nodes.JsonArray();
+        notes.Add($"walk note: {AssetWalkWorld.CapeNif}: its links were not read — could not read the mesh bytes.");
+        lines[0] = manifest.ToJsonString();
+        var links = File("links");
+        System.IO.File.WriteAllLines(links, lines);
+        Assert.StartsWith(Bound(links) + AssetWalkWorld.CapeNif + ": its links were not read — could not read the mesh bytes. So a path", Lead(links));
+
+        // Not a cut: a through that shows every edge kind the walk met, and one that leaves record types out only.
+        var none = Walked("none", f => AssetTools.AssetStatus(_w.Svc, paths: new[] { AssetWalkWorld.CapeNif }, walk: Walks.Of("{\"through\": [\"texture\", \"smp\"]}"), to_file: f));
+        Assert.DoesNotContain(Json(Status(new[] { "@" + none })).Notes, n => n.Contains("lower bound"));
+        var types = Walked("types", f => AssetTools.AssetStatus(_w.Svc, records: new[] { _w.Id("HcWalkHero") }, walk: Walks.Of("{\"follow\": \"*\", \"through\": [\"HeadPart\"]}"),
+                                                                 from_source: new[] { AssetWalkWorld.Plugin }, to_file: f));
+        Assert.Contains("left out, not in walk.through: 1 ", System.IO.File.ReadLines(types).First());
+        Assert.DoesNotContain(Json(Status(new[] { "@" + types })).Notes, n => n.Contains("lower bound"));
+    }
+
     /// <summary>Q3 (a): a file written on another build leads with a note naming both epochs; the rows still come.</summary>
     [Fact]
     public void AFileFromAnotherBuildLeadsWithANoteAndTheRowsStillCome()

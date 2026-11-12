@@ -314,8 +314,10 @@ matched no selected path"), because most of a reached set is other mods' files, 
 selection answers zero rows. A blank or non-Data-path entry is refused, and the list door's own refusals hold (an
 `@file` beside inline entries). A `path` artifact with no rows, a walk that reached no file, is the empty set here
 (`ListKind.Exclusion`), not the door's no-rows refusal. What the file's paths cannot say leads the selection's notes,
-read off its manifest: a walk note that says the walk was cut (`WalkCut`: `walk.max_nodes`, `walk.depth`, the path
-bound) makes the file a lower bound, and an epoch other than this build's (or none, or a build that cannot be read)
+read off its manifest: a walk note that says its rows are short of what it reaches (`WalkCut`: `walk.max_nodes`,
+`walk.depth`, the path bound, a `walk.through` left-out line counting edge-kind rows, a mesh whose links or a script
+whose parent was not read) makes the file a lower bound, while a left-out line counting record types only, NPC
+boundaries and unfollowed form links are the walk's own definition of reached and say nothing; an epoch other than this build's (or none, or a build that cannot be read)
 says the file may be stale; either way the rows still come (DECISIONS 2026-11-11 (20), Q3 (a)). With no load-order
 selector at all (a file on disk, a walk seeded by `records=` alone) the note still says it removed nothing.
 

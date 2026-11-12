@@ -73,8 +73,8 @@ public static class WalkGrammar
             => keys.GroupBy(t => t, StringComparer.Ordinal).Select(g => (g.Key, Count: g.Count()))
                    .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal);
         var counts = Counted(leftOutTypes).Select(g => $"{g.Count} {g.Key}")
-            .Concat(Counted(hiddenEdges ?? Array.Empty<string>()).Select(g => $"{g.Count} {g.Key} row{(g.Count == 1 ? "" : "s")}")).ToList();
-        return "left out, not in walk.through: " + (counts.Count == 0 ? "none" : string.Join(", ", counts));
+            .Concat(Counted(hiddenEdges ?? Array.Empty<string>()).Select(g => $"{g.Count} {g.Key}{WalkCut.Row}{(g.Count == 1 ? "" : "s")}")).ToList();
+        return WalkCut.LeftOut + (counts.Count == 0 ? "none" : string.Join(", ", counts));
     }
 
     /// <summary>The walk values, or the one refusal (values null). <paramref name="through"/> has been read through the list door.</summary>
