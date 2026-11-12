@@ -229,6 +229,16 @@ public sealed class ModsFolderUnreadableTests : IClassFixture<ModsUnreadableWorl
     }
 
     [Fact]
+    public void AHiddenPluginInAnEnabledModIsNotInTheOrder()
+    {
+        var (profile, mods, data) = _w.HiddenPluginInstance();
+
+        var order = Mo2LoadOrder.Build(profile, mods, data);
+
+        Assert.DoesNotContain(order.OrderedPaths, p => Path.GetFileName(p) == ModsUnreadableWorld.ModPlugin);
+    }
+
+    [Fact]
     public void AModFolderThatOpensAgainIsReadOnTheNextCall()
     {
         var (svcOwner, target) = _w.PartialToggle(liveAtStart: false);
@@ -365,6 +375,17 @@ public sealed class ModsUnreadableWorld : IDisposable
         Junction(Path.Combine(inst, "mods", BrokenMod), target, keepTarget: liveAtStart);
         if (liveAtStart) PutLostPlugin(target);
         return (LoadOrderService.WithInstance(inst, 0, _store), target);
+    }
+
+    /// <summary>A fresh instance whose one enabled mod holds the mod plugin marked hidden: its profile, mods and Data folders.</summary>
+    public (string Profile, string Mods, string Data) HiddenPluginInstance()
+    {
+        var inst = MakeInstance("hidden" + Interlocked.Increment(ref _toggles), new[] { ModPlugin }, new[] { "+ModA" });
+        var file = Path.Combine(inst, "mods", "ModA", ModPlugin);
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.Copy(_modFile, file);
+        File.SetAttributes(file, FileAttributes.Hidden);
+        return (Path.Combine(inst, "profiles", "Default"), Path.Combine(inst, "mods"), Path.Combine(_root, "game", "Data"));
     }
 
     /// <summary>Make <paramref name="dir"/> hold the lost plugin.</summary>

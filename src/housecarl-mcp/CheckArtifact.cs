@@ -42,7 +42,7 @@ internal static class CheckArtifact
                                                   fix: p.InstalledButInactiveMasters?.Contains(m, StringComparer.OrdinalIgnoreCase) == true
                                                        ? "Installed but not active — enable it in MO2."
                                                        : p.UnopenedFolders.Count > 0
-                                                       ? $"Not in any folder houseCARL could open; {p.UnopenedFolders.Count} mod folder(s) could not be " +
+                                                       ? $"Not in any folder houseCARL could open; {p.UnopenedFolders.Count} folder(s) could not be " +
                                                          $"opened ({Mo2LoadOrder.Named(p.UnopenedFolders)}) and it may be there — make them readable."
                                                        : "Not in the active order — install it, or remove the plugin that declares it."));
                 }
