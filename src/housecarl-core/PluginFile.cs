@@ -11,6 +11,9 @@ public static class PluginFile
 {
     public static readonly string[] Extensions = { ".esp", ".esm", ".esl" };
 
+    /// <summary>Whether <paramref name="path"/> carries a plugin extension.</summary>
+    public static bool IsPlugin(string path) => Array.Exists(Extensions, e => e.Equals(Path.GetExtension(path), StringComparison.OrdinalIgnoreCase));
+
     /// <summary>Read the header of the plugin at <paramref name="path"/>; null when the file would not open as a plugin.</summary>
     public static PluginHeaderFacts? ReadHeader(string path)
     {

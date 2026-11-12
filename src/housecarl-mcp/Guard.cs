@@ -36,7 +36,8 @@ internal static class Guard
     static ToolAnswer Caught(string tool, ToolCall call, Exception ex) => Changed(call) ?? ex switch
     {
         // a profile file locked by MO2 mid-re-sort is a named transient, not an internal failure
-        ProfileUnreadableException or GameLanguageRefusedException or ModsFolderUnreadableException => ToolAnswer.Refusal(Wire.RefusalPrefix + ex.Message),
+        ProfileUnreadableException or GameLanguageRefusedException => ToolAnswer.Refusal(Wire.RefusalPrefix + ex.Message),
+        ModsFolderUnreadableException => ToolAnswer.Refusal(Wire.RefusalPrefix + ex.Message + " " + ToolNames.LoadOrderStatus + " still answers, to show what was read."),
         _ => ToolAnswer.Refusal(Named(tool, ex)),
     };
 
