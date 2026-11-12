@@ -101,6 +101,15 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
                      Assert.Single(notes));
     }
 
+    /// <summary>A plain entry takes whole path segments: a prefix of a file's name names nothing.</summary>
+    [Fact]
+    public void APlainEntryMatchesWholeSegmentsOnly()
+    {
+        var (paths, notes) = Json(Status(new[] { "meshes/hcwalk/cape" }, null, new[] { AssetWalkWorld.CapeNif }));
+        Assert.Equal(new[] { AssetWalkWorld.CapeNif }, paths);
+        Assert.Equal("exclude= removed 0 of the 1 selected path(s); 1 of its 1 entries matched no selected path, so removed nothing.", Assert.Single(notes));
+    }
+
     /// <summary>A row with an error is never removed: a formids= token that is not a FormID is its own row, its path the token.</summary>
     [Fact]
     public void AnErrorRowIsNeverRemoved()
