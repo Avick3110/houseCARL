@@ -822,9 +822,9 @@ internal sealed partial class AssetLayers
             // As records' defined_in: the defining plugin is the FormKey's own ModKey.
             if (sel.DefinedIn) definers = named.Select(n => ModKey.FromFileName(n)).ToHashSet();
         }
-        // The records meaning: a plugin touches a form it defines or overrides; defined_in keeps the defining plugin only.
+        // The records meaning: a plugin touches a form it defines or overrides; defined_in keeps the defining plugin only, and only a form it holds.
         bool Wanted(FormKey fk) => (ids is null || ids.Contains(fk))
-            && (named is null || (definers is not null ? definers.Contains(fk.ModKey) : named.Any(p => view.Touches(fk, p))));
+            && (named is null || (definers is not null ? definers.Contains(fk.ModKey) && view.Touches(fk, fk.ModKey.FileName) : named.Any(p => view.Touches(fk, p))));
         return (Wanted, note, null);
     }
 
