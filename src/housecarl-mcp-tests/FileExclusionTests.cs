@@ -105,9 +105,10 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void AnExclusionThatEmptiesTheSelectionAnswersZeroRows()
     {
-        var r = Status(new[] { "**" });
-        Assert.DoesNotContain("error", r[..Math.Min(r.Length, 20)]);
-        Assert.Empty(Json(r).Paths);
+        var all = Json(Status(null)).Paths.Length;
+        var (paths, notes) = Json(Status(new[] { "**" }));
+        Assert.Empty(paths);
+        Assert.Equal($"exclude= removed {all} of the {all} selected path(s).", Assert.Single(notes));
         Assert.Contains("census: counted=0 ", Status(new[] { "**" }, counts: true));
     }
 
