@@ -817,7 +817,8 @@ internal sealed partial class AssetLayers
             var split = ScopeSplit.Of(view, names);
             if (split.BlankRefusal is { } blank) return (null, null, "error: " + blank);
             if (split.Present.Count == 0) return (null, null, "error: " + split.NothingToScanRefusal(view));
-            if (split.Missing.Count > 0) note = split.ServedNote(view);
+            // The layer's note list writes its own "[!] ", so records' "note: " lead is dropped.
+            if (split.Missing.Count > 0) note = split.ServedNote(view)["note: ".Length..];
             named = split.Present.ToArray();
             // As records' defined_in: the defining plugin is the FormKey's own ModKey.
             if (sel.DefinedIn) definers = named.Select(n => ModKey.FromFileName(n)).ToHashSet();

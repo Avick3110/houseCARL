@@ -247,7 +247,8 @@ public sealed class LayerSelectTests : IDisposable
     {
         var text = Layer(plugins: new[] { Other, "HcNotLoaded.esp" });
         Assert.Contains(":2  ", text);
-        Assert.Contains("note: this answer covers the 1 named plugin(s) the load order carries", text);
+        Assert.Contains("[!] this answer covers the 1 named plugin(s) the load order carries", text);
+        Assert.DoesNotContain("[!] note:", text);
     }
 
     [Fact]
