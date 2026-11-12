@@ -23,9 +23,11 @@ public sealed record ListKind(string Identity, bool CommaSeparates, string Examp
 /// <summary>The sentence each list parameter's text carries, saying what file its <c>["@&lt;absolute path&gt;"]</c> takes.</summary>
 public static class ListText
 {
-    const string In = " Takes [\"@<absolute path>\"] in place of the list: ";
+    internal const string In = " Takes [\"@<absolute path>\"] in place of the list: ";
+    /// <summary>What a path list's file may be; <see cref="Paths"/> and exclude= (FileExclusion.Text) each add their epoch clause.</summary>
+    internal const string PathFile = "a file of paths, one per line or a JSON array, or a " + ToolNames.AssetStatus + " to_file= artifact (identity column 'path')";
     public const string FormIds = In + "a file of FormIDs, one per line or comma-separated, or a to_file= artifact whose identity column is 'formid', epoch-checked against the current build.";
-    public const string Paths = In + "a file of paths, one per line or a JSON array, or a " + ToolNames.AssetStatus + " to_file= artifact (identity column 'path'), not epoch-checked.";
+    public const string Paths = In + PathFile + ", not epoch-checked.";
     public const string Plugins = In + "a file with one plugin filename per line, each trimmed of double quotes and blanks, or a JSON array of filenames; a filename that itself starts with '@' is written '@@' inline.";
     public const string Names = In + "a file with one entry per line, each trimmed of double quotes and blanks, or a JSON array of strings; an entry that itself starts with '@' is written '@@' inline.";
 }
