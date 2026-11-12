@@ -318,7 +318,7 @@ read off its manifest: a walk note that says its rows are short of what it reach
 `walk.depth`, the path bound, a `walk.through` left-out line counting edge-kind rows, a mesh whose links or a script
 whose parent was not read) makes the file a lower bound, while a left-out line counting record types only, NPC
 boundaries and unfollowed form links are the walk's own definition of reached and say nothing. The epoch is compared
-into a note, never refused: none says whether it is this build's is unknown, an order this call cannot read says it
+into a note, never refused: a file with no epoch says whether it was written on this build is unknown, an order this call cannot read says it
 could not compare, an epoch an older houseCARL wrote says it cannot be compared, and another build's says the file may
 not hold what its call answers now; either way the rows still come (DECISIONS 2026-11-11 (20), Q3 (a)). With no load-order
 selector at all (a file on disk, a walk seeded by `records=` alone) the note still says it removed nothing. An empty
