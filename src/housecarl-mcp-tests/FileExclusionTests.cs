@@ -398,6 +398,8 @@ public sealed class FileExclusionDepthTests : IClassFixture<AssetWalkDoorWorld>
             // The walk reached no file, so its file has no rows: the empty set, which removes nothing.
             Assert.Contains("exclude= removed 0 of the 1 selected path(s).", r);
             Assert.Contains("(1 path selected", r);
+            // Every other list keeps the door's no-rows refusal.
+            Assert.Contains("has a manifest but no rows", AssetTools.AssetStatus(_w.Svc, paths: new[] { "@" + f }));
         }
         finally { File.Delete(f); }
     }
