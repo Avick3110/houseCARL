@@ -307,6 +307,8 @@ public static class AssetTools
                 new("read_incomplete", data.ReadIncomplete ? "true" : "false"),
                 new("discovery_warnings", data.Warnings.Count.ToString()),
             };
+            // Only when given, so a file of a call without it is main's.
+            if (exclusion is not null) e.Insert(4, new("exclude", exclusion.Echo));
             // WHICH rows the file holds, in the records lane's spelling — a re-read months later has no conversation to recover it from. Never on the to_file= arm, which is never a window.
             if (!wantFile && data.Selected != data.Results.Count)
                 e.Add(new("window", data.Results.Count == 0

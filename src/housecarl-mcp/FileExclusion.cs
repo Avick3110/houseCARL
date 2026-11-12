@@ -23,8 +23,11 @@ public sealed class FileExclusion
     readonly List<Func<string, bool>> _globs;
     readonly IReadOnlyList<string> _leading;
 
-    FileExclusion(HashSet<string> plain, List<Func<string, bool>> globs, IReadOnlyList<string> leading)
-        => (_plain, _globs, _leading) = (plain, globs, leading);
+    /// <summary>The exclusion as a file's query echo records it: the <c>@file</c> as the door echoes it, else the inline count.</summary>
+    internal string Echo { get; }
+
+    FileExclusion(HashSet<string> plain, List<Func<string, bool>> globs, IReadOnlyList<string> leading, string echo)
+        => (_plain, _globs, _leading, Echo) = (plain, globs, leading, echo);
 
     /// <summary>The exclusion <paramref name="arg"/> names, null when it is unset, or the refusal for a list the door
     /// refuses or an entry that names no Data path. A file from another build or a cut walk is said, not refused.</summary>
@@ -49,7 +52,8 @@ public sealed class FileExclusion
             }
             catch (ArgumentException ex) { return (null, $"error: exclude= entry '{entry}': {ex.Message}"); }
         }
-        return (new FileExclusion(plain, patterns.Select(AssetGlob.Matcher).ToList(), read.Demand is { } d ? Leading(d, svc) : Array.Empty<string>()), null);
+        return (new FileExclusion(plain, patterns.Select(AssetGlob.Matcher).ToList(), read.Demand is { } d ? Leading(d, svc) : Array.Empty<string>(),
+                                  read.EchoSource ?? $"{read.Tokens.Length} inline path(s)"), null);
     }
 
     /// <summary>What a file entry cannot say by its paths alone: its walk was cut, or it was written on another build.</summary>
