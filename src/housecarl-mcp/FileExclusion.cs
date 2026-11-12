@@ -55,7 +55,7 @@ public sealed class FileExclusion
             catch (ArgumentException ex) { return (null, $"error: exclude= entry '{entry}': {ex.Message}"); }
         }
         return (new FileExclusion(plain, patterns.Select(AssetGlob.Matcher).ToList(), read.Demand is { } d ? Leading(d, svc) : Array.Empty<string>(),
-                                  read.EchoSource ?? $"{read.Tokens.Length} inline path(s)"), null);
+                                  read.EchoSource ?? $"{read.Tokens.Length} inline entr{(read.Tokens.Length == 1 ? "y" : "ies")}"), null);
     }
 
     /// <summary>Was an exclusion given: an empty list is unset, as on the other selectors; an '@file' with no rows is given.</summary>
