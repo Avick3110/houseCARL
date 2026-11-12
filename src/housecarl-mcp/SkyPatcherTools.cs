@@ -425,7 +425,7 @@ static class SkyPatcherWire
         var sb = new StringBuilder();
         sb.Append("SkyPatcher layer — lines naming a form of ").Append(echo).Append(filter is null ? "" : " in filter '" + filter + "'")
           .Append(" — 0 of ").Append(files).Append(" INI(s) hold one [profile '").Append(d.ProfileName).Append("']\n\n")
-          .Append("nothing matched: no patch line names such a form as a target, a filter form or an op value. A line names a form " +
+          .Append("nothing matched: no patch line names such a form as a target, a filter form, an op value or under a key SkyPatcher does not document. A line names a form " +
                   "by Plugin|FormID, or by an EditorID where the replay looks one up; a ~name~ literal names no record. " +
                   "Omit formids= and plugins= for the whole-layer overview.\n");
         return CloseZero(d, sb, cap, caveats);

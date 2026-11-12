@@ -158,6 +158,7 @@ public sealed class LayerSelectTests : IDisposable
         Assert.Contains("no-op scan: 1 explicit EditorID target(s) did not resolve", Layer());   // the overview carries it
         var text = Layer(formids: new[] { "000899:HcSpRel.esp" });
         Assert.Contains("0 of 3 INI(s) hold one", text);
+        Assert.Contains("as a target, a filter form, an op value or under a key SkyPatcher does not document.", text);
         Assert.DoesNotContain("no-op scan", text);
         Assert.DoesNotContain("patch line(s)", text);   // never the overview
     }
