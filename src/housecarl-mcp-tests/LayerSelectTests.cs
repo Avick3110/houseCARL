@@ -22,7 +22,8 @@ public sealed class LayerSelectTests : IDisposable
 
     // :1 a FormID target, :2 an EditorID target (HcSpRelOther.esp overrides it), :3 a keyword filter by EditorID and an
     // op value by FormID, :4 an op value by EditorID, :5 a name literal spelling a FormID, :6 an unknown key with a
-    // FormID in its second sub-arg, :7 an EditorID target that names nothing (the layer's one no-op note).
+    // FormID in its second sub-arg, :7 an EditorID target that names nothing (the layer's one no-op note), :8 an op value
+    // HcSpRelOther.esp does not define, :9 an EditorID in an op value's second sub-arg, :10 a target named twice.
     // HcOther.ini: a line with no selected form. ../bogusFolder: an undocumented folder's line.
     public LayerSelectTests() => _w = new SkyPatcherRelevanceWorld(new[]
     {
@@ -32,7 +33,10 @@ public sealed class LayerSelectTests : IDisposable
               + "filterByArmors=HcSpRel.esp|812:keywordsToAdd=HcAddKw\r\n"
               + "filterByArmors=HcSpRel.esp|812:fullName=~HcSpRel.esp|810~\r\n"
               + "filterByArmors=HcSpRel.esp|812:bogusKey=x~HcSpRel.esp|802\r\n"
-              + "filterByArmors=HcNoSuchArmor:value=1\r\n"),
+              + "filterByArmors=HcNoSuchArmor:value=1\r\n"
+              + "filterByArmors=HcSpRel.esp|812:keywordsToAdd=HcSpRelOther.esp|8FF\r\n"
+              + "filterByArmors=HcSpRel.esp|812:keywordsToAdd=HcSpRel.esp|802~HcAddKw\r\n"
+              + "filterByArmors=HcSpRel.esp|810,HcSpRel.esp|810:keywordsToAdd=HcSpRel.esp|802\r\n"),
         ("HcOther.ini", "filterByArmors=HcSpRel.esp|812:value=9\r\n"),
         ("../bogusFolder/HcBogus.ini", "anything=HcSpRel.esp|811\r\n"),
     }, otherPlugin: true,
@@ -92,6 +96,14 @@ public sealed class LayerSelectTests : IDisposable
         var text = Layer(plugins: new[] { Other }, definedIn: true);
         Assert.DoesNotContain(":2  filterByArmors=HcPlainCuirass", text);
         Assert.Contains("(defined_in)", text);
+    }
+
+    // :8 names HcSpRelOther.esp|8FF, a form HcSpRelOther.esp does not hold: neither plugins= nor defined_in selects it.
+    [Fact]
+    public void AFormItsOwnPluginDoesNotHoldIsSelectedByNeitherPluginsReading()
+    {
+        Assert.DoesNotContain(":8  ", Layer(plugins: new[] { Other }));
+        Assert.DoesNotContain(":8  ", Layer(plugins: new[] { Other }, definedIn: true));
     }
 
     // As on records, a narrowing like AI Overhaul's: a plugin that only overrides the forms lines name selects none of them.
