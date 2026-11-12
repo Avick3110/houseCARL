@@ -63,7 +63,8 @@ server-side consumption is EPOCH-CHECKED against the current build: a mismatch i
 epochs, with deliberately NO stale-override parameter. The check happens after the consuming call's own capture,
 inside the service, so the check and the answer read the same build. An artifact whose identity column is not the
 one the parameter takes is refused by name, and an identity that is not a FormID is not epoch-checked at all,
-because it names no record that could go stale.
+because it names no record that could go stale; `exclude=` alone compares a `path` artifact's epoch, into a note,
+never a refusal (assets.md, "Selecting a set of paths").
 
 **Every list parameter goes through one list door.** A tool's list parameter is typed `ListArg`, not `string[]`,
 and its entries are read only through `ListDoor.Read`, so a new list takes `@file` without having to opt in. The
@@ -88,8 +89,11 @@ door at the head of `housecarl_records`; the JSON-element lists (`ops`, `assignm
 - `references=`'s `!` before an `@file` entry negates every token the file holds.
 
 The door returns the `ArtifactDemand` and never checks it: each consumer checks it against its own capture. The
-asset walk checks `formids=` and `records=` each, `nif_inspect formids=` and `check formids=`/`seeds=` check theirs, and
-`forward`/`remove` still refuse a `formid` artifact outright. Four string-typed lists, `compile_script import_dirs=`,
+asset walk checks `formids=` and `records=` each, `nif_inspect formids=` and `check formids=`/`seeds=` check theirs,
+`exclude=` reads its demand's epoch and walk notes into notes (`FileExclusion`), and `forward`/`remove` still refuse
+a `formid` artifact outright. An artifact with a manifest and no rows is refused as no list, except under
+`exclude=` (`ListKind.Exclusion`, `ReadIdentity`'s `noRowsIsEmpty`), where it is the empty set; an all-error
+artifact is refused there too. Four string-typed lists, `compile_script import_dirs=`,
 `nexus_check_updates mods=`, `nexus_identify md5=` and `nif_inspect sections=`, have their own separators and take
 no `@file`. Neither does an op's `values=` inside `ops=`, which is data written to a record.
 
