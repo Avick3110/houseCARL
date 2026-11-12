@@ -96,7 +96,7 @@ internal static class AssetArtifact
     }
 
     /// <summary>One row, every column present so a consumer can index by name — except <c>error</c>, written ONLY on
-    /// a failed row, because its presence is the artifact contract's marker for a row that names no identity.</summary>
+    /// a failed row; a non-null <c>error</c> is the artifact contract's marker for a row that names no identity.</summary>
     static void Row(Utf8JsonWriter w, AssetPathResult r)
     {
         w.WriteStartObject();
