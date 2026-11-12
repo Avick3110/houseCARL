@@ -42,7 +42,7 @@ public static class StatusTools
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
         // Read only for a filter: the facts are a per-plugin locate and header read, and the whole-profile summary asks about none.
-        var facts = filter is { Length: > 0 } ? svc.PluginFactsFor(filter.Trim(), data) : null;
+        var facts = filter is { Length: > 0 } && data.ModsFolderUnreadable is null ? svc.PluginFactsFor(filter.Trim(), data) : null;
         return ToolAnswer.Served(StatusWire.Render(data, logs, profiles, filter, facts, Wire.Cap(max_chars)));
     });
 }
@@ -67,6 +67,8 @@ static class StatusWire
         sb.Append(ServerLine);
         // The resolved MO2 instance; null means explicit-paths mode, which has no MO2 instance folder.
         sb.Append("instance: ").Append(d.InstanceDir ?? "explicit-paths mode (no MO2 instance configured)").Append('\n');
+        if (d.ModsFolderUnreadable is { } unread)
+            sb.Append("[!] ").Append(unread).Append(" Every record, check, asset and write call refuses until it can be opened.\n");
         sb.Append("mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("plugins in load order: ").Append(c.OrderedPluginNames.Count).Append('\n');
         sb.Append("  active:   ").Append(gameLoaded).Append("  (").Append(checkedActive).Append(" checked + ").Append(impl).Append(" implicit masters/CC)\n");
@@ -76,7 +78,7 @@ static class StatusWire
         if (d.Epoch is not null) sb.Append("  epoch=").Append(d.Epoch);   // the current build's fingerprint — bulk responses stamp the build they read, matched against this
         sb.Append('\n');
         // The containment map's size, in band: it is built on every index build, so its cost is stated rather than discovered as memory.
-        sb.Append("containment: ").Append(d.ContainedRecordCount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
+        if (d.ModsFolderUnreadable is null) sb.Append("containment: ").Append(d.ContainedRecordCount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
           .Append(" child record(s) mapped to a containing record (the '*parent' step reads this)\n");
         if (d.ProfileChanged)
             sb.Append("[!] the profile changed mid-call and a refresh is still pending — houseCARL re-reads it " +
@@ -87,7 +89,7 @@ static class StatusWire
 
         if (filter is { Length: > 0 })
         {
-            AppendLookup(sb, c, d.ExcludedPlugins, filter.Trim(), facts);
+            AppendLookup(sb, c, d.ExcludedPlugins, filter.Trim(), facts, d.ModsFolderUnreadable is not null);
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -222,7 +224,7 @@ static class StatusWire
 
     static void AppendLookup(StringBuilder sb, HousecarlCore.Mo2Composition c,
                              IReadOnlyDictionary<string, string> excluded, string name,
-                             PluginFacts? facts = null)
+                             PluginFacts? facts = null, bool modsUnreadable = false)
     {
         sb.Append("\nfilter '").Append(name).Append("':\n");
 
@@ -252,6 +254,10 @@ static class StatusWire
         // An active plugin can still be excluded from the index, so the ACTIVE line above must not be taken as the whole truth.
         if (excluded.TryGetValue(name, out var why))
             sb.Append("  [!] EXCLUDED this session: ").Append(why).Append("\n      → houseCARL does NOT read this plugin, so any record it overrides is answered without its version.\n");
+
+        // No mod folder was read, so no copy can be placed: say so rather than "no folder holds it".
+        if (modsUnreadable && !pluginMiss)
+            sb.Append("  served from: unknown — houseCARL could not open the mods folder, so which folder serves this plugin cannot be read\n");
 
         // A name the profile lists as a plugin: its copies, then the header facts and the LOCALIZED flag the in-place write lanes refuse on.
         if (facts is null) return;
