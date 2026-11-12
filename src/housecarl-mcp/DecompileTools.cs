@@ -116,7 +116,7 @@ public static class DecompileTools
                                             "'scripts/<name>.pex', or the full path to a .pex on disk), under= or provider=.");
 
         // One file on disk, nothing else asked of the transport: today's single-file answer.
-        if (entries is [{ OnDisk: true } only] && underTokens.Length == 0 && string.IsNullOrWhiteSpace(provider) && exclude is null
+        if (entries is [{ OnDisk: true } only] && underTokens.Length == 0 && string.IsNullOrWhiteSpace(provider) && !FileExclusion.Given(exclude)
             && string.IsNullOrWhiteSpace(source_provider) && !json && !window.IsPaged && !counts_only && max_chars <= 0)
             return SingleFile(svc, only.Path, patch, into, out_path);
         return DecompileBatch.Run(svc, new DecompileBatch.Call(entries, underTokens, provider, source_provider, patch, into,

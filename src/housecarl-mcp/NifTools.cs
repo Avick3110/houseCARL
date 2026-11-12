@@ -186,7 +186,7 @@ public static class NifTools
 
         // The load order is read for any Data path or selector, and for the paths section's links; files on disk alone need none.
         bool needView = entries.Any(e => !e.OnDisk) || ids.Count > 0 || underTokens.Length > 0
-                        || !string.IsNullOrWhiteSpace(provider) || want.Contains("paths") || exclude is not null;
+                        || !string.IsNullOrWhiteSpace(provider) || want.Contains("paths") || FileExclusion.Given(exclude);
         if (needView && svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(json, prompt);
         if (idsIn.Demand is { } demand && svc.CaptureView().Stamp.Epoch is var epoch && demand.Epoch != epoch)
             return ToolAnswer.Refusal(json, "error: " + RecordReads.ArtifactEpochMismatch(demand, epoch));

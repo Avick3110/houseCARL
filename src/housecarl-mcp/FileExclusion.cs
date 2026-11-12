@@ -35,7 +35,7 @@ public sealed class FileExclusion
     {
         var read = arg.Read("exclude", ListKind.Exclusion);
         if (read.Error is not null) return (null, read.Error);
-        if (read.Tokens is null) return (null, null);
+        if (!Given(arg)) return (null, null);
         var plain = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var patterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var raw in read.Tokens)
@@ -55,6 +55,9 @@ public sealed class FileExclusion
         return (new FileExclusion(plain, patterns.Select(AssetGlob.Matcher).ToList(), read.Demand is { } d ? Leading(d, svc) : Array.Empty<string>(),
                                   read.EchoSource ?? $"{read.Tokens.Length} inline path(s)"), null);
     }
+
+    /// <summary>Was an exclusion given: an empty list is unset, as on the other selectors; an '@file' with no rows is given.</summary>
+    internal static bool Given(ListArg? arg) => arg is { Entries.Count: > 0 };
 
     /// <summary>What a file entry cannot say by its paths alone: its walk was cut, or it was written on another build.</summary>
     static List<string> Leading(ArtifactDemand d, LoadOrderService svc)

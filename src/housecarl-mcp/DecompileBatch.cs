@@ -37,7 +37,7 @@ internal static class DecompileBatch
         string provider = c.Provider?.Trim() ?? "";
         string sourceProvider = c.SourceProvider?.Trim() ?? "";
         var dataPaths = c.Entries.Where(e => !e.OnDisk).Select(e => e.Path).ToList();
-        bool selecting = dataPaths.Count > 0 || c.Under is { Count: > 0 } || provider.Length > 0 || c.Exclude is not null;
+        bool selecting = dataPaths.Count > 0 || c.Under is { Count: > 0 } || provider.Length > 0 || FileExclusion.Given(c.Exclude);
 
         // The selection reads the load order, and so does the default lane; out_path= over files on disk needs neither.
         if ((selecting || !chosenOutput) && svc.ConfigPromptOrNull() is { } cfgPrompt) return ToolAnswer.Refusal(json, cfgPrompt);
