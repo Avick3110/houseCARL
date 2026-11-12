@@ -397,6 +397,52 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
     }
 }
 
+/// <summary>Q3 (a) on an order that does not build: a file with an epoch says this call could not compare it.</summary>
+[Trait("tier", "unit")]
+public sealed class FileExclusionNoOrderTests : IDisposable
+{
+    readonly string _root = Path.Combine(Path.GetTempPath(), "hc-exclude-noorder-" + Guid.NewGuid().ToString("N"));
+    readonly string _instance;
+    const string Tex = @"textures\hcnoorder\a.dds";
+
+    /// <summary>An instance whose profile enables no plugin, so the order cannot be read for a stamp; one loose texture.</summary>
+    public FileExclusionNoOrderTests()
+    {
+        _instance = Path.Combine(_root, "instance");
+        var profile = Path.Combine(_instance, "profiles", "Default");
+        var tex = Path.Combine(_instance, "mods", "TexMod", Tex);
+        Directory.CreateDirectory(profile);
+        Directory.CreateDirectory(Path.GetDirectoryName(tex)!);
+        Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
+        File.WriteAllText(Path.Combine(_instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
+        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n");
+        File.WriteAllText(Path.Combine(profile, "plugins.txt"), "");
+        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+TexMod\r\n");
+        File.WriteAllBytes(tex, new byte[] { 1, 2, 3 });
+    }
+
+    public void Dispose() { try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ } }
+
+    [Fact]
+    public void AFileWithAnEpochOnAnOrderThatCannotBeReadSaysItCouldNotCompare()
+    {
+        using var svc = LoadOrderService.WithInstance(_instance, 0, new UserConfigStore(Path.Combine(_root, "user")));
+        var f = Path.Combine(_root, "made.jsonl");
+        Assert.DoesNotContain("error:", AssetTools.AssetStatus(svc, paths: new[] { Tex }, to_file: f));
+        var lines = File.ReadAllLines(f);
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(lines[0])!.AsObject();
+        Assert.Equal("", manifest["epoch"]!.GetValue<string>());
+        manifest["epoch"] = "e2-0000000000000000";
+        lines[0] = manifest.ToJsonString();
+        File.WriteAllLines(f, lines);
+        using var doc = JsonDocument.Parse(AssetTools.AssetStatus(svc, paths: new[] { Tex }, exclude: new[] { "@" + f }, format: "json"));
+        Assert.StartsWith($"exclude= file '{f}' was written at epoch=e2-0000000000000000, and this call could not read the load order to compare — ",
+                          doc.RootElement.GetProperty("selector_notes")[0].GetString());
+    }
+}
+
 /// <summary>Q3 (a) on a walk cut at walk.depth: a chain of lists walked one hop out.</summary>
 [Trait("tier", "unit")]
 public sealed class FileExclusionDepthTests : IClassFixture<AssetWalkDoorWorld>
