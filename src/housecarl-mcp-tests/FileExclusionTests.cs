@@ -118,7 +118,8 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
     {
         var (paths, notes) = Json(AssetTools.AssetStatus(_w.Svc, formids: new[] { "nope" }, exclude: new[] { "nope" }, format: "json", max_chars: Big));
         Assert.Equal(new[] { "nope" }, paths);
-        Assert.Contains("exclude= removed 0 of the 1 selected path(s); 1 of its 1 entries matched no selected path, so removed nothing.", notes);
+        Assert.Contains("exclude= removed 0 of the 1 selected path(s) (1 of them error rows, which it never removes); " +
+                        "1 of its 1 entries matched no selected path, so removed nothing.", notes);
     }
 
     /// <summary>Q2 (a): an exclusion that empties the selection is the answer, zero rows, not a refusal.</summary>
