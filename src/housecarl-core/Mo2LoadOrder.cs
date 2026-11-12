@@ -49,8 +49,8 @@ public sealed class ProfileUnreadableException : IOException
 /// <summary>The mods folder exists but would not list, so any answer off the order would miss every mod; carries the order read, for status.</summary>
 public sealed class ModsFolderUnreadableException(string modsDir, string reason, Mo2OrderResult order) : Exception(
     $"houseCARL could not open the mods folder '{modsDir}' ({reason}), so no mod's plugins or files were read: only " +
-    $"{order.ResolvedCount:N0} of {order.ActiveCount:N0} active plugins resolved, from the game Data and overwrite folders. " +
-    "Make the folder readable (a junction whose target is gone, or a drive that is offline?) and run this again.")
+    $"{order.ResolvedCount:N0} of {order.ActiveCount:N0} active plugins resolved, from the folders outside it. " +
+    "Make the folder readable (a junction whose target is gone, or a folder that denies listing?) and run this again.")
 {
     /// <summary>The order as far as it resolved without the mods folder.</summary>
     public Mo2OrderResult Order { get; } = order;
@@ -140,8 +140,8 @@ public static class Mo2LoadOrder
     public static IReadOnlyList<string> UnopenedModFolders(IEnumerable<string> mods, string modsDir) =>
         string.IsNullOrWhiteSpace(modsDir) ? [] : mods.Where(m => WillNotOpen(LooseListings.OnDisk(modsDir, m))).ToList();
 
-    /// <summary>An enumeration that throws on a folder that will not open, rather than reading it as empty, and skips no entry.</summary>
-    static readonly EnumerationOptions Strict = new() { RecurseSubdirectories = false, IgnoreInaccessible = false, AttributesToSkip = 0 };
+    /// <summary>An enumeration that throws on a folder that will not open, rather than reading it as empty; hidden and system files are skipped, as before.</summary>
+    static readonly EnumerationOptions Strict = new() { RecurseSubdirectories = false, IgnoreInaccessible = false };
 
     /// <summary>Parse the profile's enabled/disabled composition from the three profile text files; <see cref="Build"/> adds the physical-path resolution on top.</summary>
     public static Mo2Composition ReadComposition(string profileDir, List<string>? warnings = null)
@@ -213,7 +213,7 @@ public static class Mo2LoadOrder
         return map;
     }
 
-    /// <summary>Top-level *.esp/.esm/.esl in one folder, as (filename, full path); silent on a missing or inaccessible folder, since a modlist entry can lack a real folder.</summary>
+    /// <summary>Top-level *.esp/.esm/.esl in the overwrite or game Data folder, as (filename, full path); empty on a missing folder or one that will not open.</summary>
     static IEnumerable<(string fn, string full)> EnumeratePlugins(string dir) => ListPlugins(dir) ?? [];
 
     /// <summary>As <see cref="EnumeratePlugins"/>, but null for a folder that exists and will not open; a missing one is empty.</summary>
