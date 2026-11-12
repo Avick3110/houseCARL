@@ -148,7 +148,9 @@ public sealed class LayerSelectTests : IDisposable
     [Fact]
     public void FilterAndSelectorMustBothMatchAFile()
     {
-        Assert.Contains("0 of 3 INI(s) hold one", Layer(formids: new[] { _w.Plain }, filter: "HcOther"));
+        var zero = Layer(formids: new[] { _w.Plain }, filter: "HcOther");
+        Assert.Contains("0 of 3 INI(s) hold one", zero);
+        Assert.Contains("Omit formids=, plugins= and filter= for the whole-layer overview.", zero);   // filter= alone would list HcOther.ini
         Assert.Contains(":1  ", Layer(formids: new[] { _w.Heel }, filter: Ini));
     }
 
