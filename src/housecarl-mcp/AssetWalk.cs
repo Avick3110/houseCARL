@@ -16,18 +16,26 @@ public sealed record AssetWalkNode(string Path, string Edge, string PulledBy, Wa
                                    PlacementSource? Copy, bool Keyed = false, string? Note = null, string? Error = null,
                                    HiddenCopies? Hidden = null);
 
-/// <summary>How the walk's notes open when it stopped short of everything it reaches, so a reader of its file can tell
-/// a cut walk from a whole one by the same words the walk wrote.</summary>
+/// <summary>The walk's notes that say its rows are short of everything it reaches, so a reader of its file can tell a
+/// cut walk from a whole one by the same words the walk wrote.</summary>
 internal static class WalkCut
 {
     internal const string MaxNodes = "the walk stopped entering records at walk.max_nodes=";
     internal const string Files = "the walk stopped at ";
     internal const string DepthTail = "hops from a seed and were not entered";
+    internal const string LinksUnread = ": its links were not read — ";
+    internal const string ParentUnread = ": its parent class was not read — ";
+    internal const string LeftOut = "left out, not in walk.through: ";
+    /// <summary>The tail of an edge-kind count on the left-out line, "N &lt;edge&gt; row(s)"; a record-type count has none.</summary>
+    internal const string Row = " row";
 
-    /// <summary>Is this walk note one that says the walk did not reach everything?</summary>
+    /// <summary>Is this walk note one that says the walk's rows do not hold everything it reaches?</summary>
     internal static bool Says(string note) =>
         note.StartsWith(MaxNodes, StringComparison.Ordinal) || note.StartsWith(Files, StringComparison.Ordinal)
-        || note.Contains(DepthTail, StringComparison.Ordinal);
+        || note.Contains(DepthTail, StringComparison.Ordinal)
+        || note.Contains(LinksUnread, StringComparison.Ordinal) || note.Contains(ParentUnread, StringComparison.Ordinal)
+        || note.StartsWith(LeftOut, StringComparison.Ordinal)
+           && note[LeftOut.Length..].Split(", ").Any(c => c.EndsWith(Row, StringComparison.Ordinal) || c.EndsWith(Row + "s", StringComparison.Ordinal));
 }
 
 /// <summary>The data behind <c>asset_status walk=true</c>: every node shown in walk order, what the walk noted (records
@@ -145,7 +153,7 @@ internal sealed partial class AssetLayers
                 if (n.Path.EndsWith(".nif", StringComparison.OrdinalIgnoreCase))
                 {
                     var (links, err) = MeshLinks(view, n.Copy);
-                    if (links is null) { notes.Add($"{n.Path}: its links were not read — {err}"); continue; }
+                    if (links is null) { notes.Add($"{n.Path}{WalkCut.LinksUnread}{err}"); continue; }
                     foreach (var l in links)
                     {
                         if (l.DataPath is { } d) AddFile(d, l.Kind.Edge(), n.Path);
@@ -156,9 +164,9 @@ internal sealed partial class AssetLayers
                 {
                     // A parent that cannot be read is a note on the script, as a mesh's unread links are, not a second row at its path.
                     var (bytes, readErr) = view.ReadSource(n.Copy);
-                    if (bytes is null) { notes.Add($"{n.Path}: its parent class was not read — {readErr ?? "could not read the script bytes."}"); continue; }
+                    if (bytes is null) { notes.Add($"{n.Path}{WalkCut.ParentUnread}{readErr ?? "could not read the script bytes."}"); continue; }
                     try { if (AssetWalkEdges.ParentPex(bytes) is { } parent) AddFile(parent, WalkEdgeKind.Parent, n.Path); }
-                    catch (Exception ex) { notes.Add($"{n.Path}: its parent class was not read — {ex.Message}"); }
+                    catch (Exception ex) { notes.Add($"{n.Path}{WalkCut.ParentUnread}{ex.Message}"); }
                 }
             }
         }
