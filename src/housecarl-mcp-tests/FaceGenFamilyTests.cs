@@ -447,11 +447,13 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenClassFixture>
     {
         using var ran = JsonDocument.Parse(CheckTools.CheckTool(
             _w.Svc, findings: new[] { "facegen" }, format: "json", max_chars: 60000));
-        foreach (var list in new[] { "warnings", "archive_read_failures" })
-        {
-            Assert.Equal(0, ran.RootElement.GetProperty(list).GetArrayLength());
-            Assert.Equal(0, ran.RootElement.GetProperty(list + "_omitted").GetInt32());
-        }
+        Assert.Equal(0, ran.RootElement.GetProperty("archive_read_failures").GetArrayLength());
+        Assert.Equal(0, ran.RootElement.GetProperty("archive_read_failures_omitted").GetInt32());
+        // The one warning is the unlistable enabled mod folder's BSAs going unscanned.
+        var warnings = ran.RootElement.GetProperty("warnings").EnumerateArray().Select(e => e.GetString()!).ToList();
+        Assert.Equal(_w.UnlistedStaged ? 1 : 0, warnings.Count);
+        if (_w.UnlistedStaged) Assert.Contains(FaceGenWorld.UnlistedMod, warnings[0]);
+        Assert.Equal(0, ran.RootElement.GetProperty("warnings_omitted").GetInt32());
         // The base world stages an unlistable mod folder, so its roots were computed and need not be empty.
         Assert.Equal(JsonValueKind.Array, ran.RootElement.GetProperty("root_read_failures").ValueKind);
         Assert.Equal(JsonValueKind.Number, ran.RootElement.GetProperty("root_read_failures_omitted").ValueKind);
