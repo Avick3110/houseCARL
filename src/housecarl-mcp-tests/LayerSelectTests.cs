@@ -58,6 +58,43 @@ public sealed class LayerSelectTests : IDisposable
         Assert.Contains("lines naming a form of formids=[" + _w.Plain + "] — 2 line(s) in 2 of 3 INI(s)", text);   // the bogus folder's '|' form too
     }
 
+    /// <summary>Pins unchanged behaviour: the header counts selected lines, not the files holding them.</summary>
+    [Fact]
+    public void TheHeaderCountsSelectedLines()
+        => Assert.Contains("— 6 line(s) in 2 of 3 INI(s)", Layer(formids: new[] { "000812:HcSpRel.esp" }));
+
+    /// <summary>Pins unchanged behaviour: only an op value's leading sub-arg is looked up as an EditorID, so :9's HcAddKw names nothing.</summary>
+    [Fact]
+    public void AnEditorIdPastTheLeadingSubArgNamesNothing()
+    {
+        var text = Layer(formids: new[] { AddKw });
+        Assert.Contains(":4  ", text);
+        Assert.DoesNotContain(":9  ", text);
+    }
+
+    /// <summary>Pins unchanged behaviour: a form a line names twice is labelled once.</summary>
+    [Fact]
+    public void AFormNamedTwiceOnALineIsLabelledOnce()
+    {
+        var text = Layer(formids: new[] { _w.Heel });
+        Assert.Contains(":10  ", text);
+        Assert.Equal(2, text.Split("↳ target filterByArmors: " + _w.Heel).Length - 1);   // :1 and :10
+    }
+
+    /// <summary>Pins unchanged behaviour: a selection that lists lines carries the whole layer's no-op notes, as the overview does.</summary>
+    [Fact]
+    public void ANonZeroSelectionCarriesTheNoOpNotes()
+        => Assert.Contains("no-op scan: 1 explicit EditorID target(s) did not resolve", Layer(formids: new[] { _w.Plain }));
+
+    /// <summary>Pins unchanged behaviour: a selector refusal answers before the no-op scan walks any EditorID.</summary>
+    [Fact]
+    public void ASelectorRefusalRunsNoScan()
+    {
+        var before = _w.Svc.Counters.EditorIdSweeps;
+        Assert.StartsWith("error: formids= entry 'nonsense'", Layer(formids: new[] { "nonsense" }));
+        Assert.Equal(before, _w.Svc.Counters.EditorIdSweeps);
+    }
+
     [Fact]
     public void FormidsSelectAFilterFormByEditorId()
     {
@@ -94,6 +131,7 @@ public sealed class LayerSelectTests : IDisposable
     public void DefinedInDropsRecordsThePluginOnlyOverrides()
     {
         var text = Layer(plugins: new[] { Other }, definedIn: true);
+        Assert.Contains(":3  ", text);   // what HcSpRelOther.esp defines is kept
         Assert.DoesNotContain(":2  filterByArmors=HcPlainCuirass", text);
         Assert.Contains("(defined_in)", text);
     }
