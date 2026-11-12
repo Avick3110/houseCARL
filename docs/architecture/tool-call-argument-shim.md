@@ -98,14 +98,20 @@ carries the whole-call error is refused exactly where its json writes `ok:false`
 required argument, an unknown parameter, `in_place` naming a file, a type mismatch, an argument that would
 not bind), each built as an error result directly; every body refusal, the config prompt (no tool can do its job
 until setup is done) and the tool-path prompt, and the Guard's own (a plugin changed mid-call, the call's record and file views split across a load-order change, a profile
-locked mid-re-sort, a refused game language, an unhandled exception). The in-place consent prompt is
+locked mid-re-sort, a refused game language, a mods folder that will not open, an unhandled exception). The
+mods-folder refusal is text on every transport, its sentence followed by a pointer to `load_order_status`, which
+still answers. The in-place consent prompt is
 served: it is a question the next call answers, `needs_acknowledge` in json. A per-row error inside a
 served batch is not a refusal. A tool method called directly, outside the filter, opens no verdict and
 returns the same text.
 
 The body takes the call's `ToolCall`, which `Guard` opens and disposes around it: it holds the mid-call
 mark, the game-language binding and the per-call context (`docs/architecture/load-order-service.md`, "The
-per-call context"). `Guard` refuses the call when the context or the mark carries a refusal.
+per-call context"). `Guard` refuses the call when the context or the mark carries a refusal. When the call's
+build carries an order note (some enabled mod folder would not open), `Guard` leads the rendered answer with it,
+on the outermost call only: the note's line ahead of a text answer, or `order_note` as the first member of a JSON
+object, which is then re-serialized indented. The note is added after the body was capped, so it is outside
+`max_chars` ([`render-budget.md`](render-budget.md)).
 
 ## Pinned by
 
