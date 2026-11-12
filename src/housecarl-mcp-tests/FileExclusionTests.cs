@@ -253,6 +253,18 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         Assert.DoesNotContain("exclude", Query(plain).Keys);
     }
 
+    /// <summary>Row 4: a walk seeded by a provider minus an exclusion records it among its seeds; one without does not.</summary>
+    [Fact]
+    public void AWalksFileRecordsItsSeedsExclusion()
+    {
+        var f = File("walk-minus");
+        Assert.DoesNotContain("error:", AssetTools.AssetStatus(_w.Svc, provider: Mod, exclude: new[] { "scripts" }, walk: Walks.On, to_file: f));
+        Assert.Equal("1 inline path(s)", Query(f)["exclude"]);
+        var plain = File("walk-plain");
+        AssetTools.AssetStatus(_w.Svc, provider: Mod, walk: Walks.On, to_file: plain);
+        Assert.DoesNotContain("exclude", Query(plain).Keys);
+    }
+
     /// <summary>The list door's own refusal for an '@file' beside inline entries, and a blank entry, refused.</summary>
     [Fact]
     public void MixedFileAndInlineAndABlankEntryAreRefused()

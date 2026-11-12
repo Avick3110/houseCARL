@@ -419,6 +419,7 @@ public static class AssetTools
         if (under is { Length: > 0 }) seedEcho.Add(new("under", string.Join(",", under)));
         if (formids is { Length: > 0 }) seedEcho.Add(new("formids", idsIn.EchoSource ?? $"{formids.Length} inline formid(s)"));
         if (!string.IsNullOrWhiteSpace(provider)) seedEcho.Add(new("provider", provider.Trim()));
+        if (exclude is not null) seedEcho.Add(new("exclude", exclude.Echo));
         if (recordsIn.Tokens is { Length: > 0 } recs) seedEcho.Add(new("records", recordsIn.EchoSource ?? string.Join(",", recs)));
 
         if (toFile is not null)
