@@ -126,10 +126,10 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
     [Fact]
     public void AnExclusionThatEmptiesTheSelectionAnswersZeroRows()
     {
-        var all = Json(Status(null)).Paths.Length;
+        // The Cape mod's seven files, a literal so a change of the total fails here, not in a sibling call too.
         var (paths, notes) = Json(Status(new[] { "**" }));
         Assert.Empty(paths);
-        Assert.Equal($"exclude= removed {all} of the {all} selected path(s).", Assert.Single(notes));
+        Assert.Equal("exclude= removed 7 of the 7 selected path(s).", Assert.Single(notes));
         Assert.Contains("census: counted=0 ", Status(new[] { "**" }, counts: true));
     }
 
@@ -140,12 +140,12 @@ public sealed class FileExclusionTests : IClassFixture<AssetWalkWorld>
         var f = CapeWalk();
         var r = NifTools.NifInspect(_w.Svc, provider: Mod, exclude: new[] { "@" + f }, counts_only: true);
         var all = NifTools.NifInspect(_w.Svc, provider: Mod, counts_only: true);
-        // The walk's three files leave the cape mod's other files, of which two are meshes; whole lines, so a count in the tens fails.
-        var shipped = Json(Status(null)).Paths.Length;
+        // The walk's three files leave four of the cape mod's seven, of which two are meshes; whole lines and literal
+        // totals, so a count in the tens fails.
         var lines = r.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
         Assert.True(lines[0].EndsWith("(2 meshes selected, provider \"Cape\")"), r);
-        Assert.Contains($"note: exclude= removed 3 of the {shipped} selected path(s).", lines);
-        Assert.Contains($"note: {shipped - 3 - 2} file(s) the selectors matched are not .nif meshes and were left out; under=[\"meshes/**/*.nif\"] selects only meshes.", lines);
+        Assert.Contains("note: exclude= removed 3 of the 7 selected path(s).", lines);
+        Assert.Contains("note: 2 file(s) the selectors matched are not .nif meshes and were left out; under=[\"meshes/**/*.nif\"] selects only meshes.", lines);
         Assert.True(all.Split('\n')[0].TrimEnd('\r').EndsWith("(3 meshes selected, provider \"Cape\")"), all);
         Assert.DoesNotContain("exclude=", all);
 
