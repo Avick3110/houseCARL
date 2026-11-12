@@ -80,7 +80,7 @@ public static class SkyPatcherTools
             "Excluded target that names nothing says why (an unreadable FormID, a plugin not in the order or spelt with a " +
             "space, a FormID no plugin defines, an EditorID found nowhere or of a type the game keeps no names of), and an " +
             "EditorID naming several records says which the replay takes; a post read warns on such a hidden direct EditorID " +
-            "too. Omit for the whole-layer overview.")]
+            "too. Omit it, formids= and plugins= for the whole-layer overview.")]
             string? filter = null,
         [Description("Optional. Lines naming these records ('XXXXXX:Plugin.esp' or the runtime form), anywhere on the line: " +
             "a target, a filter form or an op value, by Plugin|FormID or by an EditorID the replay looks up." + ListText.FormIds)]
