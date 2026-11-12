@@ -33,6 +33,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     readonly Lazy<CorpusRulebook> _rulebook = new(() => CorpusRulebook.Load(), LazyThreadSafetyMode.PublicationOnly);   // one instance; a failed load is not kept
     readonly Lazy<TypeLookup> _typeLookup = new(() => new TypeLookup());   // one per service; construction reads nothing
     IReadOnlyList<string> _orderWarnings = Array.Empty<string>();
+    IReadOnlyList<string> _unreadableMods = Array.Empty<string>();   // enabled mod folders the last order read could not open
     // The VFS-aware asset resolver, built lazily on an asset query and dropped when the active profile changes.
     AssetResolver? _assetResolver;
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
@@ -187,7 +188,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                     EnsurePathsDerived();                         // instance mode: derive ProfileDir/ModsDir/DataDir + active profile from ModOrganizer.ini
                     var profileStamps = StatProfileFiles(_profileDir);   // stat BEFORE the read: a profile write during the build is caught next call, not missed
                     var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
-                    _orderWarnings = order.Warnings;
+                    RefuseUnlistedModsFolder(order, _modsDir);   // nothing is published, so the next call reads the folder again
+                    _orderWarnings = order.Warnings; _unreadableMods = order.UnreadableMods;
                     var paths = order.OrderedPaths;
                     if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
                     if (paths.Count == 0)
@@ -227,6 +229,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                 return call.Pin!.Resolver;
             }
         }
+    }
+
+    /// <summary>Refuse an order read while the mods folder would not list: every winner off it would miss every mod.</summary>
+    static void RefuseUnlistedModsFolder(Mo2OrderResult order, string modsDir)
+    {
+        if (order.ModsFolderSentence(modsDir) is { } why)
+            throw new ModsFolderUnreadableException(why + " " + ToolNames.LoadOrderStatus + " still answers, to show what was read.", order);
     }
 
     /// <summary>Hold the current build as the call's pin, keeping the one it holds when the build has not moved; a call
@@ -278,6 +287,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                 if (!_configured) throw NotConfigured();           // fresh install → the tool returns the prompt for the MO2 path instead
                 EnsurePathsDerived();                              // derive the roots on first use (instance mode)
                 if (HeldFilesLocked() is { } held) return held.Resolver;
+                // A file read off an unlistable mods folder would miss every mod's files, so it refuses as the record read does.
+                if (ModsFolderListing.Read(_modsDir).Failure is not null)
+                    RefuseUnlistedModsFolder(Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir), _modsDir);
                 // Profile freshness, shared with the record path and deferred behind an in-flight write the same way.
                 if (TryEnterRefreshLocked(CallContext.Open))
                 {
@@ -631,8 +643,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
         if (ticked)
             // Ticked and provided by an enabled layer yet not indexed — nothing honest left to say, so say nothing.
-            return hits.Any(h => h.Enabled)
-                ? null
+            return hits.Any(h => h.Enabled) ? null
+                : Volatile.Read(ref _unreadableMods) is { Count: > 0 } unread
+                ? $"'{fn}' is ticked in plugins.txt, but no enabled mod houseCARL could open, the overwrite folder, or the " +
+                  $"game Data folder provides the file; {unread.Count} enabled mod folder(s) could not be opened " +
+                  $"({string.Join(", ", unread.Select(m => $"'{m}'"))}), and it may be in one of them. Make them readable and run this again."
                 : $"'{fn}' is ticked in plugins.txt, but no enabled mod, the overwrite folder, or the game Data folder " +
                   "provides the file — the profile is stale (trigger an MO2 refresh / re-sort so it rewrites the profile files).";
 
@@ -809,7 +824,16 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         LoadOrderResolver.IndexView view; IReadOnlyList<string> warnings; bool profileChanged; CallContext.CallBuild build; string? instanceDir;
         lock (_gate)
         {
-            view = Resolver.Capture();                             // force build/refresh; one build for count + exclusions
+            try { view = Resolver.Capture(); }                     // force build/refresh; one build for count + exclusions
+            catch (ModsFolderUnreadableException ex)
+            {
+                // Status answers off the order as far as it read, so the modder sees why every other call refuses.
+                var o = ex.Order; var roots = RootsLocked();
+                return new LoadOrderStatusData(
+                    o.Composition, o.Warnings, o.ResolvedCount, _maxPlugins, false, roots.ProfileDir, roots.ModsDir, roots.DataDir,
+                    roots.OverwriteDir, _profileName, _instanceDir, new Dictionary<string, string>(),
+                    ModsFolderUnreadable: o.ModsFolderSentence(roots.ModsDir));
+            }
             warnings = _orderWarnings;
             profileChanged = ProfileFilesChanged();
             build = CallBuildLocked();                             // the call's roots and profile name, captured under the same gate — never re-derived at render
@@ -1048,6 +1072,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         // contract in docs/architecture/load-order-service.md.
         try { order = Mo2LoadOrder.Build(roots.ProfileDir, roots.ModsDir, roots.DataDir, roots.OverwriteDir); }
         catch (ProfileUnreadableException ex) { _profileHeld = ex; return false; }
+        RefuseUnlistedModsFolder(order, roots.ModsDir);          // before the baseline advances, so the next call reads again
         _profileHeld = null;                                     // the re-read got through — nothing is pending any more
         _reResolvePending = false;
         var paths = order.OrderedPaths;
@@ -1070,7 +1095,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             }
             _text = text;
             _resolvedPaths = paths;
-            _orderWarnings = order.Warnings;
+            _orderWarnings = order.Warnings; _unreadableMods = order.UnreadableMods;
             _profileRead = (order.Composition, discovery);
             _profileStamps = profileStamps;
             return true;
@@ -1082,7 +1107,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             var text = ReadInstanceText(roots, order, out var discovery);
             InvalidateAssetResolver();
             GameLanguage.Bind(_text = text);
-            _orderWarnings = order.Warnings;
+            _orderWarnings = order.Warnings; _unreadableMods = order.UnreadableMods;
             _profileRead = (order.Composition, discovery);
             _profileStamps = profileStamps;
             return true;
@@ -1253,7 +1278,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
             _assetResolver?.Dispose(); _assetResolver = null;    // the asset resolver rebuilds against the new instance too
             _resolvedPaths = Array.Empty<string>();
             _profileStamps = new FileStamp[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
-            _orderWarnings = Array.Empty<string>();
+            _orderWarnings = Array.Empty<string>(); _unreadableMods = Array.Empty<string>();
             _profileRead = null;                                 // the next order build reads the new profile
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
             System.Threading.Interlocked.Increment(ref _gameRootsGen);   // a new instance may be a different game install — the runtime memo must re-probe rather than adjudicate against the old exe
