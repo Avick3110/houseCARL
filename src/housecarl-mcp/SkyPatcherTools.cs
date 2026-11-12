@@ -432,8 +432,9 @@ static class SkyPatcherWire
         return CloseZero(d, sb, cap, caveats);
     }
 
-    /// <summary>A zero answer's close: the unreadable-plugin and scan notes, which are often why nothing matched, and the
-    /// caveats. The no-op notes are about the whole layer's replay, so a zero answer leaves them to the overview.</summary>
+    /// <summary>A zero answer's close: the unreadable-plugin and scan notes (the unreadable one can explain a selector zero,
+    /// not a filter= one, which matches names only) and the caveats. The no-op notes are about the whole layer's replay,
+    /// so a zero answer leaves them to the overview.</summary>
     static string CloseZero(SkyPatcherLayerData d, StringBuilder sb, int cap, string caveats)
     {
         // With no caveats the notes close the reply, and their last newline is trimmed, so it is not charged.

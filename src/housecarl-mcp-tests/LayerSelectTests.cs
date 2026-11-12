@@ -233,7 +233,7 @@ public sealed class LayerSelectTests : IDisposable
         Assert.DoesNotContain("Omit filter= for the whole-layer overview.", text);
     }
 
-    // Main's ZeroMatch kept the unreadable-plugin note: a plugin the sweep cannot open may be why nothing matched.
+    // Main's ZeroMatch kept the unreadable-plugin note; both zeros keep it, though only a selector zero can be caused by it.
     [Fact]
     public void AZeroAnswerKeepsTheUnreadablePluginNote()
     {
