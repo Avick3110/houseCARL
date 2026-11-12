@@ -331,6 +331,24 @@ say the state is unknown.
 - `noFilterLL` and `noFilterLLNPC` ignore their value and find every list of their class; the
   120-entry limit they and the EditorID filters share is not modelled. A filter value that is not a number
   still leaves the line UNRESOLVED (8.0.1 skips only that key).
+- The line selector reads op values by their `~` sub-args, as the tokenizer splits them, so an eq-packed or pair op
+  can miss a form it names, and non-form op text can match one. On such a line a selector zero can be wrong.
+- The unreadable-plugin note is taken after the conflict detector and the no-op scan, on the call's one resolver,
+  so it names a plugin either met; a plugin first met by the selector's or lint's own lookups at render is not
+  named, and a selection does not say its own EditorID lookup was incomplete.
+- A selector zero on a read-incomplete layer has no sentence of its own; the caveat line hedges it.
+- The selector's header counts lines in NOT-applied INIs too, as `filter=`'s header does; each file row carries
+  its flag.
+- `plugins=` selects lines by the forms they name. A mod-name filter (`filterByModNames=X.esp`) or an `X.esp.ini`
+  filename gate does not select a line for X.
+- When `filter=` matches no file the answer is that zero, and the selectors are not evaluated.
+- In a folder holding two record types, an EditorID naming a record under each gives two rows on its line, as the
+  replay applies it per type.
+- An `@artifact` list in `plugins.names` is not epoch-checked, as on `housecarl_records`.
+- The conflict detector takes a direct EditorID's first resolving type; the selector takes every type the folder
+  holds.
+- With `filter=` and a selector both given, a cut listing says to narrow `formids=`/`plugins=` and does not name
+  `filter=`, which narrows it too.
 
 ### Delimiters
 
