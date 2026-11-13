@@ -196,6 +196,34 @@ public sealed class RuntimeTargetsTests
             RuntimeTargets.Report("OtherName", null, new GappedResolver("KeptName"), Format("spid")));
     }
 
+    // (e) Probe: a lookup the caller never ran is said to be skipped, never reported as a miss of the active order.
+    [Fact]
+    public void ALookupThatNeverRanIsNotReportedAsAMissOfTheOrder()
+    {
+        var r = new SkippingResolver();
+
+        Assert.Equal(SkippingResolver.SkipText, RuntimeTargets.Report("AnyName", null, r, Format("spid")));
+        // A scoped row's lookup on the same resolver runs, so its miss is still the order's.
+        Assert.Contains("finds no record by that EditorID", RuntimeTargets.Report("AnyName", "Weapon", r, RuntimeTargets.SkyPatcherName, Sky));
+    }
+
+    /// <summary>A resolver that runs no lookup among every record type, as a caller reading no field one lands on
+    /// does not; a scoped lookup on it runs and misses. Nothing else is answered.</summary>
+    sealed class SkippingResolver : SkyPatcherOverlay.IFormResolver
+    {
+        public const string SkipText = "is looked up among every record type, which this listing does not walk, so whether the active order holds a record of that name is not read here";
+
+        public string? EditorIdNotLookedUp(string? mutagenType) => mutagenType == RuntimeTargets.EveryTypeScope ? SkipText : null;
+        public FormKey? ResolveEditorId(string editorId, string? mutagenType) => null;
+        public string? ReadWinnerLeaf(FormKey donor, string path) => null;
+        public IReadOnlyList<FormKey>? KeywordsOf(FormKey record) => null;
+        public bool PluginPresent(string pluginName) => false;
+        public (FormKey? Record, string? Why) FromRuntimeFormId(uint value) => (null, "names nothing");
+        public uint? RuntimeBaseOf(string pluginName) => null;
+        public string? WinnerPluginOf(FormKey record) => null;
+        public string? EditorIdOf(FormKey record) => null;
+    }
+
     /// <summary>A resolver whose scope has a gap AND holds some of the names in it — po3 Tweaks missing where the
     /// game still keeps the EditorIDs of some types of an every-type scope. Nothing else is answered.</summary>
     sealed class GappedResolver(string holds) : SkyPatcherOverlay.IFormResolver

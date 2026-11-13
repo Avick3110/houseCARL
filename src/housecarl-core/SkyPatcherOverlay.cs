@@ -77,6 +77,9 @@ public static class SkyPatcherOverlay
 
         /// <summary>What the call's EditorID table says of a name beyond hit or miss: that it names several records and the first loaded keeps it; null when there is nothing to add.</summary>
         string? EditorIdNote(string editorId, string? mutagenType) => null;
+
+        /// <summary>Why this caller runs no lookup at all among these records, so a miss of it is no claim about the order; null when the lookup runs.</summary>
+        string? EditorIdNotLookedUp(string? mutagenType) => null;
     }
 
     /// <summary>One parsed line in its apply-order context: the Data-relative file, the physical line, and the parsed form; <see cref="Listed"/> is false for a draft's line, which no layer listing holds.</summary>
