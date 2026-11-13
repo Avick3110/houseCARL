@@ -79,6 +79,18 @@ public sealed class RuntimeTargetsTests
         Assert.Equal(RuntimeTargets.TargetKind.EditorId, RuntimeTargets.Read("0x800", Sky).Kind);
     }
 
+    // (c) Probe: whitespace the frameworks' own digit test rejects is not a bare FormID, so the token is a name.
+    [Theory]
+    [InlineData("0x1A ")]
+    [InlineData("0x 1A")]
+    [InlineData("0x1A\n")]
+    public void BareHexWithWhitespaceIsANameNotAFormId(string token)
+    {
+        Assert.False(RuntimeTargets.TryParseBareHex(token, out _));
+        Assert.Equal(RuntimeTargets.TargetKind.EditorId, RuntimeTargets.Read(token, Spelling("spid")).Kind);
+        Assert.True(RuntimeTargets.TryParseBareHex("0x1A", out var tight) && tight == 0x1A);
+    }
+
     // (d) Probe: two plugin-name rules — SPID takes the extension text anywhere, KID only at the end.
     [Theory]
     [InlineData("spid", "Mod.esp", RuntimeTargets.TargetKind.PluginName)]

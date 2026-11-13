@@ -89,8 +89,8 @@ public static class RuntimeTargets
     {
         value = 0;
         if (token.Length <= 2 || token[0] != '0' || (token[1] != 'x' && token[1] != 'X')) return false;
-        // HexNumber takes no sign and no whitespace, so the parse is the digit test.
-        return uint.TryParse(token.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+        // AllowHexSpecifier alone takes no sign and no whitespace, so the parse is the digit test the frameworks make.
+        return uint.TryParse(token.AsSpan(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out value);
     }
 
     /// <summary>The FormID side read like the frameworks' base-16 <c>stoul</c>: leading whitespace, an optional <c>0x</c>, then hex up to the first non-hex character, but no sign; null when no digit is read or the value passes 32 bits.</summary>
