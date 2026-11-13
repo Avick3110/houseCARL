@@ -46,7 +46,8 @@ internal static class Guard
     /// <summary>The Guard's own refusals, each text on every transport.</summary>
     static ToolAnswer Caught(string tool, ToolCall call, Exception ex) => Changed(call) ?? ex switch
     {
-        // a configured root that cannot be used, and a profile file locked by MO2 mid-re-sort, are named refusals
+        // a profile file locked by MO2 mid-re-sort, a game language houseCARL cannot read, and a configured explicit
+        // root that is not a folder are named refusals, not internal failures
         ProfileUnreadableException or GameLanguageRefusedException or ExplicitRootRefusedException
             => ToolAnswer.Refusal(Wire.RefusalPrefix + ex.Message),
         ModsFolderUnreadableException => ToolAnswer.Refusal(Wire.RefusalPrefix + ex.Message + " " + ToolNames.LoadOrderStatus + " still answers, to show what was read."),
