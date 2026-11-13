@@ -86,5 +86,43 @@ public sealed class AssetTopLevelListingTests : IDisposable
         Assert.Contains(@"cfg\deeper\below.ini", r.EnumerateUnder("cfg"));
     }
 
+    // Probe: the Data root is a folder like any other — an archive entry below it is not in its top level, where a
+    // test on the prefix's length would let every packed path through.
+    [Fact]
+    public void AnArchiveEntryBelowTheDataRootIsNotInItsTopLevel()
+    {
+        var path = Archive("Root.bsa", HousecarlGenerator.BsaBuilder.Build(105,
+            HousecarlGenerator.BsaBuilder.HasFolderNames | HousecarlGenerator.BsaBuilder.HasFileNames,
+            new[] { ("cfg", new[] { ("in.ini", HousecarlGenerator.BsaBuilder.Bytes("IN", 16)) }) }));
+        using var r = Build(new ActiveArchive(path, "Root.esp", 0));
+
+        Assert.Empty(r.EnumerateTopLevel(""));
+        Assert.Contains(@"cfg\in.ini", r.EnumerateUnder(""));
+    }
+
+    // Probe: the door takes the walk's hidden rules and names a root that will not list, as the walk does.
+    [Fact]
+    public void TheDoorHidesWhatTheWalkHidesAndNamesARootThatWillNotList()
+    {
+        Loose(_high, "top.ini");
+        Loose(_high, "hidden.ini.mohidden");
+        Loose(_high, "meta.ini");
+        var blocked = Path.Combine(_mods, "BlockedMod");
+        Directory.CreateDirectory(blocked);
+        Loose(blocked, "blocked.ini");
+        Assert.True(DenyAce.TryDeny(blocked), UnreadableRootWorld.NotStaged);
+        try
+        {
+            using var r = AssetResolver.Build(_overwrite, _mods, _data,
+                new[] { "HighMod", "BlockedMod", "LowMod" }, Array.Empty<ActiveArchive>());
+            Assert.Empty(r.RootFailures);
+
+            Assert.Equal(new[] { "top.ini" }, r.EnumerateTopLevel("").OrderBy(x => x));
+
+            Assert.Contains(r.RootFailures, f => f.StartsWith("BlockedMod"));
+        }
+        finally { DenyAce.Undeny(blocked); }
+    }
+
     string Archive(string name, byte[] bytes) => Write(_root, name, bytes);
 }
