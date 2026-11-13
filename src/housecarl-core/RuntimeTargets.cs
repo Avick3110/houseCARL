@@ -253,6 +253,7 @@ public static class RuntimeTargets
 
             default:
                 var scoped = EditorIdScope(scope, s);
+                if (resolver.EditorIdNotLookedUp(scoped) is { } skipped) return skipped;
                 if (resolver.EditorIdNote(t.Raw, scoped) is { } note) return note;
                 if (resolver.ResolveEditorId(t.Raw, scoped) is not null) return null;
                 // The gap is said of a lookup that found nothing, after it: a scope the game keeps some of the names

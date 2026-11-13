@@ -326,6 +326,12 @@ internal sealed partial class AssetLayers
         public FormKey? ResolveEditorId(string editorId, string? mutagenType)
             => Find(editorId, mutagenType) is { Count: > 0 } holders ? holders[0].Record : null;
 
+        /// <summary>A caller that reads no field a lookup among every record type lands on runs none, so such a lookup is said to be skipped rather than missed (<see cref="EveryTypeLookups"/>).</summary>
+        public string? EditorIdNotLookedUp(string? mutagenType)
+            => !EveryTypeLookups && mutagenType is not null && Scope(mutagenType) is { } t && EveryType(t)
+                ? "is looked up among every record type, which this listing does not walk, so whether the active order holds a record of that name is not read here"
+                : null;
+
         public string? EditorIdNote(string editorId, string? mutagenType)
             => Find(editorId, mutagenType) is { Count: > 1 } holders
                 ? $"names {holders.Count} {RecordsOf(mutagenType!)}; the replay takes the first loaded, {FormIdToken.Of(holders[0].Record)} from {holders[0].Plugin}"
