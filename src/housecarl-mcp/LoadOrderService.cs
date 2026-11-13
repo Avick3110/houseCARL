@@ -84,7 +84,14 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// overwrite folder is optional and read as MO2's overwrite layer; blank or null is no overwrite layer at all.</summary>
     public static LoadOrderService WithExplicitPaths(string dataDir, string modsDir, string profileDir, int maxPlugins, UserConfigStore store,
                                                      string? overwriteDir = null)
-        => new(null, dataDir, modsDir, profileDir, (overwriteDir ?? "").Trim(), configured: true, maxPlugins, store);
+        => new(null, dataDir, modsDir, profileDir, NormalizedRoot(overwriteDir), configured: true, maxPlugins, store);
+
+    /// <summary>Full and without a trailing separator, as instance mode's roots are (<c>Mo2Instance.Resolve</c>), so one folder is one string everywhere it is compared or printed; blank stays blank.</summary>
+    static string NormalizedRoot(string? dir)
+    {
+        var trimmed = (dir ?? "").Trim();
+        return trimmed.Length == 0 ? "" : Path.TrimEndingDirectorySeparator(Path.GetFullPath(trimmed));
+    }
 
     /// <summary>Test seam: drive the service-layer query logic on a prebuilt resolver with no MO2 profile on disk. Never used by the product.</summary>
     internal static LoadOrderService ForGuard(LoadOrderResolver resolver, UserConfigStore store)
