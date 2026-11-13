@@ -60,6 +60,23 @@ public sealed class DistributorDiscoveryTests : IDisposable
             Paths(Scan(ShippedRows.Distributor("spid", ("\"depth\": \"topLevelOnly\"", "\"depth\": \"descends\"")))));
     }
 
+    // Probe: a rule is read off the row it is written on — put 'descends' on KID's row and KID descends while
+    // SPID, whose row still says top level only, does not.
+    [Fact]
+    public void ARuleIsReadOffTheRowItIsWrittenOn()
+    {
+        Loose(_high, "Top_DISTR.ini");
+        Loose(_high, @"nested\Deep_DISTR.ini");
+        Loose(_high, "Top_KID.ini");
+        Loose(_high, @"nested\Deep_KID.ini");
+
+        var source = ShippedRows.EditedRow("kid", ("\"depth\": \"topLevelOnly\"", "\"depth\": \"descends\""));
+        var rows = RuntimeFormats.DistributorsFrom(source);
+
+        Assert.Equal(new[] { "Top_DISTR.ini" }, Paths(Scan(rows.Single(d => d.Key == "spid"))));
+        Assert.Contains(@"nested\Deep_KID.ini", Paths(Scan(rows.Single(d => d.Key == "kid"))));
+    }
+
     // Probe: the name token is compared as written, so '_distr' is not '_DISTR'.
     [Fact]
     public void TheNameTokenIsCaseSensitive()
