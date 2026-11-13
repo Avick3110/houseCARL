@@ -1,15 +1,34 @@
 ---
 updated: 2026-11-11
-covers: [src/housecarl-core/runtime-formats.json, src/housecarl-core/RuntimeFormats.cs, src/housecarl-generator/RuntimeFormatSkillText.cs]
+covers: [src/housecarl-core/runtime-formats.json, src/housecarl-core/RuntimeFormats.cs, src/housecarl-core/DistributorFormats.cs, src/housecarl-core/DistributorDiscovery.cs, src/housecarl-core/RuntimeTargets.cs, src/housecarl-generator/RuntimeFormatSkillText.cs]
 ---
 # The runtime-format source
 
 ## What it is
 One data file holds, per runtime-layer format, where its files are found, the order they apply in, who wins a
 conflict and how a line is split. The server reads those values; the generator prints the skill paragraphs that state
-them. Only SkyPatcher has a row today; SPID, KID, BOS and FLM join as rows when their readers are built.
+them. The file has two shapes of row: SkyPatcher's, which carries everything down to its line grammar, and a
+**distributor** row for SPID, KID, BOS and FLM, which carries discovery and target spelling only — each of those
+formats' line kinds, conflict model and labels land with its own reader.
 
 ## Contracts
+- **A distributor row says where and how a target is spelt, not what a line means.** `folders` is one or more folders
+  under Data, each with its name token, its extension, the comparison for each (the four are ordinal, where SkyPatcher's
+  ending rule is lower-case), whether the read descends, and whether that folder's list is sorted. `targets` says which
+  side of the separator the FormID is written on, what the written number means (the record's local object id, or a
+  number added to the plugin's runtime base as the game's own lookup adds it, with no mask), whether bare hex or a
+  plugin name is a term of its own, what a name no record holds does, and which records an EditorID is looked up among.
+- **`unread` is not a claim.** A `targets` value the research has not settled for that format is written `unread`, and
+  the resolver then answers "not read yet" for every token past the separator of that format rather than guessing one.
+  BOS and FLM carry four of those today; filling one is its format lane's work.
+- **One resolver, one spelling per row.** `RuntimeTargets` turns a token into a record for every format, SkyPatcher
+  included: SkyPatcher's row is one `targets` block among five. SkyPatcher's address character is its `grammar.address`
+  and is not repeated in its `targets`, so the row spells it once.
+- **Discovery goes through the asset door's top-level listing.** `DistributorDiscovery.Scan` lists each row folder with
+  `EnumerateTopLevel` (or the full walk, for a row that descends), keeps the names the row takes, and resolves each to
+  its MO2 winner; a copy only inside an archive is listed and said not to be applied. A folder the row marks unsorted is
+  appended after the sorted ones, and every file out of it carries the sentence saying its place among that folder's
+  files is not the DLL's — one merged listing cannot reproduce a filesystem's own order.
 - **One source, two readers.** `SkyPatcherDiscovery` and `SkyPatcherParse` take the root, the name token, the gate
   extensions, the `SkyPatcher.ini` section and key shape, the patchers that run without a key, the patcher run order and
   the delimiters from SkyPatcher's row. `RuntimeFormatSkillText` prints the same values into marked regions of the
@@ -65,10 +84,22 @@ them. Only SkyPatcher has a row today; SPID, KID, BOS and FLM join as rows when 
 - `RuntimeFormatSourceTests.AValueTheServerHasNoRuleForFailsTheLoad` — each kind value the code has no rule for.
 - `RuntimeFormatSourceTests.NoPrintedRegionNamesTheServer`, `AHandEditInsideARegionIsRewritten`,
   `AnUnknownOrUnclosedRegionIsRefused`, `TheSourceAndTheCatalogNameOneVersion`.
+- `DistributorDiscoveryTests` — each discovery rule is the row's: top level only (and a row that descends reads the
+  nested file), the token and the extension case-sensitive (and a row that ignores case reads both near misses), one
+  ordinal sort, FLM's second folder appended with its order sentence, the MO2 winner per name with the shadowed copies
+  named, a BSA-only copy said not applied, and a value the server has no rule for failing the load, field by field.
+- `RuntimeTargetsTests` — each target rule is the row's: a FormID written first, a load index written into it, bare
+  hex, the two plugin-name rules, an every-type name lookup, a name no record holds, and an `unread` rule answering
+  "not read yet". The same tokens under SkyPatcher's row read as SkyPatcher reads them today.
+- `LayerSelectTests.ADistributorStillToComeIsNotReadYet` — the `distributor=` refusals spell the four rows' names.
 
 ## Where
-`src/housecarl-core/runtime-formats.json` (embedded), loaded by `RuntimeFormats.SkyPatcher`;
-`src/housecarl-generator/RuntimeFormatSkillText.cs`, run as the generator's `skill-text` mode.
+`src/housecarl-core/runtime-formats.json` (embedded), loaded by `RuntimeFormats.SkyPatcher` and
+`RuntimeFormats.Distributors`; `src/housecarl-core/DistributorFormats.cs` reads the distributor rows,
+`src/housecarl-core/DistributorDiscovery.cs` finds their files and `src/housecarl-core/RuntimeTargets.cs` resolves
+their targets; `src/housecarl-generator/RuntimeFormatSkillText.cs`, run as the generator's `skill-text` mode.
+`dotnet run --project src/housecarl-generator -c Release -- distributor-front --mo2 "<instance>"` measures the listing,
+the discovery counts and the parse on a real order.
 
 ## Related
 - [`skypatcher-layer.md`](skypatcher-layer.md) — the layer these rules feed.

@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace HousecarlCore;
 
 /// <summary>The runtime-layer format source (runtime-formats.json): each format's discovery, order, conflict and grammar values, read by the server and printed into the skills by the generator's skill-text mode; contract in docs/architecture/runtime-formats.md.</summary>
-public static class RuntimeFormats
+public static partial class RuntimeFormats
 {
     static string? _text;
     static SkyPatcherFormat? _skyPatcher;
@@ -70,7 +70,9 @@ public static class RuntimeFormats
             Strs(gate, "extensions", "discovery.gate"),
             AssetResolver.Normalize(Str(s, "file", "switches")), Str(s, "section", "switches"), Str(s, "keyPrefix", "switches"), Str(s, "keySuffix", "switches"),
             Strs(s, "onWithoutKey", "switches"),
-            passes, grammar);
+            passes, grammar,
+            // The address character is the grammar's, so the row spells it once.
+            Targets(row.GetProperty("targets"), "SkyPatcher.targets", grammar.Address));
     }
 
     static string Str(JsonElement el, string prop, string ctx)
@@ -111,7 +113,8 @@ public sealed record SkyPatcherFormat(
     string SwitchKeySuffix,
     IReadOnlyList<string> OnWithoutKey,
     IReadOnlyList<SkyPatcherPass> Passes,
-    SkyPatcherGrammar Grammar)
+    SkyPatcherGrammar Grammar,
+    TargetSpelling Targets)
 {
     /// <summary>Whether a type folder's patcher runs when SkyPatcher.ini has no key for it (case-insensitive, as folder names are).</summary>
     public bool RunsWithoutKey(string folder) => OnWithoutKey.Contains(folder, StringComparer.OrdinalIgnoreCase);
