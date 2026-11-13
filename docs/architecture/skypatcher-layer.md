@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-11
+updated: 2026-11-13
 covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherReach.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-core/SkyPatcherEditorIds.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/SkyPatcherReplay.cs]
 ---
 # The SkyPatcher layer
