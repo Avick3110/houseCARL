@@ -17,8 +17,16 @@ internal static class DistributorFrontProbe
         int at = Array.IndexOf(args, "--mo2");
         if (at < 0 || at + 1 >= args.Length) { Console.WriteLine("distributor-front needs --mo2 <MO2 instance folder>"); return 2; }
 
-        var store = new UserConfigStore(Path.Combine(Path.GetTempPath(), "hc-distr-front-" + Guid.NewGuid().ToString("N"), "user.json"));
-        using var svc = LoadOrderService.WithInstance(args[at + 1], 0, store);
+        // The probe's own data dir, removed on the way out: a run leaves nothing behind under the temp directory.
+        var dataDir = Path.Combine(Path.GetTempPath(), "hc-distr-front-" + Guid.NewGuid().ToString("N"));
+        try { return Measure(args[at + 1], Path.Combine(dataDir, "user.json")); }
+        finally { try { Directory.Delete(dataDir, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
+    static int Measure(string instance, string userJson)
+    {
+        var store = new UserConfigStore(userJson);
+        using var svc = LoadOrderService.WithInstance(instance, 0, store);
         var assets = ((ILoadOrderHost)svc).Assets;
         Console.WriteLine($"roots: {assets.LooseRoots.Count} loose");
 
