@@ -98,7 +98,8 @@ public sealed class SkyPatcherDiscoveryTests : IDisposable
         Assert.Contains("ModB", same.ShadowedProviders);
         Assert.Contains(same.Lines, l => l.Segments.Any(s => s.RawValue == "3"));
         Assert.DoesNotContain(same.Lines, l => l.Segments.Any(s => s.RawValue == "999"));
-        Assert.Contains(scan.Notes, n => n.Contains("same.ini") && n.Contains("SHADOWED"));
+        // The note counts the mods shipping the name, the winner among them.
+        Assert.Contains(scan.Notes, n => n.Contains("same.ini") && n.Contains("is shipped by 2 mods") && n.Contains("SHADOWED"));
     }
 
     // files are read breadth-first: the folder's own files A to Z, then each depth of subfolders, A to Z by path component
