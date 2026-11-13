@@ -108,15 +108,16 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Assert.Equal(3, read.Length);
     }
 
-    // Probe: one ordinal sort over the whole list — upper case before lower, which an ignore-case sort would not give.
+    // Probe: one ordinal sort over the whole list — every upper-case name before every lower-case one, where an
+    // ignore-case sort would put 'a' first.
     [Fact]
     public void TheFilesComeBackInOneOrdinalSort()
     {
-        Loose(_high, "b_DISTR.ini");
-        Loose(_high, "Adamant_DISTR.ini");
+        Loose(_high, "c_DISTR.ini");
+        Loose(_high, "B_DISTR.ini");
         Loose(_high, "a_DISTR.ini");
 
-        Assert.Equal(new[] { "Adamant_DISTR.ini", "a_DISTR.ini", "b_DISTR.ini" }, Paths(Scan(Row("spid"))));
+        Assert.Equal(new[] { "B_DISTR.ini", "a_DISTR.ini", "c_DISTR.ini" }, Paths(Scan(Row("spid"))));
     }
 
     // Probe: FLM's second folder is appended after the sorted root list, and every file out of it says its place is not the DLL's.
