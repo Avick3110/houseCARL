@@ -161,12 +161,43 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         AssertSamePath(Path.Combine(inst, "mods"), Mo2Instance.Resolve(relative).ModsDir);
     }
 
-    // Promise: "base_directory set but missing: no fallback to the instance folder" — a base nothing resolves under
-    // refuses nothing (all three keys absolute).
+    // Every %BASE_DIR% in a value is replaced, as MO2's QString::replace does; only a relative base keeps the twice-expanded
+    // value a real folder path.
     [Fact]
-    public void AMissingBaseNothingResolvesUnderRefusesNothing()
+    public void EveryBaseDirInAValueIsExpanded()
     {
-        var inst = Stage("ghost", "base_directory={STORE}/gone", "mod_directory={STORE}/mods", "profiles_directory={STORE}/profiles",
+        _root = Path.Combine(Environment.CurrentDirectory, "hc-mo2-dirkeys-" + Guid.NewGuid().ToString("N"));   // same drive as the cwd, so a relative path to it exists
+        var inst = Stage("twice", "mod_directory=%BASE_DIR%/%BASE_DIR%/mods");
+        var relative = Path.GetRelativePath(Environment.CurrentDirectory, inst);
+        var expected = Path.Combine(inst, relative, "mods");
+        Directory.CreateDirectory(expected);
+
+        AssertSamePath(expected, Mo2Instance.Resolve(relative).ModsDir);
+    }
+
+    // An instance with no keys keeps the plain Path.Combine text for each root, not normalised: a forward-slashed instance
+    // folder prints as given plus \mods (the dev instance's shape).
+    [Fact]
+    public void AnUnsetKeyKeepsTheCombinedTextExactly()
+    {
+        var inst = Stage("raw").Replace('\\', '/');
+
+        var p = Mo2Instance.Resolve(inst);
+
+        Assert.Equal(inst + @"\mods", p.ModsDir);
+        Assert.Equal(inst + @"\profiles\Default", p.ProfileDir);
+        Assert.Equal(inst + @"\overwrite", p.OverwriteDir);
+    }
+
+    // Promise: "base_directory set but missing: no fallback to the instance folder" — a base nothing resolves under
+    // refuses nothing (all three keys absolute), and so does an empty or relative one.
+    [Theory]
+    [InlineData("base_directory={STORE}/gone")]
+    [InlineData("base_directory=relbase")]
+    [InlineData("base_directory=")]
+    public void AMissingBaseNothingResolvesUnderRefusesNothing(string baseLine)
+    {
+        var inst = Stage("ghost", baseLine, "mod_directory={STORE}/mods", "profiles_directory={STORE}/profiles",
                          "overwrite_directory={STORE}/overwrite");
 
         var (ok, _, problems) = Mo2Instance.Validate(inst);
@@ -198,11 +229,14 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         Assert.Contains("MO2 creates it when it next starts", SetupTools.Render(p, persisted: true, persistError: null, persistNote: null));
     }
 
-    // Promise: "A key in a section other than [Settings] is ignored".
-    [Fact]
-    public void AKeyOutsideSettingsIsIgnored()
+    // Promise: "A key in a section other than [Settings] is ignored", before [Settings] or after it.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AKeyOutsideSettingsIsIgnored(bool before)
     {
-        var inst = StageWith("sect", "[Other]\r\nmod_directory=" + Store("sect").Replace('\\', '/') + "/mods\r\n");
+        var other = "[Other]\r\nmod_directory=" + Store("sect").Replace('\\', '/') + "/mods\r\n";
+        var inst = before ? StageWith("sect", other) : StageWith("sect", "", other);
 
         AssertSamePath(Path.Combine(inst, "mods"), Mo2Instance.Resolve(inst).ModsDir);
     }
