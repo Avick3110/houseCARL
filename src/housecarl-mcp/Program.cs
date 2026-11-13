@@ -82,7 +82,7 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
         && !string.IsNullOrWhiteSpace(dataDir) && !string.IsNullOrWhiteSpace(modsDir) && !string.IsNullOrWhiteSpace(profileDir);
 
     LoadOrderService svc = explicitMode
-        ? LoadOrderService.WithExplicitPaths(dataDir!, modsDir!, profileDir!, maxPlugins, store, overwriteDir)
+        ? LoadOrderService.WithExplicitPaths(dataDir!, modsDir!, profileDir!, maxPlugins, store, overwriteDir: overwriteDir)
         : LoadOrderService.WithInstance(instanceDir, maxPlugins, store);
     services.AddSingleton(svc);
 

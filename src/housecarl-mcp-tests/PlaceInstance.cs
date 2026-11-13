@@ -33,6 +33,8 @@ public sealed class PlaceInstance : IDisposable
     public string Mods { get; }
     public string Data { get; }
     public string Prof { get; }
+    /// <summary>Where instance mode derives its overwrite root; not created, since a missing one is a real case.</summary>
+    public string Overwrite { get; }
 
     readonly List<LoadOrderService> _services = new();
 
@@ -43,6 +45,7 @@ public sealed class PlaceInstance : IDisposable
         Mods = Path.Combine(Inst, "mods");
         Data = Path.Combine(Inst, "game", "Data");
         Prof = Path.Combine(Inst, "profiles", "Default");
+        Overwrite = Path.Combine(Inst, "overwrite");
         foreach (var d in new[] { Mods, Data, Prof }) Directory.CreateDirectory(d);
         File.WriteAllText(Path.Combine(Inst, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -84,6 +87,15 @@ public sealed class PlaceInstance : IDisposable
     {
         var svc = LoadOrderService.WithInstance(Inst, 0,
             new UserConfigStore(Path.Combine(Root, "user-" + _services.Count + ".json")));
+        _services.Add(svc);
+        return svc;
+    }
+
+    /// <summary>The same tree opened in EXPLICIT-paths mode, with an optional overwrite root.</summary>
+    public LoadOrderService OpenExplicit(string? overwriteDir = null)
+    {
+        var svc = LoadOrderService.WithExplicitPaths(Data, Mods, Prof, 0,
+            new UserConfigStore(Path.Combine(Root, "user-" + _services.Count + ".json")), overwriteDir);
         _services.Add(svc);
         return svc;
     }

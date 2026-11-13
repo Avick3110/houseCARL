@@ -77,7 +77,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>INSTANCE mode (product default): derive the roots and active profile from ONE MO2 instance folder; a null or blank path is UNCONFIGURED.</summary>
     public static LoadOrderService WithInstance(string? instanceDir, int maxPlugins, UserConfigStore store)
         => new(string.IsNullOrWhiteSpace(instanceDir) ? null : instanceDir.Trim(),
-               "", "", "", "", configured: !string.IsNullOrWhiteSpace(instanceDir), maxPlugins, store);
+               dataDir: "", modsDir: "", profileDir: "", overwriteDir: "",
+               configured: !string.IsNullOrWhiteSpace(instanceDir), maxPlugins, store);
 
     /// <summary>EXPLICIT mode (dev override): the three roots are configured directly; no ModOrganizer.ini is read. An
     /// overwrite folder is optional and read as MO2's overwrite layer; blank or null is no overwrite layer at all.</summary>
@@ -88,7 +89,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>Test seam: drive the service-layer query logic on a prebuilt resolver with no MO2 profile on disk. Never used by the product.</summary>
     internal static LoadOrderService ForGuard(LoadOrderResolver resolver, UserConfigStore store)
     {
-        var svc = new LoadOrderService(null, "", "", "", "", configured: true, maxPlugins: 0, store);
+        var svc = new LoadOrderService(null, dataDir: "", modsDir: "", profileDir: "", overwriteDir: "",
+                                       configured: true, maxPlugins: 0, store);
         svc._resolver = resolver;
         svc.Counters = resolver.Counters;   // one object, so the service reads what its resolver counts
         return svc;
