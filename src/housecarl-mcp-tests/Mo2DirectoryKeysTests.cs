@@ -46,17 +46,15 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         return inst;
     }
 
-    static void WriteProfile(string dir, string plugin)
+    static void WriteProfile(string dir, string plugin, string mod = "ModA", string? master = "Skyrim.esm")
     {
         Directory.CreateDirectory(dir);
-        File.WriteAllText(Path.Combine(dir, "loadorder.txt"), "# header\r\nSkyrim.esm\r\n" + plugin + "\r\n");
+        File.WriteAllText(Path.Combine(dir, "loadorder.txt"), "# header\r\n" + (master is null ? "" : master + "\r\n") + plugin + "\r\n");
         File.WriteAllText(Path.Combine(dir, "plugins.txt"), "*" + plugin + "\r\n");
-        File.WriteAllText(Path.Combine(dir, "modlist.txt"), "# header\r\n+ModA\r\n");
+        File.WriteAllText(Path.Combine(dir, "modlist.txt"), "# header\r\n+" + mod + "\r\n");
     }
 
-    static void AssertSamePath(string expected, string actual) =>
-        Assert.Equal(Path.TrimEndingDirectorySeparator(Path.GetFullPath(expected)),
-                     Path.TrimEndingDirectorySeparator(Path.GetFullPath(actual)), ignoreCase: true);
+    static void AssertSamePath(string expected, string actual) => Mo2InstanceResolveTests.AssertSamePath(expected, actual);
 
     static Mo2OrderResult Build(Mo2InstancePaths p) => Mo2LoadOrder.Build(p.ProfileDir, p.ModsDir, p.DataDir, p.OverwriteDir);
 
@@ -224,13 +222,7 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         }
         File.Delete(Path.Combine(_root, "game", "Data", "Skyrim.esm"));
         foreach (var prof in new[] { "Default", "Second" })
-        {
-            var dir = Path.Combine(Store(name), "profiles", prof);
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, "loadorder.txt"), "# header\r\n" + key.FileName + "\r\n");
-            File.WriteAllText(Path.Combine(dir, "plugins.txt"), "*" + key.FileName + "\r\n");
-            File.WriteAllText(Path.Combine(dir, "modlist.txt"), "# header\r\n+MasterMod\r\n");
-        }
+            WriteProfile(Path.Combine(Store(name), "profiles", prof), key.FileName.String, "MasterMod", master: null);
         return (inst, key);
     }
 

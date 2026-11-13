@@ -158,7 +158,7 @@ public sealed class Mo2InstanceResolveTests : IDisposable
 
     static string Escape(string p) => p.Replace("\\", "\\\\");
 
-    static void AssertSamePath(string expected, string actual) =>
+    internal static void AssertSamePath(string expected, string actual) =>
         Assert.Equal(
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(expected)),
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(actual)),
