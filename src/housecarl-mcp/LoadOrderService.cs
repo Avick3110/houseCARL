@@ -1157,8 +1157,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     {
         if (_overwriteDir.Length == 0 || Directory.Exists(_overwriteDir)) return;
         throw new ExplicitRootRefusedException(
-            $"HouseCarl:OverwriteDir is '{_overwriteDir}', which is not a folder houseCARL can see. Point it at the " +
-            "folder to read as MO2's overwrite layer, or leave it unset to run with no overwrite layer.");
+            $"HouseCarl:OverwriteDir is '{_overwriteDir}', which is not a folder houseCARL can see. Create it (nothing " +
+            "else will), point the setting at the folder to read as MO2's overwrite layer, or leave it unset to run " +
+            "with no overwrite layer.");
     }
 
     Mo2Roots ILoadOrderHost.CaptureRoots()

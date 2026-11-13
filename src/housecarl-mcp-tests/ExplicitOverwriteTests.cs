@@ -169,6 +169,9 @@ public sealed class ExplicitOverwriteTests : IDisposable
 
         Assert.StartsWith("error: HouseCarl:OverwriteDir is '" + missing + "', which is not a folder", text);
         Assert.DoesNotContain("failed unexpectedly", text);
+        // The three remedies, the first because nothing recreates this folder, where MO2 recreates its own at every start.
+        Assert.Contains("Create it (nothing else will)", text);
+        Assert.Contains("point the setting at the folder", text);
         Assert.Contains("leave it unset", text);
     }
 
