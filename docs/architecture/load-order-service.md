@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-05
+updated: 2026-11-13
 covers: [src/housecarl-mcp/LoadOrderService.cs, src/housecarl-mcp/LoadOrderHost.cs, src/housecarl-mcp/ServiceResults.cs, src/housecarl-mcp/CallContext.cs]
 ---
 # The load-order service
@@ -30,7 +30,7 @@ the config file.
 ### The shared head door
 - `ILoadOrderHost`, in `src/housecarl-mcp/LoadOrderHost.cs` with the `AssetCapture` it returns, is how an area reaches the head members areas share. It carries the head members the area split assigned to it from the start (`Resolver`, `Assets`, `CaptureRoots()`, `CaptureAssets()`, `WriteGate`, `Rulebook`), plus any head member two areas take (`CapturePinAndAssets`, `CapturePinAndRoots`, `Types`, `ConfiguredRoots()`, `InPlaceConsent`), and each only once some area actually takes it through the door: today `Resolver`, `Assets`, `CaptureRoots()`, `CaptureAssets()`, `CapturePinAndAssets(afterPin)`, `CapturePinAndRoots(afterPin)`, `WriteGate`, `Types`, `Rulebook`, `ConfiguredRoots()`, `InPlaceConsent` and `ServingCopyMoved`. The head implements each member once, explicitly, next to what it wraps; rows relayed from other areas sit together in one block of the head.
 - `Resolver` and `Assets` are the head's own getters, with their freshness and lock behaviour above. `Assets` is the asset resolver, for a core check that captures it itself per seed: inside a call, the call's frozen copy; outside one, the live build.
-- `CaptureRoots()` returns `Mo2Roots` (profile, data, mods and overwrite folders) from one `_gate` hold: it derives the roots first and throws whatever derivation throws. It takes no configured check: an unconfigured service yields four empty roots, and explicit mode always yields an empty overwrite root. Callers that need a configured instance have already gone through `Resolver` in the same call.
+- `CaptureRoots()` returns `Mo2Roots` (profile, data, mods and overwrite folders) from one `_gate` hold: it derives the roots first and throws whatever derivation throws. It takes no configured check: an unconfigured service yields four empty roots, and explicit mode yields the overwrite root it was configured with, empty when it was given none. Callers that need a configured instance have already gone through `Resolver` in the same call.
 - `CaptureAssets()` takes one `_gate` hold: it captures the asset build through the `Assets` getter, which checks the service is configured and derives the roots first, then reads the warnings, profile name, the four roots (carried as one `Mo2Roots`), active archives and enabled mods of that same build. The caller works on the capture outside the hold.
 - `CapturePinAndAssets(afterPin)` is the one-hold pin-plus-assets capture three areas take (the SkyPatcher layer scan, the facegen and script sweeps, and the read area's SkyPatcher overlay source and pole): one `_gate` hold pins the index view with its resolver, runs `afterPin` (a test seam, null in the product), then captures the asset build without a second profile refresh, so a profile switch cannot split the pin from the assets.
 - `CapturePinAndRoots(afterPin)` is the same hold with the four roots in place of the asset build, for the lanes that need the roots but no asset build (the read area's pole lanes and the errors sweep): the pin, `afterPin`, then the roots, so a profile switch cannot split the pin from the roots.
@@ -57,6 +57,12 @@ the config file.
 ### Configuration modes
 - INSTANCE, the product default: one MO2 instance folder, roots and active profile derived from `ModOrganizer.ini`, and a profile switch picked up on the next tool call.
 - EXPLICIT, a dev override: the three roots are configured directly, no ini is read and no profile-switch watch runs.
+  A fourth root, `HouseCarl:OverwriteDir`, is optional and is read as MO2's overwrite layer everywhere instance mode
+  reads `base\overwrite` — plugins, archives, loose files, string tables, the layer label and the can't-resolve
+  sentence — while the three above still decide the mode. Unset or blank is no overwrite layer at all, as before. A
+  value that is not a folder refuses every call in one sentence (`ExplicitRootRefusedException`, checked in
+  `EnsurePathsDerived`), where instance mode reads a missing overwrite folder as empty, since MO2 recreates that one at
+  every start and nothing recreates this one.
 - UNCONFIGURED: the server still boots and every tool returns the prompt for the MO2 path until `housecarl_set_mo2_instance` is called.
 
 ## Pinned by
@@ -69,6 +75,7 @@ the config file.
 - `ReadPinTests.ASwitchToAProfileHeldOpenKeepsTheOldRoots` — a switch to a profile MO2 holds open keeps the old profile name and roots while the record lane refuses, and takes the new ones once it is released.
 - `FreshnessCaptureTests.AReadDuringAWrite_ServesTheLastSnapshotAndTheNextCallRefreshes` — a read while a write holds `_writeGate` completes without waiting, serves the last good snapshot, and the next call refreshes: the deferred-refresh sentence, not the mapped-plugin reason it gives.
 - `ServingCopyTests` — a higher copy appearing (or the higher copy removed) with no profile change refuses an in-place remove with both files untouched and the rerun writes the served copy; a mod-named read never answers from the other copy; status refreshes the index for the next plain read; an unchanged serving copy re-resolves nothing; an empty profile read and a write held on another thread each refuse naming that reason; a view pinned before a refresh refuses with no rebuild of the order or the asset resolver; inside a call a write refuses with no rebuild and the next call re-reads the order, once, and an instance switch drops that put-off re-read; the target's mod switched off after an in-place apply's or compact's in-gate pin lets it finish on the pin's copy; a mod-named read after its mod is switched on post-pin refuses saying the index is now refreshed, after one rebuild. `CallViewWriteTests` — a merge, a compact, an in-place apply and a create with a dialogue line, each cold and warm, answer as the control does when a mod or a donor's folder is switched off, or the profile switched, after the in-gate pin.
+- *Configuration modes*: `ExplicitOverwriteTests` — a configured explicit overwrite root serves its plugin over an enabled mod's copy and over Data's, and its loose file and archive win, each with instance mode's answer on the same folders pinned beside it; unset, blank and whitespace each keep the no-overwrite-layer answer; a root that is not a folder refuses every call in one sentence, where instance mode's missing overwrite folder still answers.
 
 ## Where
 `src/housecarl-mcp/CallContext.cs`: `CallContext`, its `CallBuild` and `FileView`, `WriteViewTaken` with `TakeWriteView`,
@@ -77,7 +84,8 @@ the config file.
 `HeldBuildLocked` and `HeldFilesLocked` in `LoadOrderService.cs`, the head's own reads take the call's build through
 `CallBuildLocked`, and `ToolCall` in `src/housecarl-mcp/Guard.cs` opens it.
 `src/housecarl-mcp/LoadOrderService.cs`: the `Resolver` and `Assets` getters, `SetInstance`,
-`RefreshOnProfileChange`, `RederiveIfIniChanged`, `ReResolve`, `EnsurePathsDerived`, `StatusData`, `Stats`, `UpdateCache`,
+`RefreshOnProfileChange`, `RederiveIfIniChanged`, `ReResolve`, `EnsurePathsDerived` (with `CheckExplicitOverwriteRoot`
+and the `ExplicitRootRefusedException` it throws, declared at the end of the file), `StatusData`, `Stats`, `UpdateCache`,
 `NamedProfileComposition`, `PapyrusSourceImportDirs`, `Dispose`, `CapturePin()` and the `ViewPin` record it
 returns (nested in the service), `CapturePinAnd<T>` (one `_gate` hold: the pin, a seam, then a second capture),
 over which `CapturePinAndAssets`, `CapturePinAndRoots` (the pin and the four roots, for the read area's pole
