@@ -770,10 +770,12 @@ public sealed class LoadOrderResolver : IDisposable
         }
 
         /// <summary>The runtime FormID a plugin's records are numbered from: its load index, or the light block plus its
-        /// light index. Null when the plugin is not in the active order or occupies no slot.</summary>
+        /// light index. Null when the plugin is not in the active order, occupies no slot, or sits at or after a plugin
+        /// whose kind could not be read, where the base would be composed from a guessed light flag.</summary>
         public uint? RuntimeBaseOf(string pluginName)
         {
             if (!_r._nameToIdx.TryGetValue(pluginName, out int p)) return null;
+            if (_s.FirstUnknownKind >= 0 && p >= _s.FirstUnknownKind) return null;
             int slot = _s.Slots.Value.SlotOfPlugin[p];
             // The base is the record's own id 0, composed the one way; object id 0 is inside the ESL window, so this never refuses.
             if (slot < 0 || !RuntimeFormId.TryCompose(_s.Light[p], slot, 0, out uint b)) return null;
