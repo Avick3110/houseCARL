@@ -206,6 +206,21 @@ public sealed class ExplicitOverwriteTests : IDisposable
         Assert.Throws<ExplicitRootRefusedException>(() => _ = svc.ModsRootOrNull);
     }
 
+    /// <summary>The <c>out_path=</c> contract reads the configured root too: a write into it deploys, as it does in
+    /// instance mode, while houseCARL's own default target is still a mod folder under ModsDir.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void OutPathIntoTheOverwriteRootIsADeployableShape(bool explicitMode)
+    {
+        var svc = Svc(explicitMode);
+
+        var rf = svc.ResolveExplicitScriptFolder(_p.Overwrite, out var deployWarning);
+
+        Assert.Null(deployWarning);
+        Assert.Equal(Path.Combine(_p.Overwrite, "Scripts"), rf.OutputDir);
+    }
+
     /// <summary><c>provider='overwrite'</c> is a reserved name exactly while a root is configured: with one it reads
     /// that layer, in either mode; with none the name is unknown and the call refuses rather than read a mod by it.</summary>
     [Theory]
