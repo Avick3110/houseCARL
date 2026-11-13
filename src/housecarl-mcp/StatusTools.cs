@@ -65,8 +65,16 @@ static class StatusWire
         var sb = new StringBuilder();
         sb.Append("load order status — profile '").Append(d.ProfileName).Append("'\n");
         sb.Append(ServerLine);
-        // The resolved MO2 instance; null means explicit-paths mode, which has no MO2 instance folder.
-        sb.Append("instance: ").Append(d.InstanceDir ?? "explicit-paths mode (no MO2 instance configured)").Append('\n');
+        // The resolved MO2 instance; null means explicit-paths mode, which has no MO2 instance folder. That mode names
+        // its configured overwrite root here — the only answer that reads it back, where instance mode has set_mo2_instance's.
+        sb.Append("instance: ");
+        if (d.InstanceDir is { } instanceDir) sb.Append(instanceDir);
+        else
+        {
+            sb.Append("explicit-paths mode (no MO2 instance configured)");
+            if (d.OverwriteDir.Length > 0) sb.Append(" · overwrite: ").Append(d.OverwriteDir);
+        }
+        sb.Append('\n');
         if (d.ModsFolderUnreadable is { } unread)
             sb.Append("[!] ").Append(unread).Append(" Every record, check, asset and write call refuses until it can be opened.\n");
         sb.Append("mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
