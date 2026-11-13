@@ -20,8 +20,12 @@ public static class SkyPatcherTools
         ("desc", "Description Framework"), ("dsd", "Dynamic String Distributor"),
     };
 
-    /// <summary>Formats the layer is to read whose lines this build does not read yet, named by their rows of the runtime-format source.</summary>
-    static IEnumerable<(string Name, string Full)> NotYet => RuntimeFormats.Distributors.Select(d => (d.Key, d.Name));
+    static (string Name, string Full)[]? _notYet;
+
+    /// <summary>Formats the layer is to read whose lines this build does not read yet, named by their rows of the
+    /// runtime-format source; built on the first refusal, so the rows parse there and not at type init.</summary>
+    static (string Name, string Full)[] NotYet
+        => _notYet ??= RuntimeFormats.Distributors.Select(d => (d.Key, d.Name)).ToArray();
 
     /// <summary>The refusal for a distributor= value this build does not read, or null when every value is read.</summary>
     internal static string? DistributorRefusal(IReadOnlyList<string>? values)
