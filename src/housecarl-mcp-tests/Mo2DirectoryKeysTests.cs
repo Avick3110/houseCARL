@@ -259,6 +259,19 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         Assert.Contains("MO2 creates it when it next starts", SetupTools.Render(p, persisted: true, persistError: null, persistNote: null));
     }
 
+    // The setup answer prints the profile folder read: under a moved profiles_directory, or under the instance with no key.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TheSetupAnswerNamesTheProfileFolder(bool moved)
+    {
+        var inst = moved ? Stage("pf1", "mod_directory={STORE}/mods", "profiles_directory={STORE}/profiles") : Stage("pf0");
+        var p = Mo2Instance.Resolve(inst);
+        AssertSamePath(Path.Combine(moved ? Store("pf1") : inst, "profiles", "Default"), p.ProfileDir);
+
+        Assert.Contains("  profile folder: " + p.ProfileDir + "\n", SetupTools.Render(p, persisted: true, persistError: null, persistNote: null));
+    }
+
     // Promise: "A key in a section other than [Settings] is ignored", before [Settings] or after it.
     [Theory]
     [InlineData(true)]
