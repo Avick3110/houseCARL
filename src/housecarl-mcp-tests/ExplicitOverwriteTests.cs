@@ -107,6 +107,30 @@ public sealed class ExplicitOverwriteTests : IDisposable
         Assert.Equal("overwrite", archived.OwningMod);
     }
 
+    /// <summary>Explicit mode's only readback of the root it was given; instance mode's line is unchanged, as it names
+    /// its overwrite folder in the set_mo2_instance answer instead.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TheStatusInstanceLineNamesTheConfiguredExplicitOverwriteRoot(bool explicitMode)
+    {
+        var line = InstanceLine(Status(Svc(explicitMode), Dup));
+
+        Assert.Equal(explicitMode
+            ? "instance: explicit-paths mode (no MO2 instance configured) · overwrite: " + _p.Overwrite
+            : "instance: " + _p.Inst, line);
+    }
+
+    [Fact]
+    public void ExplicitModeWithNoOverwriteRootNamesNoOverwriteFolder()
+    {
+        Assert.Equal("instance: explicit-paths mode (no MO2 instance configured)",
+                     InstanceLine(Status(_p.OpenExplicit(), Dup)));
+    }
+
+    static string InstanceLine(string status) =>
+        status.Split('\n').First(l => l.StartsWith("instance: ", StringComparison.Ordinal)).TrimEnd('\r');
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
