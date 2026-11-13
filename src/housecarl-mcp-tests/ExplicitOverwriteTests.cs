@@ -206,6 +206,27 @@ public sealed class ExplicitOverwriteTests : IDisposable
         Assert.Throws<ExplicitRootRefusedException>(() => _ = svc.ModsRootOrNull);
     }
 
+    /// <summary><c>provider='overwrite'</c> is a reserved name exactly while a root is configured: with one it reads
+    /// that layer, in either mode; with none the name is unknown and the call refuses rather than read a mod by it.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ProviderOverwriteReadsTheLayerWhenARootIsConfigured(bool explicitMode)
+    {
+        var d = Svc(explicitMode).AssetStatus(new[] { Texture }, provider: "overwrite");
+
+        Assert.Null(d.Refusal);
+        Assert.Equal("overwrite", d.Results[0].Hit!.Winner!.Source);
+    }
+
+    [Fact]
+    public void ProviderOverwriteIsNotAProviderWithNoOverwriteRootConfigured()
+    {
+        var d = _p.OpenExplicit().AssetStatus(new[] { Texture }, provider: "overwrite");
+
+        Assert.NotNull(d.Refusal);
+    }
+
     /// <summary>"Not a folder" is read as written: a path that is a file refuses in the same sentence, where
     /// <c>Directory.Exists</c> alone would be enough for a path that is simply absent.</summary>
     [Fact]
