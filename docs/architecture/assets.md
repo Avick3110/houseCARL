@@ -141,6 +141,12 @@ resolver reads no profile.
   (gone since its parent listed it, or a junction to nowhere) is skipped, as the enumeration skipped it; the prefix
   folder, or any subfolder that refuses, ends that root's walk with "could not walk", keeping what it took before,
   as the enumeration did.
+- **One folder's top level is the same walk with no descent** (`EnumerateTopLevel`). It takes the same roots, the same
+  listings, the same hidden rules and the same failure naming as the walk; it queues no subfolder, and an archive entry
+  below the folder is not in it. So its answer is the walk's answer restricted to that level, and its cost is one
+  directory listing per loose root rather than a subtree each. A runtime-layer format that reads one folder and does not
+  descend goes through this door rather than a glob over the whole tree (R40); on dev that is 45 ms and 1,886 paths
+  against 1,160 ms and 326,776 for `EnumerateUnder("")`.
 - **A freshness baseline is read at the warm, never off an older memo.** Every directory a warmed subtree puts under
   watch is baselined by what that warm reads — the call's listing the warm read, which is also what
   the answer came from; on the fallback path, the whole listing for a root's own copy, or for a root that has nothing

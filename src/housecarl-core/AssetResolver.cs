@@ -384,6 +384,16 @@ public sealed class AssetResolver : IDisposable
     IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap, LooseListings listings)
         => EnumerateUnder(prefix, snap, listings, null, 0, out _);
 
+    /// <summary>Every distinct Data-relative path of a file sitting DIRECTLY in <paramref name="prefix"/> — one
+    /// directory listing per loose root plus the archive entries in that folder, nothing below it. The answer is
+    /// <see cref="EnumerateUnder(string)"/>'s restricted to one level; the cost is one listing per root instead of a
+    /// whole subtree. For a runtime-layer format that reads one folder and does not descend.</summary>
+    public IReadOnlyCollection<string> EnumerateTopLevel(string prefix)
+    {
+        var (snap, listings) = BeginPass();
+        return EnumerateUnder(prefix, snap, listings, null, 0, out _, topLevelOnly: true);
+    }
+
     /// <summary>Is <paramref name="name"/> a provider this build has: a loose root's name, an active archive's
     /// filename, or the MO2 layer an active archive lives in — the names <see cref="AssetSourceSelection.NameMatches(string, string?, string)"/> accepts.</summary>
     public bool HasProvider(string name)
@@ -395,7 +405,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap, LooseListings listings, Func<string, bool>? keep, int max,
-                                               out bool stopped, string? provider = null, HiddenTally? hidden = null)
+                                               out bool stopped, string? provider = null, HiddenTally? hidden = null, bool topLevelOnly = false)
     {
         stopped = false;
         var pre = NormalizeQueryPath(prefix).TrimEnd('\\');      // drive-root / '..' rejected loud, backslash-normalized
@@ -444,7 +454,8 @@ public sealed class AssetResolver : IDisposable
                 foreach (var name in listing.Names)
                 {
                     var f = LooseListings.OnDisk(dir, name);
-                    if (!listing.IsFile(name)) { pending.Enqueue(f); continue; }
+                    // A top-level listing reads one directory per root: a subfolder is never queued, so nothing below it is listed.
+                    if (!listing.IsFile(name)) { if (!topLevelOnly) pending.Enqueue(f); continue; }
                     // Re-rooted on the NORMALIZED prefix, not sliced off rootDir, which would carry the caller's casing.
                     var rel = withSep + Normalize(f.Substring(baseDir.Length));
                     if (_skip.Hides(rel, linked) is not { } rule) Take(rel);
@@ -464,7 +475,8 @@ public sealed class AssetResolver : IDisposable
             if (provider is not null && !AssetSourceSelection.NameMatches(Path.GetFileName(a.Path), a.OwningMod, provider)) continue;
             if (!snap.Tables.TryGetValue(a.Path, out var t)) continue;
             foreach (var entry in t)
-                if (entry.StartsWith(withSep, StringComparison.OrdinalIgnoreCase))
+                if (entry.StartsWith(withSep, StringComparison.OrdinalIgnoreCase)
+                    && !(topLevelOnly && entry.IndexOf('\\', withSep.Length) >= 0))
                 {
                     // Re-rooted on the same prefix as the loose lane, so one answer does not mix two spellings of a folder.
                     Take(withSep + entry.Substring(withSep.Length));
@@ -568,6 +580,10 @@ public sealed class AssetResolver : IDisposable
         }
 
         public IReadOnlyCollection<string> EnumerateUnder(string prefix) => _r.EnumerateUnder(prefix, _s, _l);
+
+        /// <summary>As <see cref="AssetResolver.EnumerateTopLevel(string)"/>, off this pinned view's listings.</summary>
+        public IReadOnlyCollection<string> EnumerateTopLevel(string prefix)
+            => _r.EnumerateUnder(prefix, _s, _l, null, 0, out _, topLevelOnly: true);
 
         public IReadOnlyCollection<string> EnumerateUnder(string prefix, Func<string, bool>? keep, int max, out bool stopped)
             => _r.EnumerateUnder(prefix, _s, _l, keep, max, out stopped);
