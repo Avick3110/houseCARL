@@ -206,6 +206,19 @@ public sealed class ExplicitOverwriteTests : IDisposable
         Assert.Throws<ExplicitRootRefusedException>(() => _ = svc.ModsRootOrNull);
     }
 
+    /// <summary>"Not a folder" is read as written: a path that is a file refuses in the same sentence, where
+    /// <c>Directory.Exists</c> alone would be enough for a path that is simply absent.</summary>
+    [Fact]
+    public void AnOverwriteRootThatIsAFileRefusesTheSameWay()
+    {
+        var file = _p.Scratch("hcxo-not-a-folder.txt", OverwriteBytes);
+
+        var text = Status(_p.OpenExplicit(file), Dup);
+
+        Assert.StartsWith("error: HouseCarl:OverwriteDir is '" + file + "', which is not a folder", text);
+        Assert.Contains("leave it unset", text);
+    }
+
     /// <summary>Pins unchanged behaviour: instance mode's overwrite folder gates nothing — a missing one reads as
     /// empty, because MO2 recreates it at every start.</summary>
     [Fact]
