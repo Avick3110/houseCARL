@@ -1,0 +1,1 @@
+- **houseCARL now reads MO2's `mod_directory`, `profiles_directory` and `overwrite_directory` settings, with `%BASE_DIR%`, and a missing `base_directory` folder, or a relative or empty setting, is refused naming the setting instead of read from the instance folder.** Check: `set_mo2_instance` lists the moved mods and overwrite folders.
