@@ -68,7 +68,8 @@ the config file.
   instance-mode derivation, which let this one exception through so the decompile hierarchy and the compiler's game-dir
   hint refuse rather than answer degraded. The Nexus tools and `housecarl_set_tool_path` reach no load order and still
   answer. Instance mode reads a missing overwrite folder as empty, since MO2 recreates that one at every start and
-  nothing recreates this one.
+  houseCARL never creates this one — the refusal says to create it only where the name is free, since a file can hold
+  it, and says nothing about MO2, which does recreate this folder when the configured root is a real instance's own.
 - UNCONFIGURED: the server still boots and every tool returns the prompt for the MO2 path until `housecarl_set_mo2_instance` is called.
 
 ## Pinned by

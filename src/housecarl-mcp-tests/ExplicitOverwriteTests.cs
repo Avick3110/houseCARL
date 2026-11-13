@@ -169,9 +169,10 @@ public sealed class ExplicitOverwriteTests : IDisposable
 
         Assert.StartsWith("error: HouseCarl:OverwriteDir is '" + missing + "', which is not a folder", text);
         Assert.DoesNotContain("failed unexpectedly", text);
-        // The three remedies, the first because nothing recreates this folder, where MO2 recreates its own at every start.
-        Assert.Contains("Create it (nothing else will)", text);
-        Assert.Contains("point the setting at the folder", text);
+        // The three remedies: creating the folder is the caller's, conditioned on a free name, and houseCARL never creates it.
+        Assert.Contains("Create one there if the name is free", text);
+        Assert.Contains("houseCARL never creates it", text);
+        Assert.Contains("point the setting at a folder that exists", text);
         Assert.Contains("leave it unset", text);
     }
 
@@ -190,7 +191,10 @@ public sealed class ExplicitOverwriteTests : IDisposable
         Assert.Equal("HcXoFromOverwrite", EditorIdOf(warm, _dupWeapon));   // an index built while the folder was there
         Directory.Delete(_p.Overwrite, recursive: true);
 
-        Assert.Throws<ExplicitRootRefusedException>(() => { warm.AssetStatus(new[] { Texture }); });
+        var gone = Assert.Throws<ExplicitRootRefusedException>(() => { warm.AssetStatus(new[] { Texture }); });
+        // This root is an MO2 instance's own overwrite folder, which MO2 recreates at its next start, so the sentence claims nothing about what will not.
+        Assert.DoesNotContain("nothing else will", gone.Message);
+        Assert.Contains("houseCARL never creates it", gone.Message);
     }
 
     /// <summary>The three doors that swallow instance-mode derivation let the refused explicit root through, so the
@@ -253,6 +257,7 @@ public sealed class ExplicitOverwriteTests : IDisposable
 
         Assert.StartsWith("error: HouseCarl:OverwriteDir is '" + file + "', which is not a folder", text);
         Assert.Contains("leave it unset", text);
+        Assert.Contains("if the name is free", text);   // the file holds the name, so the create remedy stays conditioned
     }
 
     /// <summary>Pins unchanged behaviour: instance mode's overwrite folder gates nothing — a missing one reads as

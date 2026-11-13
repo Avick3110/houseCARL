@@ -127,7 +127,7 @@ The roots follow MO2's own `PathSettings` (v2.5.2 `getConfigurablePath`), with n
 - A missing overwrite folder never gates an instance's validity: MO2 creates it at every start, so a missing one means
   MO2 has not started since it went, and it reads as empty, the same answer MO2 would give. An overwrite root that
   refuses (not a full path, its own value or the `base_directory` it resolves under) does fail the resolve. That is
-  instance mode's rule, and only its own: nothing recreates explicit-paths mode's configured root, so a missing one
+  instance mode's rule, and only its own: houseCARL never creates explicit-paths mode's configured root, so a missing one
   refuses instead ([`load-order-service.md`](load-order-service.md), *Configuration modes*).
 
 Not read: `download_directory` and `cache_directory`, since houseCARL reads neither folder. A mods folder set inside
