@@ -153,7 +153,8 @@ public static class Mo2Instance
                 problems?.Add($"{IniFileName} [Settings] {key}='{value}' {NotFullPath} or one starting %BASE_DIR%/");
                 return null;
             }
-            return (Path.TrimEndingDirectorySeparator(Path.GetFullPath(expanded)), $"from {key}='{value}' in {IniFileName}");
+            var missingBase = usesBase && baseSet && !Directory.Exists(basePath) ? $", under base_directory '{basePath}', which is missing" : "";
+            return (Path.TrimEndingDirectorySeparator(Path.GetFullPath(expanded)), $"from {key}='{value}' in {IniFileName}{missingBase}");
         }
     }
 
