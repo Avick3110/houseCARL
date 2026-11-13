@@ -15,7 +15,7 @@ namespace HousecarlMcpTests;
 [Trait("tier", "integration")]
 public sealed class Mo2DirectoryKeysTests : IDisposable
 {
-    readonly string _root = Path.Combine(Path.GetTempPath(), "hc-mo2-dirkeys-" + Guid.NewGuid().ToString("N"));
+    string _root = Path.Combine(Path.GetTempPath(), "hc-mo2-dirkeys-" + Guid.NewGuid().ToString("N"));
 
     public void Dispose() { try { Directory.Delete(_root, recursive: true); } catch { /* temp cleanup best-effort */ } }
 
@@ -153,6 +153,7 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
     [Fact]
     public void ARelativeInstanceFolderWithBaseDirIsReadAsGiven()
     {
+        _root = Path.Combine(Environment.CurrentDirectory, "hc-mo2-dirkeys-" + Guid.NewGuid().ToString("N"));   // same drive as the cwd, so a relative path to it exists
         var inst = Stage("relinst", "mod_directory=%BASE_DIR%/mods");
         var relative = Path.GetRelativePath(Environment.CurrentDirectory, inst);
         Assert.False(Path.IsPathFullyQualified(relative));
