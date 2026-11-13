@@ -200,6 +200,21 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Assert.Contains("only inside a BSA", file.NotApplied);
     }
 
+    // Probe: KID's folder is read by KID's own values — its depth and its extension, each off its row.
+    [Fact]
+    public void KidsOwnFolderValuesDriveWhatItReads()
+    {
+        Loose(_high, "Top_KID.ini");
+        Loose(_high, @"nested\Deep_KID.ini");
+        Loose(_high, "Shout_KID.INI");
+
+        Assert.Equal(new[] { "Top_KID.ini" }, Paths(Scan(ShippedRows.Distributor("kid"))));
+        Assert.Contains(@"nested\Deep_KID.ini",
+            Paths(Scan(ShippedRows.Distributor("kid", ("\"depth\": \"topLevelOnly\"", "\"depth\": \"descends\"")))));
+        Assert.Equal(new[] { "Shout_KID.INI" },
+            Paths(Scan(ShippedRows.Distributor("kid", ("\"extension\": \".ini\"", "\"extension\": \".INI\"")))));
+    }
+
     // Probe: the four rows are the four formats the layer names, with the counts of a token each.
     [Fact]
     public void TheSourceCarriesTheFourFormatsAndTheirNameTokens()
