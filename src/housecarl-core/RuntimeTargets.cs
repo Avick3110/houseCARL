@@ -72,8 +72,13 @@ public static class RuntimeTargets
         // The plugin name is taken as written, untrimmed, as the frameworks' mod lookups take it.
         return s.AddressOrder == TargetAddressOrder.PluginFirst
             ? new FormAddress(token[..at], FormIdSide(token[(at + 1)..], s), EditorId: null)
-            : new FormAddress(token[(at + 1)..], FormIdSide(token[..at], s), EditorId: null);
+            : new FormAddress(PluginSide(token[(at + 1)..], s), FormIdSide(token[..at], s), EditorId: null);
     }
+
+    /// <summary>The plugin side of an address: up to the next separator, so the fields a format packs after the plugin
+    /// are not read as part of its name; the name itself is untrimmed. A side written first already stops there.</summary>
+    static string PluginSide(string side, TargetSpelling s)
+        => side.IndexOf(s.Separator) is var n && n >= 0 ? side[..n] : side;
 
     /// <summary>The number a FormID side carries under this spelling: the digits as read, with the written load index
     /// erased first where the row says a side of exactly ten characters loses it before the add.</summary>

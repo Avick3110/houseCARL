@@ -95,6 +95,20 @@ public sealed class RuntimeTargetsTests
         => Assert.Equal(Lantern, RuntimeTargets.Resolve("0x2000800~Skyrim.esm", null, Order(),
             ShippedRows.Distributor("spid", ("\"formId\": \"runtimeAdd\"", "\"formId\": \"localObjectId\"")).Targets));
 
+    // (a) Probe: a token packing more fields after the plugin names the plugin of its own field, not the rest of
+    // the line; SkyPatcher's row, whose plugin is written first, answers as it always has.
+    [Fact]
+    public void AFieldPackedAfterThePluginIsNotPartOfItsName()
+    {
+        var read = RuntimeTargets.Read("0x800~Skyrim.esm~trailing", Spelling("spid"));
+        Assert.Equal("Skyrim.esm", read.Address!.Plugin);
+        Assert.Equal(Lantern, RuntimeTargets.Resolve("0x800~Skyrim.esm~trailing", null, Order(), Spelling("spid")));
+
+        var sky = RuntimeTargets.Read("Skyrim.esm|0x800|x", Sky);
+        Assert.Equal("Skyrim.esm", sky.Address!.Plugin);
+        Assert.Equal(0x800u, sky.Address.FormId);
+    }
+
     // (b) Probe: FLM's row erases the written load index of a ten-character side before the add; a shorter side
     // keeps it, and the same tokens under the rows that add raw are unchanged.
     [Fact]
