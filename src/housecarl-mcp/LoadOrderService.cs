@@ -612,8 +612,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             lock (_gate)
             {
-                // Instance mode derives the roots lazily, and an instance that will not resolve is not this caller's problem.
-                try { EnsurePathsDerived(); } catch { }
+                // Instance mode derives the roots lazily, and an instance that will not resolve is not this caller's
+                // problem; a refused explicit root is the one thing not swallowed, so the call says so rather than degrade.
+                try { EnsurePathsDerived(); } catch (Exception ex) when (ex is not ExplicitRootRefusedException) { }
                 var modsDir = CallBuildLocked().Roots.ModsDir;
                 return string.IsNullOrWhiteSpace(modsDir) ? null : modsDir;
             }
@@ -786,10 +787,11 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         lock (_gate)
         {
             configured = _configured;
-            // Not fatal here, but the reason is carried out: it is why the top-up below cannot run.
+            // Not fatal here, but the reason is carried out: it is why the top-up below cannot run. A refused explicit
+            // root is fatal, so the decompile note cannot blame an MO2 instance explicit-paths mode does not have.
             if (configured)
                 try { EnsurePathsDerived(); }
-                catch (Exception ex) { deriveError = ex.Message; }
+                catch (Exception ex) when (ex is not ExplicitRootRefusedException) { deriveError = ex.Message; }
             modsDir = _modsDir;
             lock (_classParentsLock) gen = _classParentsGen;     // taken with modsDir: every write of _modsDir invalidates under the gate
         }
@@ -1141,7 +1143,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only
     }
 
-    /// <summary>Explicit mode: a configured overwrite root that is not a folder refuses every call. Instance mode reads
+    /// <summary>Explicit mode: a configured overwrite root that is not a folder refuses every call that reads the load order. Instance mode reads
     /// a missing overwrite folder as empty because MO2 recreates it at every start; nothing recreates this one, so a
     /// typo would otherwise read as no overwrite layer at all. Caller holds the gate.</summary>
     void CheckExplicitOverwriteRoot()
@@ -1207,7 +1209,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         {
             if (!_configured) return null;
             try { EnsurePathsDerived(); }
-            catch { return null; }                                  // unusable instance → no hint; the caller's own config check names the real problem
+            // unusable instance → no hint; the caller's own config check names the real problem. A refused explicit root
+            // is not swallowed, so the compiler is not prompted against an install other than the configured one.
+            catch (Exception ex) when (ex is not ExplicitRootRefusedException) { return null; }
             return _dataDir.Length > 0 ? Path.GetDirectoryName(_dataDir.TrimEnd('\\', '/')) : null;
         }
     }

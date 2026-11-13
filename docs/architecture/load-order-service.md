@@ -62,9 +62,12 @@ the config file.
   sentence — while the three above still decide the mode. `housecarl_load_order_status` names the configured root on
   its `instance:` line, the one answer that reads it back, where instance mode names its own in the
   `housecarl_set_mo2_instance` answer. Unset or blank is no overwrite layer at all, as before. A
-  value that is not a folder refuses every call in one sentence (`ExplicitRootRefusedException`, checked in
-  `EnsurePathsDerived`), where instance mode reads a missing overwrite folder as empty, since MO2 recreates that one at
-  every start and nothing recreates this one.
+  value that is not a folder refuses, in one sentence, every call that reads the load order
+  (`ExplicitRootRefusedException`, checked in `EnsurePathsDerived`) — including the three doors that swallow
+  instance-mode derivation, which let this one exception through so the decompile hierarchy and the compiler's game-dir
+  hint refuse rather than answer degraded. The Nexus tools and `housecarl_set_tool_path` reach no load order and still
+  answer. Instance mode reads a missing overwrite folder as empty, since MO2 recreates that one at every start and
+  nothing recreates this one.
 - UNCONFIGURED: the server still boots and every tool returns the prompt for the MO2 path until `housecarl_set_mo2_instance` is called.
 
 ## Pinned by
@@ -77,7 +80,7 @@ the config file.
 - `ReadPinTests.ASwitchToAProfileHeldOpenKeepsTheOldRoots` — a switch to a profile MO2 holds open keeps the old profile name and roots while the record lane refuses, and takes the new ones once it is released.
 - `FreshnessCaptureTests.AReadDuringAWrite_ServesTheLastSnapshotAndTheNextCallRefreshes` — a read while a write holds `_writeGate` completes without waiting, serves the last good snapshot, and the next call refreshes: the deferred-refresh sentence, not the mapped-plugin reason it gives.
 - `ServingCopyTests` — a higher copy appearing (or the higher copy removed) with no profile change refuses an in-place remove with both files untouched and the rerun writes the served copy; a mod-named read never answers from the other copy; status refreshes the index for the next plain read; an unchanged serving copy re-resolves nothing; an empty profile read and a write held on another thread each refuse naming that reason; a view pinned before a refresh refuses with no rebuild of the order or the asset resolver; inside a call a write refuses with no rebuild and the next call re-reads the order, once, and an instance switch drops that put-off re-read; the target's mod switched off after an in-place apply's or compact's in-gate pin lets it finish on the pin's copy; a mod-named read after its mod is switched on post-pin refuses saying the index is now refreshed, after one rebuild. `CallViewWriteTests` — a merge, a compact, an in-place apply and a create with a dialogue line, each cold and warm, answer as the control does when a mod or a donor's folder is switched off, or the profile switched, after the in-gate pin.
-- *Configuration modes*: `ExplicitOverwriteTests` — a configured explicit overwrite root serves its plugin over an enabled mod's copy and over Data's, and its loose file and archive win, each with instance mode's answer on the same folders pinned beside it; unset, blank and whitespace each keep the no-overwrite-layer answer; the status `instance:` line names the configured root and names none when there is none; a root that is not a folder refuses every call in one sentence, where instance mode's missing overwrite folder still answers.
+- *Configuration modes*: `ExplicitOverwriteTests` — a configured explicit overwrite root serves its plugin over an enabled mod's copy and over Data's, and its loose file and archive win, each with instance mode's answer on the same folders pinned beside it; unset, blank and whitespace each keep the no-overwrite-layer answer; the status `instance:` line names the configured root and names none when there is none; a root that is not a folder refuses every call that reads the load order in one sentence, the decompile and compile doors included, where instance mode's missing overwrite folder still answers.
 
 ## Where
 `src/housecarl-mcp/CallContext.cs`: `CallContext`, its `CallBuild` and `FileView`, `WriteViewTaken` with `TakeWriteView`,

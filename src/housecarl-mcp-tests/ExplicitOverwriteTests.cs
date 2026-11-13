@@ -158,6 +158,19 @@ public sealed class ExplicitOverwriteTests : IDisposable
         Assert.Contains("leave it unset", text);
     }
 
+    /// <summary>The three doors that swallow instance-mode derivation let the refused explicit root through, so the
+    /// decompile hierarchy, the compiler's game-dir hint and the mods-root read refuse rather than answer degraded.
+    /// Instance mode's own unusable-instance swallow is pinned by <c>CompileGameDirHintTests</c>.</summary>
+    [Fact]
+    public void ARefusedOverwriteRootIsNotSwallowedByTheDoorsThatSwallowDerivation()
+    {
+        var svc = _p.OpenExplicit(Path.Combine(_p.Root, "no-such-overwrite"));
+
+        Assert.Throws<ExplicitRootRefusedException>(() => svc.ClassParentsForDecompile());
+        Assert.Throws<ExplicitRootRefusedException>(() => svc.GameDirOrNull());
+        Assert.Throws<ExplicitRootRefusedException>(() => _ = svc.ModsRootOrNull);
+    }
+
     /// <summary>Pins unchanged behaviour: instance mode's overwrite folder gates nothing — a missing one reads as
     /// empty, because MO2 recreates it at every start.</summary>
     [Fact]
