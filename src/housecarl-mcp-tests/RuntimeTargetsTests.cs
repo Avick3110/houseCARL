@@ -252,6 +252,20 @@ public sealed class RuntimeTargetsTests
         Assert.Contains("is not read yet", RuntimeTargets.Report("0x800", null, Order(), Format(key)));
     }
 
+    // Probe: the address half of BOS's and FLM's rows is read though four of their other rules are not — the
+    // FormID is written first and added to the plugin's base, as their own rows say.
+    [Theory]
+    [InlineData("bos")]
+    [InlineData("flm")]
+    public void AnAddressUnderARowWithUnreadRulesIsStillReadAndAdded(string key)
+    {
+        var read = RuntimeTargets.Read("0x2000800~Skyrim.esm", Spelling(key));
+
+        Assert.Equal(RuntimeTargets.TargetKind.Address, read.Kind);
+        Assert.Equal("Skyrim.esm", read.Address!.Plugin);
+        Assert.Equal(Elsewhere, RuntimeTargets.Resolve("0x2000800~Skyrim.esm", null, Order(), Spelling(key)));
+    }
+
     // Probe: each unread rule alone makes a token unread — one arm per field.
     [Theory]
     [InlineData("\"bareFormId\": \"runtimeFormId\"", "\"bareFormId\": \"unread\"")]
