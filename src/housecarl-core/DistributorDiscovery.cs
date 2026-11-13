@@ -29,10 +29,13 @@ public static class DistributorDiscovery
         foreach (var folder in format.Folders)
         {
             bool Reads(string rel) => folder.Reads(Path.GetFileName(rel));
-            // A descending folder filters inside the walk, so a whole subtree is never materialized to keep a few names.
-            var listed = folder.Descends ? view.EnumerateUnder(folder.Root, Reads, 0, out _) : view.EnumerateTopLevel(folder.Root);
+            // A descending folder filters inside the walk, so a whole subtree is never materialized to keep a few
+            // names; a top-level listing is one directory per root, so it is filtered after the walk has merged them.
+            var listed = folder.Descends
+                ? view.EnumerateUnder(folder.Root, Reads, 0, out _)
+                : view.EnumerateTopLevel(folder.Root).Where(Reads);
             var note = folder.Sorted ? null : UnsortedFolderNote;
-            foreach (var rel in listed.Where(Reads).OrderBy(r => r, StringComparer.Ordinal))
+            foreach (var rel in listed.OrderBy(r => r, StringComparer.Ordinal))
             {
                 var w = LayerFileWinner.Of(view, rel, format.Name);
                 files.Add(new ConfigFile(rel, w.Provider, w.LooseFilePath, w.Shadowed, w.NotApplied, note));
