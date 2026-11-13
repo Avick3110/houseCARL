@@ -164,6 +164,16 @@ public sealed class RuntimeTargetsTests
         Assert.Contains("which is not in the active order", RuntimeTargets.Report("0x800~Absent.esp", null, Order(), Format("spid")));
     }
 
+    // Probe: the side the FormID digits were looked for on is the row's address order, not one format's.
+    [Fact]
+    public void AMalformedAddressNamesTheSideItsOwnRowWritesTheFormIdOn()
+    {
+        Assert.Contains("no hex digit before '~'", RuntimeTargets.Report("junk~Skyrim.esm", null, Order(), Format("spid")));
+        // SkyPatcher writes the plugin first, so its own sentence is unchanged.
+        Assert.Contains("no hex digit after '|'",
+            RuntimeTargets.Report("Skyrim.esm|junk", null, Order(), RuntimeTargets.SkyPatcherName, Sky));
+    }
+
     // Probe: an address the order has a plugin for but no record at names nothing, with the runtime FormID in the sentence.
     [Fact]
     public void AnAddressNoPluginDefinesNamesNothing()

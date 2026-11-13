@@ -200,8 +200,10 @@ public static class RuntimeTargets
             case TargetKind.Address:
                 var a = t.Address!;
                 if (a.IsMalformed)
-                    return $"is not a FormID {name} can read (no hex digit after '{s.Separator}', or more than 32 bits), " +
-                           $"and {name} never reads a '{s.Separator}' token as an EditorID, so it names nothing";
+                    // Which side the digits were looked for on is the row's address order, not one format's.
+                    return $"is not a FormID {name} can read (no hex digit " +
+                           $"{(s.AddressOrder == TargetAddressOrder.PluginFirst ? "after" : "before")} '{s.Separator}', " +
+                           $"or more than 32 bits), and {name} never reads a '{s.Separator}' token as an EditorID, so it names nothing";
                 if (!resolver.PluginPresent(a.Plugin!))
                     return a.Plugin!.Trim() != a.Plugin && resolver.PluginPresent(a.Plugin!.Trim())
                         ? $"names plugin '{a.Plugin}' with a space {name} keeps (it does not trim around '{s.Separator}'), so it names nothing"
