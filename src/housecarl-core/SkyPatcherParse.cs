@@ -182,7 +182,8 @@ public sealed record SkyPatcherValue(
     IReadOnlyList<string> SubArgs,
     FormAddress? Address);
 
-/// <summary>A resolved form address; the tokenizer produces only the '|' form, and <see cref="EditorId"/> is the overlay engine's to fill.</summary>
+/// <summary>A resolved form address, built under each format's own spelling — SkyPatcher's <c>Plugin|FormID</c> and the
+/// distributor rows' <c>FormID~Plugin</c> alike; <see cref="EditorId"/> is the overlay engine's to fill.</summary>
 public sealed record FormAddress(string? Plugin, uint? FormId, string? EditorId)
 {
     /// <summary>True when this is the <c>Plugin.esp|FormID</c> form.</summary>
