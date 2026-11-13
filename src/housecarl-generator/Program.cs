@@ -54,6 +54,9 @@ if (args.Length > 0 && args[0] == "f1-measure") return F1MeasureProbe.Run(args[1
 // EXPLORATORY: does the successor reach a FaceGen beside the SECOND donor-side plugin?
 if (args.Length > 0 && args[0] == "f1-i14") return F1MeasureProbe.RunI14(args[1..]);
 
+// EXPLORATORY: the root-only listing door's cost against today's root glob, and the four distributor formats' discovery and parse, on a live instance.
+if (args.Length > 0 && args[0] == "distributor-front") return DistributorFrontProbe.Run(args[1..]);
+
 // One-shot verify: confirm the xEdit 4-char signature reflection path.
 if (args.Length > 0 && args[0] == "sig") return Probe.RunSig();
 
