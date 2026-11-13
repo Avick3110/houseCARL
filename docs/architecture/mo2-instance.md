@@ -19,7 +19,8 @@ only standalone source of truth.
 is the floor. First sighting of a filename wins.** That is MO2's own overwrite rule, and it is
 stated here once:
 
-1. The overwrite folder (`overwrite_directory`, default `base\overwrite`) — the top of MO2's VFS, where tool outputs land (Synthesis patches, xEdit "new
+1. The overwrite folder (`overwrite_directory`, default `base\overwrite`; explicit-paths mode's optional
+   `HouseCarl:OverwriteDir`, [`load-order-service.md`](load-order-service.md)) — the top of MO2's VFS, where tool outputs land (Synthesis patches, xEdit "new
    file", Wrye Bash). MO2 lists those plugins in the profile files, so skipping this layer leaves
    them unresolvable.
 2. Enabled mods under the mods folder (`mod_directory`, default `base\mods`), in `modlist.txt` order — **top = highest priority** — each mod

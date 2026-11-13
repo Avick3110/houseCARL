@@ -13,7 +13,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     string _modsDir;
     string _profileDir;
     string _profileName;                           // the active profile (instance mode: from selected_profile)
-    string _overwriteDir = "";                     // MO2's overwrite layer (instance mode: derived; explicit mode: none)
+    string _overwriteDir;                          // MO2's overwrite layer (instance mode: derived; explicit mode: configured, "" for none)
     bool _configured;                              // false ⇒ tools return the trained prompt instead of resolving
     InstanceText? _text;                           // the order build's game language and string-table winners; bound to each call that reads this order
     readonly UserConfigStore _store;               // the sole owner of houseCARL.user.json (MO2 instance dir + tool paths)
@@ -51,12 +51,13 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     static readonly string[] ProfileFileNames = { "loadorder.txt", "modlist.txt", "plugins.txt" };
 
-    LoadOrderService(string? instanceDir, string dataDir, string modsDir, string profileDir, bool configured, int maxPlugins, UserConfigStore store)
+    LoadOrderService(string? instanceDir, string dataDir, string modsDir, string profileDir, string overwriteDir, bool configured, int maxPlugins, UserConfigStore store)
     {
         _instanceDir = instanceDir;
         _dataDir = dataDir;
         _modsDir = modsDir;
         _profileDir = profileDir;
+        _overwriteDir = overwriteDir;
         _profileName = profileDir.Length > 0 ? Path.GetFileName(profileDir.TrimEnd('\\', '/')) : "";
         _configured = configured;
         _maxPlugins = maxPlugins;
@@ -76,16 +77,18 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     /// <summary>INSTANCE mode (product default): derive the roots and active profile from ONE MO2 instance folder; a null or blank path is UNCONFIGURED.</summary>
     public static LoadOrderService WithInstance(string? instanceDir, int maxPlugins, UserConfigStore store)
         => new(string.IsNullOrWhiteSpace(instanceDir) ? null : instanceDir.Trim(),
-               "", "", "", configured: !string.IsNullOrWhiteSpace(instanceDir), maxPlugins, store);
+               "", "", "", "", configured: !string.IsNullOrWhiteSpace(instanceDir), maxPlugins, store);
 
-    /// <summary>EXPLICIT mode (dev override): the three roots are configured directly; no ModOrganizer.ini is read.</summary>
-    public static LoadOrderService WithExplicitPaths(string dataDir, string modsDir, string profileDir, int maxPlugins, UserConfigStore store)
-        => new(null, dataDir, modsDir, profileDir, configured: true, maxPlugins, store);
+    /// <summary>EXPLICIT mode (dev override): the three roots are configured directly; no ModOrganizer.ini is read. An
+    /// overwrite folder is optional and read as MO2's overwrite layer; blank or null is no overwrite layer at all.</summary>
+    public static LoadOrderService WithExplicitPaths(string dataDir, string modsDir, string profileDir, int maxPlugins, UserConfigStore store,
+                                                     string? overwriteDir = null)
+        => new(null, dataDir, modsDir, profileDir, (overwriteDir ?? "").Trim(), configured: true, maxPlugins, store);
 
     /// <summary>Test seam: drive the service-layer query logic on a prebuilt resolver with no MO2 profile on disk. Never used by the product.</summary>
     internal static LoadOrderService ForGuard(LoadOrderResolver resolver, UserConfigStore store)
     {
-        var svc = new LoadOrderService(null, "", "", "", configured: true, maxPlugins: 0, store);
+        var svc = new LoadOrderService(null, "", "", "", "", configured: true, maxPlugins: 0, store);
         svc._resolver = resolver;
         svc.Counters = resolver.Counters;   // one object, so the service reads what its resolver counts
         return svc;
@@ -1124,16 +1127,27 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         return false;
     }
 
-    /// <summary>Instance mode: on the first build, derive the roots and active profile from ModOrganizer.ini, throwing a message naming what is missing. Caller holds the gate.</summary>
+    /// <summary>Instance mode: on the first build, derive the roots and active profile from ModOrganizer.ini, throwing a message naming what is missing. Explicit mode: check the configured overwrite root. Caller holds the gate.</summary>
     void EnsurePathsDerived()
     {
-        if (_instanceDir is null) return;                        // explicit mode — roots configured directly
+        if (_instanceDir is null) { CheckExplicitOverwriteRoot(); return; }   // explicit mode — roots configured directly
         if (_profileDir.Length > 0) return;                      // already derived (a prior build / SetInstance); RederiveIfIniChanged owns later updates
         var iniStamp = FileStamp.Of(Mo2Instance.IniPath(_instanceDir)); // stat BEFORE the read: an ini write during/after Resolve is caught next call
         var p = Mo2Instance.Resolve(_instanceDir);               // throws, naming the missing piece, if this is not a usable instance
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
         _iniStamp = iniStamp;
         InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only
+    }
+
+    /// <summary>Explicit mode: a configured overwrite root that is not a folder refuses every call. Instance mode reads
+    /// a missing overwrite folder as empty because MO2 recreates it at every start; nothing recreates this one, so a
+    /// typo would otherwise read as no overwrite layer at all. Caller holds the gate.</summary>
+    void CheckExplicitOverwriteRoot()
+    {
+        if (_overwriteDir.Length == 0 || Directory.Exists(_overwriteDir)) return;
+        throw new ExplicitRootRefusedException(
+            $"HouseCarl:OverwriteDir is '{_overwriteDir}', which is not a folder houseCARL can see. Point it at the " +
+            "folder to read as MO2's overwrite layer, or leave it unset to run with no overwrite layer.");
     }
 
     Mo2Roots ILoadOrderHost.CaptureRoots()
@@ -1314,3 +1328,7 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     static InvalidOperationException NotConfigured() => new(NotConfiguredText);
 
 }
+
+/// <summary>A root explicit-paths mode was configured with that houseCARL cannot use: a configuration refusal the Guard
+/// renders as one sentence, not an internal failure.</summary>
+public sealed class ExplicitRootRefusedException(string sentence) : InvalidOperationException(sentence);

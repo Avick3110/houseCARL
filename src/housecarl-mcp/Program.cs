@@ -76,11 +76,13 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     var maxPlugins = int.TryParse(cfg["MaxPlugins"], out var mp) ? mp : 0;
 
     var dataDir = cfg["DataDir"]; var modsDir = cfg["ModsDir"]; var profileDir = cfg["ProfileDir"];
+    // Explicit mode's optional fourth root, MO2's overwrite layer; the three above still decide the mode.
+    var overwriteDir = cfg["OverwriteDir"];
     bool explicitMode = !fromUser
         && !string.IsNullOrWhiteSpace(dataDir) && !string.IsNullOrWhiteSpace(modsDir) && !string.IsNullOrWhiteSpace(profileDir);
 
     LoadOrderService svc = explicitMode
-        ? LoadOrderService.WithExplicitPaths(dataDir!, modsDir!, profileDir!, maxPlugins, store)
+        ? LoadOrderService.WithExplicitPaths(dataDir!, modsDir!, profileDir!, maxPlugins, store, overwriteDir)
         : LoadOrderService.WithInstance(instanceDir, maxPlugins, store);
     services.AddSingleton(svc);
 
