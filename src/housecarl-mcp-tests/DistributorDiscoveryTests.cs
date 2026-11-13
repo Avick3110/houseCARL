@@ -235,6 +235,17 @@ public sealed class DistributorDiscoveryTests : IDisposable
     public void AValueTheServerHasNoRuleForFailsTheLoad(string from, string to, string prop, string value)
     {
         var ex = Assert.Throws<InvalidOperationException>(() => ShippedRows.Distributor("spid", (from, to)));
+        Assert.Contains("[distributors.spid", ex.Message);
         Assert.Contains($"'{prop}' = '{value}'", ex.Message);
+    }
+
+    // Probe: the row the message names is the row the value is on, not the first row read.
+    [Fact]
+    public void TheRowNamedInTheFailureIsTheRowTheValueIsOn()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => ShippedRows.Distributor("kid", ("\"depth\": \"topLevelOnly\"", "\"depth\": \"halfway\"")));
+
+        Assert.Contains("[distributors.kid.folders]", ex.Message);
     }
 }
