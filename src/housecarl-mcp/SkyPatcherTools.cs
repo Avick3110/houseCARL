@@ -20,12 +20,9 @@ public static class SkyPatcherTools
         ("desc", "Description Framework"), ("dsd", "Dynamic String Distributor"),
     };
 
-    /// <summary>Formats the layer is to read whose lines this build does not read yet.</summary>
+    /// <summary>Formats the layer is to read whose lines this build does not read yet, named by their rows of the runtime-format source.</summary>
     static readonly (string Name, string Full)[] NotYet =
-    {
-        ("spid", "Spell Perk Item Distributor"), ("kid", "Keyword Item Distributor"),
-        ("bos", "Base Object Swapper"), ("flm", "FormList Manipulator"),
-    };
+        RuntimeFormats.Distributors.Select(d => (d.Key, d.Name)).ToArray();
 
     /// <summary>The refusal for a distributor= value this build does not read, or null when every value is read.</summary>
     internal static string? DistributorRefusal(IReadOnlyList<string>? values)

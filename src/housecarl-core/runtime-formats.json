@@ -75,6 +75,141 @@
    "comment": ";",
    "trailingComment": true,
    "reading": { "commentLeads": ["#"], "labelLines": true }
+  },
+  "targets": {
+   "source": "Nexus 6085; the address character is this row's grammar.address, spelt once there",
+   "addressOrder": "pluginFirst",
+   "formId": "localObjectId",
+   "bareFormId": "notRead",
+   "pluginTerm": "notRead",
+   "pluginExtensions": [],
+   "missingName": "namesNothing",
+   "editorIds": "scoped"
+  }
+ }
+],
+"_distributors_about": "The four distributor formats, discovery and target spelling only: each format's line kinds, conflict model and labels land with its own reader. 'unread' is a rule this build has not read for that format, never a claim about it.",
+"distributors": [
+ {
+  "format": "Spell Perk Item Distributor",
+  "key": "spid",
+  "version": "7.3.3",
+  "folders": [
+   {
+    "source": "CLibUtil get_configs (distribution.hpp:29-47 at 5f845f3), called get_configs(R\"(Data\\)\", \"_DISTR\") in SPID/src/LookupConfigs.cpp:94 at 7.3.3",
+    "root": "",
+    "nameToken": "_DISTR",
+    "tokenCase": "ordinal",
+    "extension": ".ini",
+    "extensionCase": "ordinal",
+    "depth": "topLevelOnly",
+    "order": "sortedOrdinal"
+   }
+  ],
+  "targets": {
+   "source": "CLibUtil get_record_type/get_record (distribution.hpp:90-120 at 5f845f3); SPID 7.3.3 FormData.h:200-232; CommonLibSSE-NG bc216c91 TESDataHandler::LookupFormID (unmasked add)",
+   "addressOrder": "formIdFirst",
+   "separator": "~",
+   "formId": "runtimeAdd",
+   "bareFormId": "runtimeFormId",
+   "pluginTerm": "containsExtensionText",
+   "pluginExtensions": [".es"],
+   "missingName": "createsKeyword",
+   "editorIds": "everyType"
+  }
+ },
+ {
+  "format": "Keyword Item Distributor",
+  "key": "kid",
+  "version": "4.1.0",
+  "folders": [
+   {
+    "source": "CLibUtil get_configs, called get_configs(…, \"_KID\") in KID src/LookupConfigs.cpp:65 at v4.1.0",
+    "root": "",
+    "nameToken": "_KID",
+    "tokenCase": "ordinal",
+    "extension": ".ini",
+    "extensionCase": "ordinal",
+    "depth": "topLevelOnly",
+    "order": "sortedOrdinal"
+   }
+  ],
+  "targets": {
+   "source": "KID v4.1.0 include/Data/FormData.h:25 (IsMod), src/Data/FormData.cpp:6-17, :69, :71-80, :92, :98; CommonLibSSE 83420f1a TESDataHandler.cpp:28-54 (unmasked add)",
+   "addressOrder": "formIdFirst",
+   "separator": "~",
+   "formId": "runtimeAdd",
+   "bareFormId": "runtimeFormId",
+   "pluginTerm": "endsWithExtension",
+   "pluginExtensions": [".esm", ".esp", ".esl"],
+   "missingName": "createsKeyword",
+   "editorIds": "everyType"
+  }
+ },
+ {
+  "format": "Base Object Swapper",
+  "key": "bos",
+  "version": "3.5.0",
+  "folders": [
+   {
+    "source": "CLibUtil get_configs, called with \"_SWAP\"; BOS v3.5.0 src/Manager.cpp",
+    "root": "",
+    "nameToken": "_SWAP",
+    "tokenCase": "ordinal",
+    "extension": ".ini",
+    "extensionCase": "ordinal",
+    "depth": "topLevelOnly",
+    "order": "sortedOrdinal"
+   }
+  ],
+  "targets": {
+   "source": "BOS 3.4.0/3.5.0 resolve HEX~Plugin by LookupFormID, raw (distributor-lines research-topup B3, X1); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
+   "addressOrder": "formIdFirst",
+   "separator": "~",
+   "formId": "runtimeAdd",
+   "bareFormId": "unread",
+   "pluginTerm": "unread",
+   "pluginExtensions": [],
+   "missingName": "unread",
+   "editorIds": "unread"
+  }
+ },
+ {
+  "format": "FormList Manipulator",
+  "key": "flm",
+  "version": "82a694e5",
+  "folders": [
+   {
+    "source": "CLibUtil get_configs, called with \"_FLM\" (FLM Manipulator.hpp:357-360 at 82a694e5)",
+    "root": "",
+    "nameToken": "_FLM",
+    "tokenCase": "ordinal",
+    "extension": ".ini",
+    "extensionCase": "ordinal",
+    "depth": "topLevelOnly",
+    "order": "sortedOrdinal"
+   },
+   {
+    "source": "FLM Manipulator.hpp:360-367 at 82a694e5: every .ini in Data\\FLM, non-recursive, appended after the sorted root list, unsorted",
+    "root": "FLM",
+    "nameToken": "",
+    "tokenCase": "ordinal",
+    "extension": ".ini",
+    "extensionCase": "ordinal",
+    "depth": "topLevelOnly",
+    "order": "listed"
+   }
+  ],
+  "targets": {
+   "source": "FLM resolves HEX~Plugin by LookupFormID, raw (distributor-lines research.md answer 2a, X1); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
+   "addressOrder": "formIdFirst",
+   "separator": "~",
+   "formId": "runtimeAdd",
+   "bareFormId": "unread",
+   "pluginTerm": "unread",
+   "pluginExtensions": [],
+   "missingName": "unread",
+   "editorIds": "unread"
   }
  }
 ]
