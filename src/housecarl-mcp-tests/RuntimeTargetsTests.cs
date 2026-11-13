@@ -20,6 +20,7 @@ public sealed class RuntimeTargetsTests
     static readonly FormKey Elsewhere = FormKey.Factory("000800:Dawnguard.esm");
     static readonly FormKey InLight = FormKey.Factory("000800:MyLight.esl");
     static readonly FormKey InNextLight = FormKey.Factory("000801:OtherLight.esl");
+    static readonly FormKey Trimmed = FormKey.Factory("01234A:Skyrim.esm");
 
     static SkyPatcherOverlayHarness.StubResolver Order()
     {
@@ -39,6 +40,8 @@ public sealed class RuntimeTargetsTests
         r.RuntimeForms[0xFE002801] = InNextLight;
         r.Winners[InLight] = "MyLight.esl";
         r.Winners[InNextLight] = "OtherLight.esl";
+        r.RuntimeForms[0x0001234A] = Trimmed;
+        r.Winners[Trimmed] = "Skyrim.esm";
         return r;
     }
 
@@ -91,6 +94,19 @@ public sealed class RuntimeTargetsTests
     public void TheFormIdArithmeticIsTheRows()
         => Assert.Equal(Lantern, RuntimeTargets.Resolve("0x2000800~Skyrim.esm", null, Order(),
             ShippedRows.Distributor("spid", ("\"formId\": \"runtimeAdd\"", "\"formId\": \"localObjectId\"")).Targets));
+
+    // (b) Probe: FLM's row erases the written load index of a ten-character side before the add; a shorter side
+    // keeps it, and the same tokens under the rows that add raw are unchanged.
+    [Fact]
+    public void ATenCharacterSideLosesItsLoadIndexWhereTheRowSaysSo()
+    {
+        Assert.Equal(0x01234Au, RuntimeTargets.Read("0x0201234A~Skyrim.esm", Spelling("flm")).Address!.FormId);
+        Assert.Equal(Trimmed, RuntimeTargets.Resolve("0x0201234A~Skyrim.esm", null, Order(), Spelling("flm")));
+
+        Assert.Equal(0x201234Au, RuntimeTargets.Read("0x201234A~Skyrim.esm", Spelling("flm")).Address!.FormId);
+        Assert.Equal(0x0201234Au, RuntimeTargets.Read("0x0201234A~Skyrim.esm", Spelling("spid")).Address!.FormId);
+        Assert.Equal(0x0201234Au, RuntimeTargets.Read("0x0201234A~Skyrim.esm", Spelling("kid")).Address!.FormId);
+    }
 
     // (c) Probe: hex with no plugin is the runtime FormID, the '0x' required; SkyPatcher reads the same token as a name.
     [Fact]
