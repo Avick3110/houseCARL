@@ -125,8 +125,9 @@ public sealed record DistributorFolder(
     bool Descends)
 {
     /// <summary>Whether the format reads a file of this name out of this folder: the extension, then the name token,
-    /// each under this folder's own comparison. Upstream tests the token against the whole path, whose folder part is
-    /// fixed, so the name carries it.</summary>
+    /// each under this folder's own comparison. Upstream tests the token against the whole path; the name is what
+    /// this test is given, so a folder that descends matches a token written in a subfolder's name only by the file's
+    /// own name.</summary>
     public bool Reads(string fileName)
         => Path.GetExtension(fileName).Equals(Extension, ExtensionCompare)
            && (NameToken.Length == 0 || fileName.Contains(NameToken, TokenCompare));
