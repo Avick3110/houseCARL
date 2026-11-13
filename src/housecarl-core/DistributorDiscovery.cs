@@ -20,9 +20,10 @@ public static class DistributorDiscovery
         string? NotApplied,
         string? OrderNote);
 
-    /// <summary>Every file <paramref name="format"/> reads, in its own read order: each row folder in turn, its files
-    /// ordinally by path. A folder the row marks unsorted is appended after the sorted ones, as the DLL appends it, and
-    /// every file out of it carries <see cref="UnsortedFolderNote"/>.</summary>
+    /// <summary>Every file <paramref name="format"/> reads: each row folder in turn, as the DLL appends them, its
+    /// files ordinally by path. Every folder's files are sorted, the ones the row marks unsorted included — one merged
+    /// listing cannot reproduce a filesystem's own order, so a file out of such a folder carries
+    /// <see cref="UnsortedFolderNote"/> rather than a place claimed to be the DLL's.</summary>
     public static IReadOnlyList<ConfigFile> Scan(AssetResolver.AssetView view, DistributorFormat format)
     {
         var files = new List<ConfigFile>();

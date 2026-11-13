@@ -28,9 +28,10 @@ formats' line kinds, conflict model and labels land with its own reader.
   and is not repeated in its `targets`, so the row spells it once.
 - **Discovery goes through the asset door's top-level listing.** `DistributorDiscovery.Scan` lists each row folder with
   `EnumerateTopLevel` (or the full walk, for a row that descends), keeps the names the row takes, and resolves each to
-  its MO2 winner; a copy only inside an archive is listed and said not to be applied. A folder the row marks unsorted is
-  appended after the sorted ones, and every file out of it carries the sentence saying its place among that folder's
-  files is not the DLL's — one merged listing cannot reproduce a filesystem's own order.
+  its MO2 winner; a copy only inside an archive is listed and said not to be applied. Each row folder is listed in turn,
+  as the DLL appends them, and every folder's files come back in one ordinal sort, the ones the row marks unsorted
+  included: one merged listing cannot reproduce a filesystem's own order, so a file out of such a folder carries the
+  sentence saying its place among that folder's files is not the DLL's rather than a place claimed to be.
 - **One source, two readers.** `SkyPatcherDiscovery` and `SkyPatcherParse` take the root, the name token, the gate
   extensions, the `SkyPatcher.ini` section and key shape, the patchers that run without a key, the patcher run order and
   the delimiters from SkyPatcher's row. `RuntimeFormatSkillText` prints the same values into marked regions of the
