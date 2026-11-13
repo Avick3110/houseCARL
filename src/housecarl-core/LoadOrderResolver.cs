@@ -756,6 +756,31 @@ public sealed class LoadOrderResolver : IDisposable
 
         public RuntimeAddress RuntimeAddressOf(FormKey fk) => _r.RuntimeAddressFor(_s, fk);
 
+        /// <summary>The record a runtime FormID names in this build, or the sentence saying why none does — the door's
+        /// refusal where the address names no slot, and a plain "no plugin defines it" where it names one that is
+        /// empty. For the runtime-layer resolver, which never throws on a line's token.</summary>
+        public (FormKey? Record, string? Why) FromRuntimeFormId(uint value)
+        {
+            FormKey fk;
+            try { fk = _r.RuntimeToFormKey(_s, value); }
+            catch (FormatException ex) { return (null, ex.Message); }
+            return ResolveWinner(fk) is null
+                ? (null, $"names {RuntimeFormId.Format(value)}, which no plugin in the active order defines, so it names nothing")
+                : (fk, null);
+        }
+
+        /// <summary>The runtime FormID a plugin's records are numbered from: its load index, or the light block plus its
+        /// light index. Null when the plugin is not in the active order or occupies no slot.</summary>
+        public uint? RuntimeBaseOf(string pluginName)
+        {
+            if (!_r._nameToIdx.TryGetValue(pluginName, out int p)) return null;
+            int slot = _s.Slots.Value.SlotOfPlugin[p];
+            if (slot < 0) return null;
+            return _s.Light[p]
+                ? FormIdRange.LightMasterIndexPrefix | ((uint)slot << FormIdRange.LightIndexShift)
+                : (uint)slot << FormIdRange.FullIndexShift;
+        }
+
         /// <summary>Whether a plugin filename is in the indexed load order — a state the service must name DISTINCTLY from "in the order but defines no such record".</summary>
         public bool ContainsPlugin(string pluginName) => _r._nameToIdx.ContainsKey(pluginName);
 

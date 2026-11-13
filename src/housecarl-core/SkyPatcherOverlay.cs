@@ -60,6 +60,12 @@ public static class SkyPatcherOverlay
         /// <summary>Whether a plugin (filename incl. extension) is in the active load order (hasPlugins).</summary>
         bool PluginPresent(string pluginName);
 
+        /// <summary>The record a runtime FormID names in the active order, or the sentence saying why none does; for a format whose address is a number added to a plugin's runtime base.</summary>
+        (FormKey? Record, string? Why) FromRuntimeFormId(uint value);
+
+        /// <summary>The runtime FormID a plugin's records are numbered from — its load index, plus its light index where it is light; null when the plugin is not in the active order.</summary>
+        uint? RuntimeBaseOf(string pluginName);
+
         /// <summary>The plugin whose override of a record wins the load order; null means the record is not present, surfaced loud.</summary>
         string? WinnerPluginOf(FormKey record);
 
@@ -202,7 +208,7 @@ public static class SkyPatcherOverlay
             if (cls.Filter!.Kind == SkyPatcherFilterKind.Primary)
             {
                 foreach (var v in seg.Values)
-                    if (SkyPatcherTargets.Report(v, fieldMap?.RecordType, resolver) is { } why)
+                    if (RuntimeTargets.Report(v, fieldMap?.RecordType, resolver) is { } why)
                         lint.Add($"target '{v.Raw}' (in a {seg.Key}) {why}.");
                 continue;
             }
@@ -226,7 +232,7 @@ public static class SkyPatcherOverlay
 
     /// <summary>A value that resolves to nothing, worded with the EditorID gap when that is why.</summary>
     static string UnresolvedText(FormTokenKind tokens, SkyPatcherValue v, SkyPatcherSegment seg, IFormResolver resolver)
-        => SkyPatcherTargets.ByEditorId(v) && resolver.EditorIdGap(tokens.FormType) is { } gap
+        => RuntimeTargets.ByEditorId(v) && resolver.EditorIdGap(tokens.FormType) is { } gap
             ? HiddenEditorIdText(v, seg, gap)
             : tokens.UnresolvedText(v, seg);
 
@@ -285,8 +291,8 @@ public static class SkyPatcherOverlay
                 {
                     var a = v.SubArgs[k];   // untrimmed: SkyPatcher keeps a space around '|', and so names nothing
                     var addr = SkyPatcherParse.TryParseAddress(a);
-                    var fk = addr is not null ? SkyPatcherTargets.FormKeyOf(addr)
-                        : k == 0 ? SkyPatcherTargets.Resolve(a, scopes, resolver)   // the replay looks up only the leading sub-arg
+                    var fk = addr is not null ? RuntimeTargets.FormKeyOf(addr)
+                        : k == 0 ? RuntimeTargets.Resolve(a, scopes, resolver)   // the replay looks up only the leading sub-arg
                         : null;
                     if (fk is { } f) yield return new LineForm(place, seg.Key, a, f, ByEditorId: addr is null);
                 }
@@ -409,7 +415,7 @@ public static class SkyPatcherOverlay
         {
             directByHiddenName = shape.Direct.Any(d => d.seg.Values.Any(v => MatchesIdentity(v, fk, editorId)));
             foreach (var (seg, _) in shape.Direct)
-                foreach (var v in seg.Values.Where(SkyPatcherTargets.ByEditorId))
+                foreach (var v in seg.Values.Where(RuntimeTargets.ByEditorId))
                     warn.Add($"eg:{seg.Key}:{v.Raw}", HiddenEditorIdText(v, seg, gap),
                         decides: v.Raw.Equals(editorId, StringComparison.OrdinalIgnoreCase));
             editorId = null;
@@ -977,13 +983,13 @@ public static class SkyPatcherOverlay
     /// <summary>Whether a direct-list value would name the record by its own EditorID were the name visible: the hidden-name case only.</summary>
     static bool MatchesIdentity(SkyPatcherValue v, FormKey fk, string? editorId)
     {
-        if (v.Address is { } a) return SkyPatcherTargets.FormKeyOf(a) == fk;
+        if (v.Address is { } a) return RuntimeTargets.FormKeyOf(a) == fk;
         return editorId is not null && string.Equals(v.Raw, editorId, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Whether a direct-list value names this record: one record per value, an EditorID through the call's table, as SkyPatcher resolves it.</summary>
     static bool Names(SkyPatcherValue v, FormKey fk, RecordMap? fieldMap, IFormResolver resolver)
-        => SkyPatcherTargets.Resolve(v, fieldMap?.RecordType, resolver) == fk;
+        => RuntimeTargets.Resolve(v, fieldMap?.RecordType, resolver) == fk;
 
     /// <summary>SkyPatcher <c>Plugin|FormID</c> to a Mutagen FormKey: a full load-indexed ESL FormID keeps only its 12-bit local id, anything else the low 24 bits.</summary>
     public static bool TryFormKey(FormAddress a, out FormKey fk)
@@ -1343,7 +1349,7 @@ public static class SkyPatcherOverlay
 
         string token;
         if (v.IsNameLiteral) token = v.NameText!;                       // rename literal, wrapper stripped
-        else if (v.Address is { } a && SkyPatcherTargets.FormKeyOf(a) is { } fk1) token = fk1.ToString();
+        else if (v.Address is { } a && RuntimeTargets.FormKeyOf(a) is { } fk1) token = fk1.ToString();
         else if (map.ValueMap is { } vm && vm.TryGetValue(v.Raw, out var mapped)) token = mapped;
         else if (map.FormType is not null)
         {
@@ -1352,7 +1358,7 @@ public static class SkyPatcherOverlay
             else
             {
                 // A value that fails as FormType but resolves as the op's donorType is a runtime donor-copy the static model does not cover — named honestly, never a thrown malformed-FormKey.
-                bool byEid = SkyPatcherTargets.ByEditorId(v);
+                bool byEid = RuntimeTargets.ByEditorId(v);
                 if (map.DonorType is { } dt && byEid && resolver.ResolveEditorId(v.Raw, dt) is not null)
                     warnings.Add($"{where}: '{opKey}={v.Raw}' — '{v.Raw}' is a {dt}, not a {map.FormType}. " +
                         $"'{opKey}=<donor {dt}>' copies the donor's {map.Path} at runtime — a donor-copy houseCARL does not " +
@@ -1605,10 +1611,10 @@ public static class SkyPatcherOverlay
     }
 
     static FormKey? ResolveFormValue(SkyPatcherValue v, string? formType, IFormResolver resolver)
-        => SkyPatcherTargets.Resolve(v, formType, resolver);
+        => RuntimeTargets.Resolve(v, formType, resolver);
 
     static FormKey? ResolveFormToken(string token, string? formType, IFormResolver resolver)
-        => SkyPatcherTargets.Resolve(token, formType, resolver);
+        => RuntimeTargets.Resolve(token, formType, resolver);
 
     /// <summary>A sub-arg that IS the unambiguous <c>Plugin|FormID</c> form, via <see cref="SkyPatcherParse.TryParseAddress"/> rather than a '|' sniff.</summary>
     static bool LooksLikeForm(string raw) => SkyPatcherParse.TryParseAddress(raw) is { IsFormId: true };
@@ -1621,7 +1627,7 @@ public static class SkyPatcherOverlay
             : $"{where}: '{opKey}={raw}' — EditorID '{token}' finds nothing: {gap}; not applied.";
 
     static string? HiddenOpValue(string where, string opKey, SkyPatcherValue v, string? formType, IFormResolver resolver)
-        => SkyPatcherTargets.ByEditorId(v) ? HiddenOpValue(where, opKey, v.Raw, v.Raw, formType, resolver) : null;
+        => RuntimeTargets.ByEditorId(v) ? HiddenOpValue(where, opKey, v.Raw, v.Raw, formType, resolver) : null;
 
     static string FormHint(SkyPatcherValue v, OpMap map)
         => v.Address is { IsMalformed: true } ? "not a FormID SkyPatcher can read after '|'"

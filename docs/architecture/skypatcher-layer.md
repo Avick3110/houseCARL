@@ -90,7 +90,11 @@ audit, because getting it wrong inverts every verdict.
 
 Every site that turns a target token into a record (the direct lists and their Excluded spelling,
 filter values, op values and sub-args, the conflict detector's target grouping, the no-op scan)
-goes through `SkyPatcherTargets`. A FormID resolves by `FormIdRange`; an EditorID through the
+goes through `RuntimeTargets`, the one resolver every runtime-layer format reads a target through;
+SkyPatcher's spelling — the plugin written before the FormID, the written number masked to the
+record's local object id, no bare FormID and no plugin-name term, a scoped name lookup — is its own
+row of the runtime-format source ([`runtime-formats.md`](runtime-formats.md)), not a rule in the
+code. A FormID resolves by `FormIdRange`; an EditorID through the
 call's one EditorID table (`SkyPatcherEditorIdTable`), case-insensitive, where the first record
 loaded under a name keeps it, as the game's map does (po3 Tweaks inserts with `emplace`, so a later
 record never replaces a name; a renaming override leaves the master's name in the map). The table
