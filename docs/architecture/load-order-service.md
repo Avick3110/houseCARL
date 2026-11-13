@@ -61,7 +61,8 @@ the config file.
   reads `base\overwrite` — plugins, archives, loose files, string tables, the layer label and the can't-resolve
   sentence — while the three above still decide the mode. `housecarl_load_order_status` names the configured root on
   its `instance:` line, the one answer that reads it back, where instance mode names its own in the
-  `housecarl_set_mo2_instance` answer. Unset or blank is no overwrite layer at all, as before. A
+  `housecarl_set_mo2_instance` answer. The value is made full and stripped of a trailing separator, as instance mode's
+  roots are, so one folder is one string everywhere. Unset or blank is no overwrite layer at all, as before. A
   value that is not a folder refuses, in one sentence, every call that reads the load order
   (`ExplicitRootRefusedException`, checked in `EnsurePathsDerived`) — including the three doors that swallow
   instance-mode derivation, which let this one exception through so the decompile hierarchy and the compiler's game-dir

@@ -128,6 +128,20 @@ public sealed class ExplicitOverwriteTests : IDisposable
                      InstanceLine(Status(_p.OpenExplicit(), Dup)));
     }
 
+    /// <summary>The configured root is taken as instance mode's roots are — made full and stripped of a trailing
+    /// separator — so one folder is one string wherever it is read back or compared.</summary>
+    [Fact]
+    public void TheConfiguredOverwriteRootIsNormalizedAsInstanceModesRootsAre()
+    {
+        var roundabout = Path.Combine(_p.Inst, "profiles", "..", "overwrite") + Path.DirectorySeparatorChar;
+
+        var status = Status(_p.OpenExplicit(roundabout), Dup);
+
+        Assert.Equal("instance: explicit-paths mode (no MO2 instance configured) · overwrite: " + _p.Overwrite,
+                     InstanceLine(status));
+        Assert.Contains("served from: overwrite", status);
+    }
+
     static string InstanceLine(string status) =>
         status.Split('\n').First(l => l.StartsWith("instance: ", StringComparison.Ordinal)).TrimEnd('\r');
 
