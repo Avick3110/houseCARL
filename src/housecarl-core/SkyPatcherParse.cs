@@ -136,7 +136,14 @@ public static class SkyPatcherParse
 
     /// <summary>A token holding the grammar's address separator as SkyPatcher reads it: <c>Plugin|FormID</c>, never an EditorID; null for a token without one. Read through the one runtime-layer resolver, on SkyPatcher's own spelling with this grammar's address character.</summary>
     public static FormAddress? TryParseAddress(string token, SkyPatcherGrammar? grammar = null)
-        => RuntimeTargets.TryParseAddress(token, RuntimeFormats.SkyPatcher.Targets with { Separator = (grammar ?? G).Address });
+        => RuntimeTargets.TryParseAddress(token, Spelling(grammar));
+
+    /// <summary>SkyPatcher's target spelling, with the address character a test grammar overrides; the shipped row already carries the shipped character, so the common path allocates nothing.</summary>
+    static TargetSpelling Spelling(SkyPatcherGrammar? grammar)
+    {
+        var s = RuntimeFormats.SkyPatcher.Targets;
+        return grammar is null || grammar.Address == s.Separator ? s : s with { Separator = grammar.Address };
+    }
 
     static string Append(string? note, string add) => note is null ? add : note + "; " + add;
 }

@@ -80,8 +80,8 @@
    "source": "Nexus 6085; the address character is this row's grammar.address, spelt once there",
    "addressOrder": "pluginFirst",
    "formId": "localObjectId",
-   "bareFormId": "notRead",
-   "pluginTerm": "notRead",
+   "bareFormId": "notAFormId",
+   "pluginTerm": "notATerm",
    "pluginExtensions": [],
    "missingName": "namesNothing",
    "editorIds": "scoped"
@@ -197,7 +197,7 @@
     "extension": ".ini",
     "extensionCase": "ordinal",
     "depth": "topLevelOnly",
-    "order": "listed"
+    "order": "filesystemOrder"
    }
   ],
   "targets": {

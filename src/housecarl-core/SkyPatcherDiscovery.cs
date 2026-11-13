@@ -80,26 +80,18 @@ public static class SkyPatcherDiscovery
             var subfolder = underRoot[..slash];
             var sortKey = underRoot[(slash + 1)..];
 
-            var place = view.ResolveForPlacement(rel);
-            var looseSources = place.Sources.Where(s => s.Kind == AssetKind.Loose).ToList();
-            var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
-
-            string? notApplied = null;
+            var w = LayerFileWinner.Of(view, rel, RuntimeTargets.SkyPatcherName);
+            var notApplied = w.NotApplied;
             IReadOnlyList<SkyPatcherLine> lines = Array.Empty<SkyPatcherLine>();
-            var shadowed = looseSources.Skip(1).Select(s => s.ProviderName).ToList();
 
-            if (winner is null || winner.Kind != AssetKind.Loose)
-            {
-                notApplied = "present only inside a BSA — SkyPatcher reads loose INIs off the filesystem only";
-            }
-            else
+            if (w.LooseFilePath is { } loosePath)
             {
                 notApplied = NotReadReason(name, pluginPresent, f);
                 try
                 {
                     lines = cache is null || format is not null
-                        ? SkyPatcherParse.ParseFile(File.ReadAllText(winner.LooseFilePath!), f.Grammar)
-                        : cache.GetOrParse(winner.LooseFilePath!);
+                        ? SkyPatcherParse.ParseFile(File.ReadAllText(loosePath), f.Grammar)
+                        : cache.GetOrParse(loosePath);
                 }
                 catch (Exception ex)
                 {
@@ -108,13 +100,12 @@ public static class SkyPatcherDiscovery
                 }
             }
 
-            var file = new IniFile(rel, subfolder, sortKey, winner?.ProviderName,
-                                   winner?.Kind == AssetKind.Loose ? winner.LooseFilePath : null,
-                                   shadowed, GatePluginOf(name, f), notApplied, lines);
+            var file = new IniFile(rel, subfolder, sortKey, w.Provider, w.LooseFilePath,
+                                   w.Shadowed, GatePluginOf(name, f), notApplied, lines);
             (byFolder.TryGetValue(subfolder, out var list) ? list : byFolder[subfolder] = new()).Add(file);
 
-            if (shadowed.Count > 0)
-                notes.Add($"'{rel}' is shipped by {looseSources.Count} mods — only '{winner!.ProviderName}' wins the VFS; the cop(ies) from {string.Join(", ", shadowed)} are SHADOWED and never read (the same-path collision the reference warns about — nest plugin-named INIs in a mod-specific subfolder).");
+            if (w.Shadowed.Count > 0)
+                notes.Add($"'{rel}' is shipped by {w.Shadowed.Count + 1} mods — only '{w.Provider}' wins the VFS; the cop(ies) from {string.Join(", ", w.Shadowed)} are SHADOWED and never read (the same-path collision the reference warns about — nest plugin-named INIs in a mod-specific subfolder).");
         }
 
         var switches = ReadSwitches(view, notes, noteMissing: byFolder.Count > 0, f);

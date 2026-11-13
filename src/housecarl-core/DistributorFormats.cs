@@ -29,7 +29,7 @@ public static partial class RuntimeFormats
         var ctx = "distributors." + key;
         var folders = row.GetProperty("folders").EnumerateArray().Select(f => Folder(f, ctx + ".folders")).ToList();
         if (folders.Count == 0) throw new InvalidOperationException($"runtime-format source [{ctx}]: 'folders' is empty.");
-        return new DistributorFormat(key, Str(row, "format", ctx), Str(row, "version", ctx), folders, Targets(row.GetProperty("targets"), ctx + ".targets"));
+        return new DistributorFormat(key, Str(row, "format", ctx), folders, Targets(row.GetProperty("targets"), ctx + ".targets"));
     }
 
     static DistributorFolder Folder(JsonElement f, string ctx)
@@ -39,7 +39,7 @@ public static partial class RuntimeFormats
                Str(f, "order", ctx) switch
                {
                    "sortedOrdinal" => true,
-                   "listed" => false,
+                   "filesystemOrder" => false,
                    var v => throw Unknown(ctx, "order", v),
                },
                Str(f, "depth", ctx) switch
@@ -75,7 +75,7 @@ public static partial class RuntimeFormats
                Str(t, "bareFormId", ctx) switch
                {
                    "runtimeFormId" => TargetBareFormId.RuntimeFormId,
-                   "notRead" => TargetBareFormId.NotRead,
+                   "notAFormId" => TargetBareFormId.NotAFormId,
                    "unread" => TargetBareFormId.Unread,
                    var v => throw Unknown(ctx, "bareFormId", v),
                },
@@ -83,7 +83,7 @@ public static partial class RuntimeFormats
                {
                    "containsExtensionText" => TargetPluginTerm.ContainsExtensionText,
                    "endsWithExtension" => TargetPluginTerm.EndsWithExtension,
-                   "notRead" => TargetPluginTerm.NotRead,
+                   "notATerm" => TargetPluginTerm.NotATerm,
                    "unread" => TargetPluginTerm.Unread,
                    var v => throw Unknown(ctx, "pluginTerm", v),
                },
@@ -109,20 +109,11 @@ public static partial class RuntimeFormats
 public sealed record DistributorFormat(
     string Key,
     string Name,
-    string Version,
     IReadOnlyList<DistributorFolder> Folders,
-    TargetSpelling Targets)
-{
-    /// <summary>Whether this format reads a file of this name out of <paramref name="folder"/>: the extension, then the
-    /// name token, each under the folder's own comparison. Upstream tests the token against the whole path, whose
-    /// folder part is fixed, so the name carries it.</summary>
-    public static bool Reads(string fileName, DistributorFolder folder)
-        => Path.GetExtension(fileName).Equals(folder.Extension, folder.ExtensionCompare)
-           && (folder.NameToken.Length == 0 || fileName.Contains(folder.NameToken, folder.TokenCompare));
-}
+    TargetSpelling Targets);
 
-/// <summary>One folder a format reads: where it is under Data, which names it takes there, whether that folder's list is
-/// sorted, and whether the read descends into subfolders.</summary>
+/// <summary>One folder a format reads: where it is under Data, which names it takes there, whether the DLL sorts that
+/// folder's list, and whether the read descends into subfolders.</summary>
 public sealed record DistributorFolder(
     string Root,
     string NameToken,
@@ -130,7 +121,15 @@ public sealed record DistributorFolder(
     string Extension,
     StringComparison ExtensionCompare,
     bool Sorted,
-    bool Descends);
+    bool Descends)
+{
+    /// <summary>Whether the format reads a file of this name out of this folder: the extension, then the name token,
+    /// each under this folder's own comparison. Upstream tests the token against the whole path, whose folder part is
+    /// fixed, so the name carries it.</summary>
+    public bool Reads(string fileName)
+        => Path.GetExtension(fileName).Equals(Extension, ExtensionCompare)
+           && (NameToken.Length == 0 || fileName.Contains(NameToken, TokenCompare));
+}
 
 /// <summary>How one format spells a target: the address shape and its FormID arithmetic, whether a bare FormID or a
 /// plugin name is a term of its own, and what it does with a name no record holds. <c>Unread</c> is a rule this build
@@ -152,10 +151,10 @@ public enum TargetAddressOrder { PluginFirst, FormIdFirst }
 public enum TargetFormIdMath { LocalObjectId, RuntimeAdd }
 
 /// <summary>What a token of hex with no plugin names: nothing, the runtime FormID, or a rule not read for this format.</summary>
-public enum TargetBareFormId { NotRead, RuntimeFormId, Unread }
+public enum TargetBareFormId { NotAFormId, RuntimeFormId, Unread }
 
 /// <summary>What makes a term a plugin name: nothing, the extension text anywhere in it, the extension at its end, or a rule not read for this format.</summary>
-public enum TargetPluginTerm { NotRead, ContainsExtensionText, EndsWithExtension, Unread }
+public enum TargetPluginTerm { NotATerm, ContainsExtensionText, EndsWithExtension, Unread }
 
 /// <summary>What a name no record holds does: nothing, or the framework creating a keyword of that name; or a rule not read for this format.</summary>
 public enum TargetMissingName { NamesNothing, CreatesKeyword, Unread }

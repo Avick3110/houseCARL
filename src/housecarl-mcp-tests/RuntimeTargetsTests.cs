@@ -10,25 +10,11 @@ namespace HousecarlMcpTests;
 [Trait("tier", "unit")]
 public sealed class RuntimeTargetsTests
 {
-    static readonly string Shipped = RuntimeFormats.SourceText();
-
     static DistributorFormat Format(string key) => RuntimeFormats.Distributor(key)!;
 
     static TargetSpelling Spelling(string key) => Format(key).Targets;
 
     static TargetSpelling Sky => RuntimeFormats.SkyPatcher.Targets;
-
-    /// <summary>A format's row off the shipped source with exact substrings replaced, each of which must be there.</summary>
-    static DistributorFormat Row(string key, params (string From, string To)[] edits)
-    {
-        var json = Shipped;
-        foreach (var (from, to) in edits)
-        {
-            Assert.Contains(from, json);
-            json = json.Replace(from, to);
-        }
-        return RuntimeFormats.DistributorsFrom(json).Single(d => d.Key == key);
-    }
 
     static readonly FormKey Lantern = FormKey.Factory("000800:Skyrim.esm");
     static readonly FormKey Elsewhere = FormKey.Factory("000800:Dawnguard.esm");
@@ -81,7 +67,7 @@ public sealed class RuntimeTargetsTests
     [Fact]
     public void TheFormIdArithmeticIsTheRows()
         => Assert.Equal(Lantern, RuntimeTargets.Resolve("0x2000800~Skyrim.esm", null, Order(),
-            Row("spid", ("\"formId\": \"runtimeAdd\"", "\"formId\": \"localObjectId\"")).Targets));
+            ShippedRows.Distributor("spid", ("\"formId\": \"runtimeAdd\"", "\"formId\": \"localObjectId\"")).Targets));
 
     // (c) Probe: hex with no plugin is the runtime FormID, the '0x' required; SkyPatcher reads the same token as a name.
     [Fact]
@@ -132,7 +118,7 @@ public sealed class RuntimeTargetsTests
         Assert.Contains("creates a keyword of that name", RuntimeTargets.Report("ArmorHeavyFancy", null, Order(), Format("kid")));
         Assert.Equal("finds no record by that EditorID in the active order",
             RuntimeTargets.Report("ArmorHeavyFancy", null, Order(),
-                Row("kid", ("\"missingName\": \"createsKeyword\"", "\"missingName\": \"namesNothing\""))));
+                ShippedRows.Distributor("kid", ("\"missingName\": \"createsKeyword\"", "\"missingName\": \"namesNothing\""))));
     }
 
     // Probe: a rule a row has not read is said to be unread, never guessed as a name.
@@ -154,7 +140,7 @@ public sealed class RuntimeTargetsTests
     [InlineData("\"editorIds\": \"everyType\"", "\"editorIds\": \"unread\"")]
     public void OneUnreadRuleAloneMakesATokenUnread(string from, string to)
     {
-        var row = Row("spid", (from, to));
+        var row = ShippedRows.Distributor("spid", (from, to));
         Assert.Equal(RuntimeTargets.TargetKind.Unread, RuntimeTargets.Read("AnyName", row.Targets).Kind);
         // The address half is read either way: it is sourced for all four.
         Assert.Equal(RuntimeTargets.TargetKind.Address, RuntimeTargets.Read("0x800~Skyrim.esm", row.Targets).Kind);
