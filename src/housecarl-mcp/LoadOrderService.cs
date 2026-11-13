@@ -1150,7 +1150,8 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only
     }
 
-    /// <summary>Explicit mode: a configured overwrite root that is not a folder refuses every call that reads the load order. Instance mode reads
+    /// <summary>Explicit mode: a configured overwrite root that is not a folder refuses every call that reads the load order, in this sentence everywhere but
+    /// <c>nif_set</c> (docs/architecture/load-order-service.md, <i>Configuration modes</i>). Instance mode reads
     /// a missing overwrite folder as empty because MO2 recreates it at every start; houseCARL never creates this one, so
     /// a typo would otherwise read as no overwrite layer at all. Caller holds the gate.</summary>
     void CheckExplicitOverwriteRoot()

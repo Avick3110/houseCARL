@@ -199,7 +199,8 @@ public sealed class ExplicitOverwriteTests : IDisposable
 
     /// <summary>The three doors that swallow instance-mode derivation let the refused explicit root through, so the
     /// decompile hierarchy, the compiler's game-dir hint and the mods-root read refuse rather than answer degraded.
-    /// Instance mode's own unusable-instance swallow is pinned by <c>CompileGameDirHintTests</c>.</summary>
+    /// Instance mode's own unusable-instance swallow is pinned by <c>CompileGameDirHintTests</c>. <c>nif_set</c>'s catch
+    /// is not one of the three and is pinned by nothing: it answers the refusal behind its own asset-layer sentence.</summary>
     [Fact]
     public void ARefusedOverwriteRootIsNotSwallowedByTheDoorsThatSwallowDerivation()
     {
