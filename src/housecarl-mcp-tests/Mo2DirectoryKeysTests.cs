@@ -235,6 +235,19 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         Assert.Contains(problems, s => s.Contains(what) && s.Contains(key));
     }
 
+    // A %BASE_DIR% key under a set but missing base_directory refuses naming both the key and base_directory, so the
+    // modder can tell the base moved rather than the key being wrong.
+    [Theory]
+    [InlineData("mod_directory=%BASE_DIR%/mods", "the mods folder is missing", "mod_directory='%BASE_DIR%/mods'")]
+    [InlineData("profiles_directory=%BASE_DIR%/profiles", "the active profile's folder is missing", "profiles_directory='%BASE_DIR%/profiles'")]
+    public void ABaseDirKeyUnderAMissingBaseNamesBoth(string line, string what, string key)
+    {
+        var (ok, _, problems) = Mo2Instance.Validate(Stage("bgone", "base_directory={STORE}/gone", line));
+
+        Assert.False(ok);
+        Assert.Contains(problems, s => s.Contains(what) && s.Contains(key) && s.Contains("base_directory '"));
+    }
+
     // Promise: "Missing overwrite from a key: not refused; the setup text says MO2 creates it when it next starts".
     [Fact]
     public void AMissingOverwriteFromAKeyIsNotRefused()
