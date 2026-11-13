@@ -151,6 +151,25 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Assert.Null(file.NotApplied);
     }
 
+    // Probe: the roots a format is read out of are MO2's own — the overwrite folder wins over the mods (#934's
+    // named miss), the game's Data folder provides like any other root, and a mod MO2 does not load is not read.
+    [Fact]
+    public void TheOverwriteFolderWinsAndAModNotInTheOrderIsNotRead()
+    {
+        Loose(_overwrite, "Shared_DISTR.ini");
+        Loose(_high, "Shared_DISTR.ini");
+        Loose(_data, "Data_DISTR.ini");
+        Loose(Path.Combine(_mods, "OffMod"), "Off_DISTR.ini");
+
+        var files = Scan(ShippedRows.Distributor("spid"));
+
+        Assert.Equal(new[] { "Data_DISTR.ini", "Shared_DISTR.ini" }, Paths(files));
+        var shared = files.Single(f => f.RelPath == "Shared_DISTR.ini");
+        Assert.Equal("overwrite", shared.WinningProvider);
+        Assert.Equal(new[] { "HighMod" }, shared.ShadowedProviders);
+        Assert.Equal("Data", files.Single(f => f.RelPath == "Data_DISTR.ini").WinningProvider);
+    }
+
     // Probe: a copy only inside an archive is listed and said not to be applied (R40).
     [Fact]
     public void ACopyOnlyInsideAnArchiveIsSaidNotApplied()
