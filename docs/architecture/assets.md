@@ -667,6 +667,9 @@ provided either; the generic lane does not, because it legitimately answers for 
 
 ## Pinned by
 
+- *The top-level door*: `AssetTopLevelListingTests` — one directory per loose root and nothing below it, the union
+  across roots, an archive entry below the folder (and below the Data root) left out, the walk's hidden rules kept and
+  a root that will not list named.
 - *Precedence*: `AssetResolverTests` — overwrite, then mods highest-priority-first, then Data, first sighting wins
   (`OverwriteWinsAndEveryLooseProviderIsListedInPrecedenceOrder`, `WithoutOverwriteTheHigherPriorityModWins`); loose
   beats BSA-packed (`ALooseCopyBeatsTheArchiveCopyWhichStaysListed`); the higher plugin rank wins among BSAs
