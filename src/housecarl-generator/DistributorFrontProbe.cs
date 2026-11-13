@@ -28,12 +28,13 @@ internal static class DistributorFrontProbe
         Time("door  EnumerateTopLevel(\"\")", () => assets.Capture().EnumerateTopLevel("").Count);
         Time("door  EnumerateTopLevel(\"\") warm", () => assets.Capture().EnumerateTopLevel("").Count);
 
-        // Discovery and the parse, per format, off one view each.
+        // Discovery and the parse for all four formats off ONE view, as a sweep would read them.
         long bytes = 0, entries = 0;
+        var sweep = assets.Capture();
         foreach (var format in RuntimeFormats.Distributors)
         {
             var sw = Stopwatch.StartNew();
-            var files = DistributorDiscovery.Scan(assets.Capture(), format);
+            var files = DistributorDiscovery.Scan(sweep, format);
             sw.Stop();
             long formatBytes = 0, formatEntries = 0;
             var winners = files.Where(f => f.LooseFilePath is not null).Select(f => f.LooseFilePath!).ToList();

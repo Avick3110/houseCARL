@@ -28,19 +28,6 @@ public sealed class DistributorDiscoveryTests : IDisposable
 
     public void Dispose() { try { Directory.Delete(_root, recursive: true); } catch { /* temp scratch */ } }
 
-    static readonly string Shipped = RuntimeFormats.SourceText();
-
-    /// <summary>A format's row off the shipped source, with exact substrings replaced, each of which must be there.</summary>
-    static DistributorFormat Row(string key, params (string From, string To)[] edits)
-    {
-        var json = Shipped;
-        foreach (var (from, to) in edits)
-        {
-            Assert.Contains(from, json);
-            json = json.Replace(from, to);
-        }
-        return RuntimeFormats.DistributorsFrom(json).Single(d => d.Key == key);
-    }
 
     AssetResolver Build(params ActiveArchive[] archives) => AssetResolver.Build(_overwrite, _mods, _data, Enabled, archives);
 
@@ -59,7 +46,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Loose(_high, "Top_DISTR.ini");
         Loose(_high, @"nested\Deep_DISTR.ini");
 
-        Assert.Equal(new[] { "Top_DISTR.ini" }, Paths(Scan(Row("spid"))));
+        Assert.Equal(new[] { "Top_DISTR.ini" }, Paths(Scan(ShippedRows.Distributor("spid"))));
     }
 
     // Probe: the same row with depth 'descends' reads the nested file — the depth is the row's, not the code's.
@@ -70,7 +57,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Loose(_high, @"nested\Deep_DISTR.ini");
 
         Assert.Contains(@"nested\Deep_DISTR.ini",
-            Paths(Scan(Row("spid", ("\"depth\": \"topLevelOnly\"", "\"depth\": \"descends\"")))));
+            Paths(Scan(ShippedRows.Distributor("spid", ("\"depth\": \"topLevelOnly\"", "\"depth\": \"descends\"")))));
     }
 
     // Probe: the name token is compared as written, so '_distr' is not '_DISTR'.
@@ -80,7 +67,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Loose(_high, "Good_DISTR.ini");
         Loose(_high, "bad_distr.ini");
 
-        Assert.Equal(new[] { "Good_DISTR.ini" }, Paths(Scan(Row("spid"))));
+        Assert.Equal(new[] { "Good_DISTR.ini" }, Paths(Scan(ShippedRows.Distributor("spid"))));
     }
 
     // Probe: the extension is compared as written, so '.INI' is not '.ini'.
@@ -90,7 +77,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Loose(_high, "Good_DISTR.ini");
         Loose(_high, "Bad_DISTR.INI");
 
-        Assert.Equal(new[] { "Good_DISTR.ini" }, Paths(Scan(Row("spid"))));
+        Assert.Equal(new[] { "Good_DISTR.ini" }, Paths(Scan(ShippedRows.Distributor("spid"))));
     }
 
     // Probe: both comparisons are the row's — set them to ignore case and the two near misses are read.
@@ -102,7 +89,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Loose(_high, "bad_distr.ini");
         Loose(_high, "Other_DISTR.INI");
 
-        var read = Paths(Scan(Row("spid",
+        var read = Paths(Scan(ShippedRows.Distributor("spid",
             ("\"tokenCase\": \"ordinal\"", "\"tokenCase\": \"ordinalIgnoreCase\""),
             ("\"extensionCase\": \"ordinal\"", "\"extensionCase\": \"ordinalIgnoreCase\""))));
         Assert.Equal(3, read.Length);
@@ -117,7 +104,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Loose(_high, "B_DISTR.ini");
         Loose(_high, "a_DISTR.ini");
 
-        Assert.Equal(new[] { "B_DISTR.ini", "a_DISTR.ini", "c_DISTR.ini" }, Paths(Scan(Row("spid"))));
+        Assert.Equal(new[] { "B_DISTR.ini", "a_DISTR.ini", "c_DISTR.ini" }, Paths(Scan(ShippedRows.Distributor("spid"))));
     }
 
     // Probe: FLM's second folder is appended after the sorted root list, and every file out of it says its place is not the DLL's.
@@ -128,7 +115,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Loose(_high, @"FLM\a.ini");
         Loose(_high, @"FLM\b.ini");
 
-        var files = Scan(Row("flm"));
+        var files = Scan(ShippedRows.Distributor("flm"));
 
         Assert.Equal(new[] { "z_FLM.ini", @"FLM\a.ini", @"FLM\b.ini" }, Paths(files));
         Assert.Null(files[0].OrderNote);
@@ -142,7 +129,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Loose(_high, "Shared_DISTR.ini");
         Loose(_low, "Shared_DISTR.ini");
 
-        var file = Assert.Single(Scan(Row("spid")));
+        var file = Assert.Single(Scan(ShippedRows.Distributor("spid")));
         Assert.Equal("HighMod", file.WinningProvider);
         Assert.Equal(new[] { "LowMod" }, file.ShadowedProviders);
         Assert.Null(file.NotApplied);
@@ -155,7 +142,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
         var path = Write(_root, "Packed.bsa", BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
             new[] { ("FLM", new[] { ("packed.ini", BsaBuilder.Bytes("PACKED", 16)) }) }));
 
-        var file = Assert.Single(Scan(Row("flm"), new ActiveArchive(path, "Packed.esp", 0)));
+        var file = Assert.Single(Scan(ShippedRows.Distributor("flm"), new ActiveArchive(path, "Packed.esp", 0)));
         Assert.Equal(@"FLM\packed.ini", file.RelPath);
         Assert.Null(file.LooseFilePath);
         Assert.Contains("only inside a BSA", file.NotApplied);
@@ -180,7 +167,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
     [InlineData("\"editorIds\": \"everyType\"", "\"editorIds\": \"someTypes\"", "editorIds", "someTypes")]
     public void AValueTheServerHasNoRuleForFailsTheLoad(string from, string to, string prop, string value)
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => Row("spid", (from, to)));
+        var ex = Assert.Throws<InvalidOperationException>(() => ShippedRows.Distributor("spid", (from, to)));
         Assert.Contains($"'{prop}' = '{value}'", ex.Message);
     }
 }

@@ -28,25 +28,16 @@ public static class DistributorDiscovery
         var files = new List<ConfigFile>();
         foreach (var folder in format.Folders)
         {
-            var listed = folder.Descends ? view.EnumerateUnder(folder.Root) : view.EnumerateTopLevel(folder.Root);
-            foreach (var rel in listed.Where(r => DistributorFormat.Reads(Path.GetFileName(r), folder))
-                                      .OrderBy(r => r, StringComparer.Ordinal))
-                files.Add(Resolve(view, rel, folder.Sorted ? null : UnsortedFolderNote));
+            bool Reads(string rel) => folder.Reads(Path.GetFileName(rel));
+            // A descending folder filters inside the walk, so a whole subtree is never materialized to keep a few names.
+            var listed = folder.Descends ? view.EnumerateUnder(folder.Root, Reads, 0, out _) : view.EnumerateTopLevel(folder.Root);
+            var note = folder.Sorted ? null : UnsortedFolderNote;
+            foreach (var rel in listed.Where(Reads).OrderBy(r => r, StringComparer.Ordinal))
+            {
+                var w = LayerFileWinner.Of(view, rel, format.Name);
+                files.Add(new ConfigFile(rel, w.Provider, w.LooseFilePath, w.Shadowed, w.NotApplied, note));
+            }
         }
         return files;
-    }
-
-    /// <summary>One file's winner off the view: the loose copies in precedence order, and the BSA-only reason where no loose copy wins.</summary>
-    static ConfigFile Resolve(AssetResolver.AssetView view, string rel, string? orderNote)
-    {
-        var place = view.ResolveForPlacement(rel);
-        var winner = place.Sources.Count > 0 ? place.Sources[0] : null;
-        var shadowed = place.Sources.Where(s => s.Kind == AssetKind.Loose).Skip(1).Select(s => s.ProviderName).ToList();
-        return new ConfigFile(rel, winner?.ProviderName,
-                              winner?.Kind == AssetKind.Loose ? winner.LooseFilePath : null, shadowed,
-                              winner is null || winner.Kind != AssetKind.Loose
-                                  ? "present only inside a BSA — the DLL reads loose INIs off the filesystem only"
-                                  : null,
-                              orderNote);
     }
 }

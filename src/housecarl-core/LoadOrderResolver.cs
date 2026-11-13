@@ -775,10 +775,9 @@ public sealed class LoadOrderResolver : IDisposable
         {
             if (!_r._nameToIdx.TryGetValue(pluginName, out int p)) return null;
             int slot = _s.Slots.Value.SlotOfPlugin[p];
-            if (slot < 0) return null;
-            return _s.Light[p]
-                ? FormIdRange.LightMasterIndexPrefix | ((uint)slot << FormIdRange.LightIndexShift)
-                : (uint)slot << FormIdRange.FullIndexShift;
+            // The base is the record's own id 0, composed the one way; object id 0 is inside the ESL window, so this never refuses.
+            if (slot < 0 || !RuntimeFormId.TryCompose(_s.Light[p], slot, 0, out uint b)) return null;
+            return b;
         }
 
         /// <summary>Whether a plugin filename is in the indexed load order — a state the service must name DISTINCTLY from "in the order but defines no such record".</summary>
