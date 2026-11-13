@@ -18,6 +18,8 @@ public sealed class RuntimeTargetsTests
 
     static readonly FormKey Lantern = FormKey.Factory("000800:Skyrim.esm");
     static readonly FormKey Elsewhere = FormKey.Factory("000800:Dawnguard.esm");
+    static readonly FormKey InLight = FormKey.Factory("000800:MyLight.esl");
+    static readonly FormKey InNextLight = FormKey.Factory("000801:OtherLight.esl");
 
     static SkyPatcherOverlayHarness.StubResolver Order()
     {
@@ -30,6 +32,13 @@ public sealed class RuntimeTargetsTests
         r.RuntimeForms[0x02000800] = Elsewhere;
         r.Winners[Lantern] = "Skyrim.esm";
         r.Winners[Elsewhere] = "Dawnguard.esm";
+        // Two light plugins, the first at light index 1: its records are numbered from FE001000.
+        r.Plugins.Add("MyLight.esl");
+        r.RuntimeBases["MyLight.esl"] = 0xFE001000;
+        r.RuntimeForms[0xFE001800] = InLight;
+        r.RuntimeForms[0xFE002801] = InNextLight;
+        r.Winners[InLight] = "MyLight.esl";
+        r.Winners[InNextLight] = "OtherLight.esl";
         return r;
     }
 
@@ -55,12 +64,26 @@ public sealed class RuntimeTargetsTests
         var token = "0x2000800~Skyrim.esm";
         var read = RuntimeTargets.Read(token, Spelling("spid"));
 
-        Assert.True(read.LoadIndexWritten);
+        Assert.True(read.LoadIndexWritten(Order().RuntimeBaseOf("Skyrim.esm")!.Value));
         Assert.Equal(Elsewhere, RuntimeTargets.Resolve(token, null, Order(), Spelling("spid")));
         Assert.Contains("is written with a load index", RuntimeTargets.Report(token, null, Order(), Format("spid")));
 
         // SkyPatcher's own arithmetic keeps the low 24 bits, so the same number stays inside the plugin it names.
         Assert.Equal(Lantern, RuntimeTargets.Resolve("Skyrim.esm|0x2000800", null, Order(), Sky));
+    }
+
+    // (b) Probe: the index window is the plugin's own — 12 bits under a light plugin, so 0x1801 carries an index
+    // there and 0x800 does not, where the same 0x1801 is an object id under a full plugin.
+    [Fact]
+    public void ALightPluginsIndexWindowIsTwelveBitsWide()
+    {
+        Assert.Equal(InNextLight, RuntimeTargets.Resolve("0x1801~MyLight.esl", null, Order(), Spelling("spid")));
+        Assert.Contains("is written with a load index", RuntimeTargets.Report("0x1801~MyLight.esl", null, Order(), Format("spid")));
+
+        Assert.Equal(InLight, RuntimeTargets.Resolve("0x800~MyLight.esl", null, Order(), Spelling("spid")));
+        Assert.Null(RuntimeTargets.Report("0x800~MyLight.esl", null, Order(), Format("spid")));
+        // Under a full plugin the same number is an object id, as it has always been.
+        Assert.DoesNotContain("load index", RuntimeTargets.Report("0x1801~Skyrim.esm", null, Order(), Format("spid")) ?? "");
     }
 
     // (b) Probe: the arithmetic is the row's — put SkyPatcher's on SPID's row and the index is masked off instead.

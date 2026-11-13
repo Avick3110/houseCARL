@@ -34,8 +34,11 @@ public static class RuntimeTargets
     /// <summary>One token read under a format's spelling: what it names, and the parts it names it with.</summary>
     public sealed record TargetToken(TargetKind Kind, string Raw, FormAddress? Address, uint? FormId)
     {
-        /// <summary>True when the written FormID carries more than a 24-bit object id, so it holds a load index of its own.</summary>
-        public bool LoadIndexWritten => FormId is { } v && v > FormIdRange.ObjectIdMask;
+        /// <summary>True when the written FormID carries more than the object id of a record in the plugin numbered
+        /// from <paramref name="pluginBase"/>, so it holds a load index of its own: a light plugin's object id is 12
+        /// bits, a full plugin's 24.</summary>
+        public bool LoadIndexWritten(uint pluginBase)
+            => FormId is { } v && v > (RuntimeFormId.IsLight(pluginBase) ? FormIdRange.LightObjectIdMask : FormIdRange.ObjectIdMask);
     }
 
     // ---- reading a token ----------------------------------------------------------------
@@ -136,8 +139,12 @@ public static class RuntimeTargets
 
     /// <summary>The runtime FormID the game's own lookup builds for a plugin and a written number: the plugin's runtime base plus the number, with no mask, so a number carrying a load index lands outside the plugin. Null when the plugin is not in the active order or the sum passes 32 bits.</summary>
     public static uint? RuntimeAdd(FormAddress a, SkyPatcherOverlay.IFormResolver resolver)
+        => a.Plugin is null ? null : RuntimeAdd(a, resolver.RuntimeBaseOf(a.Plugin));
+
+    /// <summary>The same add from a base already read off the order; null when there is none or the sum passes 32 bits.</summary>
+    public static uint? RuntimeAdd(FormAddress a, uint? pluginBase)
     {
-        if (a.Plugin is null || a.FormId is null || resolver.RuntimeBaseOf(a.Plugin) is not { } b) return null;
+        if (a.FormId is null || pluginBase is not { } b) return null;
         ulong sum = (ulong)b + a.FormId.Value;
         return sum > uint.MaxValue ? null : (uint)sum;
     }
@@ -211,9 +218,10 @@ public static class RuntimeTargets
                 if (s.FormId == TargetFormIdMath.LocalObjectId)
                     return FormKeyOf(a) is { } local && resolver.WinnerPluginOf(local) is null
                         ? $"names {FormIdToken.Of(local)}, which no plugin in the active order defines, so it names nothing" : null;
-                if (RuntimeAdd(a, resolver) is not { } runtime)
+                var pluginBase = resolver.RuntimeBaseOf(a.Plugin!);
+                if (RuntimeAdd(a, pluginBase) is not { } runtime)
                     return $"names a FormID past the 32 bits {name} adds it into, so it names nothing";
-                var index = t.LoadIndexWritten
+                var index = t.LoadIndexWritten(pluginBase.Value)
                     ? $"is written with a load index ('{a.FormId!.Value:X}' is more than an object id), which {name} adds " +
                       $"to '{a.Plugin}'s own index instead of masking off, so it names {RuntimeFormId.Format(runtime)}"
                     : null;
