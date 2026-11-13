@@ -79,7 +79,7 @@ public static class Mo2LoadOrder
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
         int unreadableAt = warnings.Count;                          // the unopened-folders line goes ahead of the plugins it explains
 
-        // The can't-resolve warning names only the places actually searched: explicit-paths mode passes no overwrite dir.
+        // The can't-resolve warning names only the places actually searched: a blank overwrite dir is no overwrite layer, either mode.
         var searchedPlaces = string.IsNullOrWhiteSpace(overwriteDir)
             ? "no enabled mod or the game Data folder"
             : "no enabled mod, the overwrite folder, or the game Data folder";
