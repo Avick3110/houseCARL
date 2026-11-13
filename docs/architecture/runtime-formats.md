@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-11
+updated: 2026-11-13
 covers: [src/housecarl-core/runtime-formats.json, src/housecarl-core/RuntimeFormats.cs, src/housecarl-core/DistributorFormats.cs, src/housecarl-core/DistributorDiscovery.cs, src/housecarl-core/RuntimeTargets.cs, src/housecarl-generator/RuntimeFormatSkillText.cs]
 ---
 # The runtime-format source
