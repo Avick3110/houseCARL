@@ -64,8 +64,12 @@ formats' line kinds, conflict model and labels land with its own reader.
     `SkyPatcher/objectModification/` and its toggle line's `SkyPatcher.ini`; each per-type reference's header line
     (`SkyPatcher/<folder>/`, `iEnable<Type>Patching`, and light.md's "on unless").
   - `kid-authoring`: SKILL.md's two SkyPatcher folder paths, grammar-core.md's one, and
-    `references/_CORPUS_STATUS.md`'s `SKSE\Plugins\` per-type subfolders.
-  - The server: the layer tool's two empty-layer answers spell `Data\SKSE\Plugins\SkyPatcher` and its folder
+    `references/_CORPUS_STATUS.md`'s `SKSE\Plugins\` per-type subfolders; and its placement step, which restates KID's
+    row's `_KID` name token and its flat `Data\` root.
+  - `spid-authoring`: SKILL.md's placement step and its filename rule, which restate SPID's row's `_DISTR` name token
+    and its flat `Data/` root.
+  - The server: the layer tool's `distributor=` parameter text and its refusals name the four distributor rows'
+    keys (`SkyPatcherTools`); the layer tool's two empty-layer answers spell `Data\SKSE\Plugins\SkyPatcher` and its folder
     lines' switch-off and unreadable marks spell `SkyPatcher.ini` (`SkyPatcherTools`); the draft's not-absolute
     refusal's example path spells `SkyPatcher\weapon\` (`SkyPatcherDraft.Prepare`); the overlay's packed-value unpack
     and two item splits use literal `=` and `,` (`SkyPatcherOverlay`); the records tool's source parameter text and
