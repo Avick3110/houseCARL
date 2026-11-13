@@ -98,8 +98,8 @@ carries the whole-call error is refused exactly where its json writes `ok:false`
 required argument, an unknown parameter, `in_place` naming a file, a type mismatch, an argument that would
 not bind), each built as an error result directly; every body refusal, the config prompt (no tool can do its job
 until setup is done) and the tool-path prompt, and the Guard's own (a plugin changed mid-call, the call's record and file views split across a load-order change, a profile
-locked mid-re-sort, a refused game language, an explicit-paths root that is not a folder, a mods folder that will not
-open, an unhandled exception). The
+locked mid-re-sort, a refused game language, an explicit-paths overwrite root that is not a folder, a mods folder that
+will not open, an unhandled exception). The
 mods-folder refusal is text on every transport, its sentence followed by a pointer to `load_order_status`, which
 still answers. The in-place consent prompt is
 served: it is a question the next call answers, `needs_acknowledge` in json. A per-row error inside a
