@@ -153,7 +153,7 @@ public static class Mo2Instance
                 problems?.Add($"{IniFileName} [Settings] {key}='{value}' {NotFullPath} or one starting %BASE_DIR%/");
                 return null;
             }
-            return (Path.GetFullPath(expanded), $"from {key}='{value}' in {IniFileName}");
+            return (Path.TrimEndingDirectorySeparator(Path.GetFullPath(expanded)), $"from {key}='{value}' in {IniFileName}");
         }
     }
 

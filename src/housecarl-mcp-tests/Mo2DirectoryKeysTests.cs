@@ -129,6 +129,22 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         AssertSamePath(Path.Combine(Store("esc"), "mymods"), Mo2Instance.Resolve(inst).ModsDir);
     }
 
+    // A key written with a trailing / or \ gives a root with none, so a prefix test under the mods folder still matches.
+    [Theory]
+    [InlineData("/")]
+    [InlineData(@"\\")]
+    public void ATrailingSeparatorOnAKeyIsDropped(string end)
+    {
+        var inst = Stage("trail", "mod_directory={STORE}/mods" + end, "profiles_directory={STORE}/profiles" + end,
+                         "overwrite_directory={STORE}/ovw" + end);
+
+        var p = Mo2Instance.Resolve(inst);
+
+        Assert.Equal(Path.Combine(Store("trail"), "mods"), p.ModsDir, ignoreCase: true);
+        Assert.Equal(Path.Combine(Store("trail"), "profiles", "Default"), p.ProfileDir, ignoreCase: true);
+        Assert.Equal(Path.Combine(Store("trail"), "ovw"), p.OverwriteDir, ignoreCase: true);
+    }
+
     // Promise: "Empty or relative value: refused, the sentence naming the key and saying to use a full path or
     // %BASE_DIR%/". An empty or relative base_directory refuses once, naming base_directory, for every root under it, and
     // asks only for a full path: base_directory itself is never expanded.
