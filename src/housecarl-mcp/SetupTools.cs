@@ -81,9 +81,9 @@ public static class SetupTools
               .Append("record, check, asset and write calls refuse until it can be opened, and ").Append(ToolNames.LoadOrderStatus)
               .Append(" shows what was read.\n");
         sb.Append("  game Data  : ").Append(p.DataDir).Append('\n');
-        // MO2 does not create the overwrite folder until a tool writes there, so an absent one is annotated.
+        // MO2 creates the overwrite folder at every start, so an absent one means MO2 has not started since it went.
         sb.Append("  overwrite  : ").Append(p.OverwriteDir)
-          .Append(Directory.Exists(p.OverwriteDir) ? "" : "  (none yet — MO2 creates it when a tool writes here)").Append('\n');
+          .Append(Directory.Exists(p.OverwriteDir) ? "" : "  (not there — MO2 creates it when it next starts; read as empty until then)").Append('\n');
 
         // Reads the three profile text files only. A read failure here is non-fatal but is named, since this line is what tells the user the setup worked.
         try

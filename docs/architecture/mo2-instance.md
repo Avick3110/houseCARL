@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-12
+updated: 2026-11-13
 covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, src/housecarl-core/QtIniEscapes.cs, src/housecarl-core/Mo2ModMeta.cs, src/housecarl-core/UserConfig.cs, src/housecarl-mcp/SetupTools.cs, src/housecarl-mcp/StatusTools.cs, src/housecarl-mcp/UpdateStatusTools.cs]
 ---
 # The MO2 instance
@@ -19,10 +19,10 @@ only standalone source of truth.
 is the floor. First sighting of a filename wins.** That is MO2's own overwrite rule, and it is
 stated here once:
 
-1. `base\overwrite` — the top of MO2's VFS, where tool outputs land (Synthesis patches, xEdit "new
+1. The overwrite folder (`overwrite_directory`, default `base\overwrite`) — the top of MO2's VFS, where tool outputs land (Synthesis patches, xEdit "new
    file", Wrye Bash). MO2 lists those plugins in the profile files, so skipping this layer leaves
    them unresolvable.
-2. Enabled mods under `base\mods`, in `modlist.txt` order — **top = highest priority** — each mod
+2. Enabled mods under the mods folder (`mod_directory`, default `base\mods`), in `modlist.txt` order — **top = highest priority** — each mod
    root being a Data root, so plugins sit at its top level.
 3. `<gamePath>\Data` — vanilla masters and base game, filling only names no mod provided.
 
@@ -50,7 +50,7 @@ folder that will not open as empty. A folder that does not stat (removed, or on 
 and still silent, since a `modlist.txt` entry can lack a real folder; a mods folder that does not stat reads as an
 empty one, as before.
 
-- **The whole mods folder.** `Mo2LoadOrder.ModsFolderFailure` reads one entry of `base\mods`. When it throws,
+- **The whole mods folder.** `Mo2LoadOrder.ModsFolderFailure` reads one entry of the mods folder. When it throws,
   `Build` resolves the order from the folders outside it only (overwrite, when given, and Data), adds no per-plugin
   warning, and throws
   `ModsFolderUnreadableException` carrying that order: its message names the folder, the reason, and how many of the
@@ -103,12 +103,29 @@ The user configures a single "where is your MO2?" path — the instance folder h
 `selected_profile`, so no profile name is ever hand-typed and a profile switch is picked up by
 re-reading that file (the service's freshness check).
 
-`base` is `[Settings] base_directory` when it is set and real, otherwise the instance folder (the
-common portable case). Then `ModsDir = base\mods`, `ProfileDir = base\profiles\<profile>`,
-`DataDir = <gamePath>\Data`, `OverwriteDir = base\overwrite`. A missing or empty required piece is
-NAMED in the problem list and the resolve FAILS — never a half-derived path set. Overwrite is the
-one exception: it is derived like the others but never gates validity, because MO2 does not create
-it until a tool writes there.
+The roots follow MO2's own `PathSettings` (v2.5.2 `getConfigurablePath`), with no fallback anywhere:
+
+- `base` is `[Settings] base_directory` when the key is present (even when its folder is missing), otherwise the
+  instance folder, the ini's own folder.
+- Each of the mods, profiles and overwrite roots is its `[Settings]` key (`mod_directory`, `profiles_directory`,
+  `overwrite_directory`) when present, otherwise `base\mods`, `base\profiles`, `base\overwrite`. Every `%BASE_DIR%`
+  in a key's value (case-sensitive, as MO2's replace is) becomes `base`. A key's value is read through the Qt reader
+  like any other, then normalised with `Path.GetFullPath`; an unset key keeps the `Path.Combine` text main always
+  printed. `ProfileDir` is the profiles root plus `<profile>`; `DataDir = <gamePath>\Data`.
+- The five keys are read from `[Settings]` only; `selected_profile` and `gamePath` stay section-blind.
+- A value that resolves to a path that is not fully qualified (an empty or relative key, an empty or relative
+  `base_directory` that a root resolves under) refuses, naming the key once: MO2 would read it against the folder it
+  was started from, which houseCARL cannot see. An instance folder the caller gave as a relative path is still read
+  as given.
+- A missing mods or profile folder is NAMED in the problem list, with where its root came from (the key, or the
+  default under `base_directory` or the instance folder), and the resolve FAILS — never a half-derived path set. A
+  `base_directory` whose folder is missing therefore refuses through each root under it, and refuses nothing when
+  all three keys point elsewhere.
+- Overwrite never gates validity: MO2 creates it at every start, so a missing one means MO2 has not started since
+  it went, and it reads as empty, the same answer MO2 would give.
+
+Not read: `download_directory` and `cache_directory`, since houseCARL reads neither folder. A mods folder set inside
+the overwrite folder labels its mods "overwrite" (the layer test checks overwrite first).
 
 ### The profile files
 
@@ -198,8 +215,13 @@ swallows the note turns a recoverable state into a silent loss.
   a write plan and a JSON answer carry the note, the lost plugin, its master, its status and an archive provider in
   it are not called stale, mistyped or uninstalled, and the next call follows the folder opening again or going.
 - *Deriving the roots from one path*: `Mo2InstanceResolveTests` — the roots and the active profile
-  derived from the instance folder, the `base_directory` override, and a missing required piece named rather than
-  half-derived.
+  derived from the instance folder, the `base_directory` override, a missing `base_directory` refused, and a missing
+  required piece named rather than half-derived. `Mo2DirectoryKeysTests` — the three keys move their folders past a
+  stale copy under the instance, `%BASE_DIR%` expands to either base and not in lower case, escaped and quoted values,
+  an empty or relative value or base refused once naming it, a relative instance folder read as given, a missing base
+  nothing resolves under, a missing folder from a key named, a missing overwrite not refused, a key outside
+  `[Settings]` ignored, and the service's profile list, a new patch folder and an edited key following the moved
+  folders.
 - *The profile files*: `ProfileRewriteTests.AColdAssetCallOnAHeldProfileNamesTheHoldInsteadOfAnInternalFailure` — a
   held profile file is a named transient, not an internal failure.
 - *The profile files*: `PluginsTxtEncodingTests` — `plugins.txt` in the host's ANSI page and in UTF-8 keeps its ticks

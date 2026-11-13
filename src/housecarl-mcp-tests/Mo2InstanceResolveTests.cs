@@ -104,9 +104,10 @@ public sealed class Mo2InstanceResolveTests : IDisposable
         AssertSamePath(Path.Combine(game, "Data"), p.DataDir);
     }
 
-    // E7a still usable — silently falls back to the instance dir; E7b the discarded base_directory is NAMED (Q3)
+    // E7a a set but missing base_directory refuses, with no fallback to the instance's own mods/ and profiles/ (#1214, MO2
+    // never falls back); E7b the refusal names base_directory
     [Fact]
-    public void AMissingBaseDirectoryFallsBackButIsNamed()
+    public void AMissingBaseDirectoryRefusesNamingIt()
     {
         var inst = Path.Combine(_root, "e7");
         MakeInstance(inst, Path.Combine(inst, "Stock Game"), "Default", baseDirOverride: null);
@@ -115,10 +116,10 @@ public sealed class Mo2InstanceResolveTests : IDisposable
 
         var (ok, paths, problems) = Mo2Instance.Validate(inst);
 
-        Assert.True(ok);
-        Assert.NotNull(paths);
-        AssertSamePath(Path.Combine(inst, "mods"), paths.ModsDir);
-        Assert.Contains(problems, s => s.Contains("base_directory"));
+        Assert.False(ok);
+        Assert.Null(paths);
+        Assert.Contains(problems, s => s.Contains("the mods folder is missing") && s.Contains("base_directory"));
+        Assert.Contains(problems, s => s.Contains("the active profile's folder is missing") && s.Contains("base_directory"));
     }
 
     /// <summary>A synthetic instance in the format MO2 writes: <c>@ByteArray(...)</c>-wrapped values with doubled

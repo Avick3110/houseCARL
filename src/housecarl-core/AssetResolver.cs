@@ -37,7 +37,7 @@ public sealed record ActiveArchive(string Path, string OwningPlugin, int PluginR
 public sealed class AssetResolver : IDisposable
 {
     readonly string _overwriteDir;                       // MO2 overwrite layer (top loose source); "" if none
-    readonly string _modsDir;                            // base\mods
+    readonly string _modsDir;                            // MO2's mods folder (mod_directory, default base\mods)
     readonly string _dataDir;                            // game Data (lowest loose source)
     readonly IReadOnlyList<string> _enabledMods;         // mod folder names, HIGHEST priority FIRST (Mo2Composition.EnabledMods order)
     readonly IReadOnlyList<ActiveArchive> _archives;     // active BSAs (path-deduped; winner decided by PluginRank)
