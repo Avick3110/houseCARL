@@ -110,19 +110,22 @@ The roots follow MO2's own `PathSettings` (v2.5.2 `getConfigurablePath`), with n
 - Each of the mods, profiles and overwrite roots is its `[Settings]` key (`mod_directory`, `profiles_directory`,
   `overwrite_directory`) when present, otherwise `base\mods`, `base\profiles`, `base\overwrite`. Every `%BASE_DIR%`
   in a key's value (case-sensitive, as MO2's replace is) becomes `base`. A key's value is read through the Qt reader
-  like any other, then normalised with `Path.GetFullPath`; an unset key keeps the `Path.Combine` text main always
-  printed. `ProfileDir` is the profiles root plus `<profile>`; `DataDir = <gamePath>\Data`.
-- The five keys are read from `[Settings]` only; `selected_profile` and `gamePath` stay section-blind.
+  like any other, then normalised with `Path.GetFullPath` and any trailing separator dropped; an unset key keeps the
+  plain `Path.Combine(base, <name>)` text, not normalised. `ProfileDir` is the profiles root plus `<profile>`;
+  `DataDir = <gamePath>\Data`.
+- The four path keys (`base_directory` and the three above) are read from `[Settings]` only; `selected_profile` and
+  `gamePath` stay section-blind.
 - A value that resolves to a path that is not fully qualified (an empty or relative key, an empty or relative
   `base_directory` that a root resolves under) refuses, naming the key once: MO2 would read it against the folder it
   was started from, which houseCARL cannot see. An instance folder the caller gave as a relative path is still read
   as given.
 - A missing mods or profile folder is NAMED in the problem list, with where its root came from (the key, or the
-  default under `base_directory` or the instance folder), and the resolve FAILS — never a half-derived path set. A
-  `base_directory` whose folder is missing therefore refuses through each root under it, and refuses nothing when
-  all three keys point elsewhere.
-- Overwrite never gates validity: MO2 creates it at every start, so a missing one means MO2 has not started since
-  it went, and it reads as empty, the same answer MO2 would give.
+  default under `base_directory` or the instance folder, and `base_directory` too when a `%BASE_DIR%` key reached a
+  missing one), and the resolve FAILS — never a half-derived path set. A `base_directory` whose folder is missing
+  therefore refuses through the mods or profiles root under it, and refuses nothing when neither resolves under it.
+- A missing overwrite folder never gates validity: MO2 creates it at every start, so a missing one means MO2 has not
+  started since it went, and it reads as empty, the same answer MO2 would give. An overwrite root that refuses (not
+  a full path, its own value or the `base_directory` it resolves under) does fail the resolve.
 
 Not read: `download_directory` and `cache_directory`, since houseCARL reads neither folder. A mods folder set inside
 the overwrite folder labels its mods "overwrite" (the layer test checks overwrite first).
@@ -217,11 +220,13 @@ swallows the note turns a recoverable state into a silent loss.
 - *Deriving the roots from one path*: `Mo2InstanceResolveTests` — the roots and the active profile
   derived from the instance folder, the `base_directory` override, a missing `base_directory` refused, and a missing
   required piece named rather than half-derived. `Mo2DirectoryKeysTests` — the three keys move their folders past a
-  stale copy under the instance, `%BASE_DIR%` expands to either base and not in lower case, escaped and quoted values,
-  an empty or relative value or base refused once naming it, a relative instance folder read as given, a missing base
-  nothing resolves under, a missing folder from a key named, a missing overwrite not refused, a key outside
-  `[Settings]` ignored, and the service's profile list, a new patch folder and an edited key following the moved
-  folders.
+  stale copy under the instance, `%BASE_DIR%` expands to either base, every time it appears and not in lower case,
+  escaped and quoted values, a trailing separator dropped, an unset key's text kept exactly, an empty or relative value
+  or base refused once naming it, a relative instance folder read as given, a missing, empty or relative base nothing
+  resolves under, a missing folder from a key named, with the missing base behind a `%BASE_DIR%` key, a missing
+  overwrite not refused, a key outside `[Settings]` before or after it ignored, the setup answer's profile folder, and
+  the service's profile list, a new patch folder and an edited key following the moved folders.
+  `InPlaceGuardMarkerTests` — an in-place write under a mods key with a trailing slash still gets its marker.
 - *The profile files*: `ProfileRewriteTests.AColdAssetCallOnAHeldProfileNamesTheHoldInsteadOfAnInternalFailure` — a
   held profile file is a named transient, not an internal failure.
 - *The profile files*: `PluginsTxtEncodingTests` — `plugins.txt` in the host's ANSI page and in UTF-8 keeps its ticks

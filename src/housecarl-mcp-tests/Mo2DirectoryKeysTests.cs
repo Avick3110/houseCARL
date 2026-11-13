@@ -166,7 +166,7 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         Assert.Equal(baseDirHint, said.Contains("%BASE_DIR%/"));
     }
 
-    // The instance folder the caller gave is read as given, as main reads it: a relative one is not the ini's fault.
+    // The instance folder the caller gave is read as given: a relative one is not the ini's fault.
     [Fact]
     public void ARelativeInstanceFolderWithBaseDirIsReadAsGiven()
     {

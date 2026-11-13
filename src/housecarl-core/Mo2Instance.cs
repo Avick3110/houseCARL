@@ -127,7 +127,7 @@ public static class Mo2Instance
                   && Directory.Exists(modsDir) && Directory.Exists(dataDir);
         if (!ok) return null;
 
-        // Overwrite never gates validity: MO2 creates a missing one at its next start, which reads it empty, as here.
+        // A missing overwrite does not gate validity, a refused one does; see docs/architecture/mo2-instance.md.
         return new Mo2InstancePaths(instanceDir, profile!, profileDir, modsDir, dataDir, gamePath!, overwrite!.Value.Dir);
 
         // One root by MO2's getConfigurablePath: the [Settings] key if present, else %BASE_DIR%/<name>; null when refused.
@@ -146,7 +146,7 @@ public static class Mo2Instance
                 return (Path.Combine(basePath, name),
                         baseSet ? $"the default under base_directory '{basePath}'" : "the default under the instance folder");
             var expanded = value.Replace(BaseDirToken, basePath, StringComparison.Ordinal);
-            // A relative instance folder the caller gave is read as main reads it; a relative value from the ini is not.
+            // A relative instance folder the caller gave is read as given; a relative value from the ini is not.
             bool underInstanceDir = usesBase && !baseSet;
             if (!underInstanceDir && !Path.IsPathFullyQualified(expanded))
             {
