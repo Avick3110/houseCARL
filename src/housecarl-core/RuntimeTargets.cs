@@ -71,9 +71,16 @@ public static class RuntimeTargets
         if (at < 0) return null;
         // The plugin name is taken as written, untrimmed, as the frameworks' mod lookups take it.
         return s.AddressOrder == TargetAddressOrder.PluginFirst
-            ? new FormAddress(token[..at], ParseHex(token[(at + 1)..]), EditorId: null)
-            : new FormAddress(token[(at + 1)..], ParseHex(token[..at]), EditorId: null);
+            ? new FormAddress(token[..at], FormIdSide(token[(at + 1)..], s), EditorId: null)
+            : new FormAddress(token[(at + 1)..], FormIdSide(token[..at], s), EditorId: null);
     }
+
+    /// <summary>The number a FormID side carries under this spelling: the digits as read, with the written load index
+    /// erased first where the row says a side of exactly ten characters loses it before the add.</summary>
+    static uint? FormIdSide(string side, TargetSpelling s)
+        => ParseHex(side) is not { } v ? null
+            : s.FormId == TargetFormIdMath.RuntimeAddTrimmedAtTen && side.Length == RuntimeFormId.Digits + 2
+                ? v & FormIdRange.ObjectIdMask : v;
 
     /// <summary>Whether a term is a plugin name under this spelling: the extension text anywhere in it, or at its end, each as written.</summary>
     public static bool IsPluginName(string token, TargetSpelling s)

@@ -201,10 +201,10 @@
    }
   ],
   "targets": {
-   "source": "FLM resolves HEX~Plugin by LookupFormID, raw (distributor-lines research.md answer 2a, X1); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
+   "source": "FLM resolves HEX~Plugin by LookupFormID, raw, after FindForm erases two characters of an exactly ten-character hex part (FLM 1.7.0 src/Utility/Utility.hpp:58-59; distributor-lines research-topup.md X1); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
    "addressOrder": "formIdFirst",
    "separator": "~",
-   "formId": "runtimeAdd",
+   "formId": "runtimeAddTrimmedAtTen",
    "bareFormId": "unread",
    "pluginTerm": "unread",
    "pluginExtensions": [],

@@ -15,8 +15,9 @@ formats' line kinds, conflict model and labels land with its own reader.
 - **A distributor row says where and how a target is spelt, not what a line means.** `folders` is one or more folders
   under Data, each with its name token, its extension, the comparison for each (the four are ordinal, where SkyPatcher's
   ending rule is lower-case), whether the read descends, and whether that folder's list is sorted. `targets` says which
-  side of the separator the FormID is written on, what the written number means (the record's local object id, or a
-  number added to the plugin's runtime base as the game's own lookup adds it, with no mask), whether bare hex or a
+  side of the separator the FormID is written on, what the written number means (the record's local object id, a
+  number added to the plugin's runtime base as the game's own lookup adds it, with no mask, or that add with the
+  written load index erased from a ten-character side first, as FLM's own reader erases it), whether bare hex or a
   plugin name is a term of its own, what a name no record holds does, and which records an EditorID is looked up among.
 - **`unread` is not a claim.** A `targets` value the research has not settled for that format is written `unread`, and
   the resolver then answers "not read yet" for every token past the separator of that format rather than guessing one.

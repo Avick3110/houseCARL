@@ -69,6 +69,7 @@ public static partial class RuntimeFormats
                Str(t, "formId", ctx) switch
                {
                    "runtimeAdd" => TargetFormIdMath.RuntimeAdd,
+                   "runtimeAddTrimmedAtTen" => TargetFormIdMath.RuntimeAddTrimmedAtTen,
                    "localObjectId" => TargetFormIdMath.LocalObjectId,
                    var v => throw Unknown(ctx, "formId", v),
                },
@@ -147,8 +148,9 @@ public sealed record TargetSpelling(
 /// <summary>Which side of the separator the FormID is written on.</summary>
 public enum TargetAddressOrder { PluginFirst, FormIdFirst }
 
-/// <summary>What the written FormID means: the record's local object id, or a number added to the plugin's runtime base as the game's own lookup adds it.</summary>
-public enum TargetFormIdMath { LocalObjectId, RuntimeAdd }
+/// <summary>What the written FormID means: the record's local object id, a number added to the plugin's runtime base
+/// as the game's own lookup adds it, or that add with the written load index erased from a ten-character side first.</summary>
+public enum TargetFormIdMath { LocalObjectId, RuntimeAdd, RuntimeAddTrimmedAtTen }
 
 /// <summary>What a token of hex with no plugin names: nothing, the runtime FormID, or a rule not read for this format.</summary>
 public enum TargetBareFormId { NotAFormId, RuntimeFormId, Unread }
