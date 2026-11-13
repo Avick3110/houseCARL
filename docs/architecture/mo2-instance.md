@@ -205,7 +205,9 @@ swallows the note turns a recoverable state into a silent loss.
 
 - *The priority model*: `OverwriteFolderResolveTests` — a plugin in overwrite resolves
   there and beats the same filename in an enabled mod; a genuinely missing plugin warns, naming only the places
-  searched.
+  searched. `ExplicitOverwriteTests` — explicit-paths mode's configured root sits in that same first layer: its
+  plugin, loose file and archive each win over an enabled mod's and the game Data folder's, with instance mode's
+  answer on the same folders pinned beside every case.
 - *The priority model*: `MasterSplitInstallLocationsTests.TheSplitFilesEachMasterByWhichInstallLayerHoldsItsFile` —
   `AllPluginFileNames` walks all five layers. `StatusPluginFactsTests` drives `LocatePlugin` through the status filter;
   that the two draw from the same places rests on their shared `CandidateFolders`, not on an assertion.
