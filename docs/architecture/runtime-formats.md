@@ -18,7 +18,9 @@ formats' line kinds, conflict model and labels land with its own reader.
   side of the separator the FormID is written on, what the written number means (the record's local object id, a
   number added to the plugin's runtime base as the game's own lookup adds it, with no mask, or that add with the
   written load index erased from a ten-character side first, as FLM's own reader erases it), whether bare hex or a
-  plugin name is a term of its own, what a name no record holds does, and which records an EditorID is looked up among.
+  plugin name is a term of its own and which extension text makes one (`pluginExtensions`, the row's own list: SPID
+  takes `.es` anywhere in the term, KID `.esm`, `.esp` or `.esl` at its end), what a name no record holds does, and
+  which records an EditorID is looked up among.
 - **`unread` is not a claim.** A `targets` value the research has not settled for that format is written `unread`, and
   the resolver then answers "not read yet" for every token of that format carrying no separator, rather than guessing
   one; an address is read either way, because its rules are sourced for all four.
