@@ -1151,15 +1151,15 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     }
 
     /// <summary>Explicit mode: a configured overwrite root that is not a folder refuses every call that reads the load order. Instance mode reads
-    /// a missing overwrite folder as empty because MO2 recreates it at every start; nothing recreates this one, so a
-    /// typo would otherwise read as no overwrite layer at all. Caller holds the gate.</summary>
+    /// a missing overwrite folder as empty because MO2 recreates it at every start; houseCARL never creates this one, so
+    /// a typo would otherwise read as no overwrite layer at all. Caller holds the gate.</summary>
     void CheckExplicitOverwriteRoot()
     {
         if (_overwriteDir.Length == 0 || Directory.Exists(_overwriteDir)) return;
         throw new ExplicitRootRefusedException(
-            $"HouseCarl:OverwriteDir is '{_overwriteDir}', which is not a folder houseCARL can see. Create it (nothing " +
-            "else will), point the setting at the folder to read as MO2's overwrite layer, or leave it unset to run " +
-            "with no overwrite layer.");
+            $"HouseCarl:OverwriteDir is '{_overwriteDir}', which is not a folder houseCARL can see. Create one there if " +
+            "the name is free — houseCARL never creates it — point the setting at a folder that exists, or leave it " +
+            "unset to run with no overwrite layer.");
     }
 
     Mo2Roots ILoadOrderHost.CaptureRoots()
