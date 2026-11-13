@@ -266,6 +266,29 @@ public sealed class RuntimeTargetsTests
         Assert.Equal(RuntimeTargets.TargetKind.Address, RuntimeTargets.Read("0x800~Skyrim.esm", row.Targets).Kind);
     }
 
+    // Probe: SkyPatcher's own resolve door reads the row its report reads — put another row's arithmetic and
+    // EditorID scope on a copy and the record it names follows, where it used to be written into the door.
+    [Fact]
+    public void SkyPatchersOwnResolveFollowsTheRowItsReportFollows()
+    {
+        var edited = Sky with { FormId = TargetFormIdMath.RuntimeAdd, EditorIds = TargetEditorIdScope.EveryType };
+        var address = Value("Skyrim.esm|0x2000800");
+        var r = Order();
+        r.EditorIds["0DVDarkElfLantern01Floral"] = Lantern;
+        r.EditorIdTypes["0DVDarkElfLantern01Floral"] = "Static";
+        var name = Value("0DVDarkElfLantern01Floral");
+
+        // Today's row masks the index off and keeps the call's scope. (A bare null would read as the scopes overload.)
+        Assert.Equal(Lantern, RuntimeTargets.Resolve(address, (string?)null, r));
+        Assert.Null(RuntimeTargets.Resolve(name, "Weapon", r));
+        // The copy adds the index in and looks the name up among every type, as the four distributor rows do.
+        Assert.Equal(Elsewhere, RuntimeTargets.Resolve(address, (string?)null, r, edited));
+        Assert.Equal(Lantern, RuntimeTargets.Resolve(name, "Weapon", r, edited));
+    }
+
+    static SkyPatcherValue Value(string raw)
+        => new(raw, IsNameLiteral: false, NameText: null, SubArgs: new[] { raw }, Address: SkyPatcherParse.TryParseAddress(raw));
+
     // Probe: SkyPatcher's own spelling comes off its row — change the address character and its parse follows.
     [Fact]
     public void SkyPatchersAddressCharacterIsItsRows()

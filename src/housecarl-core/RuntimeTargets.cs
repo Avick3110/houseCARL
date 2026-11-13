@@ -163,9 +163,15 @@ public static class RuntimeTargets
 
     // ---- SkyPatcher's own doors, on SkyPatcher's row ------------------------------------
 
-    /// <summary>The record a value names, scoped to a Mutagen type or type group for an EditorID; null for a name literal or a miss.</summary>
-    public static FormKey? Resolve(SkyPatcherValue v, string? scope, SkyPatcherOverlay.IFormResolver resolver)
-        => v.IsNameLiteral ? null : v.Address is { } a ? FormKeyOf(a) : resolver.ResolveEditorId(v.Raw, scope);
+    /// <summary>The record a value names, scoped to a Mutagen type or type group for an EditorID; null for a name
+    /// literal or a miss. <paramref name="s"/> is the row it is read under, SkyPatcher's own unless a test edits it.</summary>
+    public static FormKey? Resolve(SkyPatcherValue v, string? scope, SkyPatcherOverlay.IFormResolver resolver, TargetSpelling? s = null)
+        => v.IsNameLiteral ? null : Resolve(TokenOf(v), scope, resolver, s ?? Sky);
+
+    /// <summary>One value as a read token: the address the tokenizer already read off its first sub-arg, else its raw as a name.</summary>
+    static TargetToken TokenOf(SkyPatcherValue v)
+        => v.Address is { } a ? new TargetToken(TargetKind.Address, v.Raw, a, a.FormId)
+                              : new TargetToken(TargetKind.EditorId, v.Raw, null, null);
 
     /// <summary>The record one sub-arg token names, by the same rule.</summary>
     public static FormKey? Resolve(string token, string? scope, SkyPatcherOverlay.IFormResolver resolver)
@@ -189,12 +195,8 @@ public static class RuntimeTargets
     public static bool ByEditorId(SkyPatcherValue v) => !v.IsNameLiteral && v.Address is null;
 
     /// <summary>What one SkyPatcher target says on its line, on SkyPatcher's own row. Worded after <c>target 'X' (in a K) </c>.</summary>
-    public static string? Report(SkyPatcherValue v, string? scope, SkyPatcherOverlay.IFormResolver resolver)
-        => v.IsNameLiteral ? null
-            // The tokenizer read the address off the value's first sub-arg, so the report speaks of that, not of a re-read raw.
-            : Report(v.Address is { } a ? new TargetToken(TargetKind.Address, v.Raw, a, a.FormId)
-                                        : new TargetToken(TargetKind.EditorId, v.Raw, null, null),
-                     scope, resolver, SkyPatcherName, Sky);
+    public static string? Report(SkyPatcherValue v, string? scope, SkyPatcherOverlay.IFormResolver resolver, TargetSpelling? s = null)
+        => v.IsNameLiteral ? null : Report(TokenOf(v), scope, resolver, SkyPatcherName, s ?? Sky);
 
     // ---- what one token says on its line, under any row ---------------------------------
 
