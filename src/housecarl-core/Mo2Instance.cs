@@ -150,7 +150,7 @@ public static class Mo2Instance
             bool underInstanceDir = usesBase && !baseSet;
             if (!underInstanceDir && !Path.IsPathFullyQualified(expanded))
             {
-                problems?.Add($"{IniFileName} [Settings] {key}='{value}' {NotFullPath}");
+                problems?.Add($"{IniFileName} [Settings] {key}='{value}' {NotFullPath} or one starting %BASE_DIR%/");
                 return null;
             }
             return (Path.GetFullPath(expanded), $"from {key}='{value}' in {IniFileName}");
@@ -159,7 +159,7 @@ public static class Mo2Instance
 
     const string SettingsSection = "Settings";
     const string BaseDirToken = "%BASE_DIR%";
-    const string NotFullPath = "is not a full path: MO2 reads it against the folder MO2 was started from, which houseCARL cannot see; set a full path or one starting %BASE_DIR%/";
+    const string NotFullPath = "is not a full path: MO2 reads it against the folder MO2 was started from, which houseCARL cannot see; set a full path";
 
     /// <summary>First <c>key=</c> line's raw value, the key matched case-insensitively; with <paramref name="section"/> only
     /// lines under that <c>[section]</c> header count, without it every section does (safe only for keys unique across the

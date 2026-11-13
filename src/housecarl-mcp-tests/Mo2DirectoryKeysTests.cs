@@ -130,15 +130,16 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
     }
 
     // Promise: "Empty or relative value: refused, the sentence naming the key and saying to use a full path or
-    // %BASE_DIR%/". An empty or relative base_directory refuses once, naming base_directory, for every root under it.
+    // %BASE_DIR%/". An empty or relative base_directory refuses once, naming base_directory, for every root under it, and
+    // asks only for a full path: base_directory itself is never expanded.
     [Theory]
-    [InlineData("mod_directory=", "mod_directory=''")]
-    [InlineData("mod_directory=mods", "mod_directory='mods'")]
-    [InlineData("profiles_directory=profiles", "profiles_directory='profiles'")]
-    [InlineData("overwrite_directory=overwrite", "overwrite_directory='overwrite'")]
-    [InlineData("base_directory=", "base_directory=''")]
-    [InlineData("base_directory=relbase", "base_directory='relbase'")]
-    public void AnEmptyOrRelativeValueRefusesNamingTheKey(string line, string named)
+    [InlineData("mod_directory=", "mod_directory=''", true)]
+    [InlineData("mod_directory=mods", "mod_directory='mods'", true)]
+    [InlineData("profiles_directory=profiles", "profiles_directory='profiles'", true)]
+    [InlineData("overwrite_directory=overwrite", "overwrite_directory='overwrite'", true)]
+    [InlineData("base_directory=", "base_directory=''", false)]
+    [InlineData("base_directory=relbase", "base_directory='relbase'", false)]
+    public void AnEmptyOrRelativeValueRefusesNamingTheKey(string line, string named, bool baseDirHint)
     {
         var (ok, paths, problems) = Mo2Instance.Validate(Stage("rel", line));
 
@@ -146,7 +147,7 @@ public sealed class Mo2DirectoryKeysTests : IDisposable
         Assert.Null(paths);
         var said = Assert.Single(problems, s => s.Contains(named));
         Assert.Contains("not a full path", said);
-        Assert.Contains("%BASE_DIR%/", said);
+        Assert.Equal(baseDirHint, said.Contains("%BASE_DIR%/"));
     }
 
     // The instance folder the caller gave is read as given, as main reads it: a relative one is not the ini's fault.
