@@ -175,6 +175,24 @@ public sealed class ExplicitOverwriteTests : IDisposable
         Assert.Contains("leave it unset", text);
     }
 
+    /// <summary>"Every call that reads the load order", past load_order_status: the asset, record and output lanes each
+    /// refuse on a cold service, and the root is re-read per call, so a warm one refuses the moment the folder goes.</summary>
+    [Fact]
+    public void ARefusedOverwriteRootRefusesTheAssetRecordAndOutputLanesToo()
+    {
+        var cold = _p.OpenExplicit(Path.Combine(_p.Root, "no-such-overwrite"));
+
+        Assert.Throws<ExplicitRootRefusedException>(() => { cold.AssetStatus(new[] { Texture }); });
+        Assert.Throws<ExplicitRootRefusedException>(() => { EditorIdOf(cold, _dupWeapon); });
+        Assert.Throws<ExplicitRootRefusedException>(() => { cold.ResolveExplicitScriptFolder(_p.Mods, out _); });
+
+        var warm = _p.OpenExplicit(_p.Overwrite);
+        Assert.Equal("HcXoFromOverwrite", EditorIdOf(warm, _dupWeapon));   // an index built while the folder was there
+        Directory.Delete(_p.Overwrite, recursive: true);
+
+        Assert.Throws<ExplicitRootRefusedException>(() => { warm.AssetStatus(new[] { Texture }); });
+    }
+
     /// <summary>The three doors that swallow instance-mode derivation let the refused explicit root through, so the
     /// decompile hierarchy, the compiler's game-dir hint and the mods-root read refuse rather than answer degraded.
     /// Instance mode's own unusable-instance swallow is pinned by <c>CompileGameDirHintTests</c>.</summary>
