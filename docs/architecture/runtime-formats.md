@@ -20,7 +20,8 @@ formats' line kinds, conflict model and labels land with its own reader.
   written load index erased from a ten-character side first, as FLM's own reader erases it), whether bare hex or a
   plugin name is a term of its own, what a name no record holds does, and which records an EditorID is looked up among.
 - **`unread` is not a claim.** A `targets` value the research has not settled for that format is written `unread`, and
-  the resolver then answers "not read yet" for every token past the separator of that format rather than guessing one.
+  the resolver then answers "not read yet" for every token of that format carrying no separator, rather than guessing
+  one; an address is read either way, because its rules are sourced for all four.
   BOS and FLM carry four of those today; filling one is its format lane's work.
 - **One resolver, one spelling per row.** `RuntimeTargets` turns a token into a record for every format, SkyPatcher
   included: SkyPatcher's row is one `targets` block among five. SkyPatcher's address character is its `grammar.address`

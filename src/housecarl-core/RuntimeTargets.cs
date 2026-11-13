@@ -27,7 +27,7 @@ public static class RuntimeTargets
         PluginName,
         /// <summary>A name looked up among records.</summary>
         EditorId,
-        /// <summary>A token past the separator for a format whose row has not read what such a token is; never a claim about it.</summary>
+        /// <summary>A token carrying no separator, for a format whose row has not read what such a token is; never a claim about it.</summary>
         Unread,
     }
 
@@ -44,7 +44,7 @@ public static class RuntimeTargets
     // ---- reading a token ----------------------------------------------------------------
 
     /// <summary>Read one token under <paramref name="s"/>, in the frameworks' own order: the separator first, then a
-    /// plugin term, then bare hex, else a name. A row that has not read what a format makes of a token past the
+    /// plugin term, then bare hex, else a name. A row that has not read what a format makes of a token carrying no
     /// separator says so, rather than falling through to a name.</summary>
     public static TargetToken Read(string token, TargetSpelling s)
     {
@@ -57,7 +57,7 @@ public static class RuntimeTargets
         return new TargetToken(TargetKind.EditorId, token, null, null);
     }
 
-    /// <summary>Whether this row leaves any rule for a token past the separator unread, which makes every such token unread rather than a guess.</summary>
+    /// <summary>Whether this row leaves any rule for a token carrying no separator unread, which makes every such token unread rather than a guess.</summary>
     static bool Unread(TargetSpelling s)
         => s.PluginTerm == TargetPluginTerm.Unread || s.BareFormId == TargetBareFormId.Unread
            || s.MissingName == TargetMissingName.Unread || s.EditorIds == TargetEditorIdScope.Unread;
