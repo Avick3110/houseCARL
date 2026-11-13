@@ -74,6 +74,7 @@ public static class SetupTools
         var sb = new StringBuilder();
         sb.Append("configured houseCARL -> MO2 instance '").Append(p.InstanceDir).Append("'\n");
         sb.Append("active profile: ").Append(p.ProfileName).Append("  (auto-detected from ModOrganizer.ini)\n");
+        sb.Append("  profile folder: ").Append(p.ProfileDir).Append('\n');
         sb.Append("  mods folder: ").Append(p.ModsDir).Append('\n');
         var modsFailure = Mo2LoadOrder.ModsFolderFailure(p.ModsDir);
         if (modsFailure is not null)
