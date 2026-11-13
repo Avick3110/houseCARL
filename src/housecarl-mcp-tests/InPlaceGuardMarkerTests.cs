@@ -16,8 +16,9 @@ public sealed class InPlaceGuardMarkerTests
     public InPlaceGuardMarkerTests(W w) { _w = w; }
 
     // I editedInPlace marker + into= boundary + create+remove-lane share (never generated=true)
-    [Fact]
-    public void AnInPlaceWriteStampsTheMarkerButNeverGeneratedAndIntoStillRefuses()
+    /// <summary>An instance holding the master and the user plugin in mods/MasterMod and mods/UserMod, the user mod's
+    /// meta.ini a user sentinel; <paramref name="settings"/> is appended to the ini, given the mods folder forward-slashed.</summary>
+    (string Inst, string Root, string UserPlugin, string Meta) StageInstance(Func<string, string>? settings = null)
     {
         var root = _w.NewDir();
         var inst = Path.Combine(root, "instance");
@@ -27,7 +28,7 @@ public sealed class InPlaceGuardMarkerTests
         Directory.CreateDirectory(Path.Combine(root, "game", "Data"));
         File.WriteAllText(Path.Combine(inst, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
-            + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
+            + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n" + settings?.Invoke(mods.Replace('\\', '/')));
         var masterMod = Directory.CreateDirectory(Path.Combine(mods, "MasterMod")).FullName;
         File.Copy(_w.MasterPath, Path.Combine(masterMod, W.MasterName));
         var userMod = Directory.CreateDirectory(Path.Combine(mods, "UserMod")).FullName;
@@ -38,6 +39,13 @@ public sealed class InPlaceGuardMarkerTests
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + W.MasterName + "\r\n" + W.UserName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + W.MasterName + "\r\n*" + W.UserName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+UserMod\r\n+MasterMod\r\n");
+        return (inst, root, userPlugin, meta);
+    }
+
+    [Fact]
+    public void AnInPlaceWriteStampsTheMarkerButNeverGeneratedAndIntoStillRefuses()
+    {
+        var (inst, root, userPlugin, meta) = StageInstance();
 
         using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
         svc.Stats();
@@ -68,5 +76,20 @@ public sealed class InPlaceGuardMarkerTests
         text = File.ReadAllText(meta);
         Assert.Contains("editedInPlace=", text);
         Assert.True(NoGenerated(text));
+    }
+
+    // A mod_directory key written with a trailing slash still counts the target as under the mods folder, so it gets its marker.
+    [Fact]
+    public void AnInPlaceWriteUnderAModsKeyWithATrailingSlashStampsTheMarker()
+    {
+        var (inst, root, userPlugin, meta) = StageInstance(mods => "[Settings]\r\nmod_directory=" + mods + "/\r\n");
+        using var svc = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user.json")));
+
+        var edit = new[] { new BulkOp { Formid = _w.WeaponId, FieldPath = "BasicStats.Damage", Verb = "Set", Value = "62" } };
+        var wrote = svc.ApplyEdits(edit, null, null, fullReadback: false, target: W.UserName, inPlace: true, acknowledge: true);
+
+        Assert.True(wrote.Success && wrote.InPlace, wrote.Error);
+        Assert.Equal(62, W.Damage(userPlugin, _w.Weapon));
+        Assert.Contains("editedInPlace=", File.ReadAllText(meta));
     }
 }
