@@ -134,28 +134,9 @@ public static class SkyPatcherParse
         return new SkyPatcherValue(item, IsNameLiteral: false, NameText: null, SubArgs: subArgs, Address: address);
     }
 
-    /// <summary>A token holding the grammar's address separator as SkyPatcher reads it: <c>Plugin|FormID</c>, never an EditorID; null for a token without one. A FormID side SkyPatcher cannot read leaves <see cref="FormAddress.FormId"/> null.</summary>
+    /// <summary>A token holding the grammar's address separator as SkyPatcher reads it: <c>Plugin|FormID</c>, never an EditorID; null for a token without one. Read through the one runtime-layer resolver, on SkyPatcher's own spelling with this grammar's address character.</summary>
     public static FormAddress? TryParseAddress(string token, SkyPatcherGrammar? grammar = null)
-    {
-        if (string.IsNullOrEmpty(token)) return null;
-        int bar = token.IndexOf((grammar ?? G).Address);
-        if (bar < 0) return null;
-        // The plugin name is taken as written, untrimmed, as SkyPatcher's mod lookup takes it.
-        return new FormAddress(token[..bar], ParseFormId(token[(bar + 1)..]), EditorId: null);
-    }
-
-    /// <summary>The FormID side read like SkyPatcher's base-16 <c>stoul</c>: leading whitespace, an optional <c>0x</c>, then hex up to the first non-hex character, but no sign; null when no digit is read or the value passes 32 bits.</summary>
-    static uint? ParseFormId(string side)
-    {
-        int i = 0;
-        while (i < side.Length && char.IsWhiteSpace(side[i])) i++;
-        if (i + 2 < side.Length && side[i] == '0' && side[i + 1] is 'x' or 'X' && Uri.IsHexDigit(side[i + 2])) i += 2;
-        int start = i;
-        while (i < side.Length && Uri.IsHexDigit(side[i])) i++;
-        if (i == start) return null;
-        return ulong.TryParse(side[start..i], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) && v <= uint.MaxValue
-            ? (uint)v : null;
-    }
+        => RuntimeTargets.TryParseAddress(token, RuntimeFormats.SkyPatcher.Targets with { Separator = (grammar ?? G).Address });
 
     static string Append(string? note, string add) => note is null ? add : note + "; " + add;
 }

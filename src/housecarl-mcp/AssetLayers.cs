@@ -739,7 +739,7 @@ internal sealed partial class AssetLayers
                 foreach (var eid in eids)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var rfk = SkyPatcherTargets.Resolve(eid, folderTypes, replay.Forms);
+                    var rfk = RuntimeTargets.Resolve(eid, folderTypes, replay.Forms);
                     if (rfk is not null) targets.Add(rfk.Value); else unresolvedTargets++;
                 }
             }

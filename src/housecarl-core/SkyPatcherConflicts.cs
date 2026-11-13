@@ -173,7 +173,7 @@ public static class SkyPatcherConflicts
         var shape = classified.Shape;
         foreach (var (seg, _) in shape.Direct)
             foreach (var v in seg.Values)
-                if (v.Address is { } a) { if (SkyPatcherTargets.FormKeyOf(a) is { } fk) forms.Add(fk); }
+                if (v.Address is { } a) { if (RuntimeTargets.FormKeyOf(a) is { } fk) forms.Add(fk); }
                 else editorIds.Add(v.Raw);
         if (shape.HasFinderReach || shape.PatchesEveryRecord) broadLines++;
     }
@@ -196,9 +196,9 @@ public static class SkyPatcherConflicts
             foreach (var v in seg.Values)
             {
                 // One record per target, by the one resolver, so a record named by FormID on one line and by EditorID on another is one target.
-                var fk = v.Address is { } a ? SkyPatcherTargets.FormKeyOf(a)
+                var fk = v.Address is { } a ? RuntimeTargets.FormKeyOf(a)
                     : resolver is null ? null
-                    : SkyPatcherTargets.Resolve(v, maps.Select(m => (string?)m.RecordType), resolver);
+                    : RuntimeTargets.Resolve(v, maps.Select(m => (string?)m.RecordType), resolver);
                 tokens.Add((fk is { } k ? FormIdToken.Of(k) : v.Raw.ToLowerInvariant(), shape.DirectConditional));
             }
         if (shape.HasFinderReach)

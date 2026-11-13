@@ -41,13 +41,26 @@ static class SkyPatcherOverlayHarness
             // An untyped lookup misses, as IFormResolver.ResolveEditorId says.
             if (mutagenType is null || EditorIdGap(mutagenType) is not null) return null;
             if (!EditorIds.TryGetValue(editorId, out var fk)) return null;
-            if (EditorIdTypes.TryGetValue(editorId, out var t) && !t.Equals(mutagenType, StringComparison.OrdinalIgnoreCase))
+            // An every-type scope is the game's one map: no type narrows it, as the real table's every-type scope does not.
+            if (mutagenType != RuntimeTargets.EveryTypeScope
+                && EditorIdTypes.TryGetValue(editorId, out var t) && !t.Equals(mutagenType, StringComparison.OrdinalIgnoreCase))
                 return null;
             return fk;
         }
         public string? ReadWinnerLeaf(FormKey donor, string path) => WinnerLeafs.GetValueOrDefault(donor);
         public IReadOnlyList<FormKey>? KeywordsOf(FormKey record) => Keywords.GetValueOrDefault(record);
         public bool PluginPresent(string pluginName) => Plugins.Contains(pluginName);
+
+        /// <summary>Each plugin's runtime base, and the records the order defines at a runtime FormID, as the real view's tables give them.</summary>
+        public Dictionary<string, uint> RuntimeBases = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<uint, FormKey> RuntimeForms = new();
+
+        public (FormKey? Record, string? Why) FromRuntimeFormId(uint value)
+            => RuntimeForms.TryGetValue(value, out var fk)
+                ? (fk, null)
+                : (null, $"names {RuntimeFormId.Format(value)}, which no plugin in the active order defines, so it names nothing");
+
+        public uint? RuntimeBaseOf(string pluginName) => RuntimeBases.TryGetValue(pluginName, out var b) ? b : null;
         public string? WinnerPluginOf(FormKey record) => Winners.GetValueOrDefault(record);
         public string? EditorIdOf(FormKey record) => Eids.GetValueOrDefault(record);
     }

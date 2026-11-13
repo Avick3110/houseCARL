@@ -125,7 +125,7 @@ internal sealed partial class AssetLayers
             if (classified.UnknownKey || !shape.OnlyDirect || shape.Direct[0].seg.Values.Count == 0) return null;
             var keys = new HashSet<FormKey>();
             foreach (var v in shape.Direct[0].seg.Values)
-                if (v.Address is { } a && SkyPatcherTargets.FormKeyOf(a) is { } k) keys.Add(k);
+                if (v.Address is { } a && RuntimeTargets.FormKeyOf(a) is { } k) keys.Add(k);
                 else return null;
             return keys;
         }
@@ -394,6 +394,10 @@ internal sealed partial class AssetLayers
             => Named(record) is { } rec ? ReadEngine.KeywordKeys(rec) : null;   // the ONE keyword walk (shared)
 
         public bool PluginPresent(string pluginName) => _view.ContainsPlugin(pluginName);
+
+        public (FormKey? Record, string? Why) FromRuntimeFormId(uint value) => _view.FromRuntimeFormId(value);
+
+        public uint? RuntimeBaseOf(string pluginName) => _view.RuntimeBaseOf(pluginName);
 
         public string? WinnerPluginOf(FormKey record) => _view.ResolveWinner(record)?.WinnerPlugin;
 

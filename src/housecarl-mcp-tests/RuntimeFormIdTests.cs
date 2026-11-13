@@ -45,6 +45,8 @@ public sealed class RuntimeFormIdTests
     [InlineData("000800:Skyrim.esm")]      // the plugin-qualified form is never a runtime FormID
     [InlineData("FE028B1")]                // seven digits
     [InlineData("FE028B199")]              // nine digits
+    [InlineData("0x1CE14")]                // the short spelling a distributor line may carry; the records door still takes eight
+    [InlineData("1CE14")]
     [InlineData("not-a-formid")]
     public void OnlyAnEightHexTokenWithNoPluginIsARuntimeFormId(string token)
         => Assert.False(RuntimeFormId.TryParse(token, out _));
