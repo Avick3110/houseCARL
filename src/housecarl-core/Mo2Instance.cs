@@ -102,7 +102,7 @@ public static class Mo2Instance
         var baseRaw = FindValue(lines, "base_directory", SettingsSection);
         bool baseSet = baseRaw is not null;
         var basePath = baseSet ? CleanValue(baseRaw) ?? "" : instanceDir;
-        bool baseRefused = false;
+        bool baseBad = baseSet && !Path.IsPathFullyQualified(basePath), baseRefused = false;
         var mods      = Root("mod_directory", "mods");
         var profiles  = Root("profiles_directory", "profiles");
         var overwrite = Root("overwrite_directory", "overwrite");
@@ -121,7 +121,8 @@ public static class Mo2Instance
             problems?.Add($"the game Data folder is missing: '{dataDir}' (from gamePath '{gamePath}')");
 
         // Validity is decided on the real outputs, NOT the problems list (so TryResolve with a null list is correct).
-        bool ok = !string.IsNullOrWhiteSpace(profile) && !string.IsNullOrWhiteSpace(gamePath) && overwrite is not null
+        bool ok = !string.IsNullOrWhiteSpace(profile) && !string.IsNullOrWhiteSpace(gamePath)
+                  && mods is not null && profiles is not null && overwrite is not null
                   && Directory.Exists(profileDir) && File.Exists(Path.Combine(profileDir, "loadorder.txt"))
                   && Directory.Exists(modsDir) && Directory.Exists(dataDir);
         if (!ok) return null;
@@ -135,7 +136,7 @@ public static class Mo2Instance
             var raw = FindValue(lines, key, SettingsSection);
             var value = raw is null ? null : CleanValue(raw) ?? "";
             bool usesBase = value is null || value.Contains(BaseDirToken, StringComparison.Ordinal);
-            if (usesBase && baseSet && !Path.IsPathFullyQualified(basePath))
+            if (usesBase && baseBad)
             {
                 if (!baseRefused) problems?.Add($"{IniFileName} [Settings] base_directory='{basePath}' {NotFullPath}");
                 baseRefused = true;
@@ -146,7 +147,8 @@ public static class Mo2Instance
                         baseSet ? $"the default under base_directory '{basePath}'" : "the default under the instance folder");
             var expanded = value.Replace(BaseDirToken, basePath, StringComparison.Ordinal);
             // A relative instance folder the caller gave is read as main reads it; a relative value from the ini is not.
-            if (!Path.IsPathFullyQualified(expanded) && !(usesBase && !baseSet))
+            bool underInstanceDir = usesBase && !baseSet;
+            if (!underInstanceDir && !Path.IsPathFullyQualified(expanded))
             {
                 problems?.Add($"{IniFileName} [Settings] {key}='{value}' {NotFullPath}");
                 return null;
