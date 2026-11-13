@@ -122,6 +122,22 @@ public sealed class DistributorDiscoveryTests : IDisposable
         Assert.All(files.Skip(1), f => Assert.Equal(DistributorDiscovery.UnsortedFolderNote, f.OrderNote));
     }
 
+    // Probe: the files of a folder the DLL does not sort still come back in one ordinal sort — the listing's own
+    // order is not reproducible, so the answer states that in its note rather than in its order.
+    [Fact]
+    public void AnUnsortedFoldersFilesStillComeBackOrdinallySorted()
+    {
+        // The filesystem lists these case-insensitively, where an ordinal sort puts every upper-case name first.
+        Loose(_high, @"FLM\c.ini");
+        Loose(_high, @"FLM\B.ini");
+        Loose(_high, @"FLM\a.ini");
+
+        var files = Scan(ShippedRows.Distributor("flm"));
+
+        Assert.Equal(new[] { @"FLM\B.ini", @"FLM\a.ini", @"FLM\c.ini" }, Paths(files));
+        Assert.All(files, f => Assert.Equal(DistributorDiscovery.UnsortedFolderNote, f.OrderNote));
+    }
+
     // Probe: one name in two mods is one file, won by the higher-priority mod, with the loser named as shadowed.
     [Fact]
     public void OneNameInTwoModsIsOneFileWonByTheHigherMod()
