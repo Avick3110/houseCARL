@@ -253,9 +253,11 @@ public static class RuntimeTargets
 
             default:
                 var scoped = EditorIdScope(scope, s);
-                if (resolver.EditorIdGap(scoped) is { } gap) return $"finds nothing: {gap}";
                 if (resolver.EditorIdNote(t.Raw, scoped) is { } note) return note;
                 if (resolver.ResolveEditorId(t.Raw, scoped) is not null) return null;
+                // The gap is said of a lookup that found nothing, after it: a scope the game keeps some of the names
+                // of answers for the names it keeps, and only the rest are the gap's.
+                if (resolver.EditorIdGap(scoped) is { } gap) return $"finds nothing: {gap}";
                 // Only a scoped lookup can name its scope; an every-type one is the game's whole map.
                 var among = s.EditorIds == TargetEditorIdScope.Scoped && scope is not null ? $" among {scope} records" : "";
                 return s.MissingName == TargetMissingName.CreatesKeyword

@@ -186,6 +186,33 @@ public sealed class RuntimeTargetsTests
                 ShippedRows.Distributor("kid", ("\"missingName\": \"createsKeyword\"", "\"missingName\": \"namesNothing\""))));
     }
 
+    // (e) Probe: the gap is said of a lookup that found nothing, after it — a name a kept type holds reports as it
+    // resolves, where before the lookup every name of the scope was told the game keeps none of its own.
+    [Fact]
+    public void AnEditorIdGapIsSaidAfterTheLookupItDescribes()
+    {
+        Assert.Null(RuntimeTargets.Report("KeptName", null, new GappedResolver("KeptName"), Format("spid")));
+        Assert.Equal($"finds nothing: {GappedResolver.GapText}",
+            RuntimeTargets.Report("OtherName", null, new GappedResolver("KeptName"), Format("spid")));
+    }
+
+    /// <summary>A resolver whose scope has a gap AND holds some of the names in it — po3 Tweaks missing where the
+    /// game still keeps the EditorIDs of some types of an every-type scope. Nothing else is answered.</summary>
+    sealed class GappedResolver(string holds) : SkyPatcherOverlay.IFormResolver
+    {
+        public const string GapText = "po3 Tweaks is not installed, so of the record types of the SkyrimMajorRecord group the game keeps EditorIDs only of Spell records";
+
+        public string? EditorIdGap(string? mutagenType) => GapText;
+        public FormKey? ResolveEditorId(string editorId, string? mutagenType) => editorId == holds ? Lantern : null;
+        public string? ReadWinnerLeaf(FormKey donor, string path) => null;
+        public IReadOnlyList<FormKey>? KeywordsOf(FormKey record) => null;
+        public bool PluginPresent(string pluginName) => false;
+        public (FormKey? Record, string? Why) FromRuntimeFormId(uint value) => (null, "names nothing");
+        public uint? RuntimeBaseOf(string pluginName) => null;
+        public string? WinnerPluginOf(FormKey record) => null;
+        public string? EditorIdOf(FormKey record) => null;
+    }
+
     // Probe: a rule a row has not read is said to be unread, never guessed as a name.
     [Theory]
     [InlineData("bos")]
