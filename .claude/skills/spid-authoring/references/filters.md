@@ -100,7 +100,8 @@ Form = 0x12345||FormExpression1,FormExpression2,...
 Additionally, a **plain plugin name** matches all NPCs *defined in* that plugin:
 
 ```ini
-Form = 0x12345||CoolNPCs.esp   ; every NPC from CoolNPCs.esp
+; every NPC from CoolNPCs.esp
+Form = 0x12345||CoolNPCs.esp
 ```
 
 **Modifiers** (only **one** per expression):
