@@ -320,6 +320,21 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Contains(reads, r => r.Key == ("HcSpRelOther.esp", "Cells"));
     }
 
+    // A type no group map holds walks each plugin whole, once, and yields each of its records once.
+    [Fact]
+    public void AWalkOfATypeNoGroupMapHoldsReadsEachPluginOnce()
+    {
+        using var w = CellWorld();
+        var view = w.Svc.CaptureView();
+        var before = new Dictionary<(string Plugin, string Group), int>(w.Svc.Counters.GroupReads);
+        var recs = view.RecordVersionsOfType(new[] { typeof(ISkyrimMajorRecordGetter) }, new List<PluginUnreadableException>()).ToList();
+        Assert.Equal(recs.Count, recs.Select(r => (r.fk, r.plugin)).Distinct().Count());
+        Assert.Contains(recs, r => r.fk == new FormKey(Rel, 0x852));
+        var reads = w.Svc.Counters.GroupReads.Select(kv => (kv.Key, N: kv.Value - before.GetValueOrDefault(kv.Key))).Where(r => r.N > 0).ToList();
+        Assert.All(reads, r => Assert.Equal(1, r.N));
+        Assert.Contains(reads, r => r.Key == ("HcSpRel.esp", "*flat"));
+    }
+
     // Over every type, the first loaded holder of a name another type in a later plugin shares comes first: the reference, then the keyword.
     [Fact]
     public void AnEveryTypeWalkPutsTheFirstLoadedHolderFirst()
