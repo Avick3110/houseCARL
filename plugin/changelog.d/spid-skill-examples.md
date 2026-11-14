@@ -1,1 +1,1 @@
-- **Example lines in `/housecarl:spid-authoring` can now be copied as written: their comments sit on their own line above each example, since SPID reads a trailing `;` as part of the value.** Check: no example line in the skill's references carries text after its value.
+- **Example lines in `/housecarl:spid-authoring` now copy as written: each comment sits on its own line above its example.** Check: no example line in the skill's references has text after its value.

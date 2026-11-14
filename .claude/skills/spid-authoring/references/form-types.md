@@ -82,7 +82,7 @@ Always write the type explicitly:
 ; must name the type — "Form = …" would become Outfit
 SleepOutfit = SomeBedClothesOutfit
 ; must name the type — "Form = …" would become Item
-Skin        = SomeBodySkinArmor
+Skin = SomeBodySkinArmor
 ```
 
 ### The generic `Form` type
