@@ -191,6 +191,11 @@ public sealed class SpidLinesTests
     [InlineData("Perk", "so SPID drops the line", null)]       // dev: Adamant_DISTR.ini:13
     [InlineData("Faction", "so SPID drops the line", null)]    // dev: Skyrim Extended Cut - Saints and Seducers_DISTR.ini:20
     [InlineData("Outfit", "so SPID drops the line", null)]
+    [InlineData("LevSpell", "so SPID drops the line", null)]
+    [InlineData("Shout", "so SPID drops the line", null)]
+    [InlineData("Item", "so SPID drops the line", null)]
+    [InlineData("Skin", "so SPID drops the line", null)]
+    [InlineData("SleepOutfit", "so SPID drops the line", null)]
     public void AValueNameNoRecordHoldsIsReadByTheLinesType(string type, string? dropped, string? note)
     {
         var r = new World().Read($"{type} = HcNoSuchName");
