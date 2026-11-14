@@ -38,7 +38,8 @@ sealed record ScopeSplit(IReadOnlyList<string> Present, IReadOnlyList<string> Mi
 
     /// <summary>The note beside an off-order file's own name, which keeps the whole file: the missing names, named.</summary>
     internal string OwnFileNote(LoadOrderResolver.IndexView view, string ownName) =>
-        $"note: plugins= names the file's own name ('{ownName}'), so this answer is every record the file holds; "
+        $"note: plugins= names the file's own name ('{ownName}'), so the scope keeps every record the file holds "
+      + "and the call's other filters still narrow it; "
       + $"{Missing.Count} other name(s) name nothing the load order carries: {Causes(view)}";
 
     /// <summary>The served note without its "note: " lead, for a lane that writes its own.</summary>
