@@ -112,7 +112,7 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
         Assert.Contains($"name nothing the load order carries: '{NotInstalled}'", beside);
     }
 
-    /// <summary>A blank entry is refused by its index wherever it sits beside the own name.</summary>
+    /// <summary>Pins unchanged behaviour: a blank entry is refused by its index wherever it sits beside the own name.</summary>
     [Fact]
     public void ABlankEntryBesideTheOwnNameIsRefused()
     {
