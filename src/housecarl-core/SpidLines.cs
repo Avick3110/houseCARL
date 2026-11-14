@@ -328,7 +328,7 @@ public static class SpidLines
     }
 
     /// <summary>String filters: a token that is an NPC's or a keyword's EditorID names that record (an NPC as target,
-    /// unless excluded); any other is matched in the running game by name, which is not read here.</summary>
+    /// unless excluded); any other is matched in the running game, which is not read here.</summary>
     static (List<Named> Forms, List<string> Notes) ReadStrings(Line line, Context ctx)
     {
         var forms = new List<Named>();
@@ -350,7 +350,8 @@ public static class SpidLines
         var notes = new List<string>();
         if (names.Count > 0)
             notes.Add($"string filter {Quoted(names)} {(names.Count == 1 ? "is" : "are")} no {string.Join(" or ", g.StringLookups.Select(Spoken))} EditorID, so " +
-                      $"{(names.Count == 1 ? "it matches" : "they match")} by name (an actor's display name) in the running game, which is not read here");
+                      $"in the running game SPID matches {(names.Count == 1 ? "it" : "them")} against an NPC's name and its keywords' EditorIDs " +
+                      "(a keyword SPID creates included), which is not read here");
         if (partial.Count > 0)
             notes.Add($"string filter {Quoted(partial)} {(partial.Count == 1 ? "matches" : "match")} part of a name in the running game, which is not read here");
         return (forms, notes);
