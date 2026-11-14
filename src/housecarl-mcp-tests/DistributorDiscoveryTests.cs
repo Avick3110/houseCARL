@@ -230,7 +230,7 @@ public sealed class DistributorDiscoveryTests : IDisposable
     [InlineData("\"formId\": \"runtimeAdd\"", "\"formId\": \"guess\"", "formId", "guess")]
     [InlineData("\"bareFormId\": \"runtimeFormId\"", "\"bareFormId\": \"maybe\"", "bareFormId", "maybe")]
     [InlineData("\"pluginTerm\": \"containsExtensionText\"", "\"pluginTerm\": \"sometimes\"", "pluginTerm", "sometimes")]
-    [InlineData("\"missingName\": \"createsKeyword\"", "\"missingName\": \"invents\"", "missingName", "invents")]
+    [InlineData("\"missingName\": \"byPosition\"", "\"missingName\": \"invents\"", "missingName", "invents")]
     [InlineData("\"editorIds\": \"everyType\"", "\"editorIds\": \"someTypes\"", "editorIds", "someTypes")]
     public void AValueTheServerHasNoRuleForFailsTheLoad(string from, string to, string prop, string value)
     {
