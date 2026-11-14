@@ -812,14 +812,20 @@ internal sealed partial class RecordReads
 
         // The same split the in-order scan makes: a name the active order does not carry costs that name's share
         // of the scope, not the whole answer. The file's own filename names this file, not the active copy of that
-        // name: the file touches every record it holds, so with that name in the scope there is no scope test.
+        // name: the file touches every record it holds, so with that name in the scope there is no scope test, and
+        // only the other names the order does not carry are named (docs/architecture/read-engine.md).
         string? scopeMissingNote = null;
         HashSet<string>? scopeSet = null;
         string ownName = Path.GetFileName(pole.Path!);
         var split = scopePlugins is { Count: > 0 } ? ScopeSplit.Of(view, scopePlugins) : null;
         if (split?.BlankRefusal is not null) return CrossQueryOutcome.Fail(split.BlankRefusal) with { Stamp = view.Stamp };
         bool ownNamed = scopePlugins?.Any(n => string.Equals(n.Trim(), ownName, StringComparison.OrdinalIgnoreCase)) == true;
-        if (split is not null && !ownNamed)
+        if (split is not null && ownNamed)
+        {
+            var others = split.Missing.Where(m => !string.Equals(m, ownName, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (others.Count > 0) scopeMissingNote = (split with { Missing = others }).OwnFileNote(view, ownName);
+        }
+        else if (split is not null)
         {
             if (split.Missing.Count > 0)
             {
