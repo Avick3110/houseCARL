@@ -289,7 +289,8 @@ swallows the note turns a recoverable state into a silent loss.
 
 `src/housecarl-core/Mo2Instance.cs` derives the roots and the active profile (`Resolve`, `ReadSelectedProfile`);
 `Mo2LoadOrder.cs` reads the profile files and walks the priority model (`Build`, `LocatePlugin`,
-`AllPluginFileNames`, `AllPluginFiles`, `CandidateFolders`); `MasterDependents.cs` finds a plugin's dependents; `QtIniEscapes.cs` is the one Qt value reader (`Clean`); `Mo2ModMeta.cs`
-reads a mod's `meta.ini`; `UserConfig.cs` is `houseCARL.user.json` and `UserConfigStore`. The tool fronts are
-`src/housecarl-mcp/SetupTools.cs`, `StatusTools.cs` and `UpdateStatusTools.cs`. Tools: `housecarl_set_mo2_instance`,
-`housecarl_set_tool_path`, `housecarl_load_order_status`, `housecarl_update_status`.
+`AllPluginFileNames`, `AllPluginFiles`, `CandidateFolders`); `MasterDependents.cs` finds a plugin's dependents;
+`QtIniEscapes.cs` is the one Qt value reader (`Clean`); `Mo2ModMeta.cs` reads a mod's `meta.ini`; `UserConfig.cs` is
+`houseCARL.user.json` and `UserConfigStore`. The tool fronts are `src/housecarl-mcp/SetupTools.cs`, `StatusTools.cs`
+and `UpdateStatusTools.cs`. Tools: `housecarl_set_mo2_instance`, `housecarl_set_tool_path`,
+`housecarl_load_order_status`, `housecarl_update_status`.
