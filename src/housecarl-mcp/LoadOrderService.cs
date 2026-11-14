@@ -408,7 +408,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
     public SkseConfigAuditData SkseConfigAudit() => _assetLayers.SkseConfigAudit();
     public NativePairingAuditData NativePairingAudit() => _assetLayers.NativePairingAudit();
     public SkyPatcherLayerData SkyPatcherLayer() => _assetLayers.SkyPatcherLayer();
-    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, CancellationToken ct = default, SkyPatcherLineSelect? select = null) => _assetLayers.SkyPatcherLayer(use, ct: ct, select: select);
+    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, CancellationToken ct = default, SkyPatcherLineSelect? select = null,
+                                bool skyPatcher = true, bool? spid = null)
+        => _assetLayers.SkyPatcherLayer(use, ct: ct, select: select, skyPatcher: skyPatcher, spid: spid);
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider, bool links = false) => _assetLayers.NifInspect(relPaths, sourceProvider, links);
     internal MeshSelectionData SelectMeshes(IReadOnlyList<(string Path, bool OnDisk)> entries, IReadOnlyList<string>? under, string? provider,
                                             IReadOnlyList<FaceGenSeed>? seeds, FaceSources? faceSources, bool needView,

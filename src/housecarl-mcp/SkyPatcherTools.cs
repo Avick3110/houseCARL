@@ -10,8 +10,16 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class SkyPatcherTools
 {
-    /// <summary>The distributor= values this build reads.</summary>
-    static readonly string[] Read = { "skypatcher" };
+    /// <summary>The distributor= values this build reads: SkyPatcher, and each distributor row whose lines block has landed.</summary>
+    static string[] Read => _read ??= new[] { "skypatcher" }.Concat(RuntimeFormats.Distributors.Where(d => d.Lines is not null).Select(d => d.Key)).ToArray();
+
+    static string[]? _read;
+
+    /// <summary>The formats read, as the refusals name them.</summary>
+    static string ReadNames => string.Join(" and ", new[] { "SkyPatcher" }.Concat(RuntimeFormats.Distributors.Where(d => d.Lines is not null).Select(d => d.Name)));
+
+    /// <summary>The distributor= values read, quoted, as the refusals list them.</summary>
+    static string ReadValues => string.Join(" or ", Read.Select(v => $"'{v}'"));
 
     /// <summary>Formats houseCARL does not read, by the name a caller asks for them.</summary>
     static readonly (string Name, string Full)[] NotRead =
@@ -25,7 +33,7 @@ public static class SkyPatcherTools
     /// <summary>Formats the layer is to read whose lines this build does not read yet, named by their rows of the
     /// runtime-format source; built on the first refusal, so the rows parse there and not at type init.</summary>
     static (string Name, string Full)[] NotYet
-        => _notYet ??= RuntimeFormats.Distributors.Select(d => (d.Key, d.Name)).ToArray();
+        => _notYet ??= RuntimeFormats.Distributors.Where(d => d.Lines is null).Select(d => (d.Key, d.Name)).ToArray();
 
     /// <summary>The refusal for a distributor= value this build does not read, or null when every value is read.</summary>
     internal static string? DistributorRefusal(IReadOnlyList<string>? values)
@@ -35,10 +43,10 @@ public static class SkyPatcherTools
             var v = (raw ?? "").Trim().ToLowerInvariant();
             if (Read.Contains(v)) continue;
             if (NotRead.FirstOrDefault(f => f.Name == v) is { Full: { } full })
-                return $"error: distributor='{v}' is not read: houseCARL does not read {full} files, so it cannot list their lines. distributor= takes 'skypatcher', or omit it for every format read.";
+                return $"error: distributor='{v}' is not read: houseCARL does not read {full} files, so it cannot list their lines. distributor= takes {ReadValues}, or omit it for every format read.";
             if (NotYet.FirstOrDefault(f => f.Name == v) is { Full: { } soon })
-                return $"error: distributor='{v}' is not read yet: this build reads SkyPatcher lines only, and {soon} lines are not among them. distributor= takes 'skypatcher', or omit it for every format read.";
-            return $"error: distributor='{raw}' is not a format — 'skypatcher' is read; {string.Join(", ", NotRead.Select(f => f.Name))} are not read; {string.Join(", ", NotYet.Select(f => f.Name))} are not read yet.";
+                return $"error: distributor='{v}' is not read yet: this build reads {ReadNames} lines, and {soon} lines are not among them. distributor= takes {ReadValues}, or omit it for every format read.";
+            return $"error: distributor='{raw}' is not a format — {string.Join(", ", Read.Select(x => $"'{x}'"))} are read; {string.Join(", ", NotRead.Select(f => f.Name))} are not read; {string.Join(", ", NotYet.Select(f => f.Name))} are not read yet.";
         }
         return null;
     }
@@ -53,10 +61,10 @@ public static class SkyPatcherTools
         public bool defined_in { get; set; }
     }
 
-    [McpServerTool(Name = ToolNames.Layer, ReadOnly = true, Title = "Runtime layers (SkyPatcher INIs, apply order, conflicts)"),
+    [McpServerTool(Name = ToolNames.Layer, ReadOnly = true, Title = "Runtime layers (SkyPatcher and SPID INIs, apply order, conflicts)"),
      Description(
-         "Inventory the runtime distributor layers of the active load order, SkyPatcher today, read as the files declare it (what a DLL does at runtime is not claimed): the runtime record edits the record tools otherwise " +
-         "miss. Scans Data\\SKSE\\Plugins\\SkyPatcher as the DLL reads it: every loose file with '.ini' in its name per type folder in the DLL's " +
+         "Inventory the runtime distributor layers of the active load order, SkyPatcher and SPID, read as the files declare it (what a DLL does at runtime is not claimed): the runtime edits the record tools otherwise " +
+         "miss. SkyPatcher: scans Data\\SKSE\\Plugins\\SkyPatcher as the DLL reads it: every loose file with '.ini' in its name per type folder in the DLL's " +
          "read order (the folder's own files, then each depth of subfolders, A to Z; folders in patcher order) (BSA-packed INIs are flagged as not applied), the mod that wins each file, same-path collisions " +
          "(the loser's content is never read; flagged), Plugin.esp.ini filename gates evaluated against the load " +
          "order (a name ending in '.ini' spelt in any case but lower ('.INI', '.Ini'), or naming a plugin with more text after it, is flagged as not read), and SkyPatcher.ini per-type switches (a missing switch is off, Light excepted). Then reports conflicts between INIs: two files setting the same " +
@@ -66,15 +74,22 @@ public static class SkyPatcherTools
          "flagged), cross-INI duplicates (two files set the same field and target to the same value), and no-op writes " +
          "(the replay shows the set writes the value the record already has). An entry whose applicability also " +
          "depends on other filters is flagged conditional, not guessed. filter= lists the matching INIs' lines with their " +
-         "notes. Which lines touch a record or plugin: formids= and plugins= select the lines naming a form they select, " +
+         "notes. SPID: its _DISTR.ini files in Data, in its order, read as distributor= says. Which lines touch a record or plugin: formids= and plugins= select the lines naming a form they select, " +
          "as on " + ToolNames.Records + ", each match labelled target, filter, value or unknown key. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
          "source={\"overlay\": \"skypatcher\", \"state\": \"post\"} over formids= or a scan. Read-only.")]
     public static string Layer(
         LoadOrderService svc,
-        [Description("Optional. Which formats to read: 'skypatcher'. Omit for every format read. 'oar', 'ied', 'desc' and " +
-            "'dsd' are answered not read; 'spid', 'kid', 'bos' and 'flm' are not read yet." + ListText.Names)]
+        [Description("Optional. Which formats to read: 'skypatcher', 'spid'. Omit for every format read. 'oar', 'ied', 'desc' and " +
+            "'dsd' are answered not read; 'kid', 'bos' and 'flm' are not read yet. SPID is read as SPID 7.3 reads it: every " +
+            "file directly in Data with '_DISTR' in its name and the '.ini' extension (both case-sensitive), in its order (names " +
+            "in byte order), the mod that wins each (a shadowed copy is never read; a BSA-only one is flagged not applied). " +
+            "filter= expands a file's lines with what SPID does with each: a line it skips or drops, a filter form it skips, a " +
+            "keyword it creates, string filters matched by name in the running game (not read), and each Outfit, SleepOutfit or " +
+            "Skin line's place in its first-wins order. Which NPCs a line reaches is not evaluated. Under formids= and plugins= " +
+            "an NPC named in a filter is the target, the handed-out form the value, any other filter form a filter; a plugin " +
+            "term touches its plugin; an outfit or list is not followed to what it holds." + ListText.Names)]
             ListArg? distributor = null,
-        [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive). " +
+        [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive); for SPID a file name or providing mod, its files expanded. " +
             "Lists only the type folders holding a match, each in full apply order so the files sorting around a match " +
             "stay visible, with the matching files expanded to their individual patch lines and their notes: a direct or " +
             "Excluded target that names nothing says why (an unreadable FormID, a plugin not in the order or spelt with a " +
@@ -83,7 +98,7 @@ public static class SkyPatcherTools
             "too. Omit it, formids= and plugins= for the whole-layer overview.")]
             string? filter = null,
         [Description("Optional. Lines naming these records ('XXXXXX:Plugin.esp' or the runtime form), anywhere on the line: " +
-            "a target, a filter form or an op value, by Plugin|FormID or by an EditorID the replay looks up." + ListText.FormIds)]
+            "a target, a filter form or an op value, by Plugin|FormID or by an EditorID the replay looks up (SPID: FormID~Plugin, a 0x runtime FormID or an EditorID)." + ListText.FormIds)]
             ListArg? formids = null,
         [Description("Optional. Lines naming a record these plugins touch (define or override, as on " + ToolNames.Records +
             "); defined_in: true keeps records they define. With formids= a form must pass both.")]
@@ -98,6 +113,7 @@ public static class SkyPatcherTools
         foreach (var err in new[] { distributorIn.Error, formidsIn.Error, pluginsIn.Error })
             if (err is not null) return ToolAnswer.Refusal(err);
         if (DistributorRefusal(distributorIn.Tokens) is { } notRead) return ToolAnswer.Refusal(notRead);
+        bool Asked(string key) => distributorIn.Tokens is null || distributorIn.Tokens.Any(t => (t ?? "").Trim().Equals(key, StringComparison.OrdinalIgnoreCase));
         if (plugins is not null && pluginsIn.Tokens is not { Length: > 0 })
             return ToolAnswer.Refusal("error: plugins= selects by plugins.names — pass plugins={\"names\": [\"X.esp\"]} (defined_in narrows those names).");
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
@@ -105,9 +121,11 @@ public static class SkyPatcherTools
             : new SkyPatcherLineSelect(formidsIn.Tokens, pluginsIn.Tokens, plugins?.defined_in ?? false,
                 new[] { formidsIn.Demand }.OfType<ArtifactDemand>().ToList());
         string? echo = select is null ? null : SkyPatcherWire.SelectEcho(formidsIn, pluginsIn, select.DefinedIn);
+        // SPID resolves its lines' forms only where they are listed: under filter= or a selector.
         return svc.SkyPatcherLayer(data => data.SelectRefusal is { } refused
             ? ToolAnswer.Refusal(refused)
-            : ToolAnswer.Served(SkyPatcherWire.RenderLayer(data, filter, Wire.Cap(max_chars), echo)), ct, select);
+            : ToolAnswer.Served(SpidWire.RenderLayers(data, filter, Wire.Cap(max_chars), echo)), ct, select,
+            skyPatcher: Asked("skypatcher"), spid: Asked("spid") ? !string.IsNullOrWhiteSpace(filter) : null);
     }, ct);
 }
 
@@ -446,7 +464,7 @@ static class SkyPatcherWire
     /// <summary>The build-level caveats as one string, so the render can charge them before its body is laid. The
     /// hedge sentence is written whatever the budget — it IS the alarm — and the lists under it are cut and counted
     /// like the note lists, since a lost archive drive or a blocked tree makes any of them long.</summary>
-    static string Caveats(SkyPatcherLayerData d, int cap)
+    internal static string Caveats(SkyPatcherLayerData d, int cap)
     {
         var sb = new StringBuilder();
         if (d.ReadIncomplete)

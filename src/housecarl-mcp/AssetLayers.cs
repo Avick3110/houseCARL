@@ -676,7 +676,11 @@ internal sealed partial class AssetLayers
     public SkyPatcherLayerData SkyPatcherLayer() => SkyPatcherLayer(d => d, lint: false);
 
     /// <summary>The layer scan handed to <paramref name="use"/> while its replay is open, so <see cref="SkyPatcherLayerData.Lint"/> resolves a line only when <paramref name="use"/> asks; the lookup is valid only inside it.</summary>
-    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true, CancellationToken ct = default, SkyPatcherLineSelect? select = null)
+    /// <param name="skyPatcher">Read SkyPatcher's lines; false leaves its reports empty and its scan unselected.</param>
+    /// <param name="spid">Read SPID's layer in the same replay context: null not at all, false its files and lines,
+    /// true every form its lines name too (a filter or a selector expands lines).</param>
+    public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true, CancellationToken ct = default, SkyPatcherLineSelect? select = null,
+                                bool skyPatcher = true, bool? spid = null)
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
@@ -692,13 +696,21 @@ internal sealed partial class AssetLayers
         // The selectors need only the build, so a refusal answers before the conflict and no-op scans run.
         Func<FormKey, bool>? wanted = null;
         string? selectNote = null;
+        string[]? named = null;
         if (select is not null)
         {
-            (wanted, selectNote, var refusal) = LineSelection(select, view);
+            (wanted, selectNote, var refusal, named) = LineSelection(select, view);
             if (refusal is not null)
                 return use(new SkyPatcherLayerData(scan, [], [], [], [], [], assets.RootFailures, scan.ReadIncomplete || assets.ReadIncomplete,
                     replay.AssetWarnings, replay.ProfileName) { SelectRefusal = refusal });
         }
+        // SPID's lines are read after SkyPatcher's scans, so every SkyPatcher answer is built as it was before SPID was read.
+        SpidLayerData? Spid() => spid is { } resolve
+            ? SpidLayer(replay, view, resolve || wanted is not null, wanted, named, select?.FormIds is not null, ct) : null;
+        if (!skyPatcher)
+            return use(new SkyPatcherLayerData(scan with { Folders = [], Notes = [] }, [], [], [], [], [], assets.RootFailures,
+                scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName)
+                { SkyPatcherRead = false, SelectNote = selectNote, Spid = Spid() });
         var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
         var itms = new List<SkyPatcherConflicts.SkyPatcherItm>();
         var duplicates = new List<SkyPatcherConflicts.SkyPatcherDuplicate>();
@@ -786,16 +798,17 @@ internal sealed partial class AssetLayers
 
         var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
             scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null)
-            { UnreadableNotes = unreadableNotes };
+            { UnreadableNotes = unreadableNotes, Spid = Spid() };
         if (wanted is null) return use(data);
         return use(data with { SelectNote = selectNote, Select = (folder, file, i) => replay.LineForms(folder, file.Lines[i]).Where(f => wanted(f.Form)).ToList() });
     }
 
-    /// <summary>The records selectors resolved against the pinned build into a form predicate, with the note they owe, or the refusal they earn.</summary>
-    static (Func<FormKey, bool>? Wanted, string? Note, string? Refusal) LineSelection(SkyPatcherLineSelect sel, LoadOrderResolver.IndexView view)
+    /// <summary>The records selectors resolved against the pinned build into a form predicate, with the note they owe,
+    /// or the refusal they earn, and the named plugins the order carries (null without plugins=).</summary>
+    static (Func<FormKey, bool>? Wanted, string? Note, string? Refusal, string[]? Named) LineSelection(SkyPatcherLineSelect sel, LoadOrderResolver.IndexView view)
     {
         foreach (var d in sel.Demands)
-            if (d.Epoch != view.Stamp.Epoch) return (null, null, "error: " + RecordReads.ArtifactEpochMismatch(d, view.Stamp.Epoch));
+            if (d.Epoch != view.Stamp.Epoch) return (null, null, "error: " + RecordReads.ArtifactEpochMismatch(d, view.Stamp.Epoch), null);
         HashSet<FormKey>? ids = null;
         if (sel.FormIds is { } raw)
         {
@@ -806,7 +819,7 @@ internal sealed partial class AssetLayers
                 try { ids.Add(door.Parse(t)); }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    return (null, null, $"error: formids= entry '{t}' is not a FormID ('XXXXXX:Plugin.esp' or the runtime form): {ex.Message}");
+                    return (null, null, $"error: formids= entry '{t}' is not a FormID ('XXXXXX:Plugin.esp' or the runtime form): {ex.Message}", null);
                 }
             }
         }
@@ -816,8 +829,8 @@ internal sealed partial class AssetLayers
         if (sel.Plugins is { } names)
         {
             var split = ScopeSplit.Of(view, names);
-            if (split.BlankRefusal is { } blank) return (null, null, "error: " + blank);
-            if (split.Present.Count == 0) return (null, null, "error: " + split.NothingToScanRefusal(view));
+            if (split.BlankRefusal is { } blank) return (null, null, "error: " + blank, null);
+            if (split.Present.Count == 0) return (null, null, "error: " + split.NothingToScanRefusal(view), null);
             // The layer's note list writes its own "[!] ".
             if (split.Missing.Count > 0) note = split.MissingNote(view);
             named = split.Present.ToArray();
@@ -827,7 +840,7 @@ internal sealed partial class AssetLayers
         // The records meaning: a plugin touches a form it defines or overrides; defined_in keeps the defining plugin only, and only a form it holds.
         bool Wanted(FormKey fk) => (ids is null || ids.Contains(fk))
             && (named is null || (definers is not null ? definers.Contains(fk.ModKey) && view.Touches(fk, fk.ModKey.FileName) : named.Any(p => view.Touches(fk, p))));
-        return (Wanted, note, null);
+        return (Wanted, note, null, named);
     }
 
     /// <summary>A form-scope string to getter Types, or null when it names neither a type nor a link-interface group; see <see cref="TypeLookup.ResolveScope"/>.</summary>
