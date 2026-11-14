@@ -228,11 +228,12 @@ public sealed class SpidLayerTests : IDisposable
         Assert.Equal(spid, Walked(() => SkyPatcherTools.Layer(w.Svc, formids: new[] { Perk })));
     }
 
-    const string FileCut = "  ... [SPID files cut at max_chars — raise it or narrow filter=]";
-    const string LineCut = "      ... [SPID lines cut at max_chars — raise it or narrow filter=, formids= or plugins=]";
+    const string FileCut = "  ... [SPID files cut at max_chars after SkyPatcher's part — distributor=[\"spid\"] reads SPID alone at the whole max_chars]";
+    const string LineCut = "      ... [SPID lines cut at max_chars after SkyPatcher's part — distributor=[\"spid\"] reads SPID alone at the whole max_chars]";
 
     // Call A, pick (a): with distributor omitted SkyPatcher's part is the distributor=['skypatcher'] answer's body at every
-    // max_chars; SPID's takes what is left and says where it is cut, down to its header and a cut notice.
+    // max_chars; SPID's takes what is left and says where it is cut, down to its header and a cut notice. Rows 20-22: past
+    // the cap the notice says SkyPatcher's part filled it, and the call both notices name shows the SPID files cut here.
     [Fact]
     public void SkyPatcherKeepsItsWholeAnswerAndSpidTakesWhatIsLeft()
     {
@@ -241,22 +242,37 @@ public sealed class SpidLayerTests : IDisposable
             ("HcA_DISTR.ini", "Perk = HcPerk\r\nSpell = HcSpell\r\n"), ("HcB_DISTR.ini", "Outfit = HcOutfit\r\n"),
             (SpidWorld.SkyNpcIni, "filterByNpcs=HcSpid.esp|810:weight=5\r\nfilterByNpcs=HcSpid.esp|810:height=2\r\n"),
         });
-        string Body(string answer) => answer.IndexOf("\n[!] this response is ", StringComparison.Ordinal) is var at and >= 0 ? answer[..at] : answer;
+        string Body(string answer) => answer.IndexOf("\n[!] this response ", StringComparison.Ordinal) is var at and >= 0 ? answer[..at] : answer;
+        int Rows(string text) => new[] { "  - HcA_DISTR.ini", "  - HcB_DISTR.ini" }.Count(text.Contains);
         var whole = SkyPatcherTools.Layer(w.Svc);
-        int headerCut = 0, someFiles = 0;
+        int headerCut = 0, someFiles = 0, over = 0, remedyShows = 0;
         for (int cap = 50; cap <= whole.Length + 100; cap += 23)
         {
             var sky = Body(SkyPatcherTools.Layer(w.Svc, distributor: new[] { "skypatcher" }, max_chars: cap));
             var all = SkyPatcherTools.Layer(w.Svc, max_chars: cap);
             Assert.StartsWith(sky + "\n\nSPID layer (", all);
             var spid = Body(all[(sky.Length + 2)..]);
-            if (all.Length > cap) Assert.EndsWith(" it was given: what it must carry whatever the budget — its header, the notices it owes, " +
-                                                  "its accounting — does not fit in that many, so raise max_chars to at least " + all.Length + ".", all);
-            if (!spid.Contains("  - HcB_DISTR.ini")) Assert.Contains(FileCut, spid);
+            if (all.Length > cap)
+            {
+                over++;
+                Assert.EndsWith("\n[!] this response runs past the max_chars=" + cap + " it was given: SkyPatcher's part comes first, as " +
+                                "distributor=[\"skypatcher\"] answers it (" + sky.Length + " chars), and SPID's part does not fit in what is left; " +
+                                "distributor=[\"spid\"] reads SPID alone at the whole max_chars.", all);
+            }
+            if (!spid.Contains("  - HcB_DISTR.ini"))
+            {
+                Assert.Contains(FileCut, spid);
+                // The call the notices name, taken at this cap, never shows fewer SPID files than the joined part did.
+                var alone = SkyPatcherTools.Layer(w.Svc, distributor: new[] { "spid" }, max_chars: cap);
+                Assert.True(Rows(alone) >= Rows(spid), $"max_chars={cap}: distributor=[\"spid\"] shows fewer files");
+                if (Rows(alone) > Rows(spid)) remedyShows++;
+                // Unchanged: SPID alone keeps its own cut, where raising max_chars does show more.
+                if (Rows(alone) < 2) Assert.Contains("  ... [SPID files cut at max_chars — raise it or narrow filter=]", alone);
+            }
             if (!spid.Contains("  - HcA_DISTR.ini")) { headerCut++; Assert.Equal(FileCut, spid.Split('\n')[1]); }   // the header, then the cut
             else if (!spid.Contains("  - HcB_DISTR.ini")) someFiles++;
         }
-        Assert.True(headerCut > 0 && someFiles > 0);   // the caps reach both cuts
+        Assert.True(headerCut > 0 && someFiles > 0 && over > 0 && remedyShows > 0);   // the caps reach both cuts, the overrun and a remedy that shows more
     }
 
     // Row 24: SPID's lines under filter= are cut with their own notice once SkyPatcher's part has its room.

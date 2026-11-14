@@ -15,10 +15,17 @@ static class SpidWire
         if (!d.SkyPatcherRead) return RenderCap.Settle(Render(spid, d, filter, cap, selectEcho, owner: true), cap);
         // SkyPatcher's part is its own answer at the whole cap; SPID's takes what is left (spid-layer.md, two formats).
         var sky = SkyPatcherWire.Render(d, filter, cap, selectEcho);
-        return RenderCap.Settle(sky + Gap + Render(spid, d, filter, cap - sky.Length - Gap.Length, selectEcho, owner: false), cap);
+        var joined = sky + Gap + Render(spid, d, filter, cap - sky.Length - Gap.Length, selectEcho, owner: false);
+        return joined.Length <= cap ? joined : joined + "\n[!] " + JoinedOverran(cap, sky.Length);
     }
 
     const string Gap = "\n\n";
+
+    /// <summary>The joined answer's over-cap sentence (spid-layer.md, two formats).</summary>
+    static string JoinedOverran(int cap, int sky) =>
+        "this response runs past the max_chars=" + cap + " it was given: SkyPatcher's part comes first, as " +
+        "distributor=[\"skypatcher\"] answers it (" + sky + " chars), and SPID's part does not fit in what is left; " +
+        "distributor=[\"spid\"] reads SPID alone at the whole max_chars.";
 
     /// <summary>SPID's part. <paramref name="owner"/> is true when it is the whole answer, so it closes on the build caveats
     /// SkyPatcher's part otherwise carries.</summary>
@@ -75,14 +82,15 @@ static class SpidWire
 
         var notes = NoteLines(s, d, owner, Math.Min(cap / BatchRender.CaveatShare, Math.Max(0, cap - sb.Length)));
         cap -= notes.Length;
-        string hint = !expand && sb.Length + Hint.Length + FileCut.Length <= cap ? Hint : "";
-        int room = cap - hint.Length - FileCut.Length - (expand ? LineCut.Length : 0);
+        string fileCut = owner ? FileCut : JoinedFileCut, lineCut = owner ? LineCut : JoinedLineCut;
+        string hint = !expand && sb.Length + Hint.Length + fileCut.Length <= cap ? Hint : "";
+        int room = cap - hint.Length - fileCut.Length - (expand ? lineCut.Length : 0);
         bool cut = false;
         foreach (var fi in shown)
         {
             var f = files[fi];
             var row = FileRow(f, fi + 1, files.Count);
-            if (sb.Length + row.Length > room) { sb.Append(FileCut); cut = true; break; }
+            if (sb.Length + row.Length > room) { sb.Append(fileCut); cut = true; break; }
             sb.Append(row);
             if (!expand) continue;
             for (int li = 0; li < f.Lines.Count; li++)
@@ -90,7 +98,7 @@ static class SpidWire
                 SpidSelected? picked = null;
                 if (s.Selected is not null && !s.Selected.TryGetValue((fi, li), out picked)) continue;
                 var text = LineText(s, fi, li, picked);
-                if (sb.Length + text.Length > room) { sb.Append(LineCut); cut = true; break; }
+                if (sb.Length + text.Length > room) { sb.Append(lineCut); cut = true; break; }
                 sb.Append(text);
             }
             if (cut) break;
@@ -102,6 +110,9 @@ static class SpidWire
     const string Hint = "\n→ filter='<file or mod>' expands a SPID file's lines with what SPID does with each; formids= or plugins= lists the lines naming a form, labelled target, filter or value.";
     const string FileCut = "  ... [SPID files cut at max_chars — raise it or narrow filter=]\n";
     const string LineCut = "      ... [SPID lines cut at max_chars — raise it or narrow filter=, formids= or plugins=]\n";
+    // In the joined answer SkyPatcher's part takes the cap first, so the cut names the call that reads SPID alone.
+    const string JoinedFileCut = "  ... [SPID files cut at max_chars after SkyPatcher's part — distributor=[\"spid\"] reads SPID alone at the whole max_chars]\n";
+    const string JoinedLineCut = "      ... [SPID lines cut at max_chars after SkyPatcher's part — distributor=[\"spid\"] reads SPID alone at the whole max_chars]\n";
 
     /// <summary>A zero answer's close: its notes and, when it is the whole answer, the caveats.</summary>
     static string Close(SpidLayerData s, SkyPatcherLayerData d, StringBuilder sb, int cap, string caveats, bool owner)

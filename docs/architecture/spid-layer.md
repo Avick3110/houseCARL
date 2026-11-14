@@ -59,9 +59,13 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   2026-11-13 (15)).
 - **Two formats, one call.** With `distributor` omitted (or `distributor=[]`, which reads the same) the answer is SkyPatcher's render, then SPID's. SkyPatcher's
   part is the `distributor=["skypatcher"]` answer's body at the whole `max_chars`, so it is never shorter than that
-  answer; SPID's part takes what is left and says where it is cut (`SPID files cut at max_chars`, `SPID lines cut at
-  max_chars`). At a cap SkyPatcher's part fills, SPID's is its header and the file cut notice, and the answer closes
-  on the over-cap notice (`RenderCap.Settle`). SPID is read after SkyPatcher's scans in the same
+  answer; SPID's part takes what is left and says where it is cut (`SPID files cut at max_chars after SkyPatcher's
+  part`, `SPID lines cut at max_chars after SkyPatcher's part`). A wider `max_chars` goes to SkyPatcher's part first, so
+  those notices name `distributor=["spid"]`, which reads SPID alone at the whole `max_chars`, not a higher cap. At a cap
+  SkyPatcher's part fills, SPID's is its header and the file cut notice, and the answer runs past `max_chars` and
+  closes on its own over-cap sentence: SkyPatcher's part came first (its length stated) and SPID's did not fit in what
+  was left, with the same `distributor=["spid"]` remedy. It names no cap to raise to, since while SkyPatcher's part is
+  cut a higher cap shows no more SPID; `RenderCap.Settle` is not used here. SPID is read after SkyPatcher's scans in the same
   replay context, so the two share one EditorID table. SkyPatcher's part carries the build caveats; SPID's alone
   carries them when it is the whole answer.
 
