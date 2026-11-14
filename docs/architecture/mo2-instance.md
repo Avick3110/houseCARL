@@ -110,8 +110,10 @@ A filter value is also read two more ways, both fresh on every call with nothing
   `meta.ini` that exists and will not read, and a folder with none found that will not open (a denied listing, a
   dangling junction), are named on a `[!]` line. A folder found as a mod, enabled or disabled,
   shows its own id on the `as a mod:` line, or says the id is unknown when its `meta.ini` exists and will not read. Cost on dev (1,345 `meta.ini`): about 0.1 s.
-- **As the master other plugins name.** A value with a plugin extension gets a `named as a master by` line, under
-  the `masters (n):` line when a header was read, else ending the lookup (`MasterDependents.Find`). It walks every
+- **As the master other plugins name.** A value with a plugin extension gets a `named as a master by` line
+  (`MasterDependents.Find`): under the `masters (n):` line when a header was read; ahead of `served from:` when the
+  profile lists the name and no header was read; and ending the lookup when the profile does not list it or the mods folder will not open. The gate
+  is the extension, not the profile listing, so a plugin only on disk still gets the line. It walks every
   plugin file `CandidateFolders` lists (`Mo2LoadOrder.AllPluginFiles`) and reads each header through
   `PluginFile.ReadHeader`. A name that loads (in loadorder.txt and not unchecked, the set `Build` loads, with a copy
   in an enabled layer) is judged by the copy the game reads, its first enabled hit; its other copies are skipped. A
