@@ -326,6 +326,14 @@ public sealed class LayerSelectTests : IDisposable
         Assert.Equal(all, Layer(distributor: new[] { "skypatcher", "spid" }));
     }
 
+    // r1 #12, Aaron's pick "Reads as omitted": an empty distributor= answers exactly as an omitted one.
+    [Fact]
+    public void AnEmptyDistributorReadsAsOmitted()
+    {
+        Assert.Equal(Layer(), Layer(distributor: Array.Empty<string>()));
+        Assert.Equal(Layer(formids: new[] { _w.Plain }), Layer(formids: new[] { _w.Plain }, distributor: Array.Empty<string>()));
+    }
+
     // Pins unchanged behaviour: distributor=['skypatcher'] alone is SkyPatcher's answer as main gave it, with no SPID read.
     [Fact]
     public void DistributorSkypatcherAloneReadsNoSpid()
