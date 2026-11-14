@@ -11,7 +11,7 @@ public sealed record MasterDependentsResult(
 
 public static class MasterDependents
 {
-    /// <summary>Every plugin naming <paramref name="master"/> in its header: a loaded plugin (in loadorder.txt and not unchecked) is judged by the copy the game loads, every other copy on disk by itself.</summary>
+    /// <summary>Every plugin naming <paramref name="master"/> in its header: a loaded plugin (in loadorder.txt, not unchecked, and held by an enabled layer) is judged by the copy the game loads, every other copy on disk by itself.</summary>
     public static MasterDependentsResult Find(Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, string master)
     {
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
@@ -24,11 +24,13 @@ public static class MasterDependents
         var onDisk = new List<UnloadedDependent>();
         var unopened = new List<string>();
         var unread = new List<string>();
-        foreach (var hit in Mo2LoadOrder.AllPluginFiles(comp, modsDir, dataDir, overwriteDir, unopened))
+        var hits = Mo2LoadOrder.AllPluginFiles(comp, modsDir, dataDir, overwriteDir, unopened).ToList();
+        var provided = hits.Where(h => h.Enabled).Select(h => Path.GetFileName(h.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var hit in hits)
         {
             var fn = Path.GetFileName(hit.Path);
             if (fn.Equals(master, StringComparison.OrdinalIgnoreCase)) continue;
-            bool loaded = position.ContainsKey(fn);
+            bool loaded = position.ContainsKey(fn) && provided.Contains(fn);   // a listed name no enabled layer holds is not loaded
             if (loaded && (!hit.Enabled || !served.Add(fn))) continue;    // a loaded name's other copies are not what the game reads
             if (PluginFile.ReadHeader(hit.Path) is not { } header) { unread.Add($"{fn} in {hit.Where}"); continue; }
             if (!header.Masters.Contains(master, StringComparer.OrdinalIgnoreCase)) continue;

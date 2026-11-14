@@ -111,6 +111,14 @@ public sealed class StatusFilterLookupsTests : IClassFixture<StatusFilterLookups
         Assert.DoesNotContain(StatusFilterLookupsWorld.Shadow, Line(Lookup(StatusFilterLookupsWorld.Master), "named as a master by"));
     }
 
+    /// <summary>A plugin the profile lists and checks whose only copy is in a disabled mod does not load, so that copy is listed with its layer label.</summary>
+    [Fact]
+    public void AListedPluginWithNoEnabledCopyIsListedAsNotLoaded()
+    {
+        Assert.Equal("named as a master by (0 in the order · 1 on disk, not loaded): HcLkGone.esp [not loaded: mod 'GoneMod' (DISABLED)]",
+                     Line(Lookup(StatusFilterLookupsWorld.Absent), "named as a master by"));
+    }
+
     /// <summary>A plugin file whose header will not read is named, so a dependent in it is not silently missing.</summary>
     [Fact]
     public void AnUnreadablePluginHeaderIsNamed()
@@ -156,12 +164,15 @@ public sealed class StatusFilterLookupsTests : IClassFixture<StatusFilterLookups
 
 /// <summary>A synthetic MO2 instance for the filter lookups: mod folders carrying Nexus ids (shared, 0, -1, a folder
 /// named with digits), and one master named by loaded plugins, by plugins in a disabled mod, an unchecked plugin, a
-/// plugin in no load order, a disabled copy of a loaded plugin, and a file whose header will not read.</summary>
+/// plugin in no load order, a disabled copy of a loaded plugin, and a file whose header will not read; and a master no folder holds, named by a
+/// listed plugin whose only copy is in a disabled mod.</summary>
 public sealed class StatusFilterLookupsWorld : IDisposable
 {
     public const string Master = "HcLkMaster.esm";
     public const string Dep = "HcLkDep.esp";
     public const string Shadow = "HcLkShadow.esp";
+    public const string Absent = "HcLkAbsent.esm";
+    public const string Gone = "HcLkGone.esp";
 
     public string Root { get; }
     public LoadOrderService Svc { get; }
@@ -199,14 +210,20 @@ public sealed class StatusFilterLookupsWorld : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "BrokenHdrMod"));
         File.WriteAllBytes(Path.Combine(mods, "BrokenHdrMod", "HcLkBroken.esp"), "not a plugin"u8.ToArray());
 
-        var order = new[] { Master, Dep, "HcLkDep2.esp", "HcLkUnchecked.esp", Shadow };
+        // A master no folder holds, named by a plugin the profile lists and checks whose only copy is in a disabled mod.
+        var absent = new SkyrimMod(ModKey.FromFileName(Absent), SkyrimRelease.SkyrimSE);
+        absent.ModHeader.Flags |= SkyrimModHeader.HeaderFlag.Master;
+        absent.Weapons.Add(new Weapon(new FormKey(absent.ModKey, 0x801), SkyrimRelease.SkyrimSE) { EditorID = "HcLkAbsentWeap" });
+        Save(mods, "GoneMod", Naming(Gone, absent), absent);
+
+        var order = new[] { Master, Dep, "HcLkDep2.esp", "HcLkUnchecked.esp", Shadow, Gone };
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"),
             string.Join("\r\n", order.Select(p => p == "HcLkUnchecked.esp" ? p : "*" + p)) + "\r\n");
         // Dep2Mod outranks DepMod, so the folder walk meets HcLkDep2.esp first though it loads second.
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
             "# header\r\n+Dep2Mod\r\n+DepMod\r\n+MasterMod\r\n+UncheckedMod\r\n+StrayMod\r\n+ShadowHigh\r\n-ShadowOff\r\n-OffMod\r\n" +
-            "+BrokenHdrMod\r\n+NexusA\r\n-NexusB\r\n+ZeroMod\r\n+NegMod\r\n+777\r\n+Seven\r\n+LockedMeta\r\n");
+            "+BrokenHdrMod\r\n-GoneMod\r\n+NexusA\r\n-NexusB\r\n+ZeroMod\r\n+NegMod\r\n+777\r\n+Seven\r\n+LockedMeta\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(instance, 0, store);
