@@ -1,0 +1,1 @@
+- **`load_order_status filter=` reads a number as a Nexus id and lists the mod folders carrying it, shows a mod's id, and lists the plugins naming a plugin as a master, marking those not loaded.** Check: `filter="<Nexus id>"`, then `filter="<master>.esm"`. Reported by a headless caller (#1388).

@@ -332,15 +332,19 @@ public static class Mo2LoadOrder
     /// <summary>Every plugin filename the install provides, walking <see cref="CandidateFolders"/> — the did-you-mean pool and the declared-master split's is-it-installed discriminant. It lists each folder, so it is read once per call and then asked many times.</summary>
     public static IReadOnlyCollection<string> AllPluginFileNames(
         Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, List<string>? unopened = null)
+        // An unopened folder is named, so its absence is not read as "not installed".
+        => AllPluginFiles(comp, modsDir, dataDir, overwriteDir, unopened ?? []).Select(h => Path.GetFileName(h.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every plugin file the install holds, one hit per copy, walking <see cref="CandidateFolders"/> in precedence order, so a name's first enabled hit is the copy the game loads; a folder that will not open is added to <paramref name="unopened"/>.</summary>
+    public static IEnumerable<PluginFileHit> AllPluginFiles(
+        Mo2Composition comp, string modsDir, string dataDir, string overwriteDir, List<string> unopened)
     {
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (dir, _, _) in CandidateFolders(comp, modsDir, dataDir, overwriteDir))
+        foreach (var (dir, where, enabled) in CandidateFolders(comp, modsDir, dataDir, overwriteDir))
         {
-            if (ListPlugins(dir) is not { } plugins) { unopened?.Add(Path.GetFileName(dir)); continue; }   // named, so its absence is not read as "not installed"
-            foreach (var (fn, _) in plugins)
-                names.Add(fn);
+            if (ListPlugins(dir) is not { } plugins) { unopened.Add(Path.GetFileName(dir)); continue; }
+            foreach (var (_, full) in plugins)
+                yield return new PluginFileHit(full, where, enabled);
         }
-        return names;
     }
 
     /// <summary>Mod folders that exist under <paramref name="modsDir"/> but that modlist.txt mentions in NEITHER list; one directory listing, and a missing or inaccessible ModsDir yields nothing.</summary>
