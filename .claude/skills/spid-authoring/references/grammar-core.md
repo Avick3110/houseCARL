@@ -188,6 +188,9 @@ doesn't mention. Knowing these prevents "why does my line still work / not work"
   first `" - "` is converted.
 - **Bare hex with leading zeros gets a `0x` prefix added** (`00012345` → `0x12345`), and **leading
   zeros after `0x` are stripped** (`0x00012345` → `0x12345`). FormIDs are forgiving about zero-padding.
+- **SPID writes the cleaned line back into the file when the game starts**, for a regular line it
+  changed (not a `Death`, `Linked` or `ExclusiveGroup` line). So a file you wrote with spaces or
+  padded hex reads differently after one launch; diff against the cleaned form, not your draft.
 
 ---
 
