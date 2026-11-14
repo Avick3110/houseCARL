@@ -354,7 +354,7 @@ public static class SpidLines
                       "and its keywords' EditorIDs (its race's and a keyword SPID creates included), which is not read here");
         if (partial.Count > 0)
             notes.Add($"string filter {Quoted(partial)} {(partial.Count == 1 ? "matches" : "match")} part of an NPC's name, of its own or its template's EditorID " +
-                      "or of one of its keywords' EditorIDs in the running game, which is not read here");
+                      "or of one of its keywords' EditorIDs (its race's and a keyword SPID creates included) in the running game, which is not read here");
         return (forms, notes);
     }
 

@@ -181,7 +181,7 @@ public sealed class SpidLinesTests
                         "its own and its template's EditorIDs and its keywords' EditorIDs (its race's and a keyword SPID creates included), " +
                         "which is not read here", r.Notes);
         Assert.Contains("string filter '*ald' matches part of an NPC's name, of its own or its template's EditorID or of one of its " +
-                        "keywords' EditorIDs in the running game, which is not read here", r.Notes);
+                        "keywords' EditorIDs (its race's and a keyword SPID creates included) in the running game, which is not read here", r.Notes);
         // A string token equal to another type's EditorID is no form: SPID matches it as a name.
         Assert.DoesNotContain(new World().Read("Outfit = HcOutfit|HcDeerRace").Forms, f => f.Form == DeerRace);
     }
