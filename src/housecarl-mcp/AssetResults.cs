@@ -355,7 +355,13 @@ public sealed record SpidLayerData(HousecarlCore.DistributorFormat Format, IRead
 }
 
 /// <summary>One SPID file: the file as discovery found it, its lines as SPID splits them, and why it could not be read.</summary>
-public sealed record SpidFileData(HousecarlCore.DistributorDiscovery.ConfigFile File, IReadOnlyList<HousecarlCore.SpidLines.Line> Lines, string? ReadError);
+public sealed record SpidFileData(HousecarlCore.DistributorDiscovery.ConfigFile File, IReadOnlyList<HousecarlCore.SpidLines.Line> Lines, string? ReadError)
+{
+    /// <summary>Whether filter= keeps this file: its name or providing mod contains <paramref name="filter"/> (trimmed,
+    /// non-blank), in any case.</summary>
+    public bool Matches(string filter) => File.RelPath.Contains(filter, StringComparison.OrdinalIgnoreCase)
+        || (File.WinningProvider?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
+}
 
 /// <summary>What the selectors keep of one SPID line: the forms, and the plugins it names as a term.</summary>
 public sealed record SpidSelected(IReadOnlyList<HousecarlCore.SpidLines.Named> Forms, IReadOnlyList<string> PluginTerms);

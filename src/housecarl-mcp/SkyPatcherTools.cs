@@ -124,11 +124,10 @@ public static class SkyPatcherTools
             : new SkyPatcherLineSelect(formidsIn.Tokens, pluginsIn.Tokens, plugins?.defined_in ?? false,
                 new[] { formidsIn.Demand }.OfType<ArtifactDemand>().ToList());
         string? echo = select is null ? null : SkyPatcherWire.SelectEcho(formidsIn, pluginsIn, select.DefinedIn);
-        // SPID resolves its lines' forms only where they are listed: under filter= or a selector.
         return svc.SkyPatcherLayer(data => data.SelectRefusal is { } refused
             ? ToolAnswer.Refusal(refused)
             : ToolAnswer.Served(SpidWire.RenderLayers(data, filter, Wire.Cap(max_chars), echo)), ct, select,
-            skyPatcher: Asked("skypatcher"), spid: Asked("spid") ? !string.IsNullOrWhiteSpace(filter) : null);
+            skyPatcher: Asked("skypatcher"), spid: Asked("spid"), filter: filter);
     }, ct);
 }
 

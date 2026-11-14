@@ -8,9 +8,10 @@ namespace HousecarlMcp;
 internal sealed partial class AssetLayers
 {
     /// <summary>Read SPID's layer in an open replay context: every file SPID reads, as it finds them, each line split;
-    /// with <paramref name="resolve"/> every form a line names resolved, each first-wins line placed in its type's order,
-    /// and, with <paramref name="wanted"/>, the forms and plugin terms the records selectors keep.</summary>
-    internal SpidLayerData SpidLayer(SkyPatcherReplay replay, LoadOrderResolver.IndexView view, bool resolve,
+    /// under a selector, or a <paramref name="filter"/> some file matches, every form a line names resolved, each
+    /// first-wins line placed in its type's order, and, with <paramref name="wanted"/>, the forms and plugin terms the
+    /// records selectors keep.</summary>
+    internal SpidLayerData SpidLayer(SkyPatcherReplay replay, LoadOrderResolver.IndexView view, string? filter,
                                      Func<FormKey, bool>? wanted, IReadOnlyList<string>? namedPlugins, bool formIdsGiven, CancellationToken ct)
     {
         var format = RuntimeFormats.Spid;
@@ -27,7 +28,8 @@ internal sealed partial class AssetLayers
             }
         }
         var data = new SpidLayerData(format, files, replay.ProfileName);
-        if (!resolve) return data;
+        filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
+        if (wanted is null && (filter is null || !files.Any(f => f.Matches(filter)))) return data;
 
         // Every line of every file in one read, so the table walks every type once before the string lookups narrow it.
         var all = files.SelectMany(x => x.Lines).ToList();

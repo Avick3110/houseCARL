@@ -13,6 +13,8 @@ namespace HousecarlMcpTests;
 sealed class SpidWorld : IDisposable
 {
     public const string Spid = "HcSpid.esp", ArmorSrc = "HcArmorSrc.esp", Other = "HcOther.esp";
+    /// <summary>A SkyPatcher npc INI's path under the INI mod.</summary>
+    public const string SkyNpcIni = "SKSE/Plugins/SkyPatcher/npc/HcSky.ini";
     public readonly string Root, IniMod, Loser;
     public readonly LoadOrderService Svc;
 
@@ -53,7 +55,12 @@ sealed class SpidWorld : IDisposable
         other.Npcs.Add(new Npc(new FormKey(other.ModKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = "HcOtherNpc", Name = "Skald" });
         Write(other, Path.Combine(mods, "HcSpidPlugins", Other));
 
-        foreach (var (name, text) in files) File.WriteAllText(Path.Combine(IniMod, name), text);
+        foreach (var (name, text) in files)
+        {
+            var path = Path.Combine(IniMod, name);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
         foreach (var (name, text) in shadowed ?? []) File.WriteAllText(Path.Combine(Loser, name), text);
 
         var order = new[] { ArmorSrc, Spid, Other };
@@ -204,6 +211,35 @@ public sealed class SpidLayerTests : IDisposable
         var before = _w.Svc.Counters.EditorIdSweeps;
         SkyPatcherTools.Layer(_w.Svc, formids: new[] { Perk });
         Assert.Equal(1, _w.Svc.Counters.EditorIdSweeps - before);
+    }
+
+    // r1 #25: a filter= matching a SkyPatcher folder and no SPID file resolves no SPID line, so no EditorID table is walked.
+    [Fact]
+    public void AFilterMatchingNoSpidFileWalksNoEditorIdTable()
+    {
+        using var w = new SpidWorld(new[] { ("HcA_DISTR.ini", "Perk = HcPerk\r\n"), (SpidWorld.SkyNpcIni, "filterByNpcs=HcSpid.esp|810:weight=5\r\n") });
+        w.Layer();   // warms the index
+        var before = w.Svc.Counters.EditorIdSweeps;
+        var text = SkyPatcherTools.Layer(w.Svc, filter: "npc");
+        var sweeps = w.Svc.Counters.EditorIdSweeps - before;
+        // The answer as it was: SkyPatcher's, then SPID's no-match block.
+        var sky = SkyPatcherTools.Layer(w.Svc, distributor: new[] { "skypatcher" }, filter: "npc");
+        Assert.Contains(":1  filterByNpcs=HcSpid.esp|810:weight=5", sky);
+        Assert.StartsWith(sky + "\n\nSPID layer (", text);
+        Assert.EndsWith(" 1 file(s) in Data (1 read), 1 line(s): Perk 1\nfilter 'npc' — 0 of 1 file(s) match.\n\n"
+                        + "nothing matched: no SPID file name or providing mod contains 'npc'.", text);
+        Assert.Equal(0, sweeps);
+    }
+
+    // r1 #25: a filter= matching a SPID file resolves its lines in one EditorID walk.
+    [Fact]
+    public void AFilterMatchingASpidFileWalksOneEditorIdTable()
+    {
+        using var w = new SpidWorld(new[] { ("HcA_DISTR.ini", "Perk = HcPerk\r\n"), (SpidWorld.SkyNpcIni, "filterByNpcs=HcSpid.esp|810:weight=5\r\n") });
+        w.Layer();
+        var before = w.Svc.Counters.EditorIdSweeps;
+        Assert.Contains(":1  Perk = HcPerk", SkyPatcherTools.Layer(w.Svc, filter: "HcA_"));
+        Assert.Equal(1, w.Svc.Counters.EditorIdSweeps - before);
     }
 
     // Every form token of every line is looked up before any string token, so a first line whose only name is a string
