@@ -124,6 +124,8 @@ public sealed class SpidLinesTests
         Assert.Contains(l.Tokens, t => t.Raw == "0x811");
         Assert.Contains(l.Notes, n => n.Contains("writes that back into this file"));
         Assert.Empty(One("Spell = 0x812~HcSpid.esp").Notes);
+        // A value already holding '~' keeps its ' - '.
+        Assert.Equal("0x812~Hc - Spid.esp", SpidLines.Sanitize("0x812~Hc - Spid.esp", G));
     }
 
     // Answer 3 (LookupConfigs.h:343-346): Final is an Outfit prefix; on another type SPID drops it.
