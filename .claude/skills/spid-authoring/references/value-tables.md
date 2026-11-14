@@ -112,12 +112,17 @@ Plus: a **plain plugin name** in a Form Filter matches all NPCs defined in that 
 
 ## Distribution order (per-type passes, at runtime)
 
+<!-- generated:spid.runs -->
 ```
-Keywords → Factions → Perks → Spells → Shouts → Packages → Items → Skins → Outfits
+Keywords → Factions → Perks → Spells → Leveled spells → Shouts → Packages → Items → Skins → Sleep outfits → (own pass) Outfits
 ```
 
-Within a type: load order (file A→Z, then top→bottom). Exception: Keywords are topo-sorted so a
-keyword that depends on another distributes after its dependency.
+Within a type: the files in byte order of their names, each file's lines by key (any case) then file
+order, `Form` lines last. For `Skin`, `SleepOutfit` and `Outfit` the first passing line wins.
+<!-- end generated:spid.runs -->
+
+Exception: Keywords are topo-sorted so a keyword that depends on another distributes after its
+dependency.
 
 ---
 

@@ -12,7 +12,7 @@ public sealed class RuntimeFormatSourceTests
 
     static readonly string Shipped = RuntimeFormats.SourceText().Replace("\r\n", "\n");
 
-    static readonly IReadOnlyDictionary<string, string> ShippedRegions = RuntimeFormatSkillText.Regions(RuntimeFormats.SkyPatcher);
+    static readonly IReadOnlyDictionary<string, string> ShippedRegions = RuntimeFormatSkillText.Regions();
 
     /// <summary>The shipped source with exact substrings replaced, each of which must be there.</summary>
     static SkyPatcherFormat With(params (string From, string To)[] edits)

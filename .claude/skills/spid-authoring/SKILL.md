@@ -89,10 +89,12 @@ Read grammar-core plus the one or two files you need — don't bulk-load everyth
    range; zero-based package index; package-list type `0`–`4`; a `0`–`100` chance (default 100).
    Append `!` to the chance to make it deterministic (consistent per NPC + save across sessions).
 
-5. **Place the file** at `Data/<name>_DISTR.ini` — the **`_DISTR` suffix is mandatory** and the file
-   is flat in `Data/`, never in a per-type subfolder; without either it is never read. Files load
-   alphabetically A→Z, each top-to-bottom; comment with `;`. Ship it inside a mod the mod manager
-   handles, then confirm the placement (*Check the reach before you write it*, below).
+5. **Place the file** at `Data/<name>_DISTR.ini` — **`_DISTR` in the name is mandatory** (in that
+   case) and the file is flat in `Data/`, never in a per-type subfolder; without either it is never
+   read. Files load in the byte order of their names, not alphabetically, and a file's lines go by
+   key before line order (`references/grammar-core.md` §2-§3); comment on a line of its own with `;`.
+   Ship it inside a mod the mod manager handles, then confirm the placement (*Check the reach before
+   you write it*, below).
 
 ## Two worked lines
 
@@ -195,7 +197,7 @@ they differ, and say which one you gated on.
   likely crash the game (`references/form-types.md`).
 - **One modifier per String or Form expression.** `-Guard+ActorTypeNPC` is invalid; Traits is the
   only section that allows mixing (`F/-U/L`).
-- **End the filename in `_DISTR` and keep it flat in `Data/`.** A file without the suffix, or filed
+- **Put `_DISTR` in the filename and keep it flat in `Data/`.** A file without it, or filed
   into a per-type subfolder, is ignored entirely — no line in it ever runs.
 - **Map "match by X" onto one of the four filter sections** (text → String, form → Form, level/skill
   → Level, trait → Trait) and look it up in `references/filters.md`. There are exactly four; a filter invented
