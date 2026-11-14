@@ -102,7 +102,7 @@ name and the whole-profile summary do not.
 A filter value is also read two more ways, both fresh on every call with nothing held between calls (`FilterLookups.Read`):
 
 - **As a Nexus id.** A value that is a positive whole number (`NumberStyles.None`, so `-1` and `+5` are not numbers)
-  gets an `as a Nexus id:` line naming every folder under the mods root whose `meta.ini` `[General] modid` equals it,
+  gets an `as a Nexus id:` line naming every folder under the mods root whose `meta.ini` first `modid=` line (in any section) equals it,
   sorted, each marked enabled, disabled or not in modlist.txt (`Mo2ModMeta.FoldersWithModId`). MO2 reads every id
   at or below 0 as no id (a separator, a hand-made mod, a cleared link), so `0` and `-1` are not ids: those values
   keep their old answer, and a folder carrying one shows none. An id shared by several folders (a mod and its
