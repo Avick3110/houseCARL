@@ -151,7 +151,8 @@ public static class RuntimeFormatSkillText
                 $"an `{group.Key}` line is `{Fields(group.Kind)}`. A line with more `{g.Sections}` sections than that is skipped. An " +
                 $"empty section, or `{g.Unset}` in any case, is unset, but only as the whole section: `{g.Unset}` as one item of a list " +
                 $"is looked up as a name. In a filter section `{g.Item}` separates the items (OR), `{g.All}` joins the parts of one " +
-                $"item (AND), a leading `{g.Not}` excludes, and in a string filter a leading `{g.Partial}` matches part of a name. An " +
+                $"item (AND), a leading `{g.Not}` excludes, and in a string filter a leading `{g.Partial}` matches part of an NPC's name, of its own or its template's EditorID " +
+                "or of one of its keywords' EditorIDs. An " +
                 "empty item is skipped with its whole line.", 100),
 
             ["spid.names"] = Wrap(

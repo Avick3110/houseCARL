@@ -170,8 +170,9 @@ CountOrIndex | Chance`; a `Linked` line is `Form | ParentForms | CountOrIndex | 
 `ExclusiveGroup` line is `GroupName | Forms`. A line with more `|` sections than that is skipped. An
 empty section, or `NONE` in any case, is unset, but only as the whole section: `NONE` as one item of
 a list is looked up as a name. In a filter section `,` separates the items (OR), `+` joins the parts
-of one item (AND), a leading `-` excludes, and in a string filter a leading `*` matches part of a
-name. An empty item is skipped with its whole line.
+of one item (AND), a leading `-` excludes, and in a string filter a leading `*` matches part of an
+NPC's name, of its own or its template's EditorID or of one of its keywords' EditorIDs. An empty
+item is skipped with its whole line.
 <!-- end generated:spid.lines -->
 
 ---
