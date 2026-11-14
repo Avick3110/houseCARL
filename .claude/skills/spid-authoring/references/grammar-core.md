@@ -157,20 +157,21 @@ has six pipes, so `60` lands in position 6 (`Chance`).
 **How SPID reads a line, and the other line kinds:**
 
 <!-- generated:spid.lines -->
-Only the lines before the first `[section]` header are read. A line whose first non-space character
-is `;` or `#` is a comment. There is no comment after a value: everything after `=` to the end of
-the line is the value, so `Spell = X ; note` names `X ; note`. A key is `<Type>`, `Final<Type>`
-(`Outfit` only; on another type SPID drops `Final`), `Death<Type>` (handed out when the NPC dies),
-`GlobalLinked<Type>` or `Linked<Type>` (optionally with `Final` and `Death` after `Linked`), or
-`ExclusiveGroup`. `<Type>` is one of `Keyword`, `Faction`, `Perk`, `Spell`, `LevSpell`, `Shout`,
-`Package`, `Item`, `Skin`, `SleepOutfit`, `Outfit`, `Form`, spelt in exactly that case; any other
-key is skipped. A regular or `Death` line is `Form | StringFilters | FormFilters | LevelFilters |
-TraitFilters | CountOrIndex | Chance`; a `Linked` line is `Form | ParentForms | CountOrIndex |
-Chance`; an `ExclusiveGroup` line is `GroupName | Forms`. A line with more `|` sections than that is
-skipped. An empty section, or `NONE` in any case, is unset, but only as the whole section: `NONE` as
-one item of a list is looked up as a name. In a filter section `,` separates the items (OR), `+`
-joins the parts of one item (AND), a leading `-` excludes, and in a string filter a leading `*`
-matches part of a name. An empty item is skipped with its whole line.
+Only the unnamed section is read: the lines before the first named `[section]` header, and any after
+an empty `[]` header, which returns to it. A line whose first non-space character is `;` or `#` is a
+comment. There is no comment after a value: everything after `=` to the end of the line is the
+value, so `Spell = X ; note` names `X ; note`. A key is `<Type>`, `Final<Type>` (`Outfit` only; on
+another type SPID drops `Final`), `Death<Type>` (handed out when the NPC dies), `GlobalLinked<Type>`
+or `Linked<Type>` (optionally with `Final` and `Death` after `Linked`), or `ExclusiveGroup`.
+`<Type>` is one of `Keyword`, `Faction`, `Perk`, `Spell`, `LevSpell`, `Shout`, `Package`, `Item`,
+`Skin`, `SleepOutfit`, `Outfit`, `Form`, spelt in exactly that case; any other key is skipped. A
+regular or `Death` line is `Form | StringFilters | FormFilters | LevelFilters | TraitFilters |
+CountOrIndex | Chance`; a `Linked` line is `Form | ParentForms | CountOrIndex | Chance`; an
+`ExclusiveGroup` line is `GroupName | Forms`. A line with more `|` sections than that is skipped. An
+empty section, or `NONE` in any case, is unset, but only as the whole section: `NONE` as one item of
+a list is looked up as a name. In a filter section `,` separates the items (OR), `+` joins the parts
+of one item (AND), a leading `-` excludes, and in a string filter a leading `*` matches part of a
+name. An empty item is skipped with its whole line.
 <!-- end generated:spid.lines -->
 
 ---

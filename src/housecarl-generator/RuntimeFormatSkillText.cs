@@ -139,7 +139,8 @@ public static class RuntimeFormatSkillText
                 $"These paragraphs model SPID {spid.Version}; {models} reads its files the same.", 100),
 
             ["spid.lines"] = Wrap(
-                "Only the lines before the first `[section]` header are read. A line whose first non-space character is " +
+                "Only the unnamed section is read: the lines before the first named `[section]` header, and any after an empty " +
+                "`[]` header, which returns to it. A line whose first non-space character is " +
                 $"{leads} is a comment. There is no comment after a value: everything after `{g.Assign}` to the end of the line is " +
                 $"the value, so `Spell = X ; note` names `X ; note`. A key is `<Type>`, `{g.FinalPrefix}<Type>` (" +
                 $"{Join(g.FinalTypes.Select(x => $"`{x}`").ToList(), "and")} only; on another type SPID drops `{g.FinalPrefix}`), " +
