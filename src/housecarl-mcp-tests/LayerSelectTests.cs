@@ -368,7 +368,8 @@ public sealed class LayerSelectTests : IDisposable
 
     [Fact]
     public void AnUnknownDistributorIsNotAFormat()
-        => Assert.StartsWith("error: distributor='xyz' is not a format", Layer(distributor: new[] { "xyz" }));
+        => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid' are read; oar, ied, desc, dsd are not read; kid, bos, flm are not read yet.",
+            Layer(distributor: new[] { "xyz" }));
 
     // Q1 (a): the tool is housecarl_layer, and the old name is a retired row naming it.
     [Fact]
