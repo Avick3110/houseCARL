@@ -811,16 +811,19 @@ internal sealed partial class RecordReads
             return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
         // The same split the in-order scan makes: a name the active order does not carry costs that name's share
-        // of the scope, not the whole answer.
+        // of the scope, not the whole answer. The file's own filename names this file, not the active copy of that
+        // name: the file touches every record it holds, so with that name in the scope there is no scope test.
         string? scopeMissingNote = null;
         HashSet<string>? scopeSet = null;
-        if (scopePlugins is { Count: > 0 })
+        string ownName = Path.GetFileName(pole.Path!);
+        var split = scopePlugins is { Count: > 0 } ? ScopeSplit.Of(view, scopePlugins) : null;
+        if (split?.BlankRefusal is not null) return CrossQueryOutcome.Fail(split.BlankRefusal) with { Stamp = view.Stamp };
+        if (split is not null && !scopePlugins!.Any(n => string.Equals(n.Trim(), ownName, StringComparison.OrdinalIgnoreCase)))
         {
-            var split = ScopeSplit.Of(view, scopePlugins);
-            if (split.BlankRefusal is not null) return CrossQueryOutcome.Fail(split.BlankRefusal) with { Stamp = view.Stamp };
             if (split.Missing.Count > 0)
             {
-                string meaning = " Over an out-of-load-order file the scope keeps the file's records that ACTIVE plugins also touch, so the scope names active plugins.";
+                string meaning = " Over an out-of-load-order file the scope keeps the file's records that ACTIVE plugins also touch, so the scope names active plugins, "
+                               + $"or the file's own name ('{ownName}') to keep every record it holds.";
                 if (split.Present.Count == 0)
                     return CrossQueryOutcome.Fail(split.NothingToScanRefusal(view) + meaning) with { Stamp = view.Stamp };
                 scopeMissingNote = split.ServedNote(view) + meaning;
