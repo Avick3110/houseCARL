@@ -280,4 +280,69 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Contains("formList\\HcTargets.ini:2: 'formsToAdd=HcHeelBoots' — EditorID 'HcHeelBoots' finds nothing: powerofthree's Tweaks (SKSE\\Plugins\\po3_Tweaks.dll) is not in this order, so of the record types of the SkyrimMajorRecord group the game keeps EditorIDs only of Cell, GlobalFloat, GlobalInt, GlobalShort, HeadPart, IdleAnimation, Keyword, MusicType, Quest, Race, VoiceType, Worldspace records; not applied.", read);
         Assert.DoesNotContain("HcHeelKw' finds nothing", read);
     }
+
+    static readonly ModKey Rel = ModKey.FromFileName("HcSpRel.esp");
+
+    static void AddCell(SkyrimMod m, uint id, string editorId, params IPlaced[] refs)
+    {
+        var cell = new Cell(new FormKey(m.ModKey, id), SkyrimRelease.SkyrimSE) { EditorID = editorId, Flags = Cell.Flag.IsInteriorCell };
+        foreach (var r in refs) cell.Temporary.Add(r);
+        var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+        sub.Cells.Add(cell);
+        var block = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
+        block.SubBlocks.Add(sub);
+        m.Cells.Records.Add(block);
+    }
+
+    // HcSpRel.esp's cell holds a reference and a placed NPC, the reference named HcShared; HcSpRelOther.esp, loading after
+    // it, holds a keyword HcShared and a cell with a reference of its own.
+    static SkyPatcherRelevanceWorld CellWorld() => new(Array.Empty<(string, string)>(), otherPlugin: true,
+        records: m => AddCell(m, 0x850, "HcRoom",
+            new PlacedObject(new FormKey(m.ModKey, 0x851), SkyrimRelease.SkyrimSE) { EditorID = "HcShared" },
+            new PlacedNpc(new FormKey(m.ModKey, 0x852), SkyrimRelease.SkyrimSE) { EditorID = "HcPlacedNpc" }),
+        otherRecords: o =>
+        {
+            o.Keywords.Add(new Keyword(new FormKey(o.ModKey, 0x850), SkyrimRelease.SkyrimSE) { EditorID = "HcShared" });
+            AddCell(o, 0x851, "HcOtherRoom", new PlacedObject(new FormKey(o.ModKey, 0x852), SkyrimRelease.SkyrimSE) { EditorID = "HcOtherRef" });
+        });
+
+    // A walk over every type reads each group of each plugin once: the cell, its reference and placed NPC share one read of the cells.
+    [Fact]
+    public void AnEveryTypeWalkReadsEachGroupOfEachPluginOnce()
+    {
+        using var w = CellWorld();
+        var view = w.Svc.CaptureView();
+        var before = new Dictionary<(string Plugin, string Group), int>(w.Svc.Counters.GroupReads);
+        SkyPatcherEditorIdTable.For(view, null).Cover(w.Svc.Types.ResolveScope(nameof(SkyrimMajorRecord))!);
+        var reads = w.Svc.Counters.GroupReads.Select(kv => (kv.Key, N: kv.Value - before.GetValueOrDefault(kv.Key))).Where(r => r.N > 0).ToList();
+        Assert.All(reads, r => Assert.Equal(1, r.N));
+        Assert.Contains(reads, r => r.Key == ("HcSpRel.esp", "Cells"));
+        Assert.Contains(reads, r => r.Key == ("HcSpRelOther.esp", "Cells"));
+    }
+
+    // Over every type, the first loaded holder of a name another type in a later plugin shares comes first: the reference, then the keyword.
+    [Fact]
+    public void AnEveryTypeWalkPutsTheFirstLoadedHolderFirst()
+    {
+        using var w = CellWorld();
+        var table = SkyPatcherEditorIdTable.For(w.Svc.CaptureView(), null);
+        table.Cover(w.Svc.Types.ResolveScope(nameof(SkyrimMajorRecord))!);
+        Assert.Equal(new[] { new FormKey(Rel, 0x851), new FormKey(Other, 0x850) }, table.Find("HcShared", null, out _).Select(h => h.Record));
+        Assert.Equal(new FormKey(Rel, 0x852), Assert.Single(table.Find("HcPlacedNpc", null, out _)).Record);
+    }
+
+    // Two records of one name in one plugin tie by the walk's type order, not by the file, whose keywords come before its cells
+    // (unchanged by the one-pass walk; skypatcher-layer.md).
+    [Fact]
+    public void ASamePluginTieGoesByTypeOrderNotFileOrder()
+    {
+        using var w = new SkyPatcherRelevanceWorld(Array.Empty<(string, string)>(), records: m =>
+        {
+            m.Keywords.Add(new Keyword(new FormKey(m.ModKey, 0x860), SkyrimRelease.SkyrimSE) { EditorID = "HcTie" });
+            AddCell(m, 0x861, "HcTie");
+        });
+        var table = SkyPatcherEditorIdTable.For(w.Svc.CaptureView(), null);
+        table.Cover(new[] { typeof(ICellGetter), typeof(IKeywordGetter) });
+        Assert.Equal(new[] { new FormKey(Rel, 0x861), new FormKey(Rel, 0x860) }, table.Find("HcTie", null, out _).Select(h => h.Record));
+    }
 }
