@@ -110,6 +110,14 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
     }
 
     [Fact]
+    public void TheOwnNameIsMatchedPastSurroundingSpaces()
+    {
+        var r = RecordsTools.Records(_w.Svc, plugins: Scope("  " + _w.FileName + " "), source: Loser, counts_only: true);
+        Ok(r);
+        Assert.Contains($"scan: {ShadowedCopyWorld.LoserCount} matches", r);
+    }
+
+    [Fact]
     public void TheOwnNameWithDefinedInKeepsOnlyTheRecordsTheFileDefines()
     {
         var r = RecordsTools.Records(_w.Svc, plugins: new RecordsTools.RecordsScope { names = new[] { _w.FileName }, defined_in = true },
