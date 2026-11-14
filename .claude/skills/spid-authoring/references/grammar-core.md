@@ -200,10 +200,13 @@ Worked: `Form = 0x12345|A,B|0x12,0x34` means "give `0x12345` when the NPC has (A
 To target *unions* of groups, use **multiple lines** for the same form (a TIP from the article):
 
 ```ini
-Keyword = FemaleBandits||BanditFaction||F     ; Female AND in BanditFaction
+; Female AND in BanditFaction
+Keyword = FemaleBandits||BanditFaction||F
 ; vs. — the union "Females OR Bandits":
-Keyword = FemaleOrBandits||BanditFaction       ; everyone in BanditFaction
-Keyword = FemaleOrBandits||||F                 ; plus every Female in the game
+; everyone in BanditFaction
+Keyword = FemaleOrBandits||BanditFaction
+; plus every Female in the game
+Keyword = FemaleOrBandits||||F
 ```
 
 A line with **no filters at all** matches *every* NPC of the game.
@@ -216,8 +219,10 @@ Instead of naming the exact form type, you may write **`Form`** and let SPID inf
 distributable form you give it:
 
 ```ini
-Form = SteelSword      ; inferred as Item
-Form = DefaultOutfit   ; inferred as Outfit
+; inferred as Item
+Form = SteelSword
+; inferred as Outfit
+Form = DefaultOutfit
 ```
 
 **Caveat:** `SleepOutfit` and `Skin` can **never** be inferred — they share the same underlying
@@ -234,20 +239,27 @@ This single numeric field is interpreted three different ways:
 - **Item → Count.** Number of items to add. Default `1` if blank/absent. A **range** `min-max` lets
   SPID pick a random count:
   ```ini
-  Form = ImperialBow          ; 1 bow (default)
-  Form = IronSword|||||3      ; 3 swords
-  Item = SteelArrow|||||10-20 ; between 10 and 20 arrows
+  ; 1 bow (default)
+  Form = ImperialBow
+  ; 3 swords
+  Form = IronSword|||||3
+  ; between 10 and 20 arrows
+  Item = SteelArrow|||||10-20
   ```
 - **Package → Index.** Zero-based insertion index in the NPC's package list. Default `0` (first):
   ```ini
-  Package = Patrol|||||1   ; insert Patrol as the 2nd package (index 1)
-  Package = Travel         ; index 0 (default) — first package
+  ; insert Patrol as the 2nd package (index 1)
+  Package = Patrol|||||1
+  ; index 0 (default) — first package
+  Package = Travel
   ```
 - **FormList → Package List Type.** Which package list to overwrite, `0`–`4`. Default `0`. The five
   types (DPLT/SPOR/OCOR/GWOR/ECOR) are tabulated in `value-tables.md`:
   ```ini
-  Package = DefaultPackageListLinkedPatrol|||||0   ; Default Package List
-  Package = DefaultPackageListLinkedPatrol         ; same — type 0 is default
+  ; Default Package List
+  Package = DefaultPackageListLinkedPatrol|||||0
+  ; same — type 0 is default
+  Package = DefaultPackageListLinkedPatrol
   ```
 
 ---
@@ -258,8 +270,10 @@ A percentage, **0–100 decimal**, default **100** (guaranteed) when absent. No 
 it can be (`0.01` is fine).
 
 ```ini
-Form = 0x12345||||||60     ; 60% chance
-Form = 0x12345||||||0.01   ; 0.01% chance
+; 60% chance
+Form = 0x12345||||||60
+; 0.01% chance
+Form = 0x12345||||||0.01
 ```
 
 **Deterministic chance — append `!`.** By default the roll is random every time the NPC is processed,
@@ -267,8 +281,10 @@ so the same NPC can get different results across game restarts. Appending `!` (e
 result **consistent for the same NPC + same savegame (player character) across all sessions**:
 
 ```ini
-Form = 0x12345||||||50!     ; deterministic 50% — each NPC always or never gets it, consistently
-Form = 0x12345||||||33.3!   ; decimals work too
+; deterministic 50% — each NPC always or never gets it, consistently
+Form = 0x12345||||||50!
+; decimals work too
+Form = 0x12345||||||33.3!
 ```
 
 What changes a deterministic outcome (re-rolls it): the target NPC, the player character (new

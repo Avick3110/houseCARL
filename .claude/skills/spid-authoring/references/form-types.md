@@ -79,16 +79,20 @@ So the generic `Form = …` shortcut (grammar-core §8) will **never** resolve t
 Always write the type explicitly:
 
 ```ini
-SleepOutfit = SomeBedClothesOutfit   ; must name the type — "Form = …" would become Outfit
-Skin        = SomeBodySkinArmor      ; must name the type — "Form = …" would become Item
+; must name the type — "Form = …" would become Outfit
+SleepOutfit = SomeBedClothesOutfit
+; must name the type — "Form = …" would become Item
+Skin        = SomeBodySkinArmor
 ```
 
 ### The generic `Form` type
 For every *other* type, `Form` infers correctly from the named record:
 
 ```ini
-Form = SteelSword      ; => Item
-Form = DefaultOutfit   ; => Outfit
+; => Item
+Form = SteelSword
+; => Outfit
+Form = DefaultOutfit
 ```
 
 Equivalent to writing `Item = SteelSword` / `Outfit = DefaultOutfit`.
