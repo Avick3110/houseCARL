@@ -107,7 +107,8 @@ A filter value is also read two more ways, both fresh on every call with nothing
   at or below 0 as no id (a separator, a hand-made mod, a cleared link), so `0` and `-1` are not ids: those values
   keep their old answer, and a folder carrying one shows none. An id shared by several folders (a mod and its
   patches, 53 ids on dev) is answered as the list. A folder named with digits reads both as a mod and as an id. A
-  `meta.ini` that exists and will not read is named on a `[!]` line. A folder found as a mod, enabled or disabled,
+  `meta.ini` that exists and will not read, and a folder with none found that will not open (a denied listing, a
+  dangling junction), are named on a `[!]` line. A folder found as a mod, enabled or disabled,
   shows its own id on the `as a mod:` line. Cost on dev (1,345 `meta.ini`): about 0.1 s.
 - **As the master other plugins name.** A value with a plugin extension gets a `named as a master by` line, under
   the `masters (n):` line when a header was read, else ending the lookup (`MasterDependents.Find`). It walks every

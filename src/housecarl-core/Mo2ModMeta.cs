@@ -30,7 +30,7 @@ public static class Mo2ModMeta
     /// <summary>The Nexus id in <paramref name="modFolder"/>'s meta.ini, or 0 when it carries none or has no readable meta.ini.</summary>
     public static int ModIdOf(string modFolder) => Read(LooseListings.OnDisk(modFolder, "meta.ini"))?.ModId ?? 0;
 
-    /// <summary>Every folder under <paramref name="modsDir"/> whose meta.ini carries Nexus id <paramref name="modId"/>, sorted; a meta.ini that exists and will not read is added to <paramref name="unread"/>. Null when the mods folder will not list.</summary>
+    /// <summary>Every folder under <paramref name="modsDir"/> whose meta.ini carries Nexus id <paramref name="modId"/>, sorted; a folder whose meta.ini exists and will not read, or that will not open, is added to <paramref name="unread"/>. Null when the mods folder will not list.</summary>
     public static IReadOnlyList<string>? FoldersWithModId(string modsDir, int modId, List<string> unread)
     {
         if (string.IsNullOrWhiteSpace(modsDir) || !Directory.Exists(modsDir)) return [];
@@ -41,8 +41,12 @@ public static class Mo2ModMeta
         foreach (var dir in dirs)
         {
             var path = LooseListings.OnDisk(dir, "meta.ini");
-            if (!File.Exists(path)) continue;                             // DLC, outputs and hand-made folders carry none
             var folder = Path.GetFileName(dir);
+            if (!File.Exists(path))
+            {
+                if (Mo2LoadOrder.WillNotOpen(dir)) unread.Add(folder);     // a folder that will not open may hold one
+                continue;                                                 // DLC, outputs and hand-made folders carry none
+            }
             if (Read(path) is not { } meta) unread.Add(folder);
             else if (meta.ModId == modId) found.Add(folder);
         }

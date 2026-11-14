@@ -76,6 +76,28 @@ public sealed class StatusFilterLookupsTests : IClassFixture<StatusFilterLookups
         Assert.Contains("'LockedMeta'", text);
     }
 
+    /// <summary>A mod folder that will not open (a dangling junction) is named, so a folder carrying the id is not taken for none.</summary>
+    [Fact]
+    public void AModFolderThatWillNotOpenIsNamed()
+    {
+        var link = Path.Combine(_w.Mods, "GoneFolder");
+        var target = Path.Combine(_w.Root, "gone-folder");
+        Directory.CreateDirectory(target);
+        using (var mk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+                   { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true }))
+            mk!.WaitForExit();
+        Directory.Delete(target);
+        string text;
+        try
+        {
+            Assert.True(new DirectoryInfo(link).LinkTarget is not null, "the junction was not made");
+            text = Lookup("31337");
+        }
+        finally { Directory.Delete(link); }
+
+        Assert.Equal("[!] 1 meta.ini could not be read, so a folder carrying this id may be missing: 'GoneFolder'", Line(text, "[!]"));
+    }
+
     /// <summary>The loaded plugins naming the master come in load order, not the order their folders were walked.</summary>
     [Fact]
     public void LoadedDependentsAreListedInLoadOrder()
@@ -175,6 +197,7 @@ public sealed class StatusFilterLookupsWorld : IDisposable
     public const string Gone = "HcLkGone.esp";
 
     public string Root { get; }
+    public string Mods { get; }
     public LoadOrderService Svc { get; }
     public ToolPathResolver Tools { get; }
     public string LockedMeta { get; }
@@ -184,7 +207,7 @@ public sealed class StatusFilterLookupsWorld : IDisposable
         Root = Path.Combine(Path.GetTempPath(), "hc-status-lookups-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
         var profile = Path.Combine(instance, "profiles", "Default");
-        var mods = Path.Combine(instance, "mods");
+        var mods = Mods = Path.Combine(instance, "mods");
         foreach (var d in new[] { profile, mods, Path.Combine(Root, "game", "Data") }) Directory.CreateDirectory(d);
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
