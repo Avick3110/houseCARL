@@ -56,7 +56,7 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   place depends on which earlier lines SPID drops. A `filter=` no SPID file matches resolves nothing, so it walks no
   EditorID table for SPID (`SpidFileData.Matches`, the one predicate the render's listing uses). Nothing is kept between calls (R15): each call reads the files again; there is no parse cache (DECISIONS
   2026-11-13 (15)).
-- **Two formats, one call.** With `distributor` omitted the answer is SkyPatcher's render, then SPID's. SkyPatcher's
+- **Two formats, one call.** With `distributor` omitted (or `distributor=[]`, which reads the same) the answer is SkyPatcher's render, then SPID's. SkyPatcher's
   part is the `distributor=["skypatcher"]` answer's body at the whole `max_chars`, so it is never shorter than that
   answer; SPID's part takes what is left and says where it is cut (`SPID files cut at max_chars`, `SPID lines cut at
   max_chars`). At a cap SkyPatcher's part fills, SPID's is its header and the file cut notice, and the answer closes

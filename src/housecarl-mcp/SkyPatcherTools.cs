@@ -116,7 +116,8 @@ public static class SkyPatcherTools
         foreach (var err in new[] { distributorIn.Error, formidsIn.Error, pluginsIn.Error })
             if (err is not null) return ToolAnswer.Refusal(err);
         if (DistributorRefusal(distributorIn.Tokens) is { } notRead) return ToolAnswer.Refusal(notRead);
-        bool Asked(string key) => distributorIn.Tokens is null || distributorIn.Tokens.Any(t => (t ?? "").Trim().Equals(key, StringComparison.OrdinalIgnoreCase));
+        // An empty distributor= reads as an omitted one.
+        bool Asked(string key) => distributorIn.Tokens is not { Length: > 0 } || distributorIn.Tokens.Any(t => (t ?? "").Trim().Equals(key, StringComparison.OrdinalIgnoreCase));
         if (plugins is not null && pluginsIn.Tokens is not { Length: > 0 })
             return ToolAnswer.Refusal("error: plugins= selects by plugins.names — pass plugins={\"names\": [\"X.esp\"]} (defined_in narrows those names).");
         if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
