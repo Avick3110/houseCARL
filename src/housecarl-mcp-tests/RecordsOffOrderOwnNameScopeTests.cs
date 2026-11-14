@@ -86,6 +86,18 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
         Assert.Contains($"scan: {ShadowedCopyWorld.LoserCount} matches", r);
     }
 
+    /// <summary>A name the order does not carry beside the own name: the whole file, and the name in a note.</summary>
+    [Fact]
+    public void TheOwnNameBesideAMissingNameSelectsTheWholeFileAndNamesTheMissingOne()
+    {
+        var r = RecordsTools.Records(_w.Svc, plugins: Scope(_w.FileName, NotInstalled), source: Loser, counts_only: true);
+        Ok(r);
+        Assert.Contains($"scan: {ShadowedCopyWorld.LoserCount} matches", r);
+        Assert.Contains($"name nothing the load order carries: '{NotInstalled}'", r);
+    }
+
+    internal const string NotInstalled = "HcNotInstalled.esp";
+
     [Fact]
     public void TheOwnNameWithDefinedInKeepsOnlyTheRecordsTheFileDefines()
     {
@@ -160,6 +172,17 @@ public sealed class RecordsOffOrderOwnNameDisabledModTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, plugins: Scope(W.OldName), source: Plugin(W.OldName), counts_only: true);
         Assert.DoesNotContain("names nothing the load order carries", r);
         Assert.Contains("scan: 2 matches", r);
+    }
+
+    [Fact]
+    public void TheOwnNameOfAFileInADisabledModBesideAMissingNameAnswersAndNamesIt()
+    {
+        var r = RecordsTools.Records(Svc, plugins: Scope(W.OldName, RecordsOffOrderOwnNameScopeTests.NotInstalled),
+                                     source: Plugin(W.OldName), counts_only: true);
+        Assert.DoesNotContain("names nothing the load order carries", r);
+        Assert.Contains("scan: 2 matches", r);
+        Assert.Contains($"name nothing the load order carries: '{RecordsOffOrderOwnNameScopeTests.NotInstalled}'", r);
+        Assert.DoesNotContain($"'{W.OldName}'.", r.Split("carries:")[^1]);
     }
 
     /// <summary>The rule sentence a missing name carries names the own-name exception too.</summary>

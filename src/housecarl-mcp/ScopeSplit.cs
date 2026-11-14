@@ -32,6 +32,11 @@ sealed record ScopeSplit(IReadOnlyList<string> Present, IReadOnlyList<string> Mi
 
     internal string ServedNote(LoadOrderResolver.IndexView view) => "note: " + MissingNote(view);
 
+    /// <summary>The note beside an off-order file's own name, which keeps the whole file: the missing names, named.</summary>
+    internal string OwnFileNote(LoadOrderResolver.IndexView view, string ownName) =>
+        $"note: plugins= names the file's own name ('{ownName}'), so this answer is every record the file holds; "
+      + $"{Missing.Count} other name(s) name nothing the load order carries: {Causes(view)}";
+
     /// <summary>The served note without its "note: " lead, for a lane that writes its own.</summary>
     internal string MissingNote(LoadOrderResolver.IndexView view) =>
         $"this answer covers the {Present.Count} named plugin(s) the load order carries, and nothing from the "
