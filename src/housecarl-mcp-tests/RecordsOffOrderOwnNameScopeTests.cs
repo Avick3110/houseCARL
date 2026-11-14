@@ -98,6 +98,20 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
 
     internal const string NotInstalled = "HcNotInstalled.esp";
 
+    /// <summary>A switched-off mod's file named by its own name keeps its own record too, which no active plugin
+    /// touches, so the answer is the file and not the file cut to active touchers.</summary>
+    [Fact]
+    public void TheOwnNameOfAFileInADisabledModKeepsTheRecordNoActivePluginTouches()
+    {
+        var off = Je("\"" + _w.OffName + "\"");
+        var r = RecordsTools.Records(_w.Svc, plugins: Scope(_w.OffName), source: off, counts_only: true);
+        Ok(r);
+        Assert.Contains($"scan: {ShadowedCopyWorld.OffCount} matches", r);
+        var beside = RecordsTools.Records(_w.Svc, plugins: Scope(_w.OffName, NotInstalled), source: off, counts_only: true);
+        Assert.Contains($"scan: {ShadowedCopyWorld.OffCount} matches", beside);
+        Assert.Contains($"name nothing the load order carries: '{NotInstalled}'", beside);
+    }
+
     /// <summary>A blank entry is refused by its index wherever it sits beside the own name.</summary>
     [Fact]
     public void ABlankEntryBesideTheOwnNameIsRefused()
