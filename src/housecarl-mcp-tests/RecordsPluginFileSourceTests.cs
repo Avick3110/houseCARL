@@ -216,6 +216,9 @@ public sealed class ShadowedCopyWorld : IDisposable
     public string MasterName { get; }
     /// <summary>Records in each copy.</summary>
     public const int LoserCount = 3, WinnerCount = 3;
+    /// <summary>A plugin in a switched-off mod: one master override the active master touches, one record of its own.</summary>
+    public string OffName { get; }
+    public const int OffCount = 2;
     /// <summary>The full path to one mod folder's copy.</summary>
     public string PathIn(string mod) => Path.Combine(Root, "instance", "mods", mod, FileName);
 
@@ -271,12 +274,19 @@ public sealed class ShadowedCopyWorld : IDisposable
             r.BeginWrite.ToPath(P(folder, rKey)).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
         }
 
+        var offKey = new ModKey("HcSOff", ModType.Plugin);
+        OffName = offKey.FileName.String;
+        var off = new SkyrimMod(offKey, SkyrimRelease.SkyrimSE);
+        WriteEngine.GenericGetOrAddAsOverride(off, subject);
+        off.Weapons.AddNew().EditorID = "SOffOwn";
+        off.BeginWrite.ToPath(P("SOff", offKey)).WithLoadOrder(new ISkyrimModGetter[] { m }).Write();
+
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"),
             "# header\r\n" + mKey.FileName + "\r\n" + rKey.FileName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"),
             "*" + mKey.FileName + "\r\n*" + rKey.FileName + "\r\n");
         // modlist.txt is TOP = highest priority, so SWinner provides the copy MO2 serves.
-        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+SWinner\r\n+SLoser\r\n+SMaster\r\n");
+        File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n-SOff\r\n+SWinner\r\n+SLoser\r\n+SMaster\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
         Svc.Stats();
