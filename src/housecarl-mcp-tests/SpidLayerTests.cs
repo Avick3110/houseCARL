@@ -213,6 +213,49 @@ public sealed class SpidLayerTests : IDisposable
         Assert.Equal(1, _w.Svc.Counters.EditorIdSweeps - before);
     }
 
+    const string FileCut = "  ... [SPID files cut at max_chars — raise it or narrow filter=]";
+    const string LineCut = "      ... [SPID lines cut at max_chars — raise it or narrow filter=, formids= or plugins=]";
+
+    // Call A, pick (a): with distributor omitted SkyPatcher's part is the distributor=['skypatcher'] answer's body at every
+    // max_chars; SPID's takes what is left and says where it is cut, down to its header and a cut notice.
+    [Fact]
+    public void SkyPatcherKeepsItsWholeAnswerAndSpidTakesWhatIsLeft()
+    {
+        using var w = new SpidWorld(new[]
+        {
+            ("HcA_DISTR.ini", "Perk = HcPerk\r\nSpell = HcSpell\r\n"), ("HcB_DISTR.ini", "Outfit = HcOutfit\r\n"),
+            (SpidWorld.SkyNpcIni, "filterByNpcs=HcSpid.esp|810:weight=5\r\nfilterByNpcs=HcSpid.esp|810:height=2\r\n"),
+        });
+        string Body(string answer) => answer.IndexOf("\n[!] this response is ", StringComparison.Ordinal) is var at and >= 0 ? answer[..at] : answer;
+        var whole = SkyPatcherTools.Layer(w.Svc);
+        int headerCut = 0, someFiles = 0;
+        for (int cap = 50; cap <= whole.Length + 100; cap += 23)
+        {
+            var sky = Body(SkyPatcherTools.Layer(w.Svc, distributor: new[] { "skypatcher" }, max_chars: cap));
+            var all = SkyPatcherTools.Layer(w.Svc, max_chars: cap);
+            Assert.StartsWith(sky + "\n\nSPID layer (", all);
+            var spid = Body(all[(sky.Length + 2)..]);
+            if (all.Length > cap) Assert.EndsWith(" it was given: what it must carry whatever the budget — its header, the notices it owes, " +
+                                                  "its accounting — does not fit in that many, so raise max_chars to at least " + all.Length + ".", all);
+            if (!spid.Contains("  - HcB_DISTR.ini")) Assert.Contains(FileCut, spid);
+            if (!spid.Contains("  - HcA_DISTR.ini")) { headerCut++; Assert.Equal(FileCut, spid.Split('\n')[1]); }   // the header, then the cut
+            else if (!spid.Contains("  - HcB_DISTR.ini")) someFiles++;
+        }
+        Assert.True(headerCut > 0 && someFiles > 0);   // the caps reach both cuts
+    }
+
+    // Row 24: SPID's lines under filter= are cut with their own notice once SkyPatcher's part has its room.
+    [Fact]
+    public void SpidLinesAreCutWithTheirNoticeAfterSkyPatchersPart()
+    {
+        var full = SkyPatcherTools.Layer(_w.Svc, filter: "HcA_");
+        int spidAt = full.IndexOf("\n\nSPID layer (", StringComparison.Ordinal) + 2;
+        int rowEnd = full.IndexOf('\n', full.IndexOf("  - HcA_DISTR.ini", spidAt, StringComparison.Ordinal)) + 1;
+        int cap = rowEnd + 10 + FileCut.Length + 1 + LineCut.Length + 1;
+        var text = SkyPatcherTools.Layer(_w.Svc, filter: "HcA_", max_chars: cap);
+        Assert.Equal(full[..rowEnd] + LineCut, text);
+    }
+
     // r1 #25: a filter= matching a SkyPatcher folder and no SPID file resolves no SPID line, so no EditorID table is walked.
     [Fact]
     public void AFilterMatchingNoSpidFileWalksNoEditorIdTable()

@@ -56,8 +56,11 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   place depends on which earlier lines SPID drops. A `filter=` no SPID file matches resolves nothing, so it walks no
   EditorID table for SPID (`SpidFileData.Matches`, the one predicate the render's listing uses). Nothing is kept between calls (R15): each call reads the files again; there is no parse cache (DECISIONS
   2026-11-13 (15)).
-- **Two formats, one call.** With `distributor` omitted the answer is SkyPatcher's render, then SPID's; SPID's part takes
-  what it needs of `max_chars` up to half, SkyPatcher's the rest. SPID is read after SkyPatcher's scans in the same
+- **Two formats, one call.** With `distributor` omitted the answer is SkyPatcher's render, then SPID's. SkyPatcher's
+  part is the `distributor=["skypatcher"]` answer's body at the whole `max_chars`, so it is never shorter than that
+  answer; SPID's part takes what is left and says where it is cut (`SPID files cut at max_chars`, `SPID lines cut at
+  max_chars`). At a cap SkyPatcher's part fills, SPID's is its header and the file cut notice, and the answer closes
+  on the over-cap notice (`RenderCap.Settle`). SPID is read after SkyPatcher's scans in the same
   replay context, so the two share one EditorID table. SkyPatcher's part carries the build caveats; SPID's alone
   carries them when it is the whole answer.
 
@@ -83,6 +86,8 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   not touched, a display-name token touching nothing, the plugin term under `plugins=` and not `formids=`, every line
   kind selected, the outcomes under `filter=`, first-wins places across files, the shadowed copy, an edited file read
   anew, one EditorID walk for both formats, none for a `filter=` no SPID file matches; `SpidWireTests` — an archive-only copy said not applied.
+- `SpidLayerTests.SkyPatcherKeepsItsWholeAnswerAndSpidTakesWhatIsLeft` and `SpidLinesAreCutWithTheirNoticeAfterSkyPatchersPart`
+  — the shared `max_chars`.
 - `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpid`, `DistributorSpidIsRead`,
   `ADistributorStillToComeIsNotReadYet`.
 

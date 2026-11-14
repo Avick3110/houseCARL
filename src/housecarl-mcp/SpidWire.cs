@@ -13,11 +13,9 @@ static class SpidWire
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         if (d.Spid is not { } spid) return SkyPatcherWire.RenderLayer(d, filter, cap, selectEcho);
         if (!d.SkyPatcherRead) return RenderCap.Settle(Render(spid, d, filter, cap, selectEcho, owner: true), cap);
-        // SkyPatcher's part keeps all the room SPID's does not need, and SPID never less than half.
-        var full = Render(spid, d, filter, cap, selectEcho, owner: false);
-        var sky = SkyPatcherWire.RenderLayer(d, filter, cap - Math.Min(full.Length, cap / 2) - Gap.Length, selectEcho);
-        int room = cap - sky.Length - Gap.Length;
-        return RenderCap.Settle(sky + Gap + (full.Length <= room ? full : Render(spid, d, filter, room, selectEcho, owner: false)), cap);
+        // SkyPatcher's part is its own answer at the whole cap; SPID's takes what is left (spid-layer.md, two formats).
+        var sky = SkyPatcherWire.Render(d, filter, cap, selectEcho);
+        return RenderCap.Settle(sky + Gap + Render(spid, d, filter, cap - sky.Length - Gap.Length, selectEcho, owner: false), cap);
     }
 
     const string Gap = "\n\n";
