@@ -88,7 +88,7 @@ public static class SkyPatcherTools
             "in byte order), the mod that wins each (a shadowed copy is never read; a BSA-only one is flagged not applied). " +
             "filter= expands a file's lines with what SPID does with each: a line it skips or drops, a filter form it skips, a " +
             "keyword it creates, string filters matched by name in the running game (not read), and each Outfit, SleepOutfit or " +
-            "Skin line's place in its first-wins order. Which NPCs a line reaches is not evaluated. Under formids= and plugins= " +
+            "Skin line's place in its first-wins order (a Form line's by its value's type, so an outfit value places it among the Outfit lines). Which NPCs a line reaches is not evaluated. Under formids= and plugins= " +
             "an NPC named in a plain or '+' filter is the target (in a '-' list, a filter), the handed-out form the value, any other filter form a filter; a plugin " +
             "term touches its plugin; an outfit or list is not followed to what it holds." + ListText.Names)]
             ListArg? distributor = null,
