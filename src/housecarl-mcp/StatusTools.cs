@@ -27,8 +27,8 @@ public static class StatusTools
         [Description("Optional. A mod folder (e.g. 'Requiem Lite 2') or plugin filename (e.g. 'Requiem.esp'): is that " +
             "mod enabled and its Nexus id, is that plugin active, inactive or implicit, and the plugin's serving folder, other copies, " +
             "header flags (localized refuses in-place writes), masters, record count, and the plugins naming it as a " +
-            "master: those in the load order, then copies on disk the game does not load (disabled mods, unchecked), " +
-            "marked. A positive whole number (e.g. '131131') is also read as a Nexus mod id: every mod folder whose " +
+            "master: those in the load order, then copies on disk the game does not load (in a disabled or unlisted mod " +
+            "folder, unchecked in plugins.txt, or not in loadorder.txt), marked. A positive whole number (e.g. '131131') is also read as a Nexus mod id: every mod folder whose " +
             "meta.ini carries it, enabled or not; 0 and below are no id, as in MO2. Always reads the active profile. " +
             "Omit for the whole-profile summary.")]
             string? filter = null,
