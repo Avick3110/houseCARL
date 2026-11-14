@@ -101,7 +101,7 @@ public static class SkyPatcherTools
             "too. Omit it, formids= and plugins= for the whole-layer overview.")]
             string? filter = null,
         [Description("Optional. Lines naming these records ('XXXXXX:Plugin.esp' or the runtime form), anywhere on the line: " +
-            "a target, a filter form or an op value, by Plugin|FormID or by an EditorID the replay looks up (SPID: FormID~Plugin, a 0x runtime FormID or an EditorID)." + ListText.FormIds)]
+            "a target, a filter form or an op value, by Plugin|FormID or by an EditorID the replay looks up (a SPID line names it by FormID~Plugin, a 0x runtime FormID or an EditorID; formids= itself takes the two spellings named first)." + ListText.FormIds)]
             ListArg? formids = null,
         [Description("Optional. Lines naming a record these plugins touch (define or override, as on " + ToolNames.Records +
             "); defined_in: true keeps records they define. With formids= a form must pass both.")]
