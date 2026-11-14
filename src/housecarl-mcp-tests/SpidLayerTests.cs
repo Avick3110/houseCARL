@@ -180,8 +180,12 @@ public sealed class SpidLayerTests : IDisposable
     {
         var text = _w.Layer(formids: new[] { Outfit });
         Assert.Contains(":5  Outfit = HcOutfit|Skald\n          [!] string filter 'Skald'", text);
-        Assert.Contains("first wins: Outfit line 1 of 2 in SPID's order", text);
-        Assert.Contains("first wins: Outfit line 2 of 2 in SPID's order", text);
+        // Files in SPID's byte order: HcA_'s line is first, HcB_'s second.
+        Assert.Contains("  - HcA_DISTR.ini  (file 1 of 2,", text);
+        int a = text.IndexOf(":5  Outfit = HcOutfit|Skald", StringComparison.Ordinal);
+        Assert.Equal(text.IndexOf("first wins: Outfit line 1 of 2 in SPID's order", StringComparison.Ordinal),
+                     text.IndexOf("first wins:", a, StringComparison.Ordinal));
+        Assert.Contains(":1  Outfit = 0x815~HcSpid.esp\n          first wins: Outfit line 2 of 2 in SPID's order", text);
         Assert.DoesNotContain("conflict", text);
     }
 
