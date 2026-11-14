@@ -51,9 +51,10 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   records meaning (the same predicate SkyPatcher's selector uses), and `plugins=` also keeps a line whose plugin term
   names a selected plugin (DECISIONS 2026-11-13 (12)(iii)); a plugin term names no form, so `formids=` never keeps it.
   A line touches a plugin only through the forms it names, never through the items of an outfit it hands out.
-- **What is resolved when.** The overview lists files and line counts and resolves nothing; `filter=` (a file name or
-  providing mod) and the selectors resolve every line, since a first-wins place depends on which earlier lines SPID
-  drops. Nothing is kept between calls (R15): each call reads the files again; there is no parse cache (DECISIONS
+- **What is resolved when.** The overview lists files and line counts and resolves nothing; the selectors, and a
+  `filter=` (a file name or providing mod) that at least one SPID file matches, resolve every line, since a first-wins
+  place depends on which earlier lines SPID drops. A `filter=` no SPID file matches resolves nothing, so it walks no
+  EditorID table for SPID (`SpidFileData.Matches`, the one predicate the render's listing uses). Nothing is kept between calls (R15): each call reads the files again; there is no parse cache (DECISIONS
   2026-11-13 (15)).
 - **Two formats, one call.** With `distributor` omitted the answer is SkyPatcher's render, then SPID's; SPID's part takes
   what it needs of `max_chars` up to half, SkyPatcher's the rest. SPID is read after SkyPatcher's scans in the same
@@ -81,7 +82,7 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
 - `SpidLayerTests` — the tool on a live order: `plugins=` by EditorID value, the target label, an outfit's item plugin
   not touched, a display-name token touching nothing, the plugin term under `plugins=` and not `formids=`, every line
   kind selected, the outcomes under `filter=`, first-wins places across files, the shadowed copy, an edited file read
-  anew, one EditorID walk for both formats; `SpidWireTests` — an archive-only copy said not applied.
+  anew, one EditorID walk for both formats, none for a `filter=` no SPID file matches; `SpidWireTests` — an archive-only copy said not applied.
 - `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpid`, `DistributorSpidIsRead`,
   `ADistributorStillToComeIsNotReadYet`.
 

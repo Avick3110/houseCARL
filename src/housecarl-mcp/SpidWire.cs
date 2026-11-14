@@ -47,9 +47,7 @@ static class SpidWire
             sb.Append("no SPID files in the active order: no file directly in Data has '").Append(s.Format.Folders[0].NameToken)
               .Append("' in its name and the '").Append(s.Format.Folders[0].Extension).Append("' extension.\n");
 
-        bool Matches(SpidFileData f) => filter is null
-            || f.File.RelPath.Contains(filter, StringComparison.OrdinalIgnoreCase)
-            || (f.File.WinningProvider?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
+        bool Matches(SpidFileData f) => filter is null || f.Matches(filter);
         var holding = s.Selected?.Keys.Select(k => k.File).ToHashSet();
         var shown = Enumerable.Range(0, files.Count).Where(i => Matches(files[i]) && (holding is null || holding.Contains(i))).ToList();
         bool expand = filter is not null || s.Selected is not null;

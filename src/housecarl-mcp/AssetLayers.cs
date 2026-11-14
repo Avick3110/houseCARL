@@ -677,10 +677,10 @@ internal sealed partial class AssetLayers
 
     /// <summary>The layer scan handed to <paramref name="use"/> while its replay is open, so <see cref="SkyPatcherLayerData.Lint"/> resolves a line only when <paramref name="use"/> asks; the lookup is valid only inside it.</summary>
     /// <param name="skyPatcher">Read SkyPatcher's lines; false leaves its reports empty and its scan unselected.</param>
-    /// <param name="spid">Read SPID's layer in the same replay context: null not at all, false its files and lines,
-    /// true every form its lines name too (a filter or a selector expands lines).</param>
+    /// <param name="spid">Read SPID's layer in the same replay context.</param>
+    /// <param name="filter">The call's filter=: SPID's lines resolve when a SPID file matches it, or under a selector.</param>
     public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true, CancellationToken ct = default, SkyPatcherLineSelect? select = null,
-                                bool skyPatcher = true, bool? spid = null)
+                                bool skyPatcher = true, bool spid = false, string? filter = null)
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
@@ -705,8 +705,7 @@ internal sealed partial class AssetLayers
                     replay.AssetWarnings, replay.ProfileName) { SelectRefusal = refusal });
         }
         // SPID's lines are read after SkyPatcher's scans, so every SkyPatcher answer is built as it was before SPID was read.
-        SpidLayerData? Spid() => spid is { } resolve
-            ? SpidLayer(replay, view, resolve || wanted is not null, wanted, named, select?.FormIds is not null, ct) : null;
+        SpidLayerData? Spid() => spid ? SpidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         if (!skyPatcher)
             return use(new SkyPatcherLayerData(scan with { Folders = [], Notes = [] }, [], [], [], [], [], assets.RootFailures,
                 scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName)
