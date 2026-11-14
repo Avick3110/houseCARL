@@ -203,14 +203,23 @@ public sealed class SpidLayerTests : IDisposable
         Assert.Contains("2 file(s) in Data (2 read), 11 line(s)", _w.Layer());
     }
 
-    // R41: one EditorID table serves both formats in one call.
+    // R41: one EditorID table serves both formats in one call: a SkyPatcher line's EditorID walks the NPC types, and SPID's
+    // every-type walk then reads only the types left, so the call walks each type once, as SPID alone does.
     [Fact]
     public void BothFormatsReadInOneCallShareOneEditorIdWalk()
     {
-        _w.Layer();   // warms the index
-        var before = _w.Svc.Counters.EditorIdSweeps;
-        SkyPatcherTools.Layer(_w.Svc, formids: new[] { Perk });
-        Assert.Equal(1, _w.Svc.Counters.EditorIdSweeps - before);
+        using var w = new SpidWorld(new[] { ("HcA_DISTR.ini", "Perk = HcPerk\r\n"), (SpidWorld.SkyNpcIni, "filterByNpcs=HcAranea:weight=5\r\n") });
+        w.Layer();   // warms the index
+        long Walked(Action call)
+        {
+            var before = w.Svc.Counters.EditorIdTypesWalked;
+            call();
+            return w.Svc.Counters.EditorIdTypesWalked - before;
+        }
+        var sky = Walked(() => SkyPatcherTools.Layer(w.Svc, distributor: new[] { "skypatcher" }, formids: new[] { Perk }));
+        var spid = Walked(() => w.Layer(formids: new[] { Perk }));
+        Assert.True(sky > 0);
+        Assert.Equal(spid, Walked(() => SkyPatcherTools.Layer(w.Svc, formids: new[] { Perk })));
     }
 
     const string FileCut = "  ... [SPID files cut at max_chars — raise it or narrow filter=]";
