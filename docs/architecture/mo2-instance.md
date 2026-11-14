@@ -112,8 +112,10 @@ A filter value is also read two more ways, both fresh on every call with nothing
 - **As the master other plugins name.** A value with a plugin extension gets a `named as a master by` line, under
   the `masters (n):` line when a header was read, else ending the lookup (`MasterDependents.Find`). It walks every
   plugin file `CandidateFolders` lists (`Mo2LoadOrder.AllPluginFiles`) and reads each header through
-  `PluginFile.ReadHeader`. A name that loads (in loadorder.txt and not unchecked, the set `Build` loads) is judged by
-  the copy the game reads, its first enabled hit; its other copies are skipped. Every other copy is judged by
+  `PluginFile.ReadHeader`. A name that loads (in loadorder.txt and not unchecked, the set `Build` loads, with a copy
+  in an enabled layer) is judged by the copy the game reads, its first enabled hit; its other copies are skipped. A
+  listed name whose only copies sit in disabled or unlisted folders does not load, so each copy is judged by itself,
+  as below. Every other copy is judged by
   itself and listed after the loaded ones, marked with its layer label and, for an enabled layer, why it does not
   load: `unchecked in plugins.txt` (an inactive plugin in an enabled mod is read this way, as not loaded) or `not in
   loadorder.txt`. The loaded ones come in load order. A folder that will not open and a header that will not read
