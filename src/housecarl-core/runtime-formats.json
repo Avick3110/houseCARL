@@ -88,7 +88,7 @@
   }
  }
 ],
-"_distributors_about": "The four distributor formats, discovery and target spelling only: each format's line kinds, conflict model and labels land with its own reader. 'unread' is a rule this build has not read for that format, never a claim about it.",
+"_distributors_about": "The four distributor formats: discovery and target spelling, and a 'lines' block (line kinds, order, conflict and grammar) on each row whose reader has landed; SPID's has, the others' land with their own readers. 'unread' is a rule this build has not read for that format, never a claim about it.",
 "distributors": [
  {
   "format": "Spell Perk Item Distributor",
@@ -114,8 +114,47 @@
    "bareFormId": "runtimeFormId",
    "pluginTerm": "containsExtensionText",
    "pluginExtensions": [".es"],
-   "missingName": "createsKeyword",
+   "missingName": "byPosition",
    "editorIds": "everyType"
+  },
+  "lines": {
+   "source": "SPID 7.3.3 a6f2177 (7.3.0 787bf12 differs in none of these files): LookupConfigs.cpp:13-53 (sanitize), :94-159 (read, SaveFile), :117 (the unnamed section), :124-145 (key kinds); LookupConfigs.h:61-74, :86 (type names, case-sensitive), :343-346 (Final), :369-397 (string modifiers); Parser.h:67-72 (sections); LookupForms.cpp:12-75 (Form lines last); Distribute.cpp:15-188 (type order, outfits in their own pass); Distribute.h (first wins); FormData.h:170-262 (created keywords), :220-227 (a FormID that names nothing drops the line), :357 and :611-616 (filter lists); Cache.h:5-19 (filter types); SimpleIni 4.25 :1259-1260 (comment leads), :1734-1746 (the value runs to the line end), its multimap keyed case-insensitively (distributor-lines research-topup X5)",
+   "reads": ["7.3.0", "7.3.3"],
+   "section": "unnamedOnly",
+   "commentLeads": [";", "#"],
+   "trailingComment": false,
+   "assign": "=",
+   "sections": "|",
+   "item": ",",
+   "all": "+",
+   "not": "-",
+   "partial": "*",
+   "unset": "NONE",
+   "lineOrder": "keyIgnoreCaseThenLine",
+   "kinds": [
+    { "kind": "exclusiveGroup", "key": "ExclusiveGroup", "fields": ["name", "members"] },
+    { "kind": "linked", "prefix": "Linked", "global": "Global", "fields": ["value", "parents", "countOrIndex", "chance"] },
+    { "kind": "death", "prefix": "Death", "fields": ["value", "strings", "forms", "level", "traits", "countOrIndex", "chance"] },
+    { "kind": "regular", "fields": ["value", "strings", "forms", "level", "traits", "countOrIndex", "chance"] }
+   ],
+   "final": { "prefix": "Final", "types": ["Outfit"] },
+   "types": [
+    { "key": "Keyword", "runs": "1", "name": "Keywords", "conflict": "everyLine", "missingValue": "createsKeyword" },
+    { "key": "Faction", "runs": "2", "name": "Factions", "conflict": "everyLine", "missingValue": "dropsLine" },
+    { "key": "Perk", "runs": "3", "name": "Perks", "conflict": "everyLine", "missingValue": "dropsLine" },
+    { "key": "Spell", "runs": "4", "name": "Spells", "conflict": "everyLine", "missingValue": "createsKeywordHandsNothing" },
+    { "key": "LevSpell", "runs": "5", "name": "Leveled spells", "conflict": "everyLine", "missingValue": "dropsLine" },
+    { "key": "Shout", "runs": "6", "name": "Shouts", "conflict": "everyLine", "missingValue": "dropsLine" },
+    { "key": "Package", "runs": "7", "name": "Packages", "conflict": "everyLine", "missingValue": "createsKeywordHandsNothing" },
+    { "key": "Item", "runs": "8", "name": "Items", "conflict": "sums", "missingValue": "dropsLine" },
+    { "key": "Skin", "runs": "9", "name": "Skins", "conflict": "firstWins", "missingValue": "dropsLine" },
+    { "key": "SleepOutfit", "runs": "10", "name": "Sleep outfits", "conflict": "firstWins", "missingValue": "dropsLine" },
+    { "key": "Outfit", "runs": "ownPass", "name": "Outfits", "conflict": "firstWins", "missingValue": "dropsLine", "record": "Outfit" },
+    { "key": "Form", "runs": "inferred", "name": "Form", "conflict": "inferred", "missingValue": "createsKeyword" }
+   ],
+   "filterTypes": ["Faction", "Class", "CombatStyle", "Race", "Outfit", "Npc", "PlacedNpc", "VoiceType", "FormList", "Spell", "Armor", "Location", "Perk"],
+   "targetTypes": ["Npc", "PlacedNpc"],
+   "stringLookups": ["Npc", "Keyword"]
   }
  },
  {
