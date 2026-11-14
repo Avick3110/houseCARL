@@ -34,12 +34,14 @@ internal sealed partial class AssetLayers
         var ctx = new SpidLines.Context(replay.Forms, view.WinnerClassOf, format);
         var flat = SpidLines.ReadAll(all, ctx);
         int at = 0;
-        var reads = files.Select(x => { var r = flat.Skip(at).Take(x.Lines.Count).ToList(); at += x.Lines.Count; return (IReadOnlyList<SpidLines.LineRead?>)r; }).ToList();
+        var reads = new List<IReadOnlyList<SpidLines.LineRead?>>(files.Count);
+        foreach (var x in files) { reads.Add(flat.Skip(at).Take(x.Lines.Count).ToList()); at += x.Lines.Count; }
         var places = SpidLines.Places(files.Select((x, i) => (x.Lines, reads[i])).ToList(), g);
 
         Dictionary<(int, int), SpidSelected>? selected = null;
         if (wanted is not null)
         {
+            var named = new HashSet<string>(namedPlugins ?? [], StringComparer.OrdinalIgnoreCase);
             selected = new();
             for (int fi = 0; fi < files.Count; fi++)
                 for (int li = 0; li < reads[fi].Count; li++)
@@ -49,12 +51,10 @@ internal sealed partial class AssetLayers
                     // A plugin term selects the NPCs its plugin defines, so it touches that plugin, defined_in or not;
                     // it names no form, so formids= never selects it, and both selectors given leave it out.
                     var terms = namedPlugins is null || formIdsGiven ? [] :
-                        read.PluginTerms.Where(p => namedPlugins.Contains(p, StringComparer.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        read.PluginTerms.Where(named.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                     if (forms.Count > 0 || terms.Count > 0) selected[(fi, li)] = new SpidSelected(forms, terms);
                 }
         }
-        var unreadable = replay.Unreadable.Select(u => u.Message).Distinct()
-            .Select(msg => $"EditorID lookup: {msg} Lines naming a record it defines could not be resolved.").ToList();
-        return data with { Reads = reads, Places = places, Selected = selected, UnreadableNotes = unreadable };
+        return data with { Reads = reads, Places = places, Selected = selected, UnreadableNotes = UnreadableNotes(replay) };
     }
 }

@@ -793,8 +793,7 @@ internal sealed partial class AssetLayers
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure / an EditorID lookup that could not be completed).");
         }
         // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
-        var unreadableNotes = replay.Unreadable.Select(u => u.Message).Distinct()
-            .Select(msg => $"EditorID lookup: {msg} Lines naming a record it defines could not be resolved.").ToList();
+        var unreadableNotes = UnreadableNotes(replay);
 
         var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
             scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null)
@@ -802,6 +801,10 @@ internal sealed partial class AssetLayers
         if (wanted is null) return use(data);
         return use(data with { SelectNote = selectNote, Select = (folder, file, i) => replay.LineForms(folder, file.Lines[i]).Where(f => wanted(f.Form)).ToList() });
     }
+
+    /// <summary>One note per plugin an EditorID sweep of the call's replay context could not open.</summary>
+    static List<string> UnreadableNotes(SkyPatcherReplay replay) => replay.Unreadable.Select(u => u.Message).Distinct()
+        .Select(msg => $"EditorID lookup: {msg} Lines naming a record it defines could not be resolved.").ToList();
 
     /// <summary>The records selectors resolved against the pinned build into a form predicate, with the note they owe,
     /// or the refusal they earn, and the named plugins the order carries (null without plugins=).</summary>

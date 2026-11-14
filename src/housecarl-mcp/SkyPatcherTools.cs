@@ -10,13 +10,16 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class SkyPatcherTools
 {
-    /// <summary>The distributor= values this build reads: SkyPatcher, and each distributor row whose lines block has landed.</summary>
-    static string[] Read => _read ??= new[] { "skypatcher" }.Concat(RuntimeFormats.Distributors.Where(d => d.Lines is not null).Select(d => d.Key)).ToArray();
+    static DistributorFormat[]? _landed;
 
-    static string[]? _read;
+    /// <summary>The distributor rows whose lines block has landed, so their lines are read; built on first use, so the rows parse there and not at type init.</summary>
+    static DistributorFormat[] Landed => _landed ??= RuntimeFormats.Distributors.Where(d => d.Lines is not null).ToArray();
+
+    /// <summary>The distributor= values this build reads: SkyPatcher, and each landed distributor row.</summary>
+    static string[] Read => new[] { "skypatcher" }.Concat(Landed.Select(d => d.Key)).ToArray();
 
     /// <summary>The formats read, as the refusals name them.</summary>
-    static string ReadNames => string.Join(" and ", new[] { "SkyPatcher" }.Concat(RuntimeFormats.Distributors.Where(d => d.Lines is not null).Select(d => d.Name)));
+    static string ReadNames => string.Join(" and ", new[] { "SkyPatcher" }.Concat(Landed.Select(d => d.Name)));
 
     /// <summary>The distributor= values read, quoted, as the refusals list them.</summary>
     static string ReadValues => string.Join(" or ", Read.Select(v => $"'{v}'"));
@@ -33,7 +36,7 @@ public static class SkyPatcherTools
     /// <summary>Formats the layer is to read whose lines this build does not read yet, named by their rows of the
     /// runtime-format source; built on the first refusal, so the rows parse there and not at type init.</summary>
     static (string Name, string Full)[] NotYet
-        => _notYet ??= RuntimeFormats.Distributors.Where(d => d.Lines is null).Select(d => (d.Key, d.Name)).ToArray();
+        => _notYet ??= RuntimeFormats.Distributors.Except(Landed).Select(d => (d.Key, d.Name)).ToArray();
 
     /// <summary>The refusal for a distributor= value this build does not read, or null when every value is read.</summary>
     internal static string? DistributorRefusal(IReadOnlyList<string>? values)
