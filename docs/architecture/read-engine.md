@@ -128,7 +128,7 @@ The tool front above the engine, `RecordsTools` and `ReadTools`, is `docs/archit
 - `RecordsOutputAgreementTests` — the header leaf's own-names decode on GLOB and STAT, the generic remainder, KYWD
   unchanged, and a header-flags delta's decode; the agreement counts and phrase on a matched list, an empty list, a
   field absent on both, an unresolved string, several of each, and a capped read.
-- `RecordsOffOrderOwnNameScopeTests` and `RecordsOffOrderOwnNameDisabledModTests` — the off-order file's own name selects the whole shadowed copy (counts, aggregate, `to_file=`, the swapped delta's `errors`), beside another name too and from a disabled mod; another active name, the served copy as source and `types=` alone are unchanged; the `plugins=` and `versus=` text states both facts.
+- `RecordsOffOrderOwnNameScopeTests` and `RecordsOffOrderOwnNameDisabledModTests` — the off-order file's own name selects the whole shadowed copy (counts, aggregate, `to_file=`, `defined_in=`, the swapped delta's `errors`), beside another name too and from a disabled mod; another active name, the served copy as source and `types=` alone are unchanged; the `plugins=` and `versus=` text states both facts.
 - `RecordsScopeCopyOrderTests` — a two-plugin scope answers the same rows under either name order, and a filter only the lower copy passes matches nothing.
 - `WriteProof` step 6, the read-proof oracle (`src/housecarl-generator`, the manual `read-proof` mode) — the round-trip no-op, over every coercible value leaf the write surface drives.
 - `RecordsBulkSelectTests.AMalformedFormidIsAPerItemErrorRowWhileTheOtherRowsStillResolve` and `TheIdentityJsonCarriesOneRowPerInput` — a bad formid is a per-item error, and the batch renders one row per input.

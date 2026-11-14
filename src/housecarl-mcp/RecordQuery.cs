@@ -818,7 +818,8 @@ internal sealed partial class RecordReads
         string ownName = Path.GetFileName(pole.Path!);
         var split = scopePlugins is { Count: > 0 } ? ScopeSplit.Of(view, scopePlugins) : null;
         if (split?.BlankRefusal is not null) return CrossQueryOutcome.Fail(split.BlankRefusal) with { Stamp = view.Stamp };
-        if (split is not null && !scopePlugins!.Any(n => string.Equals(n.Trim(), ownName, StringComparison.OrdinalIgnoreCase)))
+        bool ownNamed = scopePlugins?.Any(n => string.Equals(n.Trim(), ownName, StringComparison.OrdinalIgnoreCase)) == true;
+        if (split is not null && !ownNamed)
         {
             if (split.Missing.Count > 0)
             {
