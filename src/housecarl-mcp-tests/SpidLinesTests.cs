@@ -294,7 +294,7 @@ public sealed class SpidLinesTests
     {
         var w = new World();
         var a = SpidLines.Parse("Outfit = HcOutfit\nForm = HcOutfit\nFinalOutfit = HcOutfit\nOutfit = 0x013~Absent.esp\nPerk = HcPerk", G);
-        var b = SpidLines.Parse("Outfit = HcOutfit\nSkin = HcOutfit\nSleepOutfit = HcOutfit", G);
+        var b = SpidLines.Parse("Outfit = HcOutfit\nSkin = HcOutfit\nSleepOutfit = HcOutfit\nDeathOutfit = HcOutfit\nLinkedOutfit = HcOutfit|HcSpell", G);
         var files = new[] { a, b }.Select(l => ((IReadOnlyList<SpidLines.Line>)l, SpidLines.ReadAll(l, w.Ctx))).ToList();
         var places = SpidLines.Places(files, G);
         Assert.Equal(1, places[(0, 2)].Index);     // FinalOutfit sorts before Outfit in its file
@@ -306,5 +306,8 @@ public sealed class SpidLinesTests
         Assert.False(places.ContainsKey((0, 4)));  // a Perk line has no first-wins place
         Assert.Equal(new SpidLines.Place("Skin", "Regular", 1, 1), places[(1, 1)]);          // Skin and SleepOutfit are first wins too
         Assert.Equal(new SpidLines.Place("SleepOutfit", "Regular", 1, 1), places[(1, 2)]);
+        // Death and Linked lines are ordered apart from the regular lines of their type.
+        Assert.Equal(new SpidLines.Place("Outfit", "Death", 1, 1), places[(1, 3)]);
+        Assert.Equal(new SpidLines.Place("Outfit", "Linked", 1, 1), places[(1, 4)]);
     }
 }
