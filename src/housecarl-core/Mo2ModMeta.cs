@@ -27,8 +27,12 @@ public static class Mo2ModMeta
             ReadInstalledFileIds(lines));
     }
 
-    /// <summary>The Nexus id in <paramref name="modFolder"/>'s meta.ini, or 0 when it carries none or has no readable meta.ini.</summary>
-    public static int ModIdOf(string modFolder) => Read(LooseListings.OnDisk(modFolder, "meta.ini"))?.ModId ?? 0;
+    /// <summary>The Nexus id in <paramref name="modFolder"/>'s meta.ini: 0 when it carries none or has no meta.ini, null when its meta.ini exists and will not read.</summary>
+    public static int? ModIdOf(string modFolder)
+    {
+        var path = LooseListings.OnDisk(modFolder, "meta.ini");
+        return File.Exists(path) ? Read(path)?.ModId : 0;
+    }
 
     /// <summary>Every folder under <paramref name="modsDir"/> whose meta.ini carries Nexus id <paramref name="modId"/>, sorted; a folder whose meta.ini exists and will not read, or that will not open, is added to <paramref name="unread"/>. Null when the mods folder will not list.</summary>
     public static IReadOnlyList<string>? FoldersWithModId(string modsDir, int modId, List<string> unread)

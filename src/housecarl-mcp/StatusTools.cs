@@ -253,6 +253,7 @@ static class StatusWire
                                              "not found in modlist.txt (not a managed mod folder name, or a UI separator)";
         sb.Append("  as a mod:    ").Append(asMod);
         if (lookups?.ModNexusId > 0) sb.Append(" · Nexus id ").Append(lookups.ModNexusId);
+        else if (lookups is { ModNexusId: null }) sb.Append(" · Nexus id unknown — its meta.ini could not be read");
         // A near-miss is an easy slip, so point at the nearest real mod folders across both the enabled and disabled lists.
         if (modMiss) sb.Append(HousecarlCore.PluginNameSuggest.DidYouMean(name, c.EnabledMods.Concat(c.DisabledMods)));
         sb.Append('\n');
@@ -394,8 +395,8 @@ static class StatusWire
     }
 }
 
-/// <summary>What a filter value reads as beyond a mod and a plugin, read fresh per call: the named mod folder's Nexus id (0 for none), the value as a Nexus id (0 when it is not a positive whole number, MO2's rule) and the folders carrying it (null when the mods folder will not list), and, for a plugin filename, the plugins naming it as a master (null when the mods folder will not open).</summary>
-public sealed record FilterLookups(int ModNexusId, int NexusId, IReadOnlyList<string>? NexusFolders, IReadOnlyList<string> UnreadMeta,
+/// <summary>What a filter value reads as beyond a mod and a plugin, read fresh per call: the named mod folder's Nexus id (0 for none, null when its meta.ini will not read), the value as a Nexus id (0 when it is not a positive whole number, MO2's rule) and the folders carrying it (null when the mods folder will not list), and, for a plugin filename, the plugins naming it as a master (null when the mods folder will not open).</summary>
+public sealed record FilterLookups(int? ModNexusId, int NexusId, IReadOnlyList<string>? NexusFolders, IReadOnlyList<string> UnreadMeta,
                                    HousecarlCore.MasterDependentsResult? Dependents)
 {
     public static FilterLookups Read(string name, LoadOrderStatusData d)
@@ -403,7 +404,7 @@ public sealed record FilterLookups(int ModNexusId, int NexusId, IReadOnlyList<st
         var c = d.Composition;
         bool readable = d.ModsFolderUnreadable is null;
         bool isMod = StatusWire.Contains(c.EnabledMods, name) || StatusWire.Contains(c.DisabledMods, name);
-        int modId = readable && isMod && d.ModsDir.Length > 0 ? HousecarlCore.Mo2ModMeta.ModIdOf(HousecarlCore.LooseListings.OnDisk(d.ModsDir, name)) : 0;
+        int? modId = readable && isMod && d.ModsDir.Length > 0 ? HousecarlCore.Mo2ModMeta.ModIdOf(HousecarlCore.LooseListings.OnDisk(d.ModsDir, name)) : 0;
         int nexusId = int.TryParse(name, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0 ? id : 0;
         var unread = new List<string>();
         var folders = nexusId > 0 && readable ? HousecarlCore.Mo2ModMeta.FoldersWithModId(d.ModsDir, nexusId, unread) : null;
