@@ -200,7 +200,9 @@ The required first field identifies the form to distribute. Two ways to write it
   **It is not stable against a winning override that renames the record**, which is ordinary on a
   heavily overhauled order (an overhaul renaming a vanilla perk is the common case). SPID resolves
   the EditorID it is given against the record the order actually carries, so a line naming the
-  pre-overhaul EditorID resolves to nothing and distributes nothing, silently. Read the winner's
+  pre-overhaul EditorID resolves to nothing, silently: what SPID then does depends on the line's type
+  (a keyword of that name on a `Keyword` or `Form` line, nothing handed out on a `Spell` or `Package`
+  line, the line dropped on any other type; see "A value name no record holds" below). Read the winner's
   EditorID before writing the name; where the winner has renamed the record, use the FormID.
 - **FormID** — hex with the source plugin as a **tilde suffix**: `0x12345~MyPlugin.esp`.
   *(Divergence to remember: SPID/KID/CID use suffix-tilde `0x123~Plugin.esp`; SkyPatcher uses
