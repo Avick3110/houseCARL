@@ -876,12 +876,15 @@ public sealed class LoadOrderResolver : IDisposable
             IReadOnlyList<Type> getterTypes, ICollection<PluginUnreadableException>? unreadable = null)
             => _r.WinnerRecordsOfType(getterTypes, _s, unreadable);
 
-        /// <summary>Every instance of every record of the given type(s), plugin by plugin in load order, with the plugin's load position and name; a plugin that cannot be read is collected and skipped.</summary>
+        /// <summary>Every instance of every record of the given type(s), plugin by plugin in load order, with the plugin's load position and name, each plugin read in one pass over all the types; a plugin that cannot be read is collected and skipped.</summary>
         public IEnumerable<(FormKey fk, IMajorRecordGetter body, int position, string plugin)> RecordVersionsOfType(
             IReadOnlyList<Type> getterTypes, ICollection<PluginUnreadableException> unreadable)
         {
-            var names = _r._names;
-            return _r.RecordsOfType(getterTypes, _s, unreadable, winnersOnly: false).Select(x => (x.fk, x.body, x.plugin, names[x.plugin]));
+            var (r, names) = (_r, _r._names);
+            var props = getterTypes.Select(MutagenGroups.PropsOf).ToList();
+            var groups = props.Any(p => p is null) ? null : props.SelectMany(p => p!).Distinct().OrderBy(p => p.MetadataToken).ToList();
+            return _r.InOrder(_s, unreadable, winnersOnly: false, (ov, i) => r.OnePass(ov, i, getterTypes, groups))
+                .Select(x => (x.fk, x.body, x.plugin, names[x.plugin]));
         }
 
         public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
@@ -1135,6 +1138,34 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>Every record of the given type(s) plugin by plugin in load order: only the winning instance, or with <paramref name="winnersOnly"/> false every instance, each with the index of the plugin it was read from.</summary>
     IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, int plugin)> RecordsOfType(
         IReadOnlyList<Type> getterTypes, IndexSnapshot s, ICollection<PluginUnreadableException>? unreadable, bool winnersOnly)
+        // RecordArms is the shared arm re-check: a typed enumeration seeks the GRUP, which for an abstract group holds every arm.
+        => InOrder(s, unreadable, winnersOnly, (ov, i) => RecordArms.OfTypes(getterTypes, t => Walk(ov, i, t, throwIfUnknown: true)));
+
+    /// <summary>Every record of any of <paramref name="types"/> in plugin <paramref name="idx"/>, each once: each of <paramref name="groups"/> the plugin has is read once, or the whole plugin once when null.</summary>
+    IEnumerable<IMajorRecordGetter> OnePass(ISkyrimModGetter ov, int idx, IReadOnlyList<Type> types, IReadOnlyList<System.Reflection.PropertyInfo>? groups)
+    {
+        var keep = new Dictionary<Type, bool>();
+        return (groups is null ? Walk(ov, idx, null) : Groups()).Where(rec =>
+        {
+            var runtime = rec.GetType();
+            if (!keep.TryGetValue(runtime, out var k)) keep[runtime] = k = types.Any(t => t.IsInstanceOfType(rec));
+            return k;
+        });
+
+        IEnumerable<IMajorRecordGetter> Groups()
+        {
+            foreach (var prop in groups!)
+            {
+                if (MutagenGroups.Present(prop, ov) is not { } group) continue;
+                Counters.CountGroupRead(_names[idx], prop.Name);
+                foreach (var rec in group.EnumerateMajorRecords()) yield return rec;
+            }
+        }
+    }
+
+    /// <summary>The records <paramref name="walk"/> yields from each plugin in load order that the index holds, as <see cref="RecordsOfType"/> describes.</summary>
+    IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, int plugin)> InOrder(IndexSnapshot s,
+        ICollection<PluginUnreadableException>? unreadable, bool winnersOnly, Func<ISkyrimModGetter, int, IEnumerable<IMajorRecordGetter>> walk)
     {
         for (int i = 0; i < _paths.Length; i++)
         {
@@ -1152,8 +1183,7 @@ public sealed class LoadOrderResolver : IDisposable
             }
             try
             {
-                // RecordArms is the shared arm re-check: a typed enumeration seeks the GRUP, which for an abstract group holds every arm.
-                using var recs = RecordArms.OfTypes(getterTypes, t => Walk(ov, i, t, throwIfUnknown: true)).GetEnumerator();
+                using var recs = walk(ov, i).GetEnumerator();
                 while (true)
                 {
                     IMajorRecordGetter rec;
