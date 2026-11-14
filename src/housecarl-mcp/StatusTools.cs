@@ -280,8 +280,7 @@ static class StatusWire
             sb.Append("  served from: unknown — houseCARL could not open the mods folder, so which folder serves this plugin cannot be read\n");
 
         // A name the profile lists as a plugin: its copies, then the header facts and the LOCALIZED flag the in-place write lanes refuse on.
-        // A plugin's dependents sit under its masters line when there is one, else close the lookup. The gate is the
-        // extension, not the profile listing, so a plugin only on disk (a disabled mod's) still gets the line.
+        // A plugin's dependents line: here, ahead of the copies, when no header was read, else under its masters line (docs/architecture/mo2-instance.md).
         bool isPlugin = HousecarlCore.PluginFile.IsPlugin(name);
         if (facts?.Header is null && isPlugin) AppendDependents(sb, lookups?.Dependents, cap);
         if (facts is null) return;
