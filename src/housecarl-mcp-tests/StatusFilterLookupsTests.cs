@@ -72,7 +72,7 @@ public sealed class StatusFilterLookupsTests : IClassFixture<StatusFilterLookups
             text = Lookup("9999");
 
         Assert.Equal("as a Nexus id: no mod folder's meta.ini carries it", Line(text, "as a Nexus id"));
-        Assert.Contains("[!] 1 meta.ini could not be read", text);
+        Assert.Contains("[!] 1 folder(s) not read (a meta.ini that would not read, or a folder that would not open)", text);
         Assert.Contains("'LockedMeta'", text);
     }
 
@@ -106,7 +106,7 @@ public sealed class StatusFilterLookupsTests : IClassFixture<StatusFilterLookups
         }
         finally { Directory.Delete(link); }
 
-        Assert.Equal("[!] 1 meta.ini could not be read, so a folder carrying this id may be missing: 'GoneFolder'", Line(text, "[!]"));
+        Assert.Equal("[!] 1 folder(s) not read (a meta.ini that would not read, or a folder that would not open), so a folder carrying this id may be missing: 'GoneFolder'", Line(text, "[!]"));
     }
 
     /// <summary>The loaded plugins naming the master come in load order, not the order their folders were walked.</summary>
