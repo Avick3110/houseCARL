@@ -50,8 +50,8 @@ static class SpidWire
         bool Matches(SpidFileData f) => filter is null
             || f.File.RelPath.Contains(filter, StringComparison.OrdinalIgnoreCase)
             || (f.File.WinningProvider?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
-        var shown = Enumerable.Range(0, files.Count).Where(i => Matches(files[i])
-            && (s.Selected is null || s.Selected.Keys.Any(k => k.File == i))).ToList();
+        var holding = s.Selected?.Keys.Select(k => k.File).ToHashSet();
+        var shown = Enumerable.Range(0, files.Count).Where(i => Matches(files[i]) && (holding is null || holding.Contains(i))).ToList();
         bool expand = filter is not null || s.Selected is not null;
 
         if (s.Selected is not null)

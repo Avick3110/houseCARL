@@ -14,13 +14,13 @@ public static class SpidLines
     /// (ALL), or a <c>*</c> string (part of a name).</summary>
     public enum ListKind { Plain, Not, All, Partial }
 
-    /// <summary>One token as written, after sanitize: its field, its list, and for a <c>+</c> part the group it belongs to.</summary>
-    public sealed record Token(SpidField Field, ListKind List, string Raw, int Group);
+    /// <summary>One token as written, after sanitize: its field and its list.</summary>
+    public sealed record Token(SpidField Field, ListKind List, string Raw);
 
     /// <summary>One line of a file as SPID splits it. <see cref="Skipped"/> says why SPID reads no entry from it (null
     /// when it reads one); <see cref="Notes"/> are what SPID changes on the way (sanitize, a dropped <c>Final</c>).</summary>
     public sealed record Line(int Number, string Raw, string Key, SpidLineKind Kind, string? Type, bool Final, bool Global,
-                              IReadOnlyList<string> Sections, IReadOnlyList<Token> Tokens, string? Skipped, IReadOnlyList<string> Notes);
+                              IReadOnlyList<Token> Tokens, string? Skipped, IReadOnlyList<string> Notes);
 
     // ---- splitting a file ---------------------------------------------------------------
 
@@ -59,7 +59,7 @@ public static class SpidLines
     }
 
     static Line Skip(int n, string raw, string key, string why)
-        => new(n, raw, key, SpidLineKind.Regular, null, false, false, Array.Empty<string>(), Array.Empty<Token>(), why, Array.Empty<string>());
+        => new(n, raw, key, SpidLineKind.Regular, null, false, false, Array.Empty<Token>(), why, Array.Empty<string>());
 
     static Line ParseLine(int n, string raw, string key, string value, SpidGrammar g)
     {
@@ -79,12 +79,11 @@ public static class SpidLines
         var fields = g.Kind(kind).Fields;
         var sections = clean.Split(g.Sections);
         Line Out(string? skipped, IReadOnlyList<Token> tokens)
-            => new(n, raw, key, kind, type, final, global, sections, tokens, skipped, notes);
+            => new(n, raw, key, kind, type, final, global, tokens, skipped, notes);
         if (sections.Length > fields.Count)
             return Out($"has {sections.Length} '{g.Sections}' sections, more than the {fields.Count} a {KindName(kind)} line takes, so SPID skips it", Array.Empty<Token>());
 
         var tokens = new List<Token>();
-        int group = 0;
         for (int f = 0; f < sections.Length; f++)
         {
             var field = fields[f];
@@ -94,7 +93,7 @@ public static class SpidLines
             {
                 case SpidField.Value:
                     if (!set) return Out("names no form to hand out, so SPID skips it", tokens);
-                    tokens.Add(new Token(field, ListKind.Plain, sec, 0));
+                    tokens.Add(new Token(field, ListKind.Plain, sec));
                     break;
                 case SpidField.Members or SpidField.Parents:
                     if (!set) return Out($"names no {(field == SpidField.Members ? "member" : "parent")} form, so SPID skips it", tokens);
@@ -102,7 +101,7 @@ public static class SpidLines
                     {
                         if (item.Length == 0) return Out($"has an empty item in its {FieldName(field)}, so SPID skips it", tokens);
                         tokens.Add(field == SpidField.Members && item[0] == g.Not
-                            ? new Token(field, ListKind.Not, item[1..], 0) : new Token(field, ListKind.Plain, item, 0));
+                            ? new Token(field, ListKind.Not, item[1..]) : new Token(field, ListKind.Plain, item));
                     }
                     break;
                 case SpidField.Strings or SpidField.Forms when set:
@@ -112,16 +111,15 @@ public static class SpidLines
                         if (item.Length == 0) return Out($"has an empty {FieldName(field)} term, so SPID skips it", tokens);
                         if (item.Contains(g.All))
                         {
-                            group++;
                             foreach (var part in item.Split(g.All))
                             {
                                 if (part.Length == 0) return Out($"has an empty '{g.All}' part in its {FieldName(field)}, so SPID skips it", tokens);
-                                tokens.Add(new Token(field, ListKind.All, part, group));
+                                tokens.Add(new Token(field, ListKind.All, part));
                             }
                         }
-                        else if (item[0] == g.Not) tokens.Add(new Token(field, ListKind.Not, item[1..], 0));
-                        else if (field == SpidField.Strings && item[0] == g.Partial) tokens.Add(new Token(field, ListKind.Partial, item[1..], 0));
-                        else tokens.Add(new Token(field, ListKind.Plain, item, 0));
+                        else if (item[0] == g.Not) tokens.Add(new Token(field, ListKind.Not, item[1..]));
+                        else if (field == SpidField.Strings && item[0] == g.Partial) tokens.Add(new Token(field, ListKind.Partial, item[1..]));
+                        else tokens.Add(new Token(field, ListKind.Plain, item));
                     }
                     break;
             }
@@ -138,14 +136,13 @@ public static class SpidLines
         var linked = g.Kind(SpidLineKind.Linked);
         var death = g.Kind(SpidLineKind.Death).Prefix!;
         var k = key;
-        bool global = linked.Global is { } gl && k.StartsWith(gl, StringComparison.Ordinal);
-        if (global) k = k[linked.Global!.Length..];
         bool Strip(string prefix)
         {
             if (!k.StartsWith(prefix, StringComparison.Ordinal)) return false;
             k = k[prefix.Length..];
             return true;
         }
+        bool global = linked.Global is { } gl && Strip(gl);
         if (Strip(linked.Prefix!))
         {
             bool lf = Strip(g.FinalPrefix);
