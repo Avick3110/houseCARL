@@ -131,6 +131,17 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
         Assert.Contains($"scan: {ShadowedCopyWorld.LoserCount} matches", r);
     }
 
+    /// <summary>Beside a missing name, the note says the other filters still narrow the whole-file scope.</summary>
+    [Fact]
+    public void TheOwnNameNoteBesideAMissingNameSaysTheOtherFiltersStillNarrow()
+    {
+        var r = RecordsTools.Records(_w.Svc, plugins: new RecordsTools.RecordsScope { names = new[] { _w.FileName, NotInstalled }, defined_in = true },
+                                     source: Loser, counts_only: true);
+        Assert.Contains("scan: 1 match ", r);
+        Assert.Contains("the scope keeps every record the file holds and the call's other filters still narrow it", r);
+        Assert.DoesNotContain("this answer is every record", r);
+    }
+
     [Fact]
     public void TheOwnNameWithDefinedInKeepsOnlyTheRecordsTheFileDefines()
     {
@@ -189,6 +200,7 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
         var text = ParamText("versus");
         Assert.Contains("the reference has no version of is an errors row", text);
         Assert.Contains("source= and versus= swapped", text);
+        Assert.Contains("plugins= is read against source=, so a swap can change the selection", text);
     }
 }
 
