@@ -217,6 +217,11 @@ public sealed class SpidLinesTests
     public void AKeywordCreatedOnADroppedLineIsHandedToNoOne()
         => Assert.Contains(new World().Read("Keyword = HcNoSuchName||HcNoSuchRace").Notes, n => n.EndsWith("which the dropped line hands to no one"));
 
+    // A value that is a plugin term names no form to hand out, so the line hands nothing out.
+    [Fact]
+    public void AValueNamingAPluginDropsTheLine()
+        => Assert.Contains("value 'HcOther.esp' names a plugin, not a form to hand out", new World().Read("Spell = HcOther.esp").Dropped);
+
     // Answer 2, new (dev: MCE_DISTR.ini:1-13): a FormID naming a plugin not in the order drops the line.
     [Fact]
     public void AValueOnAPluginNotInTheOrderDropsTheLine()
