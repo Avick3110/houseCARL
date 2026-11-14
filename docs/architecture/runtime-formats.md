@@ -1,6 +1,6 @@
 ---
 updated: 2026-11-13
-covers: [src/housecarl-core/runtime-formats.json, src/housecarl-core/RuntimeFormats.cs, src/housecarl-core/DistributorFormats.cs, src/housecarl-core/DistributorDiscovery.cs, src/housecarl-core/RuntimeTargets.cs, src/housecarl-generator/RuntimeFormatSkillText.cs]
+covers: [src/housecarl-core/runtime-formats.json, src/housecarl-core/RuntimeFormats.cs, src/housecarl-core/DistributorFormats.cs, src/housecarl-core/SpidGrammar.cs, src/housecarl-core/DistributorDiscovery.cs, src/housecarl-core/RuntimeTargets.cs, src/housecarl-generator/RuntimeFormatSkillText.cs]
 ---
 # The runtime-format source
 
@@ -8,8 +8,8 @@ covers: [src/housecarl-core/runtime-formats.json, src/housecarl-core/RuntimeForm
 One data file holds, per runtime-layer format, where its files are found, the order they apply in, who wins a
 conflict and how a line is split. The server reads those values; the generator prints the skill paragraphs that state
 them. The file has two shapes of row: SkyPatcher's, which carries everything down to its line grammar, and a
-**distributor** row for SPID, KID, BOS and FLM, which carries discovery and target spelling only — each of those
-formats' line kinds, conflict model and labels land with its own reader.
+**distributor** row for SPID, KID, BOS and FLM, which carries discovery and target spelling, and a `lines` block once
+the format's reader has landed: SPID's has ([`spid-layer.md`](spid-layer.md)); KID's, BOS's and FLM's land with theirs.
 
 ## Contracts
 - **A distributor row says where and how a target is spelt, not what a line means.** `folders` is one or more folders
@@ -37,7 +37,15 @@ formats' line kinds, conflict model and labels land with its own reader.
 - **One source, two readers.** `SkyPatcherDiscovery` and `SkyPatcherParse` take the root, the name token, the gate
   extensions, the `SkyPatcher.ini` section and key shape, the patchers that run without a key, the patcher run order and
   the delimiters from SkyPatcher's row. `RuntimeFormatSkillText` prints the same values into marked regions of the
-  `skypatcher-authoring` files.
+  `skypatcher-authoring` files. SPID's row does the same: `SpidLines` reads its `lines` block (`SpidGrammar`: the
+  comment leads, the delimiters, the key kinds and their fields, the `Final` types, the type table with each type's
+  run order, conflict and missing-value outcome, the filter, target and string-lookup record types) and its
+  `targets`, and the generator prints the same values into the `spid-authoring` files' `spid.*` regions.
+- **A missing name by position.** SPID's `targets.missingName` is `byPosition`: the resolver says only that a name
+  finds nothing, and SPID's reader says what SPID does there, by the line's type and the field (research answer 3).
+  KID's row keeps `createsKeyword`.
+- **A lines block on a row with no reader fails the load.** Only SPID's reader has landed, so a `lines` block on KID's,
+  BOS's or FLM's row has no rule.
 - **A kind is a name the code knows.** The file order, the comparer, the conflict rules, the gate kind, the
   missing-switch default and the other kind values select a rule written in code; a value the code has no rule for
   fails the load, naming the field. Changing a rule's behaviour is a code change; the row only picks it.
@@ -66,10 +74,12 @@ formats' line kinds, conflict model and labels land with its own reader.
   - `kid-authoring`: SKILL.md's two SkyPatcher folder paths, grammar-core.md's one, and
     `references/_CORPUS_STATUS.md`'s `SKSE\Plugins\` per-type subfolders; and its placement step, which restates KID's
     row's `_KID` name token and its flat `Data\` root.
-  - `spid-authoring`: SKILL.md's placement step and its filename rule, which restate SPID's row's `_DISTR` name token
-    and its flat `Data/` root.
-  - The server: the layer tool's `distributor=` parameter text and its refusals name the four distributor rows'
-    keys (`SkyPatcherTools`); the layer tool's two empty-layer answers spell `Data\SKSE\Plugins\SkyPatcher` and its folder
+  - `spid-authoring`: SKILL.md's placement step and its filename rule, which restate SPID's row's `_DISTR` name token,
+    its flat `Data/` root and its byte-order file sort; grammar-core.md §2's subfolder paragraph (`_DISTR`, `.ini`);
+    and the skill's version line (7.3.0), which the `spid.discovery` region's modelled version does not replace.
+  - The server: the layer tool's `distributor=` parameter text names the four distributor rows' keys and restates
+    SPID's discovery and labels, and the refusals name the rows (`SkyPatcherTools`); SPID's render spells its order
+    sentence and the Npc/keyword string-lookup wording (`SpidWire`, `SpidLines`); the layer tool's two empty-layer answers spell `Data\SKSE\Plugins\SkyPatcher` and its folder
     lines' switch-off and unreadable marks spell `SkyPatcher.ini` (`SkyPatcherTools`); the draft's not-absolute
     refusal's example path spells `SkyPatcher\weapon\` (`SkyPatcherDraft.Prepare`); the overlay's packed-value unpack
     and two item splits use literal `=` and `,` (`SkyPatcherOverlay`); the records tool's source parameter text and
@@ -100,7 +110,10 @@ formats' line kinds, conflict model and labels land with its own reader.
 - `RuntimeTargetsTests` — each target rule is the row's: a FormID written first, a load index written into it, bare
   hex, the two plugin-name rules, an every-type name lookup, a name no record holds, and an `unread` rule answering
   "not read yet". The same tokens under SkyPatcher's row read as SkyPatcher reads them today.
-- `LayerSelectTests.ADistributorStillToComeIsNotReadYet` — the `distributor=` refusals spell the four rows' names.
+- `LayerSelectTests.ADistributorStillToComeIsNotReadYet` — the `distributor=` refusals spell the three unread rows'
+  names and the formats read; `DistributorSpidIsRead` — a row with a lines block is read.
+- `SpidLinesTests` and `SpidLayerTests` — SPID's lines block drives the read ([`spid-layer.md`](spid-layer.md));
+  `RuntimeFormatSourceTests.TheCommittedSkillRegionsMatchAFreshPrint` holds the `spid.*` regions too.
 
 ## Where
 `src/housecarl-core/runtime-formats.json` (embedded), loaded by `RuntimeFormats.SkyPatcher` and

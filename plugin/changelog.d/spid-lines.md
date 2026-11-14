@@ -1,0 +1,1 @@
+- **`housecarl_layer` now reads SPID's `_DISTR.ini` files as SPID 7.3 does: `formids=` / `plugins=` list the SPID lines naming those records (target, filter or value), and `filter=` expands a file's lines with what SPID does with each.** Check: `housecarl_layer distributor=["spid"] filter="<mod>"`.
