@@ -205,6 +205,18 @@ public sealed class SpidLayerTests : IDisposable
         SkyPatcherTools.Layer(_w.Svc, formids: new[] { Perk });
         Assert.Equal(1, _w.Svc.Counters.EditorIdSweeps - before);
     }
+
+    // Every form token of every line is looked up before any string token, so a first line whose only name is a string
+    // filter does not walk the NPC and keyword types alone and leave every other type to a second walk.
+    [Fact]
+    public void FormTokensAreLookedUpBeforeStringTokens()
+    {
+        using var w = new SpidWorld(new[] { ("HcS_DISTR.ini", "Spell = 0x813~HcSpid.esp|HcOtherNpc\r\nPerk = HcPerk\r\n") });
+        w.Layer();
+        var before = w.Svc.Counters.EditorIdSweeps;
+        Assert.Contains("↳ target string filter: HcOtherNpc → 000800:HcOther.esp", w.Layer(plugins: new[] { SpidWorld.Other }));
+        Assert.Equal(1, w.Svc.Counters.EditorIdSweeps - before);
+    }
 }
 
 /// <summary>The SPID render's file rows against data no instance holds.</summary>
