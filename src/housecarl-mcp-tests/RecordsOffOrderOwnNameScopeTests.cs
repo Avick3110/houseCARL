@@ -98,6 +98,17 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
 
     internal const string NotInstalled = "HcNotInstalled.esp";
 
+    /// <summary>A blank entry is refused by its index wherever it sits beside the own name.</summary>
+    [Fact]
+    public void ABlankEntryBesideTheOwnNameIsRefused()
+    {
+        var after = RecordsTools.Records(_w.Svc, plugins: Scope(_w.FileName, "  "), source: Loser, counts_only: true);
+        Assert.Contains("plugins.names[1] is empty", after);
+        Assert.DoesNotContain("matches", after);
+        var before = RecordsTools.Records(_w.Svc, plugins: Scope("", _w.FileName), source: Loser, counts_only: true);
+        Assert.Contains("plugins.names[0] is empty", before);
+    }
+
     [Fact]
     public void TheOwnNameWithDefinedInKeepsOnlyTheRecordsTheFileDefines()
     {
