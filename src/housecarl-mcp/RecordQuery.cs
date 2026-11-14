@@ -817,13 +817,11 @@ internal sealed partial class RecordReads
         string? scopeMissingNote = null;
         HashSet<string>? scopeSet = null;
         string ownName = Path.GetFileName(pole.Path!);
-        var split = scopePlugins is { Count: > 0 } ? ScopeSplit.Of(view, scopePlugins) : null;
+        var split = scopePlugins is { Count: > 0 } ? ScopeSplit.Of(view, scopePlugins, ownName) : null;
         if (split?.BlankRefusal is not null) return CrossQueryOutcome.Fail(split.BlankRefusal) with { Stamp = view.Stamp };
-        bool ownNamed = scopePlugins?.Any(n => string.Equals(n.Trim(), ownName, StringComparison.OrdinalIgnoreCase)) == true;
-        if (split is not null && ownNamed)
+        if (split is { OwnNamed: true })
         {
-            var others = split.Missing.Where(m => !string.Equals(m, ownName, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (others.Count > 0) scopeMissingNote = (split with { Missing = others }).OwnFileNote(view, ownName);
+            if (split.Missing.Count > 0) scopeMissingNote = split.OwnFileNote(view, ownName);
         }
         else if (split is not null)
         {
