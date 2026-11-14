@@ -18,7 +18,8 @@ sealed class SpidWorld : IDisposable
     public readonly string Root, IniMod, Loser;
     public readonly LoadOrderService Svc;
 
-    public SpidWorld(IEnumerable<(string Name, string Text)> files, IEnumerable<(string Name, string Text)>? shadowed = null)
+    /// <param name="archive">HcSpid.esp's own BSA, written before the service opens.</param>
+    public SpidWorld(IEnumerable<(string Name, string Text)> files, IEnumerable<(string Name, string Text)>? shadowed = null, byte[]? archive = null)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-spid-layer-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
@@ -50,6 +51,7 @@ sealed class SpidWorld : IDisposable
             Items = new ExtendedList<IFormLinkGetter<IOutfitTargetGetter>> { boots.ToLink<IOutfitTargetGetter>() },
         });
         Write(mod, Path.Combine(mods, "HcSpidPlugins", Spid));
+        if (archive is not null) File.WriteAllBytes(Path.Combine(mods, "HcSpidPlugins", "HcSpid.bsa"), archive);
 
         var other = new SkyrimMod(ModKey.FromFileName(Other), SkyrimRelease.SkyrimSE);
         other.Npcs.Add(new Npc(new FormKey(other.ModKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = "HcOtherNpc", Name = "Skald" });
@@ -267,6 +269,18 @@ public sealed class SpidLayerTests : IDisposable
         int cap = rowEnd + 10 + FileCut.Length + 1 + LineCut.Length + 1;
         var text = SkyPatcherTools.Layer(_w.Svc, filter: "HcA_", max_chars: cap);
         Assert.Equal(full[..rowEnd] + LineCut, text);
+    }
+
+    // R40 end to end: a _DISTR.ini only inside the BSA a plugin loads is listed, said not applied, and no line of it is read.
+    [Fact]
+    public void AnArchiveOnlyFileIsListedAndNotRead()
+    {
+        using var w = new SpidWorld(new[] { ("HcA_DISTR.ini", "Perk = HcPerk\r\n") }, archive:
+            HousecarlGenerator.BsaBuilder.Build(105, HousecarlGenerator.BsaBuilder.HasFolderNames | HousecarlGenerator.BsaBuilder.HasFileNames,
+                new[] { ("", new[] { ("hcpacked_DISTR.ini", System.Text.Encoding.ASCII.GetBytes("Perk = HcPerk\r\n")) }) }));
+        var text = w.Layer(filter: "packed");
+        Assert.Contains("2 file(s) in Data (1 read), 1 line(s)", text);
+        Assert.Contains("  - hcpacked_DISTR.ini  (file 2 of 2, 0 line(s)) ← HcSpid.bsa  [!] NOT applied: present only inside a BSA", text);
     }
 
     // r1 #25: a filter= matching a SkyPatcher folder and no SPID file resolves no SPID line, so no EditorID table is walked.
