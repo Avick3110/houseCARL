@@ -76,6 +76,17 @@ public sealed class StatusFilterLookupsTests : IClassFixture<StatusFilterLookups
         Assert.Contains("'LockedMeta'", text);
     }
 
+    /// <summary>A named mod whose meta.ini will not open says its id is unknown, so a missing id is not taken for none.</summary>
+    [Fact]
+    public void AModWhoseMetaIniWillNotReadSaysItsIdIsUnknown()
+    {
+        string text;
+        using (new FileStream(_w.LockedMeta, FileMode.Open, FileAccess.Read, FileShare.None))
+            text = Lookup("LockedMeta");
+
+        Assert.Equal("as a mod:    ENABLED (mod present + switched on) · Nexus id unknown — its meta.ini could not be read", Line(text, "as a mod:"));
+    }
+
     /// <summary>A mod folder that will not open (a dangling junction) is named, so a folder carrying the id is not taken for none.</summary>
     [Fact]
     public void AModFolderThatWillNotOpenIsNamed()
