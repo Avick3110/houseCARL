@@ -126,7 +126,27 @@ public sealed class ModsFolderUnreadableTests : IClassFixture<ModsUnreadableWorl
         Assert.DoesNotContain("winner=", text);
     }
 
+    /// <summary>With no mod folder read, a plugin's dependents and a Nexus id's folders are unknown, not none.</summary>
+    [Fact]
+    public void StatusSaysDependentsAndNexusFoldersAreUnknown()
+    {
+        using var svc = _w.Whole();
+
+        Assert.Contains("named as a master by: unknown", StatusTools.LoadOrderStatus(svc, _w.Tools, filter: ModsUnreadableWorld.MasterName));
+        Assert.Contains("as a Nexus id: unknown", StatusTools.LoadOrderStatus(svc, _w.Tools, filter: "123"));
+    }
+
     // ---- one enabled mod folder will not open ----
+
+    /// <summary>A plugin's dependents name the mod folder that would not open, so a dependent in it is not taken for none.</summary>
+    [Fact]
+    public void StatusDependentsNameTheUnopenedModFolder()
+    {
+        using var svc = _w.Partial();
+        var text = StatusTools.LoadOrderStatus(svc, _w.Tools, filter: ModsUnreadableWorld.LostPlugin);
+
+        Assert.Contains("[!] not read, so a plugin naming it there is missing above: 1 folder(s) would not open ('" + ModsUnreadableWorld.BrokenMod + "')", text);
+    }
 
     [Fact]
     public void StatusLeadsWithTheUnopenedModFolder()

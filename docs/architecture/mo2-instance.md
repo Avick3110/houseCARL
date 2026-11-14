@@ -1,6 +1,6 @@
 ---
 updated: 2026-11-13
-covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, src/housecarl-core/QtIniEscapes.cs, src/housecarl-core/Mo2ModMeta.cs, src/housecarl-core/UserConfig.cs, src/housecarl-mcp/SetupTools.cs, src/housecarl-mcp/StatusTools.cs, src/housecarl-mcp/UpdateStatusTools.cs]
+covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, src/housecarl-core/QtIniEscapes.cs, src/housecarl-core/Mo2ModMeta.cs, src/housecarl-core/MasterDependents.cs, src/housecarl-core/UserConfig.cs, src/housecarl-mcp/SetupTools.cs, src/housecarl-mcp/StatusTools.cs, src/housecarl-mcp/UpdateStatusTools.cs]
 ---
 # The MO2 instance
 
@@ -96,6 +96,30 @@ extension makes the plugin a master or light anyway, the line says so. A header 
 With no copy serving, a lone copy's header is still read and the header line names that copy as not
 served; with several, or none, no header is read and the localized line says so. Only `filter=<plugin>` reads these; a mod
 name and the whole-profile summary do not.
+
+### The filter's other two readings (#1388)
+
+A filter value is also read two more ways, both fresh on every call with nothing held between calls (`FilterLookups.Read`):
+
+- **As a Nexus id.** A value that is a positive whole number (`NumberStyles.None`, so `-1` and `+5` are not numbers)
+  gets an `as a Nexus id:` line naming every folder under the mods root whose `meta.ini` `[General] modid` equals it,
+  sorted, each marked enabled, disabled or not in modlist.txt (`Mo2ModMeta.FoldersWithModId`). MO2 reads every id
+  at or below 0 as no id (a separator, a hand-made mod, a cleared link), so `0` and `-1` are not ids: those values
+  keep their old answer, and a folder carrying one shows none. An id shared by several folders (a mod and its
+  patches, 53 ids on dev) is answered as the list. A folder named with digits reads both as a mod and as an id. A
+  `meta.ini` that exists and will not read is named on a `[!]` line. A folder found as a mod, enabled or disabled,
+  shows its own id on the `as a mod:` line. Cost on dev (1,345 `meta.ini`): about 0.1 s.
+- **As the master other plugins name.** A value with a plugin extension gets a `named as a master by` line, under
+  the `masters (n):` line when a header was read, else ending the lookup (`MasterDependents.Find`). It walks every
+  plugin file `CandidateFolders` lists (`Mo2LoadOrder.AllPluginFiles`) and reads each header through
+  `PluginFile.ReadHeader`. A name that loads (in loadorder.txt and not unchecked, the set `Build` loads) is judged by
+  the copy the game reads, its first enabled hit; its other copies are skipped. Every other copy is judged by
+  itself and listed after the loaded ones, marked with its layer label and, for an enabled layer, why it does not
+  load: `unchecked in plugins.txt` (an inactive plugin in an enabled mod is read this way, as not loaded) or `not in
+  loadorder.txt`. The loaded ones come in load order. A folder that will not open and a header that will not read
+  are named on a `[!]` line. With the whole mods folder unreadable both lines say unknown. The list is cut at
+  `max_chars` with a notice. Cost on dev (1,474 plugin files): about 0.35 s warm, 0.5 s cold, and about 80 MB more
+  peak working set for the overlays.
 
 ### Deriving the roots from one path
 
@@ -217,6 +241,12 @@ swallows the note turns a recoverable state into a silent loss.
   match the fixture's raw TES4 header, and a `.esl` with clear bits says it loads light by extension; a lone
   disabled copy's header is named as from that copy, several disabled copies read none, and a ticked plugin missing
   from loadorder.txt still gets its facts. `StatusLocalizedLookupTests` — the localized line from the same read.
+- *The filter's other two readings*: `StatusFilterLookupsTests` — a shared id lists every folder with its state, a
+  mod's line shows its id, 0 and -1 are no id, a digits-named folder reads both ways, an unreadable `meta.ini` is named;
+  dependents come in load order, one in a disabled mod is listed and marked, an unchecked and an unlisted one say why,
+  a disabled copy of a loaded plugin is not one, an unreadable header is named, no dependents says so, the line
+  follows the masters line and is cut at `max_chars`. `ModsFolderUnreadableTests` — both lines unknown with the mods
+  folder unreadable, and an unopened mod folder named.
 - *A folder that will not open*: `ModsFolderUnreadableTests` — the whole mods folder: status leads with it, records,
   the tree, the sweep, a check, an asset read and `write_seq` refuse, `set_mo2_instance` names it, and a folder that
   stops opening after the build refuses the next read; one mod folder: status leads with it, a record read, a sweep,
@@ -254,7 +284,7 @@ swallows the note turns a recoverable state into a silent loss.
 
 `src/housecarl-core/Mo2Instance.cs` derives the roots and the active profile (`Resolve`, `ReadSelectedProfile`);
 `Mo2LoadOrder.cs` reads the profile files and walks the priority model (`Build`, `LocatePlugin`,
-`AllPluginFileNames`, `CandidateFolders`); `QtIniEscapes.cs` is the one Qt value reader (`Clean`); `Mo2ModMeta.cs`
+`AllPluginFileNames`, `AllPluginFiles`, `CandidateFolders`); `MasterDependents.cs` finds a plugin's dependents; `QtIniEscapes.cs` is the one Qt value reader (`Clean`); `Mo2ModMeta.cs`
 reads a mod's `meta.ini`; `UserConfig.cs` is `houseCARL.user.json` and `UserConfigStore`. The tool fronts are
 `src/housecarl-mcp/SetupTools.cs`, `StatusTools.cs` and `UpdateStatusTools.cs`. Tools: `housecarl_set_mo2_instance`,
 `housecarl_set_tool_path`, `housecarl_load_order_status`, `housecarl_update_status`.
