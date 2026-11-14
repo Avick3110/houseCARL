@@ -329,7 +329,36 @@ public sealed record SkyPatcherLayerData(
 
     /// <summary>The plugins an EditorID sweep could not open, one note each; kept on a zero answer, unlike <see cref="NoOpNotes"/>.</summary>
     public IReadOnlyList<string> UnreadableNotes { get; init; } = [];
+
+    /// <summary>Whether the call reads SkyPatcher's lines; false for a call naming other formats only, whose SkyPatcher lists are empty.</summary>
+    public bool SkyPatcherRead { get; init; } = true;
+
+    /// <summary>SPID's layer, read in the same replay context; null when the call does not read SPID.</summary>
+    public SpidLayerData? Spid { get; init; }
 }
+
+/// <summary>SPID's layer: the files it reads in its order, each line split, and, when the call resolves them, each
+/// line's read, each first-wins line's place and the lines the records selectors keep. Valid only in its call.</summary>
+public sealed record SpidLayerData(HousecarlCore.DistributorFormat Format, IReadOnlyList<SpidFileData> Files, string ProfileName)
+{
+    /// <summary>Each file's line reads, index for index with its lines; null when the call does not resolve them.</summary>
+    public IReadOnlyList<IReadOnlyList<HousecarlCore.SpidLines.LineRead?>>? Reads { get; init; }
+
+    /// <summary>Each first-wins line's place in its type's order, by (file index, line index).</summary>
+    public IReadOnlyDictionary<(int File, int Line), HousecarlCore.SpidLines.Place> Places { get; init; } = new Dictionary<(int, int), HousecarlCore.SpidLines.Place>();
+
+    /// <summary>The lines the records selectors keep, by (file index, line index); null when no selector was given.</summary>
+    public IReadOnlyDictionary<(int File, int Line), SpidSelected>? Selected { get; init; }
+
+    /// <summary>The plugins an EditorID sweep could not open during this call, one note each.</summary>
+    public IReadOnlyList<string> UnreadableNotes { get; init; } = [];
+}
+
+/// <summary>One SPID file: the file as discovery found it, its lines as SPID splits them, and why it could not be read.</summary>
+public sealed record SpidFileData(HousecarlCore.DistributorDiscovery.ConfigFile File, IReadOnlyList<HousecarlCore.SpidLines.Line> Lines, string? ReadError);
+
+/// <summary>What the selectors keep of one SPID line: the forms, and the plugins it names as a term.</summary>
+public sealed record SpidSelected(IReadOnlyList<HousecarlCore.SpidLines.Named> Forms, IReadOnlyList<string> PluginTerms);
 
 /// <summary>The records selectors carried onto SkyPatcher lines: a line is selected by a form it names. Both given, a form must pass both, as on records.</summary>
 public sealed record SkyPatcherLineSelect(
