@@ -141,7 +141,7 @@ public sealed class SpidLayerTests : IDisposable
     public void ADisplayNameTokenTouchesNoPluginAndIsMarked()
     {
         Assert.Contains("1 line(s) in 1 of 2 file(s)", _w.Layer(plugins: new[] { SpidWorld.Other }));   // only :6's plugin term
-        Assert.Contains("string filter 'Skald' is no NPC or keyword EditorID, so it matches by name (an actor's display name) in the running game",
+        Assert.Contains("string filter 'Skald' is no NPC or keyword EditorID, so in the running game SPID matches it against an NPC's name",
             _w.Layer(filter: "HcA_"));
     }
 
