@@ -29,7 +29,8 @@ public static partial class RuntimeFormats
         var ctx = "distributors." + key;
         var folders = row.GetProperty("folders").EnumerateArray().Select(f => Folder(f, ctx + ".folders")).ToList();
         if (folders.Count == 0) throw new InvalidOperationException($"runtime-format source [{ctx}]: 'folders' is empty.");
-        return new DistributorFormat(key, Str(row, "format", ctx), folders, Targets(row.GetProperty("targets"), ctx + ".targets"));
+        return new DistributorFormat(key, Str(row, "format", ctx), Str(row, "version", ctx), folders, Targets(row.GetProperty("targets"), ctx + ".targets"),
+            Lines(row, key, ctx));
     }
 
     static DistributorFolder Folder(JsonElement f, string ctx)
@@ -92,6 +93,7 @@ public static partial class RuntimeFormats
                Str(t, "missingName", ctx) switch
                {
                    "createsKeyword" => TargetMissingName.CreatesKeyword,
+                   "byPosition" => TargetMissingName.ByPosition,
                    "namesNothing" => TargetMissingName.NamesNothing,
                    "unread" => TargetMissingName.Unread,
                    var v => throw Unknown(ctx, "missingName", v),
@@ -105,13 +107,15 @@ public static partial class RuntimeFormats
                });
 }
 
-/// <summary>One distributor format's row: the folders it reads and how a target token in it is spelt. A format's line
-/// kinds, conflict model and labels are its own lane's and are not here.</summary>
+/// <summary>One distributor format's row: the folders it reads, how a target token in it is spelt, and, once its reader
+/// has landed, its line grammar (<see cref="Lines"/>; SPID's today, null for a format whose lines are not read yet).</summary>
 public sealed record DistributorFormat(
     string Key,
     string Name,
+    string Version,
     IReadOnlyList<DistributorFolder> Folders,
-    TargetSpelling Targets);
+    TargetSpelling Targets,
+    SpidGrammar? Lines);
 
 /// <summary>One folder a format reads: where it is under Data, which names it takes there, whether the DLL sorts that
 /// folder's list, and whether the read descends into subfolders.</summary>
@@ -159,8 +163,10 @@ public enum TargetBareFormId { NotAFormId, RuntimeFormId, Unread }
 /// <summary>What makes a term a plugin name: nothing, the extension text anywhere in it, the extension at its end, or a rule not read for this format.</summary>
 public enum TargetPluginTerm { NotATerm, ContainsExtensionText, EndsWithExtension, Unread }
 
-/// <summary>What a name no record holds does: nothing, or the framework creating a keyword of that name; or a rule not read for this format.</summary>
-public enum TargetMissingName { NamesNothing, CreatesKeyword, Unread }
+/// <summary>What a name no record holds does: nothing, the framework creating a keyword of that name, an outcome the
+/// line's own position decides (its reader says it, the resolver only that the name finds nothing), or a rule not read
+/// for this format.</summary>
+public enum TargetMissingName { NamesNothing, CreatesKeyword, ByPosition, Unread }
 
 /// <summary>Which records an EditorID is looked up among: the call's scope, every type as the game's own map keeps them, or a rule not read for this format.</summary>
 public enum TargetEditorIdScope { Scoped, EveryType, Unread }

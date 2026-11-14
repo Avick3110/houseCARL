@@ -99,7 +99,9 @@ call's one EditorID table (`SkyPatcherEditorIdTable`), case-insensitive, where t
 loaded under a name keeps it, as the game's map does (po3 Tweaks inserts with `emplace`, so a later
 record never replaces a name; a renaming override leaves the master's name in the map). The table
 walks every instance of a type, plugin by plugin in load order, not only winners, so a name a later
-override drops still names the record. A lookup scoped to a type takes the first loaded record of
+override drops still names the record. A walk reads each plugin once for all its types: each group
+holding one of them is read once, so a cell and every reference, navmesh and landscape in it share
+one read, and a walk over every type costs one pass over the order. A lookup scoped to a type takes the first loaded record of
 that scope. A direct-list EditorID names that one record, as SkyPatcher resolves it before comparing
 FormIDs, never every record whose own EditorID matches.
 
@@ -254,8 +256,9 @@ zero answer leaves them out (#1286).
 ### Selecting lines: `housecarl_layer`
 
 The tool is `housecarl_layer`, one tool for the runtime layers with a format selector (spec R3, R38). `distributor=`
-takes `skypatcher`, the one format read; omitted, every format read is read. `oar`, `ied`, `desc` and `dsd` are refused
-as not read, by name; `spid`, `kid`, `bos` and `flm` as not read yet. The old name `housecarl_skypatcher_layer` is
+takes `skypatcher` and `spid`, the formats read; omitted, every format read is read, SkyPatcher's answer first, then
+SPID's, sharing `max_chars` ([`spid-layer.md`](spid-layer.md)). `oar`, `ied`, `desc` and `dsd` are refused as not read, by name; `kid`,
+`bos` and `flm` as not read yet. The old name `housecarl_skypatcher_layer` is
 refused by its `AliasTable` row, naming `housecarl_layer`.
 
 `formids=` and `plugins=` select lines with the records meaning (R42, R47): `formids=` takes the FormID door's two
@@ -325,8 +328,8 @@ say the state is unknown.
 - Two records of one scope that share a name in one plugin tie by walk order (types in scope
   order, then later walks), not by their order in the file, so the duplicate note can name the
   other one, and which one wins can change with the other lines the layer holds.
-- A post read of a form list with an EditorID item walks every record type once in its call (about
-  24 s on a large order such as ARR; without po3 Tweaks only the types the game keeps names of), as
+- A post read of a form list with an EditorID item walks every record type once in its call (one
+  pass over every plugin; without po3 Tweaks only the types the game keeps names of), as
   does the layer listing under any `filter=` whose match expands a form-list INI with one (its
   folder, mod or path), and any `formids=` or `plugins=` call whose kept files hold one; the listing
   otherwise does not.
@@ -385,7 +388,10 @@ hardened.
   record and says so on its line, a name a renaming override drops still names the record, a later walk puts the
   record loaded first first, a name another type shares still names the scoped record, each kind of miss is reported on its line, a `0x` target is no miss, an
   untyped op finds its EditorID, an op with no scope misses beside one that walks every type
-  (`AnUnscopedOpEditorIdMissesBesideAScopedOne`), one call walks once (`EditorIdsAreWalkedOncePerCall`), a call
+  (`AnUnscopedOpEditorIdMissesBesideAScopedOne`), one call walks once (`EditorIdsAreWalkedOncePerCall`), a walk over
+  every type reads each group of each plugin once and puts the first loaded holder first
+  (`AnEveryTypeWalkReadsEachGroupOfEachPluginOnce`, `AnEveryTypeWalkPutsTheFirstLoadedHolderFirst`), a same-plugin
+  tie goes by type order (`ASamePluginTieGoesByTypeOrderNotFileOrder`), a call
   that looks up no form-list item walks only its own scopes (`ACallThatLooksUpNoFormListItemWalksOnlyItsScopes`), and
   without Tweaks a form-list item of a kept type resolves (`WithoutTweaksAFormListItemEditorIdOfAKeptTypeResolves`);
   holders sort by load position alone, each view in a call gets its own table, a digit-first name resolves, the

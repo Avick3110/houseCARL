@@ -124,7 +124,7 @@ static void AddMcp(IServiceCollection services, int? maxSchemaDepth)
             "NAMES a generator (… Resources, … Fixes) is an INPUT: patch it normally. " +
             "RUNTIME DISTRIBUTION LAYERS go by what RECEIVES the change: a spell, perk, item, keyword, outfit or " +
             "faction onto NPCs is SPID, best BY GROUP; a keyword onto ITEM RECORDS is KID; a record's OWN FIELDS, " +
-            "or an INDIVIDUAL NPC, is SkyPatcher, whose replayed layer " + ToolNames.Layer + " reads. " +
+            "or an INDIVIDUAL NPC, is SkyPatcher; " + ToolNames.Layer + " reads its and SPID's lines. " +
             "Read plugin contents and GMST/GLOB through " + ToolNames.Records + " first, never regex over bytes; a " +
             "setting no plugin defines has only its engine default, which houseCARL cannot show yet. " +
             "READ: winner, conflict tree, cross-plugin diff, FormID lists, MGEF trace, bulk queries, " +

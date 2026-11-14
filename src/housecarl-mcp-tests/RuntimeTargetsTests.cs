@@ -270,7 +270,7 @@ public sealed class RuntimeTargetsTests
     [Theory]
     [InlineData("\"bareFormId\": \"runtimeFormId\"", "\"bareFormId\": \"unread\"")]
     [InlineData("\"pluginTerm\": \"containsExtensionText\"", "\"pluginTerm\": \"unread\"")]
-    [InlineData("\"missingName\": \"createsKeyword\"", "\"missingName\": \"unread\"")]
+    [InlineData("\"missingName\": \"byPosition\"", "\"missingName\": \"unread\"")]
     [InlineData("\"editorIds\": \"everyType\"", "\"editorIds\": \"unread\"")]
     public void OneUnreadRuleAloneMakesATokenUnread(string from, string to)
     {

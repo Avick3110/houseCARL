@@ -13,6 +13,7 @@ internal sealed class SkyPatcherEditorIdTable
     readonly LoadOrderResolver.IndexView _view;
     readonly string? _tweaksMissing;
     readonly HashSet<Type> _swept = new();
+    readonly Dictionary<Type, int> _rank = new();   // each walked type's place: covers in call order, types in scope order
     readonly HashSet<Type> _incomplete = new();
     readonly Dictionary<string, Dictionary<FormKey, Holder>> _names = new(StringComparer.OrdinalIgnoreCase);
     readonly List<PluginUnreadableException> _unreadable = new();
@@ -39,6 +40,7 @@ internal sealed class SkyPatcherEditorIdTable
         var fresh = types.Where(t => !_swept.Contains(t)).Distinct().ToList();
         if (fresh.Count == 0) return;
         _swept.UnionWith(fresh);
+        foreach (var t in fresh) _rank[t] = _rank.Count;
         Interlocked.Increment(ref _view.Counters.EditorIdSweeps);
         Interlocked.Add(ref _view.Counters.EditorIdTypesWalked, fresh.Count);
         var kinds = new Dictionary<Type, (Type Getter, string Name)?>();
@@ -70,6 +72,6 @@ internal sealed class SkyPatcherEditorIdTable
         incomplete = scope is null ? _incomplete.Count > 0 : scope.Any(_incomplete.Contains);
         if (!_names.TryGetValue(editorId, out var holders)) return Array.Empty<Holder>();
         return holders.Values.Where(h => scope is null || scope.Any(t => t.IsAssignableFrom(h.Getter)))
-            .OrderBy(h => h.Position).ToList();
+            .OrderBy(h => h.Position).ThenBy(h => _rank[h.Getter]).ToList();   // a same-plugin tie by type, as skypatcher-layer.md says
     }
 }

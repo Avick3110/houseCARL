@@ -315,9 +315,21 @@ public sealed class LayerSelectTests : IDisposable
         Assert.DoesNotContain("[!] note:", text);
     }
 
+    // Omitted reads every format read: SkyPatcher's answer as distributor=['skypatcher'] gives it, then SPID's.
     [Fact]
-    public void DistributorSkypatcherReadsAsOmitted()
-        => Assert.Equal(Layer(), Layer(distributor: new[] { "SkyPatcher" }));
+    public void DistributorOmittedReadsSkyPatcherThenSpid()
+    {
+        var sky = Layer(distributor: new[] { "SkyPatcher" });
+        var all = Layer();
+        Assert.StartsWith(sky + "\n\nSPID layer (Spell Perk Item Distributor ", all);
+        Assert.DoesNotContain("SPID layer", sky);
+        Assert.Equal(all, Layer(distributor: new[] { "skypatcher", "spid" }));
+    }
+
+    // Pins unchanged behaviour: distributor=['skypatcher'] alone is SkyPatcher's answer as main gave it, with no SPID read.
+    [Fact]
+    public void DistributorSkypatcherAloneReadsNoSpid()
+        => Assert.DoesNotContain("SPID", Layer(distributor: new[] { "skypatcher" }, formids: new[] { _w.Plain }));
 
     [Fact]
     public void DistributorOarIsNotRead() => Assert.StartsWith(
@@ -335,18 +347,29 @@ public sealed class LayerSelectTests : IDisposable
     public void DistributorDsdIsNotRead() => Assert.StartsWith(
         "error: distributor='dsd' is not read: houseCARL does not read Dynamic String Distributor files", Layer(distributor: new[] { "dsd" }));
 
+    // The three still to come keep the "not read yet" refusal; the formats it says are read now include SPID.
     [Theory]
-    [InlineData("spid", "Spell Perk Item Distributor")]
     [InlineData("kid", "Keyword Item Distributor")]
     [InlineData("bos", "Base Object Swapper")]
     [InlineData("flm", "FormList Manipulator")]
     public void ADistributorStillToComeIsNotReadYet(string name, string full)
-        => Assert.StartsWith($"error: distributor='{name}' is not read yet: this build reads SkyPatcher lines only, and {full} lines",
+        => Assert.Equal($"error: distributor='{name}' is not read yet: this build reads SkyPatcher and Spell Perk Item Distributor lines, " +
+                        $"and {full} lines are not among them. distributor= takes 'skypatcher' or 'spid', or omit it for every format read.",
             Layer(distributor: new[] { name }));
+
+    // SPID's lines are read now: its refusal is retired, and the name reads SPID's layer.
+    [Fact]
+    public void DistributorSpidIsRead()
+    {
+        var text = Layer(distributor: new[] { "spid" });
+        Assert.StartsWith("SPID layer (Spell Perk Item Distributor 7.3.3 model; 7.3.0 reads its files the same)", text);
+        Assert.DoesNotContain("SkyPatcher layer", text);
+    }
 
     [Fact]
     public void AnUnknownDistributorIsNotAFormat()
-        => Assert.StartsWith("error: distributor='xyz' is not a format", Layer(distributor: new[] { "xyz" }));
+        => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid' are read; oar, ied, desc, dsd are not read; kid, bos, flm are not read yet.",
+            Layer(distributor: new[] { "xyz" }));
 
     // Q1 (a): the tool is housecarl_layer, and the old name is a retired row naming it.
     [Fact]
