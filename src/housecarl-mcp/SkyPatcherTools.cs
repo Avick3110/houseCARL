@@ -183,7 +183,8 @@ static class SkyPatcherWire
                + (f.ByEditorId ? f.Token + " → " + id : id) + "\n";
     }
 
-    static string Render(SkyPatcherLayerData d, string? filter, int maxChars, string? selectEcho)
+    /// <summary>The layer render before <see cref="RenderCap.Settle"/>: the body a joined answer carries as SkyPatcher's part.</summary>
+    internal static string Render(SkyPatcherLayerData d, string? filter, int maxChars, string? selectEcho)
     {
         var sb = new StringBuilder();
         // The caveats close the render, so their room is held back before the body is laid.
