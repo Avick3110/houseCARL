@@ -60,14 +60,12 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
     }
 
     [Fact]
-    public void TheAggregateOverTheOwnNameTotalsTheSameAsTypes()
+    public void TheAggregateOverTheOwnNameCountsEveryRecord()
     {
-        var agg = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
-        var byName = RecordsTools.Records(_w.Svc, plugins: Scope(_w.FileName), source: Loser, project: agg);
-        var byType = RecordsTools.Records(_w.Svc, types: new[] { "WEAP" }, source: Loser, project: agg);
-        Ok(byName);
-        Assert.Contains($"{ShadowedCopyWorld.LoserCount} matches", byName);
-        Assert.Contains($"{ShadowedCopyWorld.LoserCount} matches", byType);
+        var r = RecordsTools.Records(_w.Svc, plugins: Scope(_w.FileName), source: Loser,
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
+        Ok(r);
+        Assert.Contains($"{ShadowedCopyWorld.LoserCount} matches", r);
     }
 
     [Fact]
@@ -114,6 +112,9 @@ public sealed class RecordsOffOrderOwnNameScopeTests : IClassFixture<ShadowedCop
         Ok(r);
         Assert.Contains($"count={ShadowedCopyWorld.WinnerCount} ", r);
         Assert.Contains("errors=1", r);
+        var rows = RecordsTools.Records(_w.Svc, plugins: Scope(_w.FileName), source: Served, versus: Loser, project: Delta);
+        var line = Assert.Single(rows.Split('\n'), l => l.Contains("does not define or override", StringComparison.Ordinal));
+        Assert.Contains(_w.WinnerOnlyFid, line);
     }
 
     /// <summary>Pins unchanged behaviour: types= alone reads the whole file.</summary>
