@@ -334,7 +334,7 @@ static class StatusWire
         }
         sb.Append('\n');
         if (l.UnreadMeta.Count > 0)
-            sb.Append("  [!] ").Append(l.UnreadMeta.Count).Append(" meta.ini could not be read, so a folder carrying this id may be missing: ")
+            sb.Append("  [!] ").Append(l.UnreadMeta.Count).Append(" folder(s) not read (a meta.ini that would not read, or a folder that would not open), so a folder carrying this id may be missing: ")
               .Append(HousecarlCore.Mo2LoadOrder.Named(l.UnreadMeta)).Append('\n');
     }
 
