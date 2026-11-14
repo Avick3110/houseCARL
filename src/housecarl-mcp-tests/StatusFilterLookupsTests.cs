@@ -194,6 +194,13 @@ public sealed class StatusFilterLookupsTests : IClassFixture<StatusFilterLookups
         Assert.Contains("HcLkDep.esp ... [showing 1 of 5; raise max_chars to see all]", Lookup(StatusFilterLookupsWorld.Master, cap));
     }
 
+    /// <summary>Pins unchanged behaviour: the line is gated on the extension, so a plugin name the profile does not list and no folder holds still gets it.</summary>
+    [Fact]
+    public void APluginTheProfileDoesNotListGetsTheDependentsLine()
+    {
+        Assert.Contains("  named as a master by: none, in the order or on disk\n", Lookup("HcLkNowhere.esp"));
+    }
+
     /// <summary>A value that is not a plugin filename gets no dependents line.</summary>
     [Fact]
     public void AModFolderGetsNoDependentsLine()
