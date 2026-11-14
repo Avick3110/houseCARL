@@ -46,8 +46,9 @@ public static class StatusTools
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
         // Read only for a filter: the facts are a per-plugin locate and header read, and the whole-profile summary asks about none.
-        var facts = filter is { Length: > 0 } && data.ModsFolderUnreadable is null ? svc.PluginFactsFor(filter.Trim(), data) : null;
-        var lookups = filter is { Length: > 0 } ? FilterLookups.Read(filter.Trim(), data) : null;
+        var name = filter is { Length: > 0 } ? filter.Trim() : null;
+        var facts = name is not null && data.ModsFolderUnreadable is null ? svc.PluginFactsFor(name, data) : null;
+        var lookups = name is null ? null : FilterLookups.Read(name, data);
         return ToolAnswer.Served(StatusWire.Render(data, logs, profiles, filter, facts, Wire.Cap(max_chars), lookups));
     });
 }
@@ -176,10 +177,13 @@ static class StatusWire
         int shown = 0;
         foreach (var n in names)
         {
-            if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(names.Count).Append("; raise max_chars to see all]\n"); break; }
+            if (sb.Length >= cap) { sb.Append("  ").Append(CutNotice(shown, names.Count)).Append('\n'); break; }
             sb.Append("  - ").Append(n).Append('\n'); shown++;
         }
     }
+
+    /// <summary>The notice a name list cut at max_chars ends with.</summary>
+    static string CutNotice(int shown, int total) => $"... [showing {shown} of {total}; raise max_chars to see all]";
 
     /// <summary>Render the requested named profile's composition, or a refusal: explicit-paths mode has no profiles folder, and a name matching none lists the real options. A match says plainly that the active profile is unchanged.</summary>
     static void AppendNamedProfile(StringBuilder sb, NamedProfileResult p, int cap)
@@ -264,7 +268,7 @@ static class StatusWire
         // The common slip is the mod-folder name passed where the .esp filename was wanted; the suggester turns that into the plugin filename.
         if (pluginMiss) sb.Append(HousecarlCore.PluginNameSuggest.DidYouMean(name, c.OrderedPluginNames));
         sb.Append('\n');
-        if (lookups?.NexusId > 0) AppendNexusFolders(sb, c, lookups, modsUnreadable, cap);
+        if (lookups?.NexusId > 0) AppendNexusFolders(sb, c, lookups, cap);
 
         // An active plugin can still be excluded from the index, so the ACTIVE line above must not be taken as the whole truth.
         if (excluded.TryGetValue(name, out var why))
@@ -275,7 +279,8 @@ static class StatusWire
             sb.Append("  served from: unknown — houseCARL could not open the mods folder, so which folder serves this plugin cannot be read\n");
 
         // A name the profile lists as a plugin: its copies, then the header facts and the LOCALIZED flag the in-place write lanes refuse on.
-        // A plugin's dependents sit under its masters line when there is one, else close the lookup.
+        // A plugin's dependents sit under its masters line when there is one, else close the lookup. The gate is the
+        // extension, not the profile listing, so a plugin only on disk (a disabled mod's) still gets the line.
         bool isPlugin = HousecarlCore.PluginFile.IsPlugin(name);
         if (facts?.Header is null && isPlugin) AppendDependents(sb, lookups?.Dependents, cap);
         if (facts is null) return;
@@ -315,10 +320,10 @@ static class StatusWire
     }
 
     /// <summary>The mod folders whose meta.ini carries the Nexus id the filter reads as, each with its state in the profile.</summary>
-    static void AppendNexusFolders(StringBuilder sb, HousecarlCore.Mo2Composition c, FilterLookups l, bool modsUnreadable, int cap)
+    static void AppendNexusFolders(StringBuilder sb, HousecarlCore.Mo2Composition c, FilterLookups l, int cap)
     {
         sb.Append("  as a Nexus id: ");
-        if (modsUnreadable || l.NexusFolders is not { } folders)
+        if (l.NexusFolders is not { } folders)
         { sb.Append("unknown — houseCARL could not open the mods folder, so no meta.ini was read\n"); return; }
         if (folders.Count == 0) sb.Append("no mod folder's meta.ini carries it");
         else
@@ -361,7 +366,7 @@ static class StatusWire
     {
         for (int i = 0; i < names.Count; i++)
         {
-            if (sb.Length >= cap) { sb.Append(" ... [showing ").Append(i).Append(" of ").Append(names.Count).Append("; raise max_chars to see all]"); return; }
+            if (sb.Length >= cap) { sb.Append(' ').Append(CutNotice(i, names.Count)); return; }
             if (i > 0) sb.Append(", ");
             sb.Append(names[i]);
         }
@@ -382,7 +387,7 @@ static class StatusWire
             if (x != served) sb.Append("  also in:     ").Append(Line(x)).Append('\n');
     }
 
-    static bool Contains(IReadOnlyList<string> list, string name)
+    internal static bool Contains(IReadOnlyList<string> list, string name)
     {
         foreach (var s in list) if (string.Equals(s, name, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
@@ -397,7 +402,7 @@ public sealed record FilterLookups(int ModNexusId, int NexusId, IReadOnlyList<st
     {
         var c = d.Composition;
         bool readable = d.ModsFolderUnreadable is null;
-        bool isMod = c.EnabledMods.Concat(c.DisabledMods).Any(m => m.Equals(name, StringComparison.OrdinalIgnoreCase));
+        bool isMod = StatusWire.Contains(c.EnabledMods, name) || StatusWire.Contains(c.DisabledMods, name);
         int modId = readable && isMod && d.ModsDir.Length > 0 ? HousecarlCore.Mo2ModMeta.ModIdOf(HousecarlCore.LooseListings.OnDisk(d.ModsDir, name)) : 0;
         int nexusId = int.TryParse(name, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0 ? id : 0;
         var unread = new List<string>();
