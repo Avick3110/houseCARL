@@ -35,8 +35,10 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
 - **Labels** (DECISIONS 2026-11-13 (13) SPID Q1, Q2): the value is `value`; an NPC or placed NPC named in a plain or
   `+` form filter, or a plain or `+` string filter equal to an NPC's EditorID, is `target`; every other resolved
   filter form, excluded NPCs, linked parents and group members are `filter`. A string filter that is no NPC or keyword
-  EditorID names no form; the line says SPID matches it in the running game against an NPC's name and its keywords'
-  EditorIDs, a keyword SPID creates included. A `*` string names no form.
+  EditorID names no form; the line says SPID matches it in the running game against an NPC's name, its own and its
+  template's EditorIDs and its keywords' EditorIDs, its race's and a keyword SPID creates included. A `*` string names
+  no form; the line says it matches part of an NPC's name, of its own or its template's EditorID or of
+  one of its keywords' EditorIDs.
 - **What SPID does where a name finds nothing** (research answer 3): a value EditorID no record holds creates a keyword
   on a `Keyword` or `Form` line, creates one and hands nothing out on a `Spell` or `Package` line, and drops the line on
   every other type; a value FormID or plugin that names nothing drops the line. In the form filters a plain or `-`

@@ -350,10 +350,11 @@ public static class SpidLines
         var notes = new List<string>();
         if (names.Count > 0)
             notes.Add($"string filter {Quoted(names)} {(names.Count == 1 ? "is" : "are")} no {string.Join(" or ", g.StringLookups.Select(Spoken))} EditorID, so " +
-                      $"in the running game SPID matches {(names.Count == 1 ? "it" : "them")} against an NPC's name and its keywords' EditorIDs " +
-                      "(a keyword SPID creates included), which is not read here");
+                      $"in the running game SPID matches {(names.Count == 1 ? "it" : "them")} against an NPC's name, its own and its template's EditorIDs " +
+                      "and its keywords' EditorIDs (its race's and a keyword SPID creates included), which is not read here");
         if (partial.Count > 0)
-            notes.Add($"string filter {Quoted(partial)} {(partial.Count == 1 ? "matches" : "match")} part of a name in the running game, which is not read here");
+            notes.Add($"string filter {Quoted(partial)} {(partial.Count == 1 ? "matches" : "match")} part of an NPC's name, of its own or its template's EditorID " +
+                      "or of one of its keywords' EditorIDs in the running game, which is not read here");
         return (forms, notes);
     }
 
