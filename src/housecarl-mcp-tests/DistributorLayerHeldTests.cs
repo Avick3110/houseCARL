@@ -123,6 +123,19 @@ public sealed class DistributorLayerHeldTests : IDisposable
         Held("spid-kid-none", Layer(w, Both));
     }
 
+    // r1 #9: KID's lines are read across every file at once, so file 2's filter finds the keyword file 1 creates.
+    [Fact]
+    public void AFilterNamingAKeywordAnotherFileCreatesIsHeld()
+    {
+        using var w = new SpidWorld(new[]
+        {
+            ("HcA_KID.ini", "Keyword = HcVisor|Armor|HcBoots\r\n"),
+            ("HcB_KID.ini", "Keyword = HcTag|Armor|HcVisor\r\n"),
+            (SpidWorld.SkyNpcIni, "filterByNpcs=HcSpid.esp|810:weight=5\r\n"),
+        });
+        Held("kid-filter-across-files", Layer(w, Kid, filter: "HcB_"));
+    }
+
     // A file that cannot be read: its read-error row, on each format.
     [Fact]
     public void AFileThatCannotBeReadIsHeld()
