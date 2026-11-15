@@ -284,6 +284,18 @@ public sealed class BosLinesTests
         Assert.False(places.ContainsKey((1, 1)));   // dropped: no place
     }
 
+    // SimpleIni :2458-2483: a section's lines file before a later section's, even where a repeated header brings more
+    // of its lines after that section's ([References] and [Reference] are two sections of one map).
+    [Fact]
+    public void ARepeatedHeadersLinesFileWithItsFirstAppearance()
+    {
+        var w = new World();
+        var a = BosLines.Parse("[References]\nHcRock|HcRockMossy\n[Reference]\nHcRock|HcRockSnowy\n[References]\nHcRock|HcTownKw", Bos, "A_SWAP.ini");
+        var places = BosLines.Places(new[] { (a, BosLines.ReadAll(a, w.Ctx)) });
+        Assert.Equal(2, places[(0, 2)][0].Index);
+        Assert.Equal(3, places[(0, 1)][0].Index);
+    }
+
     // Manager.cpp:50, :161: conditional lines file per base under 'file|conditions', the sets tried from the last key back.
     [Fact]
     public void ConditionalLinesFileUnderTheirSet()
