@@ -37,7 +37,7 @@ public sealed class KidLayerTests : IDisposable
     {
         var text = Kid(_w, plugins: new[] { SpidWorld.ArmorSrc });
         Assert.Contains("  - HcA_KID.ini  (file 1 of 2, 3 line(s)) ← HcSpidIni\n      :2  Keyword = HcVisor|Armor|HcBoots\n"
-                        + "          [!] keyword 'HcVisor' is no keyword's EditorID, so KID creates a keyword of that name and hands it out\n"
+                        + "          [!] keyword 'HcVisor' is no keyword's EditorID, so KID creates one keyword of that name for all the KID lines naming it, in any case, and this line hands it out\n"
                         + "          ↳ target filters: HcBoots → " + Boots, text);
         Assert.DoesNotContain(":5  ", text);
     }
