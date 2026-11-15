@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-14
+updated: 2026-11-15
 covers: [src/housecarl-core/SpidLines.cs, src/housecarl-core/SpidGrammar.cs, src/housecarl-mcp/SpidLayer.cs, src/housecarl-mcp/SpidWire.cs]
 ---
 # The SPID layer
@@ -69,7 +69,10 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   was left, with the same `distributor=["spid"]` remedy. It names no cap to raise to, since while SkyPatcher's part is
   cut a higher cap shows no more SPID; `RenderCap.Settle` is not used here. SPID is read after SkyPatcher's scans in the same
   replay context, so the two share one EditorID table. SkyPatcher's part carries the build caveats; SPID's alone
-  carries them when it is the whole answer.
+  carries them when it is the whole answer. KID's part follows SPID's in the same way ([`kid-layer.md`](kid-layer.md)):
+  with `distributor` omitted and no selector or `filter=`, SPID's and KID's parts are one summary line each, closed by
+  `distributor=["spid"] lists its files`; the over-cap sentence then names every part that came first and every part
+  that did not fit. A call naming `skypatcher` and `spid` only reads as this section says.
 
 ## Known limitations
 
@@ -95,7 +98,7 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   anew, one EditorID walk for both formats, none for a `filter=` no SPID file matches; `SpidWireTests` — an archive-only copy said not applied.
 - `SpidLayerTests.SkyPatcherKeepsItsWholeAnswerAndSpidTakesWhatIsLeft` and `SpidLinesAreCutWithTheirNoticeAfterSkyPatchersPart`
   — the shared `max_chars`.
-- `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpid`, `DistributorSpidIsRead`,
+- `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpidThenKid`, `DistributorSpidIsRead`,
   `ADistributorStillToComeIsNotReadYet`.
 
 ## Where

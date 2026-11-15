@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-14
+updated: 2026-11-15
 covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherReach.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-core/SkyPatcherEditorIds.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/SkyPatcherReplay.cs]
 ---
 # The SkyPatcher layer
@@ -256,9 +256,9 @@ zero answer leaves them out (#1286).
 ### Selecting lines: `housecarl_layer`
 
 The tool is `housecarl_layer`, one tool for the runtime layers with a format selector (spec R3, R38). `distributor=`
-takes `skypatcher` and `spid`, the formats read; omitted, every format read is read, SkyPatcher's answer first, then
-SPID's, sharing `max_chars` ([`spid-layer.md`](spid-layer.md)). `oar`, `ied`, `desc` and `dsd` are refused as not read, by name; `kid`,
-`bos` and `flm` as not read yet. The old name `housecarl_skypatcher_layer` is
+takes `skypatcher`, `spid` and `kid`, the formats read; omitted, every format read is read, SkyPatcher's answer first,
+then SPID's, then KID's, sharing `max_chars` ([`spid-layer.md`](spid-layer.md), [`kid-layer.md`](kid-layer.md)). `oar`,
+`ied`, `desc` and `dsd` are refused as not read, by name; `bos` and `flm` as not read yet. The old name `housecarl_skypatcher_layer` is
 refused by its `AliasTable` row, naming `housecarl_layer`.
 
 `formids=` and `plugins=` select lines with the records meaning (R42, R47): `formids=` takes the FormID door's two
