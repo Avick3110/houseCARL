@@ -69,8 +69,9 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
 
 - A form-list filter is named itself and not followed to its members (KID tests a list's members at runtime,
   `ItemData.cpp:212-226`); no dev or ARR line names one (top-up T3).
-- Traits are not read beyond whether the type takes any; an unknown trait, ignored by KID, is not said, nor a trait
-  KID throws on.
+- Traits are not read beyond whether the type takes any; a misspelt trait is not said, whether KID ignores it or reads
+  it as another trait (a substring or digits-only match, or any trait as a soul gem's capacity, KID 4.0.6
+  `include/Data/Traits.h`), nor a trait KID throws on.
 - An `ExclusiveGroup` member KID removes with `-` is not checked against the members it adds.
 - Lines are listed in file order; KID's key-then-line order, its type pass order (Magic Effect first) and its keyword
   dependency sort are not modelled (plan step 30).
