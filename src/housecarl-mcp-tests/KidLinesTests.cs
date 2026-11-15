@@ -229,6 +229,13 @@ public sealed class KidLinesTests
         Assert.Contains(reads[2]!.Notes, n => n.StartsWith("filters 'HcLoose' is no record's EditorID and no keyword a KID line creates, so KID keeps it as text"));
         Assert.DoesNotContain(reads[2]!.Notes, n => n.StartsWith("filters") && n.Contains("creates a keyword of that name"));
     }
+
+    // r1 #15 (Cache.h:5, addedKeywords an IStringMap): a filter finds a created keyword by name in any case.
+    [Fact]
+    public void AFilterFindsACreatedKeywordInAnyCase()
+        => Assert.Contains("filters 'hcmade' is no record's EditorID but names the keyword a KID line creates, so it matches the items that keyword is given to",
+            new World().ReadAll("Keyword = HcMade|Book\nKeyword = HcTag|Armor|hcmade")[1]!.Notes);
+
     // Answer 5 by section, the filters: a FormID or plugin that names nothing, or a record KID does not take as a filter
     // (FormData.cpp:110-148), is skipped and the line widens; every plain filter failing drops it (dev
     // BOOBIES_RotolMoreIcons_KID.ini:3, a plugin not in the order; Aetherium Forge Destroys Items_KID.ini:49, a FormID of one).
