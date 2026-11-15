@@ -22,8 +22,8 @@ public static class KidLines
     }
 
     /// <summary>One line of a file as KID splits it. <see cref="IsGroup"/> marks an <c>ExclusiveGroup</c> line;
-    /// <see cref="Keyword"/> is the keyword section (a group's name); <see cref="Skipped"/> says why KID reads no entry
-    /// from it (null when it reads one); <see cref="Notes"/> are what KID ignores on the way.</summary>
+    /// <see cref="Keyword"/> is the keyword section (a group's name); <see cref="Skipped"/> says why KID does not apply
+    /// it (null when it does); <see cref="Notes"/> are what KID ignores on the way.</summary>
     public sealed record Line(int Number, string Raw, string Key, bool IsGroup, string? Type, string Keyword,
                               IReadOnlyList<Token> Tokens, string? Skipped, IReadOnlyList<string> Notes);
 
