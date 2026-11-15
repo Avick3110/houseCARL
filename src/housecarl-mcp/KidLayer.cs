@@ -13,9 +13,8 @@ internal sealed partial class AssetLayers
                                            Func<FormKey, bool>? wanted, IReadOnlyList<string>? namedPlugins, bool formIdsGiven, CancellationToken ct)
     {
         var format = RuntimeFormats.Kid;
-        var g = format.KidLines!;
         return DistributorLayer(format, replay, filter, wanted, namedPlugins, formIdsGiven, ct,
-            text => KidLines.Parse(text, g),
+            text => KidLines.Parse(text, format),
             lines => KidLines.ReadAll(lines, new KidLines.Context(replay.Forms, view.WinnerClassOf, format)));
     }
 }
