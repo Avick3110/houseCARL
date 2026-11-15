@@ -17,7 +17,7 @@ public sealed class KidLinesTests
     static readonly ModKey Mod = ModKey.FromFileName("HcKid.esp");
     static FormKey K(uint id) => new(Mod, id);
     static readonly FormKey Helmet = K(0x800), Kw = K(0x801), Sword = K(0x802), Recipe = K(0x803), List = K(0x804),
-        Npc1 = K(0x805), Book1 = K(0x806), Elsewhere = FormKey.Factory("000800:HcOther.esp");
+        Elsewhere = FormKey.Factory("000800:HcOther.esp");
 
     sealed class World
     {
@@ -35,8 +35,6 @@ public sealed class KidLinesTests
             Add(Sword, "HcSword", typeof(Weapon));
             Add(Recipe, "HcRecipe", typeof(ConstructibleObject));
             Add(List, "HcList", typeof(FormList));
-            Add(Npc1, "HcNpc", typeof(Npc));
-            Add(Book1, "HcBook", typeof(Book));
             Add(Elsewhere, "HcElsewhere", typeof(Armor), 0x02000800);
         }
 
