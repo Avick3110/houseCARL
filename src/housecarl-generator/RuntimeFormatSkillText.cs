@@ -166,8 +166,8 @@ public static class RuntimeFormatSkillText
                 "keyword doesn't exist`). Every line's keyword is created before any filter is read, so a line its filters drop " +
                 "still creates it, and another line's filter can name it. In the filters a FormID, a runtime FormID or a plugin that " +
                 "names nothing, or a record of a type KID does not take as a filter, is skipped and the line reaches more items " +
-                $"(or, among the `{g.Not}` entries, excludes fewer), unless every plain entry fails, or every `{g.Not}` entry fails: " +
-                $"then the line is dropped. A `{g.All}` group one part of which fails is dropped, and when every group is dropped, " +
+                $"(or, among the `{g.Not}` entries, excludes fewer), unless every plain entry without a leading `{g.Partial}` fails " +
+                $"(a `{g.Partial}` entry does not keep the line), or every `{g.Not}` entry fails: then the line is dropped. A `{g.All}` group one part of which fails is dropped, and when every group is dropped, " +
                 "so is the line. A filter name no record holds and no KID line creates is kept as text: it matches an item whose " +
                 "EditorID or name is that text, or, for an actor-value or archetype name, whose own actor value or archetype it is. " +
                 "A filter never creates a keyword.", 100),
