@@ -3,36 +3,82 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>Renders SPID's layer as text, bounded by max_chars with explicit cut notices, and joins it to SkyPatcher's
-/// render when one call reads both; SkyPatcher's part is its own render, unchanged.</summary>
+/// <summary>Renders SPID's layer as text, bounded by max_chars with explicit cut notices, and joins the formats one call
+/// reads: SkyPatcher's part is its own render, unchanged, and each later format takes what the earlier ones leave.</summary>
 static class SpidWire
 {
-    /// <summary>The layer tool's answer for the formats the call reads, inside <paramref name="cap"/>.</summary>
-    public static string RenderLayers(SkyPatcherLayerData d, string? filter, int cap, string? selectEcho)
+    /// <summary>One distributor format's part of a joined answer: its name and key, its render at a cap (as the whole
+    /// answer, or after the parts the phrase names), and its one summary line.</summary>
+    sealed record Part(string Name, string Key, Func<int, string?, string> Render, Func<string> Summary);
+
+    /// <summary>The layer tool's answer for the formats the call reads, inside <paramref name="cap"/>.
+    /// <paramref name="everyFormat"/> is true when <c>distributor</c> was omitted, so with no selector and no filter= the
+    /// distributor formats answer one summary line each.</summary>
+    public static string RenderLayers(SkyPatcherLayerData d, string? filter, int cap, string? selectEcho, bool everyFormat = false)
     {
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
-        if (d.Spid is not { } spid) return SkyPatcherWire.RenderLayer(d, filter, cap, selectEcho);
-        if (!d.SkyPatcherRead) return RenderCap.Settle(Render(spid, d, filter, cap, selectEcho, owner: true), cap);
-        // SkyPatcher's part is its own answer at the whole cap; SPID's takes what is left (spid-layer.md, two formats).
-        var sky = SkyPatcherWire.Render(d, filter, cap, selectEcho);
-        var joined = sky + Gap + Render(spid, d, filter, cap - sky.Length - Gap.Length, selectEcho, owner: false);
-        return joined.Length <= cap ? joined : joined + "\n[!] " + JoinedOverran(cap, sky.Length);
+        var parts = new List<Part>();
+        if (d.Spid is { } spid)
+            parts.Add(new Part("SPID", "spid", (c, after) => Render(spid, d, filter, c, selectEcho, after), () => Header(spid) + Lists("spid")));
+        if (d.Kid is { } kid)
+            parts.Add(new Part("KID", "kid", (c, after) => KidWire.Render(kid, d, filter, c, selectEcho, after), () => KidWire.Header(kid) + Lists("kid")));
+        if (parts.Count == 0) return SkyPatcherWire.RenderLayer(d, filter, cap, selectEcho);
+        if (!d.SkyPatcherRead && parts.Count == 1) return RenderCap.Settle(parts[0].Render(cap, null), cap);
+        // The first part is its own answer at the whole cap; each later one takes what is left (spid-layer.md, the formats one call reads).
+        var shown = new List<(string Name, string Key, int Length)>();
+        string joined;
+        if (d.SkyPatcherRead)
+        {
+            joined = SkyPatcherWire.Render(d, filter, cap, selectEcho);
+            shown.Add(("SkyPatcher", "skypatcher", joined.Length));
+        }
+        else
+        {
+            var lead = parts[0];
+            parts.RemoveAt(0);
+            joined = lead.Render(cap, null);
+            shown.Add((lead.Name, lead.Key, joined.Length));
+        }
+        bool summary = everyFormat && filter is null && selectEcho is null;
+        var unfit = new List<Part>();
+        foreach (var p in parts)
+        {
+            int room = cap - joined.Length - Gap.Length;
+            var text = summary ? p.Summary() : p.Render(room, After(shown));
+            if (unfit.Count > 0 || text.Length > room) unfit.Add(p); else shown.Add((p.Name, p.Key, text.Length));
+            joined += Gap + text;
+        }
+        return joined.Length <= cap ? joined : joined + "\n[!] " + JoinedOverran(cap, shown, unfit);
     }
 
     const string Gap = "\n\n";
 
-    /// <summary>The joined answer's over-cap sentence (spid-layer.md, two formats).</summary>
-    static string JoinedOverran(int cap, int sky) =>
-        "this response runs past the max_chars=" + cap + " it was given: SkyPatcher's part comes first, as " +
-        "distributor=[\"skypatcher\"] answers it (" + sky + " chars), and SPID's part does not fit in what is left; " +
-        "distributor=[\"spid\"] reads SPID alone at the whole max_chars.";
+    /// <summary>The tail of a summary line: the call that lists the format's files.</summary>
+    static string Lists(string key) => "; distributor=[\"" + key + "\"] lists its files";
 
-    /// <summary>SPID's part. <paramref name="owner"/> is true when it is the whole answer, so it closes on the build caveats
-    /// SkyPatcher's part otherwise carries.</summary>
-    static string Render(SpidLayerData s, SkyPatcherLayerData d, string? filter, int maxChars, string? selectEcho, bool owner)
+    /// <summary>The parts a later part's cut notice says it came after: "SkyPatcher's part", "SkyPatcher's and SPID's parts".</summary>
+    static string After(IReadOnlyList<(string Name, string Key, int Length)> shown)
+        => shown.Count == 1 ? shown[0].Name + "'s part"
+            : string.Join(", ", shown.Take(shown.Count - 1).Select(x => x.Name + "'s")) + " and " + shown[^1].Name + "'s parts";
+
+    /// <summary>The joined answer's over-cap sentence (spid-layer.md, the formats one call reads): the parts that came
+    /// first with their lengths, then the parts that did not fit, each with the call that reads it alone.</summary>
+    static string JoinedOverran(int cap, IReadOnlyList<(string Name, string Key, int Length)> shown, IReadOnlyList<Part> unfit)
     {
-        var caveats = owner ? SkyPatcherWire.Caveats(d, maxChars) : "";
-        int cap = maxChars - caveats.Length;
+        var sb = new StringBuilder("this response runs past the max_chars=").Append(cap).Append(" it was given: ")
+            .Append(shown[0].Name).Append("'s part comes first, as distributor=[\"").Append(shown[0].Key).Append("\"] answers it (")
+            .Append(shown[0].Length).Append(" chars)");
+        foreach (var s in shown.Skip(1)) sb.Append(", then ").Append(s.Name).Append("'s part (").Append(s.Length).Append(" chars)");
+        if (unfit.Count == 1)
+            return sb.Append(", and ").Append(unfit[0].Name).Append("'s part does not fit in what is left; distributor=[\"").Append(unfit[0].Key)
+                .Append("\"] reads ").Append(unfit[0].Name).Append(" alone at the whole max_chars.").ToString();
+        return sb.Append(", and ").Append(string.Join(" and ", unfit.Select(u => u.Name + "'s"))).Append(" parts do not fit in what is left; ")
+            .Append(string.Join(" and ", unfit.Select(u => "distributor=[\"" + u.Key + "\"]"))).Append(" read each alone at the whole max_chars.").ToString();
+    }
+
+    /// <summary>SPID's header line, without its line end: the model, the profile, the files and the lines by type.</summary>
+    static string Header(SpidLayerData s)
+    {
         var sb = new StringBuilder();
         var files = s.Files;
         var g = s.Format.Lines!;
@@ -47,7 +93,20 @@ static class SpidWire
             .GroupBy(l => l.Kind == SpidLineKind.ExclusiveGroup ? l.Key : l.Type!).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal);
         if (lines > 0) sb.Append(": ").Append(string.Join(", ", byType.Select(x => x.Key + " " + x.Count())));
         if (skipped > 0) sb.Append("; ").Append(skipped).Append(" line(s) SPID skips");
-        sb.Append('\n');
+        return sb.ToString();
+    }
+
+    /// <summary>SPID's part. <paramref name="after"/> is null when it is the whole answer, so it closes on the build
+    /// caveats SkyPatcher's part otherwise carries; else it names the parts before it, as its cut notices say.</summary>
+    static string Render(SpidLayerData s, SkyPatcherLayerData d, string? filter, int maxChars, string? selectEcho, string? after)
+    {
+        bool owner = after is null;
+        var caveats = owner ? SkyPatcherWire.Caveats(d, maxChars) : "";
+        int cap = maxChars - caveats.Length;
+        var sb = new StringBuilder();
+        var files = s.Files;
+        var g = s.Format.Lines!;
+        sb.Append(Header(s)).Append('\n');
         if (files.Count == 0)
             sb.Append("no SPID files in the active order: no file directly in Data has '").Append(s.Format.Folders[0].NameToken)
               .Append("' in its name and the '").Append(s.Format.Folders[0].Extension).Append("' extension.\n");
@@ -82,7 +141,8 @@ static class SpidWire
 
         var notes = NoteLines(s, d, owner, Math.Min(cap / BatchRender.CaveatShare, Math.Max(0, cap - sb.Length)));
         cap -= notes.Length;
-        string fileCut = owner ? FileCut : JoinedFileCut, lineCut = owner ? LineCut : JoinedLineCut;
+        string fileCut = owner ? FileCut : JoinedCut("  ... [SPID files", after!, "spid", "SPID"),
+               lineCut = owner ? LineCut : JoinedCut("      ... [SPID lines", after!, "spid", "SPID");
         string hint = !expand && sb.Length + Hint.Length + fileCut.Length <= cap ? Hint : "";
         int room = cap - hint.Length - fileCut.Length - (expand ? lineCut.Length : 0);
         bool cut = false;
@@ -110,9 +170,9 @@ static class SpidWire
     const string Hint = "\n→ filter='<file or mod>' expands a SPID file's lines with what SPID does with each; formids= or plugins= lists the lines naming a form, labelled target, filter or value.";
     const string FileCut = "  ... [SPID files cut at max_chars — raise it or narrow filter=]\n";
     const string LineCut = "      ... [SPID lines cut at max_chars — raise it or narrow filter=, formids= or plugins=]\n";
-    // In the joined answer SkyPatcher's part takes the cap first, so the cut names the call that reads SPID alone.
-    const string JoinedFileCut = "  ... [SPID files cut at max_chars after SkyPatcher's part — distributor=[\"spid\"] reads SPID alone at the whole max_chars]\n";
-    const string JoinedLineCut = "      ... [SPID lines cut at max_chars after SkyPatcher's part — distributor=[\"spid\"] reads SPID alone at the whole max_chars]\n";
+    /// <summary>A later part's cut notice: the earlier parts take the cap first, so it names the call that reads the format alone.</summary>
+    internal static string JoinedCut(string head, string after, string key, string name)
+        => head + " cut at max_chars after " + after + " — distributor=[\"" + key + "\"] reads " + name + " alone at the whole max_chars]\n";
 
     /// <summary>A zero answer's close: its notes and, when it is the whole answer, the caveats.</summary>
     static string Close(SpidLayerData s, SkyPatcherLayerData d, StringBuilder sb, int cap, string caveats, bool owner)

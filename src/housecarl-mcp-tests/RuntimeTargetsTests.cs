@@ -178,12 +178,13 @@ public sealed class RuntimeTargetsTests
 
     // (f) Probe: a name no record holds is a keyword the framework creates, where SkyPatcher's row says it names nothing.
     [Fact]
-    public void ANameNoRecordHoldsIsCreatedAsAKeywordWhereTheRowSaysSo()
+    public void ANameNoRecordHoldsFindsNothingAndKidsReaderSaysWhatKidDoes()
     {
-        Assert.Contains("creates a keyword of that name", RuntimeTargets.Report("ArmorHeavyFancy", null, Order(), Format("kid")));
-        Assert.Equal("finds no record by that EditorID in the active order",
-            RuntimeTargets.Report("ArmorHeavyFancy", null, Order(),
-                ShippedRows.Distributor("kid", ("\"missingName\": \"createsKeyword\"", "\"missingName\": \"namesNothing\""))));
+        // KID creates a keyword for a keyword-section name and keeps a filter name as text, so the row leaves the
+        // outcome to its reader (KidLinesTests) and the resolver says only that the name finds nothing.
+        Assert.Equal("finds no record by that EditorID in the active order", RuntimeTargets.Report("ArmorHeavyFancy", null, Order(), Format("kid")));
+        Assert.Throws<InvalidOperationException>(() =>
+            ShippedRows.Distributor("kid", ("\"missingName\": \"byPosition\"", "\"missingName\": \"createsKeyword\"")));
     }
 
     // (e) Probe: the gap is said of a lookup that found nothing, after it — a name a kept type holds reports as it

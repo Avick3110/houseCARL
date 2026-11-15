@@ -315,15 +315,21 @@ public sealed class LayerSelectTests : IDisposable
         Assert.DoesNotContain("[!] note:", text);
     }
 
-    // Omitted reads every format read: SkyPatcher's answer as distributor=['skypatcher'] gives it, then SPID's.
+    // Omitted reads every format read: SkyPatcher's answer as distributor=['skypatcher'] gives it, then SPID's, then
+    // KID's. Pick "(b) One summary line each": with no selector and no filter= SPID and KID answer one line each,
+    // naming the call that lists the files; named, the same formats list them.
     [Fact]
-    public void DistributorOmittedReadsSkyPatcherThenSpid()
+    public void DistributorOmittedReadsSkyPatcherThenSpidThenKid()
     {
         var sky = Layer(distributor: new[] { "SkyPatcher" });
         var all = Layer();
         Assert.StartsWith(sky + "\n\nSPID layer (Spell Perk Item Distributor ", all);
         Assert.DoesNotContain("SPID layer", sky);
-        Assert.Equal(all, Layer(distributor: new[] { "skypatcher", "spid" }));
+        int kidAt = all.IndexOf("\n\nKID layer (Keyword Item Distributor ", StringComparison.Ordinal);
+        Assert.Equal(Layer(distributor: new[] { "spid" }).Split('\n')[0] + "; distributor=[\"spid\"] lists its files", all[(sky.Length + 2)..kidAt]);
+        Assert.Equal(Layer(distributor: new[] { "kid" }).Split('\n')[0] + "; distributor=[\"kid\"] lists its files", all[(kidAt + 2)..]);
+        Assert.NotEqual(all, Layer(distributor: new[] { "skypatcher", "spid", "kid" }));
+        Assert.Equal(Layer(formids: new[] { _w.Plain }), Layer(formids: new[] { _w.Plain }, distributor: new[] { "skypatcher", "spid", "kid" }));
     }
 
     // r1 #12, Aaron's pick "Reads as omitted": an empty distributor= answers exactly as an omitted one.
@@ -355,15 +361,25 @@ public sealed class LayerSelectTests : IDisposable
     public void DistributorDsdIsNotRead() => Assert.StartsWith(
         "error: distributor='dsd' is not read: houseCARL does not read Dynamic String Distributor files", Layer(distributor: new[] { "dsd" }));
 
-    // The three still to come keep the "not read yet" refusal; the formats it says are read now include SPID.
+    // The two still to come keep the "not read yet" refusal; the formats it says are read now include SPID and KID
+    // (DECISIONS 2026-11-14 (17)).
     [Theory]
-    [InlineData("kid", "Keyword Item Distributor")]
     [InlineData("bos", "Base Object Swapper")]
     [InlineData("flm", "FormList Manipulator")]
     public void ADistributorStillToComeIsNotReadYet(string name, string full)
-        => Assert.Equal($"error: distributor='{name}' is not read yet: this build reads SkyPatcher and Spell Perk Item Distributor lines, " +
-                        $"and {full} lines are not among them. distributor= takes 'skypatcher' or 'spid', or omit it for every format read.",
+        => Assert.Equal($"error: distributor='{name}' is not read yet: this build reads SkyPatcher, Spell Perk Item Distributor and Keyword Item Distributor lines, " +
+                        $"and {full} lines are not among them. distributor= takes 'skypatcher', 'spid' or 'kid', or omit it for every format read.",
             Layer(distributor: new[] { name }));
+
+    // KID's lines are read now: its refusal is retired, and the name reads KID's layer alone.
+    [Fact]
+    public void DistributorKidIsRead()
+    {
+        var text = Layer(distributor: new[] { "kid" });
+        Assert.StartsWith("KID layer (Keyword Item Distributor 4.1.0 model; 4.0.6 reads its files the same)", text);
+        Assert.DoesNotContain("SkyPatcher layer", text);
+        Assert.DoesNotContain("SPID layer", text);
+    }
 
     // SPID's lines are read now: its refusal is retired, and the name reads SPID's layer.
     [Fact]
@@ -376,7 +392,7 @@ public sealed class LayerSelectTests : IDisposable
 
     [Fact]
     public void AnUnknownDistributorIsNotAFormat()
-        => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid' are read; oar, ied, desc, dsd are not read; kid, bos, flm are not read yet.",
+        => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid', 'kid' are read; oar, ied, desc, dsd are not read; bos, flm are not read yet.",
             Layer(distributor: new[] { "xyz" }));
 
     // Q1 (a): the tool is housecarl_layer, and the old name is a retired row naming it.
