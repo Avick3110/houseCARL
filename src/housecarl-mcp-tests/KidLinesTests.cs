@@ -348,6 +348,12 @@ public sealed class KidLinesTests
         Assert.Null(reads[2]!.Dropped);
         Assert.Empty(reads[2]!.Notes);
     }
+
+    // r1 #17 (ExclusiveGroups.cpp:30, IDs.at(0)): an empty member throws, so KID fails the group line.
+    [Fact]
+    public void AnEmptyGroupMemberFailsTheGroupLine()
+        => Assert.StartsWith("has an empty member, so KID fails to parse the entry", One("ExclusiveGroup = Mine|HcKeyword,,HcMade").Skipped);
+
     // R39: one row drives the read and the skill text, so a type string edited in the row is read and printed as edited,
     // and the old one is no type for either.
     [Fact]
