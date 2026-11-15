@@ -2,7 +2,7 @@
 
 The `type` section (position 1) names **which kind of item** the keyword is added to. KID supports
 **19 types**. Write the type string **exactly as listed** below — these are the canonical names KID
-matches (`Cache.h` `itemTypes`). **[source]**
+matches (`header_strings`, `include/Data/EnumDefs.h`, KID v4.0.6). **[source]**
 
 A single `Keyword =` line targets **one** type; repeat the line per type to cover several
 (`grammar-core.md` §4).
