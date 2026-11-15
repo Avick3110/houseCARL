@@ -22,7 +22,7 @@ static class KidWire
         var byType = files.SelectMany(f => f.Lines).Where(l => l.Skipped is null)
             .GroupBy(l => l.IsGroup ? l.Key : l.Type!).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal);
         if (lines > 0) sb.Append(": ").Append(string.Join(", ", byType.Select(x => x.Key + " " + x.Count())));
-        if (skipped > 0) sb.Append("; ").Append(skipped).Append(" line(s) KID does not apply (no '=', under a named section, or dropped or ignored as KID parses it)");
+        if (skipped > 0) sb.Append("; ").Append(skipped).Append(" more line(s) KID drops or ignores as it parses the file, before it reads any form (no '=', under a named section, a type or entry KID cannot parse, or a group with no members)");
         return sb.ToString();
     }
 
