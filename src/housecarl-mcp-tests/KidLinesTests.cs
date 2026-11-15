@@ -12,7 +12,7 @@ namespace HousecarlMcpTests;
 [Trait("tier", "unit")]
 public sealed class KidLinesTests
 {
-    static KidGrammar G => RuntimeFormats.Kid.KidLines!;
+    static DistributorFormat Kid => RuntimeFormats.Kid;
 
     static readonly ModKey Mod = ModKey.FromFileName("HcKid.esp");
     static FormKey K(uint id) => new(Mod, id);
@@ -51,10 +51,10 @@ public sealed class KidLinesTests
 
         public KidLines.LineRead Read(string line) => ReadAll(line).Single()!;
 
-        public IReadOnlyList<KidLines.LineRead?> ReadAll(string text) => KidLines.ReadAll(KidLines.Parse(text, G), Ctx);
+        public IReadOnlyList<KidLines.LineRead?> ReadAll(string text) => KidLines.ReadAll(KidLines.Parse(text, Kid), Ctx);
     }
 
-    static KidLines.Line One(string text) => Assert.Single(KidLines.Parse(text, G));
+    static KidLines.Line One(string text) => Assert.Single(KidLines.Parse(text, Kid));
 
     // ---- the split ---------------------------------------------------------------------------
 
@@ -67,7 +67,7 @@ public sealed class KidLinesTests
     [Fact]
     public void ALineUnderASectionHeaderIsNotRead()
     {
-        var lines = KidLines.Parse("[Mine]\nKeyword = A|Armor\n[]\nKeyword = B|Armor", G);
+        var lines = KidLines.Parse("[Mine]\nKeyword = A|Armor\n[]\nKeyword = B|Armor", Kid);
         Assert.StartsWith("sits under [Mine]", lines[0].Skipped);
         Assert.Null(lines[1].Skipped);
     }
@@ -127,6 +127,19 @@ public sealed class KidLinesTests
         Assert.Null(One("Keyword = HcTag|Armor|*zz~HcKid.esp").Skipped);
         var r = new World().Read("Keyword = HcTag|Armor|a~b~c");
         Assert.Contains(r.Notes, n => n.StartsWith("filters 'a~b~c' is no record's EditorID"));
+    }
+
+    // r1 #13: the parse-time skip reads a term by the row's many-separators rule, as the resolver does: with KID's row
+    // flipped to an address at the first '~', a two-'~' term with no hex before it fails the line in each section.
+    [Theory]
+    [InlineData("Keyword = zz~HcKid.esp~more|Armor", "names keyword 'zz~HcKid.esp~more', whose part before '~' is no hex FormID")]
+    [InlineData("Keyword = HcTag|Armor|zz~HcKid.esp~more", "has filter 'zz~HcKid.esp~more', whose part before '~' is no hex FormID")]
+    [InlineData("ExclusiveGroup = Mine|HcKeyword,zz~HcKid.esp~more", "has member 'zz~HcKid.esp~more', whose part before '~' is no hex FormID")]
+    public void TheParseTimeSkipReadsTwoTildesByTheRowsRule(string text, string skipped)
+    {
+        var flipped = ShippedRows.Distributor("kid", ("\"manySeparators\": \"name\"", "\"manySeparators\": \"addressAtFirst\""));
+        Assert.StartsWith(skipped, Assert.Single(KidLines.Parse(text, flipped)).Skipped);
+        Assert.Null(One(text).Skipped);
     }
 
     // Answer 4 (string.hpp:129, stof): a chance that does not start with a number throws.
@@ -360,8 +373,8 @@ public sealed class KidLinesTests
     public void OneRowDrivesTheReadAndTheSkillText()
     {
         var row = ShippedRows.Distributor("kid", ("\"key\": \"Soul Gem\"", "\"key\": \"SoulGem\""));
-        Assert.Equal("SoulGem", Assert.Single(KidLines.Parse("Keyword = HcTag|SoulGem", row.KidLines!)).Type);
-        Assert.NotNull(Assert.Single(KidLines.Parse("Keyword = HcTag|Soul Gem", row.KidLines!)).Skipped);
+        Assert.Equal("SoulGem", Assert.Single(KidLines.Parse("Keyword = HcTag|SoulGem", row)).Type);
+        Assert.NotNull(Assert.Single(KidLines.Parse("Keyword = HcTag|Soul Gem", row)).Skipped);
         var text = HousecarlGenerator.RuntimeFormatSkillText.KidRegions(row);
         Assert.Contains("`SoulGem`", text["kid.lines"]);
         Assert.DoesNotContain("`Soul Gem`", text["kid.lines"]);
@@ -376,7 +389,7 @@ public sealed class KidLinesTests
         var w = new World();
         var order = new List<string?>();
         var spy = new SpyResolver(w.R, order);
-        KidLines.ReadAll(KidLines.Parse("Keyword = HcKeyword|Armor|HcHelmet\nKeyword = HcKeyword|Armor|HcSword", G),
+        KidLines.ReadAll(KidLines.Parse("Keyword = HcKeyword|Armor|HcHelmet\nKeyword = HcKeyword|Armor|HcSword", Kid),
             new KidLines.Context(spy, fk => w.Classes.GetValueOrDefault(fk), RuntimeFormats.Kid));
         Assert.Equal(RuntimeTargets.EveryTypeScope, order.First());
         Assert.True(order.LastIndexOf(RuntimeTargets.EveryTypeScope) < order.IndexOf("Keyword"));

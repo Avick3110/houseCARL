@@ -37,9 +37,12 @@ public static class KidLines
 
     // ---- splitting a file ---------------------------------------------------------------
 
-    /// <summary>Every key line of one file's text in file order, read or skipped, as KID's reader meets it.</summary>
-    public static IReadOnlyList<Line> Parse(string text, KidGrammar g)
+    /// <summary>Every key line of one file's text in file order, read or skipped, as KID's reader meets it, under
+    /// <paramref name="format"/>'s line grammar and target spelling.</summary>
+    public static IReadOnlyList<Line> Parse(string text, DistributorFormat format)
     {
+        var g = format.KidLines!;
+        var s = format.Targets;
         var lines = new List<Line>();
         var physical = text.Split('\n');
         string? section = null;   // null: the unnamed section, the only one KID reads
@@ -67,7 +70,7 @@ public static class KidLines
                 continue;
             }
             var value = t[(eq + 1)..].Trim();
-            lines.Add(key == g.GroupKey ? ParseGroup(i + 1, raw, key, value, g) : ParseLine(i + 1, raw, key, value, g));
+            lines.Add(key == g.GroupKey ? ParseGroup(i + 1, raw, key, value, g, s) : ParseLine(i + 1, raw, key, value, g, s));
         }
         return lines;
     }
@@ -75,7 +78,7 @@ public static class KidLines
     static Line Skip(int n, string raw, string key, bool group, string why)
         => new(n, raw, key, group, null, "", Array.Empty<Token>(), why, Array.Empty<string>());
 
-    static Line ParseLine(int n, string raw, string key, string value, KidGrammar g)
+    static Line ParseLine(int n, string raw, string key, string value, KidGrammar g, TargetSpelling s)
     {
         var sections = value.Split(g.Sections);
         var typeText = sections.Length > 1 ? sections[1] : "";
@@ -88,7 +91,7 @@ public static class KidLines
         }
         var notes = new List<string>();
         var tokens = new List<Token>();
-        if (Unreadable(sections[0], g) is { } bad) return Skip(n, raw, key, false, $"names keyword '{sections[0]}', {bad}, {FailedToParse}");
+        if (Unreadable(sections[0], s) is { } bad) return Skip(n, raw, key, false, $"names keyword '{sections[0]}', {bad}, {FailedToParse}");
 
         if (sections.Length > 2 && g.Set(sections[2]))
         {
@@ -105,8 +108,8 @@ public static class KidLines
                 }
                 else tokens.Add(Term(entry, -1, g));
             }
-            if (tokens.FirstOrDefault(x => !x.Partial && Unreadable(x.Raw, g) is not null) is { } t)
-                return Skip(n, raw, key, false, $"has filter '{t.Raw}', {Unreadable(t.Raw, g)}, {FailedToParse}");
+            if (tokens.FirstOrDefault(x => !x.Partial && Unreadable(x.Raw, s) is not null) is { } t)
+                return Skip(n, raw, key, false, $"has filter '{t.Raw}', {Unreadable(t.Raw, s)}, {FailedToParse}");
         }
         if (sections.Length > 3 && g.Set(sections[3]) && !type.Traits)
             notes.Add($"a {type.Key} line takes no traits, so KID ignores '{sections[3]}'");
@@ -126,7 +129,7 @@ public static class KidLines
         return new Token(KidField.Filters, not, partial, group, partial ? body[1..] : body);
     }
 
-    static Line ParseGroup(int n, string raw, string key, string value, KidGrammar g)
+    static Line ParseGroup(int n, string raw, string key, string value, KidGrammar g, TargetSpelling s)
     {
         var sections = value.Split(g.Sections);
         if (sections.Length < 2) return Skip(n, raw, key, true, "has no members section, so KID ignores it and logs a warning");
@@ -138,20 +141,18 @@ public static class KidLines
             if (item.Length == 0) return Skip(n, raw, key, true, $"has an empty member, {FailedToParse}");
             bool not = item[0] == g.Not;
             var body = not ? item[1..] : item;
-            if (Unreadable(body, g) is { } bad) return Skip(n, raw, key, true, $"has member '{body}', {bad}, {FailedToParse}");
+            if (Unreadable(body, s) is { } bad) return Skip(n, raw, key, true, $"has member '{body}', {bad}, {FailedToParse}");
             tokens.Add(new Token(KidField.Members, not, false, -1, body));
         }
         return new Line(n, raw, key, true, null, sections[0], tokens, null, Array.Empty<string>());
     }
 
-    /// <summary>Why KID cannot read a term holding one '~' as a FormID (its hex part has no digit, or passes 32 bits),
-    /// or null when it can or the term is not an address. KID reads a term with two or more '~' as a name.</summary>
-    static string? Unreadable(string term, KidGrammar g)
-    {
-        int at = term.IndexOf('~');
-        if (at < 0 || term.IndexOf('~', at + 1) >= 0) return null;
-        return RuntimeTargets.ParseHex(term[..at]) is null ? "whose part before '~' is no hex FormID KID can read" : null;
-    }
+    /// <summary>Why KID cannot read a term its row reads as an address as a FormID (its hex part has no digit, or passes
+    /// 32 bits), or null when it can or the term is not an address; the separator and the many-separators rule are the row's.</summary>
+    static string? Unreadable(string term, TargetSpelling s)
+        => RuntimeTargets.Read(term, s) is { Kind: RuntimeTargets.TargetKind.Address, Address.FormId: null }
+            ? $"whose part {(s.AddressOrder == TargetAddressOrder.PluginFirst ? "after" : "before")} '{s.Separator}' is no hex FormID KID can read"
+            : null;
 
     /// <summary>Whether <c>std::stof</c> reads a number at the start of the text: leading space, a sign, then a digit,
     /// a point and a digit, or inf or nan; it stops at the first character after.</summary>
