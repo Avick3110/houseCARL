@@ -57,7 +57,7 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
 - **What is resolved when.** The overview lists files and line counts and resolves nothing; the selectors, and a
   `filter=` (a file name or providing mod) that at least one SPID file matches, resolve every line, since a first-wins
   place depends on which earlier lines SPID drops. A `filter=` no SPID file matches resolves nothing, so it walks no
-  EditorID table for SPID (`SpidFileData.Matches`, the one predicate the render's listing uses). Nothing is kept between calls (R15): each call reads the files again; there is no parse cache (DECISIONS
+  EditorID table for SPID (`DistributorFileData.Matches`, the one predicate the render's listing uses). Nothing is kept between calls (R15): each call reads the files again; there is no parse cache (DECISIONS
   2026-11-13 (15)).
 - **Two formats, one call.** With `distributor=["skypatcher","spid"]` the answer is SkyPatcher's render, then SPID's. SkyPatcher's
   part is the `distributor=["skypatcher"]` answer's body at the whole `max_chars`, so it is never shorter than that
