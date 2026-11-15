@@ -96,7 +96,7 @@ Record identity is not writable. `FormKey` on a record, and `ModKey` and `Master
 
 ## Runtime layers
 
-Five layers below the plugin plane decide what the game runs. houseCARL reads all five.
+Six layers below the plugin plane decide what the game runs. houseCARL reads all six.
 
 - **The MO2 virtual file system.** Which copy of a Data-relative path wins: the overwrite folder, a mod folder, game Data, or a BSA, with the conflict chain. `place` writes a winning override into a new mod folder and reports that the file is written and not yet winning.
 - **NIF internals.** Shape names, embedded skin and FaceTint texture paths, flags, alpha, partitions, read from the winning copy. A whitelisted subset is written back with readback verification.
