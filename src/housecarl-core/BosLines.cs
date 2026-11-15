@@ -140,7 +140,7 @@ public static class BosLines
             RuntimeTargets.TargetKind.Address when read.Address!.FormId is not null && ctx.Resolver.PluginPresent(read.Address.Plugin!)
                 => RuntimeTargets.RuntimeAdd(read.Address, ctx.Resolver),
             RuntimeTargets.TargetKind.RuntimeFormId => read.FormId,
-            _ => r.Form is { } fk && ctx.Resolver.RuntimeBaseOf(fk.ModKey.FileName) is { } b ? b + fk.ID : null,
+            _ => r.Form is { } fk ? RuntimeTargets.RuntimeAdd(new FormAddress(fk.ModKey.FileName, fk.ID, null), ctx.Resolver) : null,
         };
         return new Taken(r, id is 0 ? null : id, read.Kind == RuntimeTargets.TargetKind.Address && read.Address!.FormId is null);
     }
