@@ -57,7 +57,7 @@ public static class KidLines
             var key = t[..eq].Trim();
             if (section is not null)
             {
-                lines.Add(Skip(i + 1, raw, key, false, $"sits under [{section}], and KID reads only the lines before the first section header"));
+                lines.Add(Skip(i + 1, raw, key, false, $"sits under [{section}], and KID reads only the unnamed section: the lines before the first named header and any after an empty '[]'"));
                 continue;
             }
             var value = t[(eq + 1)..].Trim();
