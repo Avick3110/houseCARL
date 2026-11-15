@@ -102,7 +102,7 @@ public static class SkyPatcherTools
             "number; every exact plain filter, or every '-' filter, failing; every '+' group losing a part; a group line with " +
             "an empty member or keeping no keyword), a filter it skips, a keyword it creates where no keyword " +
             "holds the name, a filter name no record holds kept as text and matched in the running game against an item's EditorID or " +
-            "name (not read). Which items a line tags is not evaluated: filters, traits and chance are not read. Under formids= and " +
+            "name (not read). Which items a line tags is not evaluated: its filter forms are resolved and labelled, but no filter, trait or chance is tested against items. Under formids= and " +
             "plugins= a filter form of the line's own type is the target (in a '-' list, a filter), the keyword the value, any other " +
             "filter form a filter; a plugin term touches its plugin; a form list is not followed to what it holds." + ListText.Names)]
             ListArg? distributor = null,
