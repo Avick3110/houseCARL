@@ -59,7 +59,7 @@ static class SpidWire
     /// <summary>The parts a later part's cut notice says it came after: "SkyPatcher's part", "SkyPatcher's and SPID's parts".</summary>
     static string After(IReadOnlyList<(string Name, string Key, int Length)> shown)
         => shown.Count == 1 ? shown[0].Name + "'s part"
-            : string.Join(", ", shown.Take(shown.Count - 1).Select(x => x.Name + "'s")) + " and " + shown[^1].Name + "'s parts";
+            : SkyPatcherTools.Prose(shown.Select(x => x.Name + "'s").ToList(), "and") + " parts";
 
     /// <summary>The joined answer's over-cap sentence (spid-layer.md, the formats one call reads): the parts that came
     /// first with their lengths, then the parts that did not fit, each with the call that reads it alone.</summary>
@@ -72,8 +72,8 @@ static class SpidWire
         if (unfit.Count == 1)
             return sb.Append(", and ").Append(unfit[0].Name).Append("'s part does not fit in what is left; distributor=[\"").Append(unfit[0].Key)
                 .Append("\"] reads ").Append(unfit[0].Name).Append(" alone at the whole max_chars.").ToString();
-        return sb.Append(", and ").Append(string.Join(" and ", unfit.Select(u => u.Name + "'s"))).Append(" parts do not fit in what is left; ")
-            .Append(string.Join(" and ", unfit.Select(u => "distributor=[\"" + u.Key + "\"]"))).Append(" read each alone at the whole max_chars.").ToString();
+        return sb.Append(", and ").Append(SkyPatcherTools.Prose(unfit.Select(u => u.Name + "'s").ToList(), "and")).Append(" parts do not fit in what is left; ")
+            .Append(SkyPatcherTools.Prose(unfit.Select(u => "distributor=[\"" + u.Key + "\"]").ToList(), "and")).Append(" read each alone at the whole max_chars.").ToString();
     }
 
     /// <summary>SPID's header line, without its line end: the model, the profile, the files and the lines by type.</summary>

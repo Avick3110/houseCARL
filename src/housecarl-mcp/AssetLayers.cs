@@ -709,12 +709,9 @@ internal sealed partial class AssetLayers
         SpidLayerData? Spid() => spid ? SpidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         KidLayerData? Kid() => kid ? KidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         if (!skyPatcher)
-        {
-            var spidOnly = Spid();
             return use(new SkyPatcherLayerData(scan with { Folders = [], Notes = [] }, [], [], [], [], [], assets.RootFailures,
                 scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName)
-                { SkyPatcherRead = false, SelectNote = selectNote, Spid = spidOnly, Kid = Kid() });
-        }
+                { SkyPatcherRead = false, SelectNote = selectNote, Spid = Spid(), Kid = Kid() });
         var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
         var itms = new List<SkyPatcherConflicts.SkyPatcherItm>();
         var duplicates = new List<SkyPatcherConflicts.SkyPatcherDuplicate>();
@@ -799,10 +796,9 @@ internal sealed partial class AssetLayers
         // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
         var unreadableNotes = UnreadableNotes(replay);
 
-        var spidData = Spid();
         var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
             scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null)
-            { UnreadableNotes = unreadableNotes, Spid = spidData, Kid = Kid() };
+            { UnreadableNotes = unreadableNotes, Spid = Spid(), Kid = Kid() };
         if (wanted is null) return use(data);
         return use(data with { SelectNote = selectNote, Select = (folder, file, i) => replay.LineForms(folder, file.Lines[i]).Where(f => wanted(f.Form)).ToList() });
     }

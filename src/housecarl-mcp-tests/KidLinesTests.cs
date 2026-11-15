@@ -145,7 +145,7 @@ public sealed class KidLinesTests
     [Fact]
     public void TheFiltersSplitIntoEntriesAndGroups()
     {
-        var t = One("Keyword = HcTag|Armor| A , NONE ,B+-*C, D+E ,-*F").Tokens.Skip(1).ToList();
+        var t = One("Keyword = HcTag|Armor| A , NONE ,B+-*C, D+E ,-*F").Tokens.ToList();
         Assert.Equal(new[] { ("A", false, false, -1), ("B", false, false, 0), ("C", true, true, 0), ("D", false, false, 1), ("E", false, false, 1), ("F", true, true, -1) },
             t.Select(x => (x.Raw, x.Not, x.Partial, x.Group)).ToArray());
     }
@@ -274,7 +274,7 @@ public sealed class KidLinesTests
         var r = new World().Read("Keyword = BookTypeMissive|Book|*Bounty,-HcOther.esp");
         Assert.Equal(new[] { "HcOther.esp" }, r.PluginTerms);
         Assert.DoesNotContain(r.Forms, f => f.Where.StartsWith("filters"));
-        Assert.Equal("HcSword.ESP", Assert.Single(One("Keyword = HcTag|Armor|HcSword.ESP").Tokens.Skip(1)).Raw);
+        Assert.Equal("HcSword.ESP", Assert.Single(One("Keyword = HcTag|Armor|HcSword.ESP").Tokens).Raw);
         Assert.Empty(new World().Read("Keyword = HcTag|Armor|HcSword.ESP").PluginTerms);   // the ending is case-sensitive (FormData.h:25)
     }
 

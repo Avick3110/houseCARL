@@ -10,8 +10,8 @@ namespace HousecarlCore;
 /// list is not followed to what it holds.</summary>
 public static class KidLines
 {
-    /// <summary>Which section a token sits in: the keyword, the filters, or an <c>ExclusiveGroup</c>'s members.</summary>
-    public enum KidField { Keyword, Filters, Members }
+    /// <summary>Which section a token sits in: the filters, or an <c>ExclusiveGroup</c>'s members; the keyword section is <see cref="Line.Keyword"/>.</summary>
+    public enum KidField { Filters, Members }
 
     /// <summary>One token as written: its section, whether a leading '-' excludes it, whether a leading '*' makes it a
     /// partial string, the '+' group it sits in (-1 for the plain list), and the term with its modifiers taken off.</summary>
@@ -81,7 +81,7 @@ public static class KidLines
             return Skip(n, raw, key, false, why + ", so KID drops the line without a log");
         }
         var notes = new List<string>();
-        var tokens = new List<Token> { new(KidField.Keyword, false, false, -1, sections[0]) };
+        var tokens = new List<Token>();
         if (Unreadable(sections[0], g) is { } bad) return Skip(n, raw, key, false, $"names keyword '{sections[0]}', {bad}, {FailedToParse}");
 
         if (sections.Length > 2 && g.Set(sections[2]))
@@ -181,10 +181,15 @@ public static class KidLines
     /// skipped line reads as null.</summary>
     public static IReadOnlyList<LineRead?> ReadAll(IReadOnlyList<Line> lines, Context ctx)
     {
+        // A token's read depends only on its text in this call, so each distinct one is resolved once; the maps die with the call.
+        var tokens = new Dictionary<string, Resolved>(StringComparer.Ordinal);
+        var names = new Dictionary<string, Keyword>(StringComparer.Ordinal);
         var resolved = lines.Select(l => l.Skipped is null
-            ? l.Tokens.Select(t => t.Field == KidField.Keyword || t.Partial || (t.Field == KidField.Filters && IsModel(t.Raw, ctx.G)) ? null : Resolve(t.Raw, ctx)).ToList()
+            ? l.Tokens.Select(t => t.Partial || (t.Field == KidField.Filters && IsModel(t.Raw, ctx.G)) ? null
+                : tokens.TryGetValue(t.Raw, out var r) ? r : tokens[t.Raw] = Resolve(t.Raw, ctx)).ToList()
             : null).ToList();
-        var keywords = lines.Select(l => l.Skipped is null && !l.IsGroup ? ResolveKeyword(l.Keyword, ctx) : null).ToList();
+        var keywords = lines.Select(l => l.Skipped is not null || l.IsGroup ? null
+            : names.TryGetValue(l.Keyword, out var k) ? k : names[l.Keyword] = ResolveKeyword(l.Keyword, ctx)).ToList();
         var created = new HashSet<string>(keywords.Where(k => k is { Created: true }).Select(k => k!.Raw), StringComparer.OrdinalIgnoreCase);
         return lines.Select((l, i) => l.Skipped is not null ? null
             : l.IsGroup ? ReadGroup(l, resolved[i]!, created, ctx)
@@ -201,7 +206,7 @@ public static class KidLines
 
     /// <summary>A token as KID's row reads it, with KID's own rule first: a term with two or more '~' is a name.</summary>
     static RuntimeTargets.TargetToken ReadToken(string raw, TargetSpelling s)
-        => raw.Count(c => c == s.Separator) > 1 ? new RuntimeTargets.TargetToken(RuntimeTargets.TargetKind.EditorId, raw, null, null) : RuntimeTargets.Read(raw, s);
+        => raw.IndexOf(s.Separator) is var at and >= 0 && raw.IndexOf(s.Separator, at + 1) >= 0 ? new RuntimeTargets.TargetToken(RuntimeTargets.TargetKind.EditorId, raw, null, null) : RuntimeTargets.Read(raw, s);
 
     static Resolved Resolve(string raw, Context ctx)
     {
@@ -268,6 +273,7 @@ public static class KidLines
         // another of its kind stands is skipped. A '+' group needs every part; the line drops when every group failed.
         var strings = new List<string>();
         var partial = new List<string>();
+        var partialPaths = new List<string>();
         var models = new List<string>();
         var plain = new List<(Token T, string? Why)>();
         var groups = new SortedDictionary<int, List<(Token T, string? Why)>>();
@@ -276,7 +282,7 @@ public static class KidLines
             var t = line.Tokens[i];
             if (t.Field != KidField.Filters) continue;
             string? why = null;
-            if (t.Partial) partial.Add(t.Written(g));
+            if (t.Partial) (IsModel(t.Raw, g) ? partialPaths : partial).Add(t.Written(g));
             else if (IsModel(t.Raw, g)) models.Add(t.Written(g));
             else
             {
@@ -337,8 +343,6 @@ public static class KidLines
         if (models.Count > 0)
             notes.Add($"filters {Quoted(models)} {(models.Count == 1 ? "ends" : "end")} in '{g.ModelEnding}', so KID matches {(models.Count == 1 ? "it" : "each")} " +
                       "against an item's whole model path in the running game, which is not read here");
-        var partialPaths = partial.Where(p => IsModel(p, g)).ToList();
-        partial.RemoveAll(p => IsModel(p, g));
         if (partial.Count > 0)
             notes.Add($"filters {Quoted(partial)} {(partial.Count == 1 ? "matches" : "match")} part of an item's EditorID, name or one of its keywords' EditorIDs " +
                       "in the running game, which is not read here");

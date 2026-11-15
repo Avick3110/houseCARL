@@ -29,8 +29,10 @@ public static partial class RuntimeFormats
         var ctx = "distributors." + key;
         var folders = row.GetProperty("folders").EnumerateArray().Select(f => Folder(f, ctx + ".folders")).ToList();
         if (folders.Count == 0) throw new InvalidOperationException($"runtime-format source [{ctx}]: 'folders' is empty.");
+        // Only SPID's and KID's readers have landed, so a lines block on another row has no rule.
+        if (key is not ("spid" or "kid") && row.TryGetProperty("lines", out _)) throw Unknown(ctx, "lines", "a lines block");
         return new DistributorFormat(key, Str(row, "format", ctx), Str(row, "version", ctx), folders, Targets(row.GetProperty("targets"), ctx + ".targets"),
-            Lines(row, key, ctx), KidLinesBlock(row, key, ctx));
+            key == "spid" ? Lines(row, ctx) : null, key == "kid" ? KidLinesBlock(row, ctx) : null);
     }
 
     static DistributorFolder Folder(JsonElement f, string ctx)
@@ -120,9 +122,6 @@ public sealed record DistributorFormat(
 {
     /// <summary>Whether this build reads the format's lines: its row carries a lines block.</summary>
     public bool LinesRead => Lines is not null || KidLines is not null;
-
-    /// <summary>The versions whose reads of the files this row models, the modelled one included.</summary>
-    public IReadOnlyList<string> Reads => Lines?.Reads ?? KidLines?.Reads ?? [Version];
 }
 
 /// <summary>One folder a format reads: where it is under Data, which names it takes there, whether the DLL sorts that

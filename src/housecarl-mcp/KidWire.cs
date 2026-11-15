@@ -15,7 +15,7 @@ static class KidWire
         int lines = files.Sum(f => f.Lines.Count(l => l.Skipped is null));
         int skipped = files.Sum(f => f.Lines.Count(l => l.Skipped is not null));
         sb.Append("KID layer (").Append(s.Format.Name).Append(' ').Append(s.Format.Version).Append(" model; ")
-          .Append(string.Join(", ", s.Format.Reads.Where(v => v != s.Format.Version))).Append(" reads its files the same) — profile '")
+          .Append(string.Join(", ", s.Format.KidLines!.Reads.Where(v => v != s.Format.Version))).Append(" reads its files the same) — profile '")
           .Append(s.ProfileName).Append("' — ").Append(files.Count).Append(" file(s) in Data (")
           .Append(files.Count(f => f.File.NotApplied is null && f.ReadError is null)).Append(" read), ")
           .Append(lines).Append(" line(s)");
