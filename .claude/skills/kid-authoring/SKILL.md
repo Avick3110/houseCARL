@@ -2,7 +2,7 @@
 name: kid-authoring
 description: >-
   Authors and interprets Keyword Item Distributor (KID) `_KID.ini` files — runtime, no-ESP
-  distribution of keywords onto item records, on the KID v3.5.0 grammar. Use when writing or
+  distribution of keywords onto item records, on the KID v4.1.0 grammar. Use when writing or
   auditing a `_KID.ini`, tagging items by name, archetype, equip-slot or stat filters, or asking
   why a KID line isn't applying; load it before composing any KID line, because a misread token
   silently changes what gets tagged. Keywords onto NPCs are SPID, not KID.
@@ -19,7 +19,7 @@ enchantments and more (19 item types) — **at game startup**, driven by plain-t
 It writes nothing to plugins and nothing to saves, and re-applies its keywords from scratch on each
 launch, so a KID mod is trace-free to add or remove.
 
-This skill **composes** a correct line from the bundled v3.5.0 grammar, **grounds** it against the
+This skill **composes** a correct line from the bundled v4.1.0 grammar, **grounds** it against the
 live load order so its reach is measured before the file ships, and **places** the file where KID
 will read it. Every type, filter, trait and value comes from `references/`, never from memory — a
 fabricated token fails silently.
@@ -55,9 +55,10 @@ Read what your task needs, not everything.
    (`Magic Effect`, not `MagicEffect`). One line targets one type; repeat the line per type.
 
 3. **Choose the filters.** By name / archetype / actor value / nif path → a String filter; by record,
-   plugin or associated form → a Form filter. Modifiers: `+` requires all, `-` excludes, `*`
-   wildcard-substring (strings only), bare = match-any; KID evaluates requirements → exclusions →
-   matches → wildcards.
+   plugin or associated form → a Form filter. Modifiers: `A+B` is a group whose parts must all
+   match (several groups are alternatives), `-` excludes (also on a group's part), `*`
+   wildcard-substring (strings only), bare = match-any; the item must pass one `+` group, no `-`
+   entry, one bare entry and one `*` entry, each side checked only when the line has it.
 
 4. **Add traits if the narrowing is a property of the item.** Only the 12 trait-bearing types accept
    them. `references/traits.md` names the record field behind each trait in its own column. Where the
@@ -67,9 +68,10 @@ Read what your task needs, not everything.
 
 5. **Compose the line, and count the pipes.**
    ```
-   Keyword = KeywordOrFormID | Type | filters | traits | chance
+   Keyword = KeywordOrFormID|Type|filters|traits|chance
    ```
-   Sections are positional. `Keyword = MyKwd|Book|NONE|S,20` puts `S,20` in *traits*;
+   Sections are positional and not trimmed: write no space beside a `|`, or the type reads
+   ` Armor`, which is no type, and the line is dropped. `Keyword = MyKwd|Book|NONE|S,20` puts `S,20` in *traits*;
    `Keyword = MyKwd|Armor|||50` puts `50` in *chance*. Leave an unused middle section blank or
    `NONE`; a trailing unused section can be dropped. Set `chance` (0–100, default 100) only when you
    want less than guaranteed.
@@ -93,7 +95,8 @@ Read what your task needs, not everything.
 7. **Place the file** at `Data\<name>_KID.ini`. The `_KID` substring is **mandatory** — a file
    without it is never read — and the file sits flat in `Data\`, not under
    `Data\SKSE\Plugins\SkyPatcher\<type folder>\` where SkyPatcher's INIs live. KID INIs have **no
-   `[Section]` headers**; every line sits at the top level, and `;` starts a comment. (Backslashed
+   `[Section]` headers**; every line sits at the top level, and a comment is a line whose first
+   character is `;` or `#` (a `;` after a value is part of the value). (Backslashed
    paths here are the game's own literals; every path into this skill's own files is forward-slashed.)
 
 8. **Confirm, then stop.** Check that the type matches the record kind, the pipe positions are right,
@@ -140,14 +143,15 @@ Keyword = MyBlackGemTag|Soul Gem|NONE|BLACK
 
 ## Never invent KID grammar
 
-The bundled reference documents **KID v3.5.0**. If a type, filter, trait, value or behaviour is not
-in it, say so — do not fabricate a plausible token. The pin runs **both** ways: an install older than
-v3.5.0 may lack a feature the reference describes, and a newer one may add features it lacks; either
+The bundled reference documents **KID v4.1.0**, which reads its files as v4.0.6 does. If a type,
+filter, trait, value or behaviour is not in it, say so — do not fabricate a plausible token. The pin
+runs **both** ways: an install older than v4.0.6 may lack a feature the reference describes, and a newer one may add features it lacks; either
 way, offer to re-derive from the current KID source rather than guessing.
 
-KID's failures are silent. A malformed entry is logged (`Failed to parse entry [Keyword = …]`) and
-**skipped**, never surfaced to the user, so a guessed token yields a `_KID.ini` that quietly adds
-nothing with nothing in-game pointing at the cause. `po3_KeywordItemDistributor.log` is the only
+KID's failures are silent. A line with a wrong or missing type is **dropped with no log line**; an
+entry KID throws on (a FormID it cannot read, a chance that is not a number) is logged
+(`Failed to parse entry [Keyword = …]`) and skipped. Neither is surfaced to the user, so a guessed
+token yields a `_KID.ini` that quietly adds nothing with nothing in-game pointing at the cause. `po3_KeywordItemDistributor.log` is the only
 deterministic backstop, which is why every token is looked up rather than written from memory.
 
 The user's own instructions outrank anything in this skill.
@@ -155,7 +159,7 @@ The user's own instructions outrank anything in this skill.
 ## Common mistakes, and the rule that replaces each
 
 - **Writing a KID line in SPID's shape.** The two ship together and their lines look alike, but a
-  KID line is **five** sections, four pipes (`Keyword = keyword | Type | filters | traits | chance`),
+  KID line is **five** sections, four pipes (`Keyword = keyword|Type|filters|traits|chance`),
   and a SPID line is **seven**, six pipes
   (`FormType = form | strings | forms | level | traits | count | chance`). SPID's split of
   string filters and form filters into two separate sections is the trap: KID mixes both kinds in
@@ -183,7 +187,7 @@ The user's own instructions outrank anything in this skill.
 ## Notes
 
 - **Provenance.** The `references/` corpus is reconstructed from the MIT KID source
-  (`powerof3/Keyword-Item-Distributor`, v3.5.0) and the Nexus #55728 description, with forwarded
+  (`powerof3/Keyword-Item-Distributor`, v4.1.0, read at v4.0.6) and the Nexus #55728 description, with forwarded
   enum values confirmed against `powerof3/CommonLibSSE`. Re-derive on a version bump.
 - **Lookup without authoring.** The same reference answers "what is the spell-type number for
   Ability" or "which body slot is 33" — open the value tables; no line needs writing.

@@ -32,7 +32,7 @@ A single `Keyword =` line targets **one** type; repeat the line per type to cove
 | `Enchantment` | ENCH | ✅ | *(shared)* Spell |
 
 > **Scout-memory correction:** earlier notes claimed only ~12 types with the rest "historical." All 19
-> above are current in v3.5.0 — confirmed in the parser's type enum and the live Nexus description.
+> above are current in v4.0.6 and v4.1.0 — confirmed in the parser's type enum and the live Nexus description.
 
 ## Notes per type
 
@@ -55,6 +55,8 @@ filters only** (names, EditorIDs, FormIDs, plugin name, and their type-specific 
 of these types is silently ignored, so leave it blank:
 
 ```ini
-Keyword = LocTypeDungeon|Location|SomeDungeonLocationID      ; no traits — filter by form
-Keyword = VendorGold|Misc Item|Gold001                       ; misc items take no traits
+; no traits — filter by form
+Keyword = LocTypeDungeon|Location|SomeDungeonLocationID
+; misc items take no traits
+Keyword = VendorGold|Misc Item|Gold001
 ```

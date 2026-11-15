@@ -22,7 +22,12 @@ KID has **no Nexus "articles" tab** and its description tab partially filter-blo
 so the corpus draws on two complementary sources:
 
 - **Mod:** Keyword Item Distributor (KID) by powerofthree (powerof3) — Nexus SE #55728.
-  **Version: v3.5.0.rc1** (the latest release; repo frozen since 2024-04, so the grammar is stable).
+  **Version: v4.1.0**, which reads its files as v4.0.6 does. The 4.0 rewrite changed the grammar
+  from v3.5.0.rc1 (each `+` entry its own group, `-` and `*` per group part, a keyword another KID
+  line creates found by a filter name); the parse files were re-read at v4.0.6 (`895df22`) and
+  diffed against v4.1.0 (`99adaaa`) on 2026-11-15. The `generated:kid.*` regions of
+  `grammar-core.md` are printed from that reading; the source paths the 2026-09-09 findings below
+  cite are 3.5's and were re-pointed to 4.0's files in `filters.md`.
 - **Grammar source of truth — the MIT GitHub source** (`powerof3/Keyword-Item-Distributor`, `master`,
   **MIT License**). Authoritative for the line shape, the exact type-strings, the trait syntax, the
   filter dispatch, file discovery, and `ExclusiveGroup`.
