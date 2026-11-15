@@ -207,6 +207,17 @@ public sealed class KidLinesTests
         Assert.StartsWith("its keyword section is empty", w.Read("Keyword = |Armor").Dropped);
     }
 
+    // r1 #7 (FormData.cpp:6-17, RawForm): a keyword section holding two '~' is a name, so it is created, though the
+    // part before the first '~' would address a keyword. Pins unchanged behaviour.
+    [Fact]
+    public void AKeywordHoldingTwoTildesIsANameAndIsCreated()
+    {
+        var r = new World().Read("Keyword = 0x801~HcKid.esp~more|Armor");
+        Assert.Null(r.Dropped);
+        Assert.Empty(r.Forms);
+        Assert.Contains(r.Notes, n => n.StartsWith("keyword '0x801~HcKid.esp~more' is no keyword's EditorID, so KID creates one keyword"));
+    }
+
     // r1 #16: a keyword FormID written with a load index owes its note, also on the line it drops.
     [Fact]
     public void AKeywordFormIdWrittenWithALoadIndexIsNoted()
