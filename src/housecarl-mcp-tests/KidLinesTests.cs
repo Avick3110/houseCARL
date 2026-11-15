@@ -195,7 +195,6 @@ public sealed class KidLinesTests
         Assert.StartsWith("keyword '0x999~HcKid.esp' names 01000999", w.Read("Keyword = 0x999~HcKid.esp|Armor").Dropped);
         Assert.StartsWith("its keyword section is empty", w.Read("Keyword = |Armor").Dropped);
     }
-
     // The keyword is created before any filter is read (LookupForms.cpp:41-47), so a line its filters drop still creates
     // it and hands it to no item.
     [Fact]
@@ -230,7 +229,6 @@ public sealed class KidLinesTests
         Assert.Contains(reads[2]!.Notes, n => n.StartsWith("filters 'HcLoose' is no record's EditorID and no keyword a KID line creates, so KID keeps it as text"));
         Assert.DoesNotContain(reads[2]!.Notes, n => n.StartsWith("filters") && n.Contains("creates a keyword of that name"));
     }
-
     // Answer 5 by section, the filters: a FormID or plugin that names nothing, or a record KID does not take as a filter
     // (FormData.cpp:110-148), is skipped and the line widens; every plain filter failing drops it (dev
     // BOOBIES_RotolMoreIcons_KID.ini:3, a plugin not in the order; Aetherium Forge Destroys Items_KID.ini:49, a FormID of one).
@@ -328,6 +326,14 @@ public sealed class KidLinesTests
         Assert.StartsWith("names no members", One("ExclusiveGroup = Mine|NONE").Skipped);
     }
 
+    // r1 #14: a group whose members are all keywords KID lines create keeps them, so KID does not drop it.
+    [Fact]
+    public void AGroupOfCreatedKeywordsOnlyIsKept()
+    {
+        var reads = new World().ReadAll("Keyword = HcMade|Book\nKeyword = HcMore|Armor\nExclusiveGroup = Mine|HcMade,HcMore");
+        Assert.Null(reads[2]!.Dropped);
+        Assert.Empty(reads[2]!.Notes);
+    }
     // R39: one row drives the read and the skill text, so a type string edited in the row is read and printed as edited,
     // and the old one is no type for either.
     [Fact]
