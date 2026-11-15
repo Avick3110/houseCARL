@@ -10,10 +10,10 @@ public static partial class RuntimeFormats
     /// <summary>KID's row of the embedded source, with its lines block (memoized).</summary>
     public static DistributorFormat Kid => Distributor("kid") ?? throw new InvalidOperationException("runtime-format source: no kid row.");
 
-    /// <summary>KID's lines block; null for any other row, or for KID's when it has none.</summary>
-    static KidGrammar? KidLinesBlock(JsonElement row, string key, string ctx)
+    /// <summary>KID's lines block; null when its row has none.</summary>
+    static KidGrammar? KidLinesBlock(JsonElement row, string ctx)
     {
-        if (key != "kid" || !row.TryGetProperty("lines", out var l)) return null;
+        if (!row.TryGetProperty("lines", out var l)) return null;
         ctx += ".lines";
         Known(l, "section", ctx, "unnamedOnly");
         Known(l, "lineOrder", ctx, "keyIgnoreCaseThenLine");

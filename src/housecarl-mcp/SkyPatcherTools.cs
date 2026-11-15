@@ -25,7 +25,7 @@ public static class SkyPatcherTools
     static string ReadValues => Prose(Read.Select(v => $"'{v}'").ToList(), "or");
 
     /// <summary>A list in prose: "a", "a or b", "a, b or c".</summary>
-    static string Prose(IReadOnlyList<string> xs, string last)
+    internal static string Prose(IReadOnlyList<string> xs, string last)
         => xs.Count <= 1 ? string.Concat(xs) : string.Join(", ", xs.Take(xs.Count - 1)) + $" {last} " + xs[^1];
 
     /// <summary>Formats houseCARL does not read, by the name a caller asks for them.</summary>
