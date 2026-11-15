@@ -1,6 +1,6 @@
 # houseCARL
 
-houseCARL is an MCP server that exposes a Skyrim Special Edition load order at the data layer. It reads a Mod Organizer 2 instance's profile and presents every plugin record, every Data-relative asset, the compiled Papyrus, the SKSE plugin layer and the SkyPatcher, SPID and KID INI layers to an AI assistant as a set of tools. It is built on [Mutagen](https://github.com/Mutagen-Modding/Mutagen). The host is [Claude Code](https://claude.com/claude-code) or OpenAI Codex.
+houseCARL is an MCP server that exposes a Skyrim Special Edition load order at the data layer. It reads a Mod Organizer 2 instance's profile and presents every plugin record, every Data-relative asset, the compiled Papyrus, the SKSE plugin layer and the SkyPatcher, SPID, KID and BOS INI layers to an AI assistant as a set of tools. It is built on [Mutagen](https://github.com/Mutagen-Modding/Mutagen). The host is [Claude Code](https://claude.com/claude-code) or OpenAI Codex.
 
 A write produces a new plugin in a new MO2 mod folder. Editing an existing plugin in place is an opt-in that names the file. MO2 does not need to be running. No plugin file handle is held between calls.
 
@@ -33,7 +33,7 @@ All 31 tools carry the `housecarl_` prefix.
 | NIF | `nif_inspect` `nif_set` |
 | Papyrus | `compile_script` `decompile_script` |
 | BSA | `bsa_list` `bsa_extract` `bsa_repack` |
-| SkyPatcher, SPID, KID | `layer` |
+| SkyPatcher, SPID, KID, BOS | `layer` |
 | SKSE | `skse` |
 | Nexus | `nexus_search` `nexus_mod` `nexus_graphql` `nexus_check_updates` `nexus_identify` |
 | Session | `set_mo2_instance` `set_tool_path` `load_order_status` `update_status` |
@@ -104,6 +104,7 @@ Six layers below the plugin plane decide what the game runs. houseCARL reads all
 - **The SkyPatcher INI layer.** Every INI in apply order, with VFS shadows, INI-versus-INI conflicts and no-op writes; or one record's state after the layer has replayed over it. A draft INI not yet in a mod folder can be included in the replay.
 - **The SPID layer.** Every `_DISTR.ini` SPID reads, in its order, each line split as SPID splits it, every form it names labelled target, filter or value, and what SPID does where a name finds nothing.
 - **The KID layer.** Every `_KID.ini` KID reads, in its order, each line split as KID splits it, every form it names labelled target, filter or value, and what KID does where a name finds nothing, by section.
+- **The BOS layer.** Every `_SWAP.ini` Base Object Swapper reads, in its order, each line split as SimpleIni and BOS split it, every form it names labelled target (the base), value (a swap) or filter (a section's condition), what BOS does where a name finds nothing, and each kept line's place in BOS's last-wins order for its base.
 
 The SKSE and runtime-layer tools report what a file declares. They do not observe the running game.
 
@@ -278,5 +279,5 @@ GPL-3.0-only. See [LICENSE](LICENSE). Required by Mutagen (GPL-3.0-only, no link
 
 - [Mutagen](https://github.com/Mutagen-Modding/Mutagen), Noggog. The Bethesda-format library houseCARL is built on.
 - [papyrus-index](https://github.com/BellCubeDev/papyrus-index), BellCube. Source corpus for `papyrus-reference`.
-- Zzyxzz (SkyPatcher) and powerofthree (SPID, KID). Public documentation the distributor grammars were drawn from.
+- Zzyxzz (SkyPatcher) and powerofthree (SPID, KID, BOS). Public documentation the distributor grammars were drawn from.
 - DrHeisen. The `open-animation-replacer` skill, and two earlier skills since retired.

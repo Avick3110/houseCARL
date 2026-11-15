@@ -57,7 +57,7 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
   created keyword. A `filter=` no KID file matches resolves nothing. Nothing is kept between calls (R15); there is no
   parse cache (DECISIONS 2026-11-14 (26)).
 - **Three formats, one call** (`DistributorWire.RenderLayers`). With `distributor` omitted (or `[]`) the answer is
-  SkyPatcher's render, then SPID's part, then KID's. With no selector and no `filter=` (pick 2026-11-15 (1) Q1 (b)),
+  SkyPatcher's render, then SPID's part, then KID's, then BOS's ([`bos-layer.md`](bos-layer.md)). With no selector and no `filter=` (pick 2026-11-15 (1) Q1 (b)),
   SPID's and KID's parts are one summary line each, the format's header line closed by the call that lists its files
   (`distributor=["spid"]`, `distributor=["kid"]`); named, the same formats list their files. Otherwise (Q2 (a), format
   order) each later part takes what the earlier ones leave, and a cut notice names the earlier parts and the call that
@@ -94,7 +94,7 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
   `plugins=` and not `formids=`, the outcomes under `filter=`, a selector naming an absent plugin as for SPID, the
   shadowed and archive-only copies, an edited file read anew, no EditorID walk added after SPID's, none for a `filter=`
   no KID file matches, and KID taking what SPID leaves with its cut and over-cap sentence.
-- `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpidThenKid` (the summary lines), `DistributorKidIsRead`,
+- `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpidThenKidThenBos` (the summary lines), `DistributorKidIsRead`,
   `ADistributorStillToComeIsNotReadYet`, `AnUnknownDistributorIsNotAFormat`.
 
 ## Where

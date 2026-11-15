@@ -103,7 +103,7 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   file and line cuts, the plural over-cap, no files, a read error, and the unreadable-plugin notes an earlier part holds.
 - `SpidLayerTests.SkyPatcherKeepsItsWholeAnswerAndSpidTakesWhatIsLeft` and `SpidLinesAreCutWithTheirNoticeAfterSkyPatchersPart`
   — the shared `max_chars`.
-- `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpidThenKid`, `DistributorSpidIsRead`,
+- `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpidThenKidThenBos`, `DistributorSpidIsRead`,
   `ADistributorStillToComeIsNotReadYet`.
 
 ## Where
