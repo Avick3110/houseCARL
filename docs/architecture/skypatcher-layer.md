@@ -257,7 +257,8 @@ zero answer leaves them out (#1286).
 
 The tool is `housecarl_layer`, one tool for the runtime layers with a format selector (spec R3, R38). `distributor=`
 takes `skypatcher`, `spid` and `kid`, the formats read; omitted, every format read is read, SkyPatcher's answer first,
-then SPID's, then KID's, sharing `max_chars` ([`spid-layer.md`](spid-layer.md), [`kid-layer.md`](kid-layer.md)). `oar`,
+then SPID's, then KID's, sharing `max_chars`, and with no selector and no `filter=` SPID and KID answer one summary
+line each ([`spid-layer.md`](spid-layer.md), [`kid-layer.md`](kid-layer.md)). `oar`,
 `ied`, `desc` and `dsd` are refused as not read, by name; `bos` and `flm` as not read yet. The old name `housecarl_skypatcher_layer` is
 refused by its `AliasTable` row, naming `housecarl_layer`.
 
