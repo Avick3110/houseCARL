@@ -36,10 +36,11 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
   row's `record`), in the plain list or a `+` group, is `target`; any other resolved filter form, an excluded one of
   the line's own type and a group member is `filter`.
 - **What KID does where a name finds nothing, by section** (research answer 5): the keyword section's name no keyword
-  holds is created, also where a record of another type holds it, and a later line spelling it in another case finds
-  that keyword (KID's created keywords are found in any case, `Cache.h` `addedKeywords`); a keyword FormID that names nothing, or names no
+  holds is created, also where a record of another type holds it; KID makes one keyword of a name for every line naming
+  it in any case (`Cache.h` `addedKeywords`), so each such line says one keyword is created for all of them and none
+  is named its creator, nor the spelling it takes (DECISIONS 2026-11-15 (6)); a keyword FormID that names nothing, or names no
   keyword, drops the line. Every line's keyword is created before any filter is read, so a dropped line still creates
-  its keyword (said "which the dropped line hands to no item") and another line's filter finds it. A filter FormID,
+  its keyword (said "KID still creates the keyword, and this line hands it to no item") and another line's filter finds it. A filter FormID,
   runtime FormID or plugin that names nothing, or a record of a type the row's `filterTypes` does not list, is skipped
   and the line said to reach more items (or exclude fewer); when every plain exact filter fails, or every `-` filter
   fails (a `-*` one always stands), the line is dropped. A `+` group with a failing part is dropped; when every group
@@ -76,6 +77,8 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
 - An `ExclusiveGroup` member KID removes with `-` is not checked against the members it adds.
 - Lines are listed in file order; KID's key-then-line order, its type pass order (Magic Effect first) and its keyword
   dependency sort are not modelled (plan step 30).
+- A keyword several lines name is said to be created once for all of them; which line creates it, and so which
+  spelling it takes, is not said.
 - An EditorID two records share is not reported, as for SPID.
 - MergeMapper remaps are not read.
 

@@ -184,9 +184,9 @@ public sealed class KidLinesTests
     public void AKeywordNameNoKeywordHoldsIsCreatedAndAFormIdThatNamesNoKeywordDropsTheLine()
     {
         var w = new World();
-        Assert.Contains("keyword 'HT_ArmorVisor' is no keyword's EditorID, so KID creates a keyword of that name and hands it out",
+        Assert.Contains("keyword 'HT_ArmorVisor' is no keyword's EditorID, so KID creates one keyword of that name for all the KID lines naming it, in any case, and this line hands it out",
             w.Read("Keyword = HT_ArmorVisor|Armor|HcHelmet").Notes);
-        Assert.Contains("keyword 'HcSword' is no keyword's EditorID, so KID creates a keyword of that name and hands it out",
+        Assert.Contains("keyword 'HcSword' is no keyword's EditorID, so KID creates one keyword of that name for all the KID lines naming it, in any case, and this line hands it out",
             w.Read("Keyword = HcSword|Armor|HcHelmet").Notes);
         Assert.Equal("keyword '0x802~HcKid.esp' names 000802:HcKid.esp, a Weapon record, not a keyword; KID logs 'FAIL - keyword doesn't exist' and drops the line",
             w.Read("Keyword = 0x802~HcKid.esp|Armor").Dropped);
@@ -207,20 +207,22 @@ public sealed class KidLinesTests
     {
         var r = new World().Read("Keyword = HcNew|Armor|0x999~HcAbsent.esp");
         Assert.NotNull(r.Dropped);
-        Assert.Contains("keyword 'HcNew' is no keyword's EditorID, so KID creates a keyword of that name, which the dropped line hands to no item", r.Notes);
+        Assert.Contains("keyword 'HcNew' is no keyword's EditorID, so KID creates one keyword of that name for all the KID lines naming it, in any case; "
+                        + "the line is dropped, but KID still creates the keyword, and this line hands it to no item", r.Notes);
     }
 
-    // r1 #11 (Cache.h:5, addedKeywords an IStringMap): KID finds a created keyword by name in any case, so a second
-    // spelling in another case finds the first line's keyword and creates none (ARR 4thcreatures_KID.ini:7 'BestiaryFlesh
-    // colossus', Dragonborns Bestiary_KID.ini:60 'BestiaryFlesh Colossus').
+    // r1 #11, r2 #8 (call B (i); Cache.h:5, addedKeywords an IStringMap): KID makes one keyword of a created name for every
+    // line naming it in any case, so no line is said to be its creator and every line's note differs only in the name as
+    // written (ARR 4thcreatures_KID.ini:7 'BestiaryFlesh colossus', Dragonborns Bestiary_KID.ini:60 'BestiaryFlesh Colossus').
     [Fact]
-    public void AKeywordSpeltInAnotherCaseFindsTheKeywordAnEarlierLineCreates()
+    public void EveryLineNamingACreatedKeywordInAnyCaseSaysOneKeywordIsMadeForAll()
     {
-        var reads = new World().ReadAll("Keyword = NewKw|Armor|HcHelmet\nKeyword = newkw|Weapon|HcSword\nKeyword = NewKw|Book");
-        Assert.Contains("keyword 'NewKw' is no keyword's EditorID, so KID creates a keyword of that name and hands it out", reads[0]!.Notes);
-        Assert.Contains("keyword 'newkw' is no keyword's EditorID, but another KID line creates it as 'NewKw' and KID finds a created keyword in any case, "
-                        + "so KID creates no second one and hands it out", reads[1]!.Notes);
-        Assert.Contains("keyword 'NewKw' is no keyword's EditorID, so KID creates a keyword of that name and hands it out", reads[2]!.Notes);
+        var reads = new World().ReadAll("Keyword = NewKw|Armor|HcHelmet\nKeyword = newkw|Weapon|HcSword\nKeyword = NewKw|Book\nKeyword = Spaced Kw |Book");
+        foreach (var (i, name) in new[] { (0, "NewKw"), (1, "newkw"), (2, "NewKw") })
+            Assert.Contains($"keyword '{name}' is no keyword's EditorID, so KID creates one keyword of that name for all the KID lines naming it, in any case, "
+                            + "and this line hands it out", reads[i]!.Notes);
+        Assert.Contains(reads[3]!.Notes, n => n.StartsWith("keyword 'Spaced Kw ' is no keyword's EditorID (KID keeps the space")
+                                              && n.EndsWith(", so KID creates one keyword of that name for all the KID lines naming it, in any case, and this line hands it out"));
     }
 
     // Answer 5 by section, the filters: a name no record holds is kept as text (dev BOOBIES_Skyrim_KID.ini ArmorTypeArmlets),
@@ -232,7 +234,7 @@ public sealed class KidLinesTests
         var reads = new World().ReadAll("Keyword = HcMade|Book\nKeyword = HcTag|Armor|HcMade\nKeyword = HcTag|Armor|HcLoose");
         Assert.Contains("filters 'HcMade' is no record's EditorID but names the keyword a KID line creates, so it matches the items that keyword is given to", reads[1]!.Notes);
         Assert.Contains(reads[2]!.Notes, n => n.StartsWith("filters 'HcLoose' is no record's EditorID and no keyword a KID line creates, so KID keeps it as text"));
-        Assert.DoesNotContain(reads[2]!.Notes, n => n.StartsWith("filters") && n.Contains("creates a keyword of that name"));
+        Assert.DoesNotContain(reads[2]!.Notes, n => n.StartsWith("filters") && n.Contains("creates one keyword of that name"));
     }
 
     // r1 #15 (Cache.h:5, addedKeywords an IStringMap): a filter finds a created keyword by name in any case.
