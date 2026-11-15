@@ -144,8 +144,10 @@ public static class RuntimeFormatSkillText
                 $"`{g.Unset}` is skipped. An entry holding `{g.All}` is a group whose parts must all match (AND), the groups of a line " +
                 $"are alternatives (OR), and the entries without `{g.All}` form one more list. A leading `{g.Not}` on an entry or on " +
                 $"a group's part excludes, and after it a leading `{g.Partial}` makes the term a partial string. Traits are read on " +
-                $"{traits} lines; on {noTraits} lines they are ignored, and a trait the type does not know is ignored too, so a misspelt trait " +
-                "widens the line. Chance is a number from 0 to 100, 100 when unset; a chance that does not start with a number " +
+                $"{traits} lines; on {noTraits} lines they are ignored. Each type reads its traits its own way (`traits.md`): a " +
+                "trait no rule of the type takes is ignored, which widens the line, but some types match a trait by what it holds " +
+                "(`R(`, `D(`, `W(`, digits only) or read any other trait as a soul gem's capacity, so a misspelt trait can read as " +
+                "a different one and narrow the line (`XR(40)` on a magic effect line is a resistance filter). Chance is a number from 0 to 100, 100 when unset; a chance that does not start with a number " +
                 $"fails the line, and KID logs `Failed to parse entry`. In a group line the members are split on `{g.Item}` and not " +
                 $"trimmed, and a leading `{g.Not}` takes a keyword out of the group.", 100),
 
