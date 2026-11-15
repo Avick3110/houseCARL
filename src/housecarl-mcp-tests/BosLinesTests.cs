@@ -75,6 +75,7 @@ public sealed class BosLinesTests
     [InlineData("[Reference]", BosKind.References)]
     [InlineData("", BosKind.References)]
     [InlineData("[forms]", BosKind.References)]
+    [InlineData("[transforms]", BosKind.References)]
     public void TheSectionNamePicksTheMapExactly(string header, BosKind kind)
         => Assert.Equal(kind, One(header + "\nHcRock|HcRockMossy").Section.Kind);
 
@@ -128,6 +129,8 @@ public sealed class BosLinesTests
         Assert.Equal(new[] { new BosLines.Condition(false, "HcTownLocation"), new BosLines.Condition(true, "HcTownKw") }, s.Conditions);
         Assert.Equal("Hc_SWAP.ini|HcTownLocation,-HcTownKw", s.ConditionId);
         Assert.Equal(BosKind.ConditionalProperties, One("[Transforms|HcTownLocation]\nHcRock|pos(1,2,3)").Section.Kind);
+        // The head is compared whole: 'FormsX' is not 'Forms'.
+        Assert.Equal(BosKind.ConditionalProperties, One("[FormsX|HcTownLocation]\nHcRock|pos(1,2,3)").Section.Kind);
     }
 
     // ---- what a line names -------------------------------------------------------------------
