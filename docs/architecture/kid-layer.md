@@ -18,8 +18,8 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
   ([`spid-layer.md`](spid-layer.md)): `Data`'s top level, `_KID` anywhere and the `.ini` extension (both ordinal), the
   MO2 winner of each, one ordinal sort. A shadowed copy is named and never read; a copy only inside an archive is listed,
   said not applied, and not read.
-- **A line splits as SimpleIni and KID split it** (`KidLines.Parse`): only the lines before the first named
-  `[section]`; a line whose first non-space character is a comment lead (`;`, `#`) is a comment; the value runs to the
+- **A line splits as SimpleIni and KID split it** (`KidLines.Parse`): only the unnamed section, the lines before
+  the first named `[section]` and any after an empty `[]`, which returns to it; a line whose first non-space character is a comment lead (`;`, `#`) is a comment; the value runs to the
   line's end, so a `;` after a value is part of it. The key `ExclusiveGroup`, exactly, is a group line (`name|members`,
   members split on `,` untrimmed); any other key is a keyword line. The five `|` sections are not trimmed. A type that
   is not one of the row's 19, spelt exactly, drops the line with no log, and it is read first, so such a line throws on
