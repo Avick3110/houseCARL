@@ -17,10 +17,7 @@ public static class RecordHeaderKeys
         ReadOnlyMemorySlice<byte> all = File.ReadAllBytes(path);
         var self = ModKey.FromFileName(Path.GetFileName(path));
         var header = new MajorRecordFrame(meta, all);
-        var masters = new List<ModKey>();
-        foreach (var sub in RecordSpanExtensions.EnumerateSubrecords(header.Content, meta, 0))
-            if (sub.RecordType.Type == "MAST")
-                masters.Add(ModKey.FromFileName(Encoding.Latin1.GetString(sub.Content.Span).TrimEnd('\0')));
+        var masters = Masters(header, meta);
         var keys = new List<FormKey>();
         for (long pos = header.TotalLength; pos < all.Length;)
             pos += Group(meta, all.Slice(checked((int)pos)), masters, self, keys);
@@ -30,7 +27,7 @@ public static class RecordHeaderKeys
     /// <summary>The place of each of <paramref name="wanted"/> among the major records of the file at <paramref name="path"/>,
     /// counted in file order through every group, read header by header with each record's body skipped; a key the file
     /// does not hold is absent. Stops once every key is placed.</summary>
-    public static Dictionary<FormKey, int> Places(string path, IReadOnlyCollection<FormKey> wanted)
+    public static Dictionary<FormKey, int> Places(string path, IReadOnlySet<FormKey> wanted)
     {
         var meta = GameConstants.SkyrimSE;
         var places = new Dictionary<FormKey, int>();
@@ -42,10 +39,7 @@ public static class RecordHeaderKeys
         head.CopyTo(tes4, 0);
         fs.ReadExactly(tes4, len, tes4.Length - len);
         var self = ModKey.FromFileName(Path.GetFileName(path));
-        var masters = new List<ModKey>();
-        foreach (var sub in RecordSpanExtensions.EnumerateSubrecords(new MajorRecordFrame(meta, tes4).Content, meta, 0))
-            if (sub.RecordType.Type == "MAST")
-                masters.Add(ModKey.FromFileName(Encoding.Latin1.GetString(sub.Content.Span).TrimEnd('\0')));
+        var masters = Masters(new MajorRecordFrame(meta, tes4), meta);
         int place = 0;
         // A group's header is followed by its contents, so the walk steps into it; a record's body is skipped.
         while (places.Count < wanted.Count && fs.Read(head, 0, len) == len)
@@ -59,6 +53,16 @@ public static class RecordHeaderKeys
             fs.Seek(BitConverter.ToUInt32(head, 4), SeekOrigin.Current);
         }
         return places;
+    }
+
+    /// <summary>The master list a plugin's header declares, in order, as its FormIDs' load indexes number them.</summary>
+    static List<ModKey> Masters(MajorRecordFrame header, GameConstants meta)
+    {
+        var masters = new List<ModKey>();
+        foreach (var sub in RecordSpanExtensions.EnumerateSubrecords(header.Content, meta, 0))
+            if (sub.RecordType.Type == "MAST")
+                masters.Add(ModKey.FromFileName(Encoding.Latin1.GetString(sub.Content.Span).TrimEnd('\0')));
+        return masters;
     }
 
     static long Group(GameConstants meta, ReadOnlyMemorySlice<byte> at, List<ModKey> masters, ModKey self, List<FormKey> keys)

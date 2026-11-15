@@ -60,7 +60,16 @@ internal sealed class SkyPatcherEditorIdTable
             if (kind is not { } k) continue;
             if (!_names.TryGetValue(eid, out var holders)) _names[eid] = holders = new();
             // Plugins walk in load order, so a record's first instance under the name is the one that loaded it.
-            holders.TryAdd(fk, new Holder(fk, k.Getter, k.Name, position, plugin));
+            var holder = new Holder(fk, k.Getter, k.Name, position, plugin);
+            if (!holders.TryAdd(fk, holder)) continue;
+            // A tie of two types inside one plugin, kept so one walk of that plugin's file places every such record.
+            foreach (var o in holders.Values)
+                if (o.Position == position && o.Getter != k.Getter)
+                {
+                    if (!_ties.TryGetValue(position, out var tied)) _ties[position] = tied = new();
+                    tied.Add(o.Record);
+                    tied.Add(fk);
+                }
         }
         if (_unreadable.Count > before) _incomplete.UnionWith(fresh);
     }
@@ -79,6 +88,7 @@ internal sealed class SkyPatcherEditorIdTable
             .ThenBy(h => _rank[h.Getter]).ToList();
     }
 
+    readonly Dictionary<int, HashSet<FormKey>> _ties = new();
     readonly Dictionary<int, Dictionary<FormKey, int>> _places = new();
 
     /// <summary>A record's place in the file of the plugin that loaded it under its name, read once per plugin and key in
@@ -89,13 +99,10 @@ internal sealed class SkyPatcherEditorIdTable
         if (!known.ContainsKey(h.Record))
         {
             // Every two-type tie this plugin holds in the table so far, so one walk of the file places them all.
-            var keys = _names.Values.Select(n => n.Values.Where(x => x.Position == h.Position).ToList())
-                .Where(t => t.Select(x => x.Getter).Distinct().Count() > 1)
-                .SelectMany(t => t.Select(x => x.Record)).Where(k => !known.ContainsKey(k)).ToHashSet();
-            Dictionary<FormKey, int>? read = null;
-            try { read = new(_view.FilePlaces(h.Position, keys)); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            var keys = _ties[h.Position].Where(k => !known.ContainsKey(k)).ToHashSet();
+            IReadOnlyDictionary<FormKey, int>? read = null;
+            try { read = _view.FilePlaces(h.Position, keys); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
             foreach (var k in keys) known[k] = read is not null && read.TryGetValue(k, out var p) ? p : int.MaxValue;
         }
         return known[h.Record];

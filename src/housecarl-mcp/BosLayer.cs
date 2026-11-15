@@ -16,7 +16,6 @@ internal sealed partial class AssetLayers
         return DistributorLayer(format, replay, filter, wanted, namedPlugins, formIdsGiven, ct,
             (text, file) => BosLines.Parse(text, format, file),
             lines => BosLines.ReadAll(lines, new BosLines.Context(replay.Forms, format)),
-            files => BosLines.Places(files.Select(f => (f.Lines, (IReadOnlyList<BosLines.LineRead?>)f.Reads)).ToList())
-                .ToDictionary(kv => kv.Key, kv => BosWire.PlaceRow(kv.Value)));
+            files => BosLines.Places(files).ToDictionary(kv => kv.Key, kv => BosWire.PlaceRow(kv.Value)));
     }
 }
