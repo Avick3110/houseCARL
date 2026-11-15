@@ -10,10 +10,11 @@ public static partial class RuntimeFormats
     /// <summary>SPID's row of the embedded source, with its lines block (memoized).</summary>
     public static DistributorFormat Spid => Distributor("spid") ?? throw new InvalidOperationException("runtime-format source: no spid row.");
 
-    /// <summary>A row's lines block; null for a row with none. Only SPID's reader has landed, so a lines block on another row has no rule.</summary>
+    /// <summary>SPID's lines block; null for a row with none, or for KID's, which <see cref="KidLinesBlock"/> reads.
+    /// SPID's and KID's readers have landed, so a lines block on another row has no rule.</summary>
     static SpidGrammar? Lines(JsonElement row, string key, string ctx)
     {
-        if (!row.TryGetProperty("lines", out var l)) return null;
+        if (!row.TryGetProperty("lines", out var l) || key == "kid") return null;
         if (key != "spid") throw Unknown(ctx, "lines", "a lines block");
         ctx += ".lines";
         Known(l, "section", ctx, "unnamedOnly");

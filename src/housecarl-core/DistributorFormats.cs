@@ -30,7 +30,7 @@ public static partial class RuntimeFormats
         var folders = row.GetProperty("folders").EnumerateArray().Select(f => Folder(f, ctx + ".folders")).ToList();
         if (folders.Count == 0) throw new InvalidOperationException($"runtime-format source [{ctx}]: 'folders' is empty.");
         return new DistributorFormat(key, Str(row, "format", ctx), Str(row, "version", ctx), folders, Targets(row.GetProperty("targets"), ctx + ".targets"),
-            Lines(row, key, ctx));
+            Lines(row, key, ctx), KidLinesBlock(row, key, ctx));
     }
 
     static DistributorFolder Folder(JsonElement f, string ctx)
@@ -92,7 +92,6 @@ public static partial class RuntimeFormats
                Strs(t, "pluginExtensions", ctx),
                Str(t, "missingName", ctx) switch
                {
-                   "createsKeyword" => TargetMissingName.CreatesKeyword,
                    "byPosition" => TargetMissingName.ByPosition,
                    "namesNothing" => TargetMissingName.NamesNothing,
                    "unread" => TargetMissingName.Unread,
@@ -108,14 +107,23 @@ public static partial class RuntimeFormats
 }
 
 /// <summary>One distributor format's row: the folders it reads, how a target token in it is spelt, and, once its reader
-/// has landed, its line grammar (<see cref="Lines"/>; SPID's today, null for a format whose lines are not read yet).</summary>
+/// has landed, its line grammar (<see cref="Lines"/> for SPID, <see cref="KidLines"/> for KID; both null for a format
+/// whose lines are not read yet).</summary>
 public sealed record DistributorFormat(
     string Key,
     string Name,
     string Version,
     IReadOnlyList<DistributorFolder> Folders,
     TargetSpelling Targets,
-    SpidGrammar? Lines);
+    SpidGrammar? Lines,
+    KidGrammar? KidLines = null)
+{
+    /// <summary>Whether this build reads the format's lines: its row carries a lines block.</summary>
+    public bool LinesRead => Lines is not null || KidLines is not null;
+
+    /// <summary>The versions whose reads of the files this row models, the modelled one included.</summary>
+    public IReadOnlyList<string> Reads => Lines?.Reads ?? KidLines?.Reads ?? [Version];
+}
 
 /// <summary>One folder a format reads: where it is under Data, which names it takes there, whether the DLL sorts that
 /// folder's list, and whether the read descends into subfolders.</summary>
@@ -163,10 +171,9 @@ public enum TargetBareFormId { NotAFormId, RuntimeFormId, Unread }
 /// <summary>What makes a term a plugin name: nothing, the extension text anywhere in it, the extension at its end, or a rule not read for this format.</summary>
 public enum TargetPluginTerm { NotATerm, ContainsExtensionText, EndsWithExtension, Unread }
 
-/// <summary>What a name no record holds does: nothing, the framework creating a keyword of that name, an outcome the
-/// line's own position decides (its reader says it, the resolver only that the name finds nothing), or a rule not read
-/// for this format.</summary>
-public enum TargetMissingName { NamesNothing, CreatesKeyword, ByPosition, Unread }
+/// <summary>What a name no record holds does: nothing, an outcome the line's own position decides (its reader says it,
+/// the resolver only that the name finds nothing), or a rule not read for this format.</summary>
+public enum TargetMissingName { NamesNothing, ByPosition, Unread }
 
 /// <summary>Which records an EditorID is looked up among: the call's scope, every type as the game's own map keeps them, or a rule not read for this format.</summary>
 public enum TargetEditorIdScope { Scoped, EveryType, Unread }

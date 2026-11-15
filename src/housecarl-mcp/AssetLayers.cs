@@ -678,9 +678,10 @@ internal sealed partial class AssetLayers
     /// <summary>The layer scan handed to <paramref name="use"/> while its replay is open, so <see cref="SkyPatcherLayerData.Lint"/> resolves a line only when <paramref name="use"/> asks; the lookup is valid only inside it.</summary>
     /// <param name="skyPatcher">Read SkyPatcher's lines; false leaves its reports empty and its scan unselected.</param>
     /// <param name="spid">Read SPID's layer in the same replay context.</param>
-    /// <param name="filter">The call's filter=: SPID's lines resolve when a SPID file matches it, or under a selector.</param>
+    /// <param name="kid">Read KID's layer in the same replay context, after SPID's.</param>
+    /// <param name="filter">The call's filter=: SPID's and KID's lines resolve when one of the format's files matches it, or under a selector.</param>
     public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true, CancellationToken ct = default, SkyPatcherLineSelect? select = null,
-                                bool skyPatcher = true, bool spid = false, string? filter = null)
+                                bool skyPatcher = true, bool spid = false, string? filter = null, bool kid = false)
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
@@ -706,10 +707,14 @@ internal sealed partial class AssetLayers
         }
         // SPID's lines are read after SkyPatcher's scans, so every SkyPatcher answer is built as it was before SPID was read.
         SpidLayerData? Spid() => spid ? SpidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
+        KidLayerData? Kid() => kid ? KidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         if (!skyPatcher)
+        {
+            var spidOnly = Spid();
             return use(new SkyPatcherLayerData(scan with { Folders = [], Notes = [] }, [], [], [], [], [], assets.RootFailures,
                 scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName)
-                { SkyPatcherRead = false, SelectNote = selectNote, Spid = Spid() });
+                { SkyPatcherRead = false, SelectNote = selectNote, Spid = spidOnly, Kid = Kid() });
+        }
         var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
         var itms = new List<SkyPatcherConflicts.SkyPatcherItm>();
         var duplicates = new List<SkyPatcherConflicts.SkyPatcherDuplicate>();
@@ -794,9 +799,10 @@ internal sealed partial class AssetLayers
         // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
         var unreadableNotes = UnreadableNotes(replay);
 
+        var spidData = Spid();
         var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
             scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null)
-            { UnreadableNotes = unreadableNotes, Spid = Spid() };
+            { UnreadableNotes = unreadableNotes, Spid = spidData, Kid = Kid() };
         if (wanted is null) return use(data);
         return use(data with { SelectNote = selectNote, Select = (folder, file, i) => replay.LineForms(folder, file.Lines[i]).Where(f => wanted(f.Form)).ToList() });
     }

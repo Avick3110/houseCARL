@@ -335,7 +335,34 @@ public sealed record SkyPatcherLayerData(
 
     /// <summary>SPID's layer, read in the same replay context; null when the call does not read SPID.</summary>
     public SpidLayerData? Spid { get; init; }
+
+    /// <summary>KID's layer, read in the same replay context after SPID's; null when the call does not read KID.</summary>
+    public KidLayerData? Kid { get; init; }
 }
+
+/// <summary>KID's layer: the files it reads in its order, each line split, and, when the call resolves them, each line's
+/// read and the lines the records selectors keep. Valid only in its call.</summary>
+public sealed record KidLayerData(HousecarlCore.DistributorFormat Format, IReadOnlyList<KidFileData> Files, string ProfileName)
+{
+    /// <summary>Each file's line reads, index for index with its lines; null when the call does not resolve them.</summary>
+    public IReadOnlyList<IReadOnlyList<HousecarlCore.KidLines.LineRead?>>? Reads { get; init; }
+
+    /// <summary>The lines the records selectors keep, by (file index, line index); null when no selector was given.</summary>
+    public IReadOnlyDictionary<(int File, int Line), KidSelected>? Selected { get; init; }
+
+    /// <summary>The plugins an EditorID sweep could not open during this call, one note each.</summary>
+    public IReadOnlyList<string> UnreadableNotes { get; init; } = [];
+}
+
+/// <summary>One KID file: the file as discovery found it, its lines as KID splits them, and why it could not be read.</summary>
+public sealed record KidFileData(HousecarlCore.DistributorDiscovery.ConfigFile File, IReadOnlyList<HousecarlCore.KidLines.Line> Lines, string? ReadError)
+{
+    /// <summary>Whether filter= keeps this file, by SPID's rule: its name or providing mod.</summary>
+    public bool Matches(string filter) => SpidFileData.Matches(File, filter);
+}
+
+/// <summary>What the selectors keep of one KID line: the forms, and the plugins it names as a term.</summary>
+public sealed record KidSelected(IReadOnlyList<HousecarlCore.KidLines.Named> Forms, IReadOnlyList<string> PluginTerms);
 
 /// <summary>SPID's layer: the files it reads in its order, each line split, and, when the call resolves them, each
 /// line's read, each first-wins line's place and the lines the records selectors keep. Valid only in its call.</summary>
@@ -359,8 +386,12 @@ public sealed record SpidFileData(HousecarlCore.DistributorDiscovery.ConfigFile 
 {
     /// <summary>Whether filter= keeps this file: its name or providing mod contains <paramref name="filter"/> (trimmed,
     /// non-blank), in any case.</summary>
-    public bool Matches(string filter) => File.RelPath.Contains(filter, StringComparison.OrdinalIgnoreCase)
-        || (File.WinningProvider?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
+    public bool Matches(string filter) => Matches(File, filter);
+
+    /// <summary>The one filter= predicate for a distributor file: its name or providing mod contains the filter, in any case.</summary>
+    internal static bool Matches(HousecarlCore.DistributorDiscovery.ConfigFile f, string filter)
+        => f.RelPath.Contains(filter, StringComparison.OrdinalIgnoreCase)
+           || (f.WinningProvider?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
 }
 
 /// <summary>What the selectors keep of one SPID line: the forms, and the plugins it names as a term.</summary>

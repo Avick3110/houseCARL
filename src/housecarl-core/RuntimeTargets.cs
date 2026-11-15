@@ -263,9 +263,7 @@ public static class RuntimeTargets
                 if (resolver.EditorIdGap(scoped) is { } gap) return $"finds nothing: {gap}";
                 // Only a scoped lookup can name its scope; an every-type one is the game's whole map.
                 var among = s.EditorIds == TargetEditorIdScope.Scoped && scope is not null ? $" among {scope} records" : "";
-                return s.MissingName == TargetMissingName.CreatesKeyword
-                    ? $"finds no record by that EditorID{among} in the active order, so {name} creates a keyword of that name"
-                    : $"finds no record by that EditorID{among} in the active order";
+                return $"finds no record by that EditorID{among} in the active order";
         }
     }
 }

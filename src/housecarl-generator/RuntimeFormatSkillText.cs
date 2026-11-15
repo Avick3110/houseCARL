@@ -3,7 +3,7 @@ using HousecarlCore;
 
 namespace HousecarlGenerator;
 
-/// <summary>Prints the skill paragraphs that state SkyPatcher's and SPID's discovery, order, conflict and grammar rules from the runtime-format source, into marked regions of the committed skill files; RuntimeFormatSourceTests holds the committed text to a fresh print.</summary>
+/// <summary>Prints the skill paragraphs that state SkyPatcher's, SPID's and KID's discovery, order, conflict and grammar rules from the runtime-format source, into marked regions of the committed skill files; RuntimeFormatSourceTests holds the committed text to a fresh print.</summary>
 public static class RuntimeFormatSkillText
 {
     /// <summary>The skill-relative files that hold generated regions, under <c>.claude/skills/</c>.</summary>
@@ -14,6 +14,7 @@ public static class RuntimeFormatSkillText
         "skypatcher-authoring/references/grammar-core.md",
         "spid-authoring/references/grammar-core.md",
         "spid-authoring/references/value-tables.md",
+        "kid-authoring/references/grammar-core.md",
     };
 
     /// <summary>The opening marker of a region; the closing one is <see cref="End"/>.</summary>
@@ -99,9 +100,87 @@ public static class RuntimeFormatSkillText
         };
     }
 
-    /// <summary>Every region's text by tag, SkyPatcher's and SPID's, from the shipped source.</summary>
+    /// <summary>Every region's text by tag, SkyPatcher's, SPID's and KID's, from the shipped source.</summary>
     public static IReadOnlyDictionary<string, string> Regions()
-        => Regions(RuntimeFormats.SkyPatcher).Concat(Regions(RuntimeFormats.Spid)).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        => Regions(RuntimeFormats.SkyPatcher).Concat(Regions(RuntimeFormats.Spid)).Concat(KidRegions(RuntimeFormats.Kid))
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+
+    /// <summary>KID's regions, printed from its distributor row: discovery from its folder, the rest from its lines block and targets.</summary>
+    public static IReadOnlyDictionary<string, string> KidRegions(DistributorFormat kid)
+    {
+        var folder = kid.Folders.Single();
+        var g = kid.KidLines ?? throw new InvalidOperationException($"runtime-format source: the {kid.Key} row has no KID lines block to print.");
+        var t = kid.Targets;
+        string tok = folder.NameToken, ext = folder.Extension;
+        string Case(StringComparison c) => c == StringComparison.Ordinal ? "case-sensitive" : "any case";
+        var models = string.Join(", ", g.Reads.Where(v => v != kid.Version));
+        var leads = Join(g.CommentLeads.Select(c => $"`{c}`").ToList(), "or");
+        var sep = t.Separator;
+        var plugin = Join(t.PluginExtensions.Select(e => $"`{e}`").ToList(), "or");
+        var traits = Join(g.Types.Where(x => x.Traits).Select(x => $"`{x.Key}`").ToList(), "and");
+        var noTraits = Join(g.Types.Where(x => !x.Traits).Select(x => $"`{x.Key}`").ToList(), "and");
+        var passes = string.Join(" → ", g.Types.OrderBy(x => x.Runs).Select(x => x.Key));
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["kid.discovery"] = Wrap(
+                $"KID reads every file directly in `Data/` whose name holds `{tok}` anywhere ({Case(folder.TokenCompare)}: " +
+                $"`{tok.ToLowerInvariant()}` is not read, nor `AllGear{tok.TrimStart('_')}{ext}`, which has no `{tok}`) and whose extension is exactly " +
+                $"`{ext}` ({Case(folder.ExtensionCompare)}: `{ext.ToUpperInvariant()}` is not read). A file in a subfolder is never read, nor one " +
+                "that is only inside a BSA. Files are read in the byte order of their names, not alphabetically: upper-case letters " +
+                $"sort before lower-case ones and `_` sits between them, so `ZZZ{tok}{ext}` comes before `aaa{tok}{ext}`. " +
+                $"These paragraphs model KID {kid.Version}; {models} reads its files the same.", 100),
+
+            ["kid.lines"] = Wrap(
+                "Only the unnamed section is read: the lines before the first named `[section]` header, and any after an empty " +
+                $"`[]` header, which returns to it. A line whose first non-space character is {leads} is a comment. There is no " +
+                $"comment after a value: everything after `{g.Assign}` to the end of the line is the value, so a `;` note after the " +
+                "last section becomes part of it. The key " +
+                $"`{g.GroupKey}`, spelt in exactly that case, makes a group line, `GroupName{g.Sections}Members`; any other key (`Keyword`, " +
+                $"`keyword`, any word) makes a keyword line, `Keyword{g.Sections}Type{g.Sections}Filters{g.Sections}Traits{g.Sections}Chance`. " +
+                $"The sections are split on `{g.Sections}` and not trimmed, so ` Armor` with a space is not a type. The type is one of " +
+                $"{string.Join(", ", g.Types.Select(x => $"`{x.Key}`"))}, spelt exactly so; a line with any other type, or none, is " +
+                "dropped without a word in the log. A section after the fifth is ignored. An empty section, or " +
+                $"`{g.Unset}` in any case, is unset. In the filters `{g.Item}` separates the entries, each trimmed, and an entry " +
+                $"`{g.Unset}` is skipped. An entry holding `{g.All}` is a group whose parts must all match (AND), the groups of a line " +
+                $"are alternatives (OR), and the entries without `{g.All}` form one more list. A leading `{g.Not}` on an entry or on " +
+                $"a group's part excludes, and after it a leading `{g.Partial}` makes the term a partial string. Traits are read on " +
+                $"{traits} lines; on {noTraits} lines they are ignored, and a trait the type does not know is ignored too, so a misspelt trait " +
+                "widens the line. Chance is a number from 0 to 100, 100 when unset; a chance that does not start with a number " +
+                $"fails the line, and KID logs `Failed to parse entry`. In a group line the members are split on `{g.Item}` and not " +
+                $"trimmed, and a leading `{g.Not}` takes a keyword out of the group.", 100),
+
+            ["kid.names"] = Wrap(
+                $"A token holding exactly one `{sep}` is a FormID with its plugin (`0x800{sep}Plugin.esp`): the number is added to " +
+                "the plugin's own load index as the game numbers it, so a load index written into the number moves it to another " +
+                $"plugin's record, and a part before `{sep}` that is no hex number fails the line (`Failed to parse entry`). A token " +
+                $"with two or more `{sep}` is a name. Else `0x` followed by hex digits only is a runtime FormID (`0x1CE14`, as the " +
+                "console prints it, so it depends on the load order). Else a filter ending in " +
+                $"{plugin} ({Case(StringComparison.Ordinal)}) is a plugin name and selects every item that plugin defines. Anything " +
+                "else is a name. The keyword section's name is looked up among keywords only. A filter's name is looked up among " +
+                "every record type, then among the keywords KID lines create, and only then kept as text. A filter ending in " +
+                $"`{g.ModelEnding}`, in any case, is a model path.", 100),
+
+            ["kid.missing"] = Wrap(
+                "In the keyword section a name no keyword holds is created as a new keyword, also when a record of another type " +
+                "holds the name; a FormID that names nothing, or names a record that is not a keyword, drops the line (`FAIL - " +
+                "keyword doesn't exist`). Every line's keyword is created before any filter is read, so a line its filters drop " +
+                "still creates it, and another line's filter can name it. In the filters a FormID, a runtime FormID or a plugin that " +
+                "names nothing, or a record of a type KID does not take as a filter, is skipped and the line reaches more items " +
+                $"(or, among the `{g.Not}` entries, excludes fewer), unless every plain entry fails, or every `{g.Not}` entry fails: " +
+                $"then the line is dropped. A `{g.All}` group one part of which fails is dropped, and when every group is dropped, " +
+                "so is the line. A filter name no record holds and no KID line creates is kept as text: it matches an item whose " +
+                "EditorID or name is that text, or, for an actor-value or archetype name, whose own actor value or archetype it is. " +
+                "A filter never creates a keyword.", 100),
+
+            ["kid.order"] = Wrap(
+                "Within one file KID takes the lines grouped by key, the keys in alphabetical order whatever their case, and each " +
+                "key's lines in file order; the files are taken in their read order. KID then hands keywords out type by type, in " +
+                $"this order: {passes}. Within a type KID re-sorts the keywords so that a keyword another line's filter names is " +
+                "handed out first. KID only adds keywords: no line takes " +
+                $"one off, and two lines never conflict, except that an item already holding one keyword of an `{g.GroupKey}` " +
+                "receives no other keyword of that group.", 100),
+        };
+    }
 
     /// <summary>SPID's regions, printed from its distributor row: discovery from its folder, the rest from its lines block.</summary>
     public static IReadOnlyDictionary<string, string> Regions(DistributorFormat spid)

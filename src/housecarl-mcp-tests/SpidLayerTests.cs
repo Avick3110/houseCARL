@@ -244,12 +244,14 @@ public sealed class SpidLayerTests : IDisposable
         });
         string Body(string answer) => answer.IndexOf("\n[!] this response ", StringComparison.Ordinal) is var at and >= 0 ? answer[..at] : answer;
         int Rows(string text) => new[] { "  - HcA_DISTR.ini", "  - HcB_DISTR.ini" }.Count(text.Contains);
-        var whole = SkyPatcherTools.Layer(w.Svc);
+        // The two-format join as SPID's lane built it; KidLayerTests holds the third part.
+        var two = new[] { "skypatcher", "spid" };
+        var whole = SkyPatcherTools.Layer(w.Svc, distributor: two);
         int headerCut = 0, someFiles = 0, over = 0, remedyShows = 0;
         for (int cap = 50; cap <= whole.Length + 100; cap += 23)
         {
             var sky = Body(SkyPatcherTools.Layer(w.Svc, distributor: new[] { "skypatcher" }, max_chars: cap));
-            var all = SkyPatcherTools.Layer(w.Svc, max_chars: cap);
+            var all = SkyPatcherTools.Layer(w.Svc, distributor: two, max_chars: cap);
             Assert.StartsWith(sky + "\n\nSPID layer (", all);
             var spid = Body(all[(sky.Length + 2)..]);
             if (all.Length > cap)
@@ -279,11 +281,11 @@ public sealed class SpidLayerTests : IDisposable
     [Fact]
     public void SpidLinesAreCutWithTheirNoticeAfterSkyPatchersPart()
     {
-        var full = SkyPatcherTools.Layer(_w.Svc, filter: "HcA_");
+        var full = SkyPatcherTools.Layer(_w.Svc, distributor: new[] { "skypatcher", "spid" }, filter: "HcA_");
         int spidAt = full.IndexOf("\n\nSPID layer (", StringComparison.Ordinal) + 2;
         int rowEnd = full.IndexOf('\n', full.IndexOf("  - HcA_DISTR.ini", spidAt, StringComparison.Ordinal)) + 1;
         int cap = rowEnd + 10 + FileCut.Length + 1 + LineCut.Length + 1;
-        var text = SkyPatcherTools.Layer(_w.Svc, filter: "HcA_", max_chars: cap);
+        var text = SkyPatcherTools.Layer(_w.Svc, distributor: new[] { "skypatcher", "spid" }, filter: "HcA_", max_chars: cap);
         Assert.Equal(full[..rowEnd] + LineCut, text);
     }
 
@@ -308,12 +310,13 @@ public sealed class SpidLayerTests : IDisposable
         var before = w.Svc.Counters.EditorIdSweeps;
         var text = SkyPatcherTools.Layer(w.Svc, filter: "npc");
         var sweeps = w.Svc.Counters.EditorIdSweeps - before;
-        // The answer as it was: SkyPatcher's, then SPID's no-match block.
+        // The answer as it was: SkyPatcher's, then SPID's no-match block, then KID's.
         var sky = SkyPatcherTools.Layer(w.Svc, distributor: new[] { "skypatcher" }, filter: "npc");
         Assert.Contains(":1  filterByNpcs=HcSpid.esp|810:weight=5", sky);
         Assert.StartsWith(sky + "\n\nSPID layer (", text);
-        Assert.EndsWith(" 1 file(s) in Data (1 read), 1 line(s): Perk 1\nfilter 'npc' — 0 of 1 file(s) match.\n\n"
-                        + "nothing matched: no SPID file name or providing mod contains 'npc'.", text);
+        Assert.Contains(" 1 file(s) in Data (1 read), 1 line(s): Perk 1\nfilter 'npc' — 0 of 1 file(s) match.\n\n"
+                        + "nothing matched: no SPID file name or providing mod contains 'npc'.\n\nKID layer (", text);
+        Assert.EndsWith("nothing matched: no KID file name or providing mod contains 'npc'.", text);
         Assert.Equal(0, sweeps);
     }
 

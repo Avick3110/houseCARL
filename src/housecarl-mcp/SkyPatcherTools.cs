@@ -13,16 +13,20 @@ public static class SkyPatcherTools
     static DistributorFormat[]? _landed;
 
     /// <summary>The distributor rows whose lines block has landed, so their lines are read; built on first use, so the rows parse there and not at type init.</summary>
-    static DistributorFormat[] Landed => _landed ??= RuntimeFormats.Distributors.Where(d => d.Lines is not null).ToArray();
+    static DistributorFormat[] Landed => _landed ??= RuntimeFormats.Distributors.Where(d => d.LinesRead).ToArray();
 
     /// <summary>The distributor= values this build reads: SkyPatcher, and each landed distributor row.</summary>
     static string[] Read => new[] { "skypatcher" }.Concat(Landed.Select(d => d.Key)).ToArray();
 
     /// <summary>The formats read, as the refusals name them.</summary>
-    static string ReadNames => string.Join(" and ", new[] { "SkyPatcher" }.Concat(Landed.Select(d => d.Name)));
+    static string ReadNames => Prose(new[] { "SkyPatcher" }.Concat(Landed.Select(d => d.Name)).ToList(), "and");
 
     /// <summary>The distributor= values read, quoted, as the refusals list them.</summary>
-    static string ReadValues => string.Join(" or ", Read.Select(v => $"'{v}'"));
+    static string ReadValues => Prose(Read.Select(v => $"'{v}'").ToList(), "or");
+
+    /// <summary>A list in prose: "a", "a or b", "a, b or c".</summary>
+    static string Prose(IReadOnlyList<string> xs, string last)
+        => xs.Count <= 1 ? string.Concat(xs) : string.Join(", ", xs.Take(xs.Count - 1)) + $" {last} " + xs[^1];
 
     /// <summary>Formats houseCARL does not read, by the name a caller asks for them.</summary>
     static readonly (string Name, string Full)[] NotRead =
@@ -64,9 +68,9 @@ public static class SkyPatcherTools
         public bool defined_in { get; set; }
     }
 
-    [McpServerTool(Name = ToolNames.Layer, ReadOnly = true, Title = "Runtime layers (SkyPatcher and SPID INIs, apply order, conflicts)"),
+    [McpServerTool(Name = ToolNames.Layer, ReadOnly = true, Title = "Runtime layers (SkyPatcher, SPID and KID INIs, apply order, conflicts)"),
      Description(
-         "Inventory the runtime distributor layers of the active load order, SkyPatcher and SPID, read as the files declare it (what a DLL does at runtime is not claimed): the runtime edits the record tools otherwise " +
+         "Inventory the runtime distributor layers of the active load order, SkyPatcher, SPID and KID, read as the files declare it (what a DLL does at runtime is not claimed): the runtime edits the record tools otherwise " +
          "miss. SkyPatcher: scans Data\\SKSE\\Plugins\\SkyPatcher as the DLL reads it: every loose file with '.ini' in its name per type folder in the DLL's " +
          "read order (the folder's own files, then each depth of subfolders, A to Z; folders in patcher order) (BSA-packed INIs are flagged as not applied), the mod that wins each file, same-path collisions " +
          "(the loser's content is never read; flagged), Plugin.esp.ini filename gates evaluated against the load " +
@@ -77,22 +81,30 @@ public static class SkyPatcherTools
          "flagged), cross-INI duplicates (two files set the same field and target to the same value), and no-op writes " +
          "(the replay shows the set writes the value the record already has). An entry whose applicability also " +
          "depends on other filters is flagged conditional, not guessed. filter= lists the matching INIs' lines with their " +
-         "notes. SPID: its _DISTR.ini files in Data, in its order, read as distributor= says. Which lines touch a record or plugin: formids= and plugins= select the lines naming a form they select, " +
+         "notes. SPID and KID: their _DISTR.ini and _KID.ini files in Data, in their order, read as distributor= says. Which lines touch a record or plugin: formids= and plugins= select the lines naming a form they select, " +
          "as on " + ToolNames.Records + ", each match labelled target, filter, value or unknown key. For records' computed post-SkyPatcher state use " + ToolNames.Records + " with " +
          "source={\"overlay\": \"skypatcher\", \"state\": \"post\"} over formids= or a scan. Read-only.")]
     public static string Layer(
         LoadOrderService svc,
-        [Description("Optional. Which formats to read: 'skypatcher', 'spid'. Omit for every format read. 'oar', 'ied', 'desc' and " +
-            "'dsd' are answered not read; 'kid', 'bos' and 'flm' are not read yet. SPID is read as SPID 7.3 reads it: every " +
+        [Description("Optional. Which formats to read: 'skypatcher', 'spid', 'kid'. Omit for every format read; with no selector and no " +
+            "filter= that answers SkyPatcher's layer, then one summary line each for SPID and KID (distributor=[\"spid\"] or [\"kid\"] lists " +
+            "the files). 'oar', 'ied', 'desc' and 'dsd' are answered not read; 'bos' and 'flm' are not read yet. SPID is read as SPID 7.3 reads it: every " +
             "file directly in Data with '_DISTR' in its name and the '.ini' extension (both case-sensitive), in its order (names " +
             "in byte order), the mod that wins each (a shadowed copy is never read; a BSA-only one is flagged not applied). " +
             "filter= expands a file's lines with what SPID does with each: a line it skips or drops, a filter form it skips, a " +
             "keyword it creates, string filters matched in the running game against an NPC's name, its own and its template's EditorIDs and its keywords' EditorIDs, its race's and SPID-created ones included (not read), and each Outfit, SleepOutfit or " +
             "Skin line's place in its first-wins order (a Form line's by its value's type, so an outfit value places it among the Outfit lines). Which NPCs a line reaches is not evaluated. Under formids= and plugins= " +
             "an NPC named in a plain or '+' filter is the target (in a '-' list, a filter), the handed-out form the value, any other filter form a filter; a plugin " +
-            "term touches its plugin; an outfit or list is not followed to what it holds." + ListText.Names)]
+            "term touches its plugin; an outfit or list is not followed to what it holds. KID is read as KID 4.0.6 and 4.1.0 read it: every " +
+            "file directly in Data with '_KID' in its name and the '.ini' extension (both case-sensitive), names in byte order, the winning " +
+            "copy of each. filter= expands a file's lines with what KID does with each: a line it drops (a type not one of its 19, spelt " +
+            "exactly; a FormID it cannot read; every filter of a list failing), a filter it skips, a keyword it creates where no keyword " +
+            "holds the name, a filter name no record holds kept as text and matched in the running game against an item's EditorID or " +
+            "name (not read). Which items a line tags is not evaluated: filters, traits and chance are not read. Under formids= and " +
+            "plugins= a filter form of the line's own type is the target (in a '-' list, a filter), the keyword the value, any other " +
+            "filter form a filter; a plugin term touches its plugin; a form list is not followed to what it holds." + ListText.Names)]
             ListArg? distributor = null,
-        [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive); for SPID a file name or providing mod, its files expanded. " +
+        [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive); for SPID and KID a file name or providing mod, its files expanded. " +
             "Lists only the type folders holding a match, each in full apply order so the files sorting around a match " +
             "stay visible, with the matching files expanded to their individual patch lines and their notes: a direct or " +
             "Excluded target that names nothing says why (an unreadable FormID, a plugin not in the order or spelt with a " +
@@ -101,7 +113,7 @@ public static class SkyPatcherTools
             "too. Omit it, formids= and plugins= for the whole-layer overview.")]
             string? filter = null,
         [Description("Optional. Lines naming these records ('XXXXXX:Plugin.esp' or the runtime form), anywhere on the line: " +
-            "a target, a filter form or an op value, by Plugin|FormID or by an EditorID the replay looks up (a SPID line names it by FormID~Plugin, a 0x runtime FormID or an EditorID; formids= itself takes 'XXXXXX:Plugin.esp' or the runtime form, never FormID~Plugin)." + ListText.FormIds)]
+            "a target, a filter form or an op value, by Plugin|FormID or by an EditorID the replay looks up (a SPID or KID line names it by FormID~Plugin, a 0x runtime FormID or an EditorID; formids= itself takes 'XXXXXX:Plugin.esp' or the runtime form, never FormID~Plugin)." + ListText.FormIds)]
             ListArg? formids = null,
         [Description("Optional. Lines naming a record these plugins touch (define or override, as on " + ToolNames.Records +
             "); defined_in: true keeps records they define. With formids= a form must pass both.")]
@@ -127,8 +139,8 @@ public static class SkyPatcherTools
         string? echo = select is null ? null : SkyPatcherWire.SelectEcho(formidsIn, pluginsIn, select.DefinedIn);
         return svc.SkyPatcherLayer(data => data.SelectRefusal is { } refused
             ? ToolAnswer.Refusal(refused)
-            : ToolAnswer.Served(SpidWire.RenderLayers(data, filter, Wire.Cap(max_chars), echo)), ct, select,
-            skyPatcher: Asked("skypatcher"), spid: Asked("spid"), filter: filter);
+            : ToolAnswer.Served(SpidWire.RenderLayers(data, filter, Wire.Cap(max_chars), echo, everyFormat: distributorIn.Tokens is not { Length: > 0 })), ct, select,
+            skyPatcher: Asked("skypatcher"), spid: Asked("spid"), filter: filter, kid: Asked("kid"));
     }, ct);
 }
 

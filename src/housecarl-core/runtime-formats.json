@@ -88,7 +88,7 @@
   }
  }
 ],
-"_distributors_about": "The four distributor formats: discovery and target spelling, and a 'lines' block (line kinds, order, conflict and grammar) on each row whose reader has landed; SPID's has, the others' land with their own readers. 'unread' is a rule this build has not read for that format, never a claim about it.",
+"_distributors_about": "The four distributor formats: discovery and target spelling, and a 'lines' block (line kinds, order, conflict and grammar) on each row whose reader has landed; SPID's and KID's have, the others' land with their own readers. 'unread' is a rule this build has not read for that format, never a claim about it.",
 "distributors": [
  {
   "format": "Spell Perk Item Distributor",
@@ -163,7 +163,7 @@
   "version": "4.1.0",
   "folders": [
    {
-    "source": "CLibUtil get_configs, called get_configs(…, \"_KID\") in KID src/LookupConfigs.cpp:65 at v4.1.0",
+    "source": "CLibUtil get_configs (distribution.hpp:29-47 at 789abd2: directory_iterator, extension() == \".ini\", rfind(\"_KID\") on the path, sorted), called get_configs(R\"(Data\\)\", \"_KID\") in KID src/LookupConfigs.cpp:65 and sorted again at :74, at v4.0.6 895df22 (v4.1.0 99adaaa the same)",
     "root": "",
     "nameToken": "_KID",
     "tokenCase": "ordinal",
@@ -174,15 +174,57 @@
    }
   ],
   "targets": {
-   "source": "KID v4.1.0 include/Data/FormData.h:25 (IsMod), src/Data/FormData.cpp:6-17, :69, :71-80, :92, :98; CommonLibSSE 83420f1a TESDataHandler.cpp:28-54 (unmasked add)",
+   "source": "KID v4.0.6 895df22 (v4.1.0 99adaaa the same) include/Data/FormData.h:25 (IsMod), src/Data/FormData.cpp:6-17 (RawForm: one '~' or none), :60-83 (the keyword, looked up as a keyword, else created), :85-108 (a filter, looked up untyped); CommonLibSSE a11cc72 TESDataHandler.cpp:28-40 (unmasked add), :56-64 (plugin name in any case)",
    "addressOrder": "formIdFirst",
    "separator": "~",
    "formId": "runtimeAdd",
    "bareFormId": "runtimeFormId",
    "pluginTerm": "endsWithExtension",
    "pluginExtensions": [".esm", ".esp", ".esl"],
-   "missingName": "createsKeyword",
+   "missingName": "byPosition",
    "editorIds": "everyType"
+  },
+  "lines": {
+   "source": "KID v4.0.6 895df22 (v4.1.0 99adaaa differs in none of these files but helper names): src/LookupConfigs.cpp:6-59 (the five '|' sections, untrimmed; a type not one of the list drops the line with no log), :81-113 (SetMultiKey, the unnamed section, a throw logged 'Failed to parse entry'); src/ExclusiveGroups.cpp:5-42 (the key, exact; name and members); include/Data/EnumDefs.h:36-56 (the type strings); include/KeywordData.h:70-96 (Magic Effect first); src/Data/BaseFilters.cpp:7-46 (',' entries trimmed, NONE, '+' groups, '-' and '*' per member, '.nif' sanitized), :48-125 (which failed terms drop the line); src/Data/FormData.cpp:85-148 (the filter whitelist); include/Data/BaseFilters.h:33-50 (a string ending '.nif' is a model path); include/Data/Traits.h:630-657 (the types that take traits); CLibUtil 789abd2 string.hpp:123-140 (stoul, stof); SimpleIni 4.25 :1259-1260 (comment leads), :1732-1746 (the value runs to the line end), its multimap keyed case-insensitively",
+   "reads": ["4.0.6", "4.1.0"],
+   "section": "unnamedOnly",
+   "commentLeads": [";", "#"],
+   "trailingComment": false,
+   "assign": "=",
+   "sections": "|",
+   "item": ",",
+   "all": "+",
+   "not": "-",
+   "partial": "*",
+   "unset": "NONE",
+   "lineOrder": "keyIgnoreCaseThenLine",
+   "groupKey": "ExclusiveGroup",
+   "fields": ["keyword", "type", "filters", "traits", "chance"],
+   "groupFields": ["name", "members"],
+   "modelEnding": ".nif",
+   "keywordRecord": "Keyword",
+   "types": [
+    { "key": "Armor", "record": "Armor", "runs": "2", "traits": true },
+    { "key": "Weapon", "record": "Weapon", "runs": "3", "traits": true },
+    { "key": "Ammo", "record": "Ammunition", "runs": "4", "traits": true },
+    { "key": "Magic Effect", "record": "MagicEffect", "runs": "1", "traits": true },
+    { "key": "Potion", "record": "Ingestible", "runs": "5", "traits": true },
+    { "key": "Scroll", "record": "Scroll", "runs": "6", "traits": true },
+    { "key": "Location", "record": "Location", "runs": "7", "traits": false },
+    { "key": "Ingredient", "record": "Ingredient", "runs": "8", "traits": true },
+    { "key": "Book", "record": "Book", "runs": "9", "traits": true },
+    { "key": "Misc Item", "record": "MiscItem", "runs": "10", "traits": false },
+    { "key": "Key", "record": "Key", "runs": "11", "traits": false },
+    { "key": "Soul Gem", "record": "SoulGem", "runs": "12", "traits": true },
+    { "key": "Spell", "record": "Spell", "runs": "13", "traits": true },
+    { "key": "Activator", "record": "Activator", "runs": "14", "traits": false },
+    { "key": "Flora", "record": "Flora", "runs": "15", "traits": false },
+    { "key": "Furniture", "record": "Furniture", "runs": "16", "traits": true },
+    { "key": "Race", "record": "Race", "runs": "17", "traits": false },
+    { "key": "Talking Activator", "record": "TalkingActivator", "runs": "18", "traits": false },
+    { "key": "Enchantment", "record": "ObjectEffect", "runs": "19", "traits": true }
+   ],
+   "filterTypes": ["Armor", "Weapon", "Ammunition", "MagicEffect", "Ingestible", "Scroll", "Location", "Ingredient", "Book", "MiscItem", "Key", "SoulGem", "Activator", "Flora", "Furniture", "Race", "TalkingActivator", "ObjectEffect", "EffectShader", "VisualEffect", "ArtObject", "MusicType", "Faction", "Keyword", "Spell", "Projectile", "EquipType", "VoiceType", "LeveledItem", "Water", "Perk", "FormList"]
   }
  },
  {
