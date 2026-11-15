@@ -353,10 +353,10 @@ public sealed class SpidWireTests
     public void AnArchiveOnlyCopyIsSaidNotApplied()
     {
         var file = new DistributorDiscovery.ConfigFile("Packed_DISTR.ini", "HcMod", null, [], "only inside an archive (HcMod.bsa), which SPID never lists", null);
-        var spid = new SpidLayerData(RuntimeFormats.Spid, new[] { new SpidFileData(file, [], null) }, "Default");
+        var spid = new DistributorLayerData(RuntimeFormats.Spid, new[] { new DistributorFileData(file, [], null) }, "Default");
         var scan = new SkyPatcherDiscovery.LayerScan([], [], false, new SkyPatcherDiscovery.Switches(new Dictionary<string, bool>(), null));
         var d = new SkyPatcherLayerData(scan, [], [], [], [], [], [], false, [], "Default") { SkyPatcherRead = false, Spid = spid };
-        var text = SpidWire.RenderLayers(d, null, 40000, null);
+        var text = DistributorWire.RenderLayers(d, null, 40000, null);
         Assert.Contains("1 file(s) in Data (0 read), 0 line(s)", text);
         Assert.Contains("Packed_DISTR.ini  (file 1 of 1, 0 line(s)) ← HcMod  [!] NOT applied: only inside an archive", text);
     }

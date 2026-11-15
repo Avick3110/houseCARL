@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Mutagen.Bethesda.Plugins;
+using Named = HousecarlCore.DistributorLines.Named;
 
 namespace HousecarlCore;
 
@@ -20,7 +21,11 @@ public static class SpidLines
     /// <summary>One line of a file as SPID splits it. <see cref="Skipped"/> says why SPID reads no entry from it (null
     /// when it reads one); <see cref="Notes"/> are what SPID changes on the way (sanitize, a dropped <c>Final</c>).</summary>
     public sealed record Line(int Number, string Raw, string Key, SpidLineKind Kind, string? Type, bool Final, bool Global,
-                              IReadOnlyList<Token> Tokens, string? Skipped, IReadOnlyList<string> Notes);
+                              IReadOnlyList<Token> Tokens, string? Skipped, IReadOnlyList<string> Notes) : DistributorLines.ILine
+    {
+        /// <summary>The header's count key: an <c>ExclusiveGroup</c> line's key, else its type.</summary>
+        public string HeaderKey => Kind == SpidLineKind.ExclusiveGroup ? Key : Type!;
+    }
 
     // ---- splitting a file ---------------------------------------------------------------
 
@@ -197,15 +202,11 @@ public static class SpidLines
 
     // ---- what a line names --------------------------------------------------------------
 
-    /// <summary>One form a line names: where (target, filter or value), in which field and list, the token as written,
-    /// the record, and whether it was named by EditorID.</summary>
-    public sealed record Named(SkyPatcherOverlay.FormPlace Place, string Where, string Token, FormKey Form, bool ByEditorId);
-
     /// <summary>What one line names and what SPID does with it: every form it names that resolves, every plugin it names
     /// as a term (present in the order), the notes its tokens owe, why SPID drops the line (null when it keeps it), and
     /// the class of the record its value names.</summary>
     public sealed record LineRead(IReadOnlyList<Named> Forms, IReadOnlyList<string> PluginTerms, IReadOnlyList<string> Notes,
-                                  string? Dropped, Type? ValueClass);
+                                  string? Dropped, Type? ValueClass) : DistributorLines.IRead;
 
     /// <summary>The lookups a read needs: the call's target resolver, and the class of a resolved record off the order.</summary>
     public sealed record Context(SkyPatcherOverlay.IFormResolver Resolver, Func<FormKey, Type?> ClassOf, DistributorFormat Format)
@@ -373,25 +374,7 @@ public static class SpidLines
     /// <summary>A record class as a line names it.</summary>
     static string RecordName(Type? cls) => cls is null ? "unknown" : RecordNaming.StripOverlay(cls.Name);
 
-    /// <summary>One token resolved: the record it names, the plugin it names as a term (and whether the order holds it),
-    /// why it names nothing, a note it owes even when it resolves (a load index written in), and whether it was a name.</summary>
-    sealed record Resolved(FormKey? Form, string? Plugin, bool PluginPresent, string? Miss, string? Note, bool ByEditorId);
-
-    static Resolved Resolve(Token t, Context ctx)
-    {
-        var read = RuntimeTargets.Read(t.Raw, ctx.S);
-        var fk = RuntimeTargets.Resolve(read, null, ctx.Resolver, ctx.S);
-        // A resolved address still owes the load-index note; a resolved name or runtime FormID owes nothing.
-        var report = fk is null || read.Kind == RuntimeTargets.TargetKind.Address ? RuntimeTargets.Report(read, null, ctx.Resolver, "SPID", ctx.S) : null;
-        bool byName = read.Kind == RuntimeTargets.TargetKind.EditorId;
-        if (read.Kind == RuntimeTargets.TargetKind.PluginName)
-        {
-            bool present = ctx.Resolver.PluginPresent(read.Raw);
-            return new Resolved(null, read.Raw, present, present ? null : report, null, false);
-        }
-        if (fk is not null) return new Resolved(fk, null, false, null, report, byName);
-        return new Resolved(null, null, false, report ?? "names nothing", null, byName);
-    }
+    static DistributorLines.Resolved Resolve(Token t, Context ctx) => DistributorLines.Resolve(t.Raw, ctx.Resolver, ctx.S, "SPID");
 
     // ---- first wins ----------------------------------------------------------------------
 

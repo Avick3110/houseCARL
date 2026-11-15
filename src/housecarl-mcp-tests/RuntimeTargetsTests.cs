@@ -109,6 +109,31 @@ public sealed class RuntimeTargetsTests
         Assert.Equal(0x800u, sky.Address.FormId);
     }
 
+    // Probe (distributor-share, Q1 (b)): a term holding the separator twice is read by its row's manySeparators —
+    // an address at the first for SPID (CLibUtil get_record) and FLM, a name for KID (RawForm) and BOS (GetFormWithID).
+    [Theory]
+    [InlineData("spid", RuntimeTargets.TargetKind.Address)]
+    [InlineData("flm", RuntimeTargets.TargetKind.Address)]
+    [InlineData("kid", RuntimeTargets.TargetKind.EditorId)]
+    [InlineData("bos", RuntimeTargets.TargetKind.EditorId)]
+    public void ATermHoldingTheSeparatorTwiceIsReadByItsRowsRule(string key, RuntimeTargets.TargetKind kind)
+    {
+        Assert.Equal(kind, RuntimeTargets.Read("0x800~Skyrim.esm~trailing", Spelling(key)).Kind);
+        // One separator is an address on every row.
+        Assert.Equal(RuntimeTargets.TargetKind.Address, RuntimeTargets.Read("0x800~Skyrim.esm", Spelling(key)).Kind);
+    }
+
+    // The rule is the row's value: flip KID's and its term reads as an address; a value with no rule fails the load.
+    [Fact]
+    public void ARowsManySeparatorsValueDecidesAndAnUnknownOneFailsTheLoad()
+    {
+        var flipped = ShippedRows.Distributor("kid", ("\"manySeparators\": \"name\"", "\"manySeparators\": \"addressAtFirst\""));
+        Assert.Equal(RuntimeTargets.TargetKind.Address, RuntimeTargets.Read("0x800~Skyrim.esm~trailing", flipped.Targets).Kind);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ShippedRows.Distributor("kid", ("\"manySeparators\": \"name\"", "\"manySeparators\": \"lastWins\"")));
+        Assert.Contains("'manySeparators' = 'lastWins'", ex.Message);
+    }
+
     // (b) Probe: FLM's row erases the written load index of a ten-character side before the add; a shorter side
     // keeps it, and the same tokens under the rows that add raw are unchanged.
     [Fact]

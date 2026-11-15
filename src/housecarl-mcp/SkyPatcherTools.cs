@@ -143,7 +143,7 @@ public static class SkyPatcherTools
         string? echo = select is null ? null : SkyPatcherWire.SelectEcho(formidsIn, pluginsIn, select.DefinedIn);
         return svc.SkyPatcherLayer(data => data.SelectRefusal is { } refused
             ? ToolAnswer.Refusal(refused)
-            : ToolAnswer.Served(SpidWire.RenderLayers(data, filter, Wire.Cap(max_chars), echo, everyFormat: distributorIn.Tokens is not { Length: > 0 })), ct, select,
+            : ToolAnswer.Served(DistributorWire.RenderLayers(data, filter, Wire.Cap(max_chars), echo, everyFormat: distributorIn.Tokens is not { Length: > 0 })), ct, select,
             skyPatcher: Asked("skypatcher"), spid: Asked("spid"), filter: filter, kid: Asked("kid"));
     }, ct);
 }

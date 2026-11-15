@@ -110,6 +110,7 @@
    "source": "CLibUtil get_record_type/get_record (distribution.hpp:90-120 at 5f845f3); SPID 7.3.3 FormData.h:200-232; CommonLibSSE-NG bc216c91 TESDataHandler::LookupFormID (unmasked add)",
    "addressOrder": "formIdFirst",
    "separator": "~",
+   "manySeparators": "addressAtFirst",
    "formId": "runtimeAdd",
    "bareFormId": "runtimeFormId",
    "pluginTerm": "containsExtensionText",
@@ -177,6 +178,7 @@
    "source": "KID v4.0.6 895df22 (v4.1.0 99adaaa the same) include/Data/FormData.h:25 (IsMod), src/Data/FormData.cpp:6-17 (RawForm: one '~' or none), :60-83 (the keyword, looked up as a keyword, else created), :85-108 (a filter, looked up untyped); CommonLibSSE a11cc72 TESDataHandler.cpp:28-40 (unmasked add), :56-64 (plugin name in any case)",
    "addressOrder": "formIdFirst",
    "separator": "~",
+   "manySeparators": "name",
    "formId": "runtimeAdd",
    "bareFormId": "runtimeFormId",
    "pluginTerm": "endsWithExtension",
@@ -244,9 +246,10 @@
    }
   ],
   "targets": {
-   "source": "BOS 3.4.0/3.5.0 resolve HEX~Plugin by LookupFormID, raw (distributor-lines research-topup B3, X1); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
+   "source": "BOS 3.4.0/3.5.0 resolve HEX~Plugin by LookupFormID, raw (distributor-lines research-topup B3, X1), and a term holding two or more '~' is no address (BOS v3.5.0 src/Util.cpp:17, splitID.size() == 2); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
    "addressOrder": "formIdFirst",
    "separator": "~",
+   "manySeparators": "name",
    "formId": "runtimeAdd",
    "bareFormId": "unread",
    "pluginTerm": "unread",
@@ -282,9 +285,10 @@
    }
   ],
   "targets": {
-   "source": "FLM resolves HEX~Plugin by LookupFormID, raw, after FindForm erases two characters of an exactly ten-character hex part (FLM 1.7.0 src/Utility/Utility.hpp:58-59; distributor-lines research-topup.md X1); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
+   "source": "FLM resolves HEX~Plugin by LookupFormID, raw, after FindForm erases two characters of an exactly ten-character hex part (FLM 1.7.0 src/Utility/Utility.hpp:58-59; distributor-lines research-topup.md X1), any '~' making the term an address (FLM 82a694e5 Utility.hpp:53-56); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
    "addressOrder": "formIdFirst",
    "separator": "~",
+   "manySeparators": "addressAtFirst",
    "formId": "runtimeAddTrimmedAtTen",
    "bareFormId": "unread",
    "pluginTerm": "unread",
