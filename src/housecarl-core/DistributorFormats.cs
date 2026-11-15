@@ -29,8 +29,8 @@ public static partial class RuntimeFormats
         var ctx = "distributors." + key;
         var folders = row.GetProperty("folders").EnumerateArray().Select(f => Folder(f, ctx + ".folders")).ToList();
         if (folders.Count == 0) throw new InvalidOperationException($"runtime-format source [{ctx}]: 'folders' is empty.");
-        // Only SPID's and KID's readers have landed, so a lines block on another row has no rule.
-        if (key is not ("spid" or "kid") && row.TryGetProperty("lines", out _)) throw Unknown(ctx, "lines", "a lines block");
+        // Only SPID's, KID's and BOS's readers have landed, so a lines block on another row has no rule.
+        if (key is not ("spid" or "kid" or "bos") && row.TryGetProperty("lines", out _)) throw Unknown(ctx, "lines", "a lines block");
         var t = row.GetProperty("targets");
         var targets = Targets(t, ctx + ".targets") with
         {
@@ -42,7 +42,8 @@ public static partial class RuntimeFormats
             },
         };
         return new DistributorFormat(key, Str(row, "format", ctx), Str(row, "version", ctx), folders, targets,
-            key == "spid" ? Lines(row, ctx) : null, key == "kid" ? KidLinesBlock(row, ctx) : null);
+            key == "spid" ? Lines(row, ctx) : null, key == "kid" ? KidLinesBlock(row, ctx) : null,
+            key == "bos" ? BosLinesBlock(row, ctx) : null);
     }
 
     static DistributorFolder Folder(JsonElement f, string ctx)
@@ -119,8 +120,8 @@ public static partial class RuntimeFormats
 }
 
 /// <summary>One distributor format's row: the folders it reads, how a target token in it is spelt, and, once its reader
-/// has landed, its line grammar (<see cref="Lines"/> for SPID, <see cref="KidLines"/> for KID; both null for a format
-/// whose lines are not read yet).</summary>
+/// has landed, its line grammar (<see cref="Lines"/> for SPID, <see cref="KidLines"/> for KID, <see cref="BosLines"/>
+/// for BOS; all null for a format whose lines are not read yet).</summary>
 public sealed record DistributorFormat(
     string Key,
     string Name,
@@ -128,10 +129,11 @@ public sealed record DistributorFormat(
     IReadOnlyList<DistributorFolder> Folders,
     TargetSpelling Targets,
     SpidGrammar? Lines,
-    KidGrammar? KidLines = null)
+    KidGrammar? KidLines = null,
+    BosGrammar? BosLines = null)
 {
     /// <summary>Whether this build reads the format's lines: its row carries a lines block.</summary>
-    public bool LinesRead => Lines is not null || KidLines is not null;
+    public bool LinesRead => Lines is not null || KidLines is not null || BosLines is not null;
 }
 
 /// <summary>One folder a format reads: where it is under Data, which names it takes there, whether the DLL sorts that

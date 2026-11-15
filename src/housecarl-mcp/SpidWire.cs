@@ -8,7 +8,7 @@ static class SpidWire
     public static readonly DistributorWords Words = new(
         "SPID", "spid", f => f.Lines!.Reads, skipped => skipped + " line(s) SPID skips",
         "SPID skips this line",
-        "a term naming it; a string filter names a form only when it is an NPC's or a keyword's EditorID.",
+        ", and a plugin through a term naming it; a string filter names a form only when it is an NPC's or a keyword's EditorID.",
         "form filter", "NPCs", ReadHoldsParseNotes: false, OrderLine);
 
     static string OrderLine(DistributorLayerData s)

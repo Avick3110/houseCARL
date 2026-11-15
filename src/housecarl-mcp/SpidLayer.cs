@@ -14,7 +14,7 @@ internal sealed partial class AssetLayers
         var format = RuntimeFormats.Spid;
         var g = format.Lines!;
         return DistributorLayer(format, replay, filter, wanted, namedPlugins, formIdsGiven, ct,
-            text => SpidLines.Parse(text, g),
+            (text, _) => SpidLines.Parse(text, g),
             lines => SpidLines.ReadAll(lines, new SpidLines.Context(replay.Forms, view.WinnerClassOf, format)),
             files => SpidLines.Places(files, g).ToDictionary(kv => kv.Key, kv => SpidWire.PlaceRow(kv.Value)));
     }

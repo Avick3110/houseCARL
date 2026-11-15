@@ -316,20 +316,22 @@ public sealed class LayerSelectTests : IDisposable
     }
 
     // Omitted reads every format read: SkyPatcher's answer as distributor=['skypatcher'] gives it, then SPID's, then
-    // KID's. Pick "(b) One summary line each": with no selector and no filter= SPID and KID answer one line each,
-    // naming the call that lists the files; named, the same formats list them.
+    // KID's, then BOS's. Pick "(b) One summary line each": with no selector and no filter= SPID, KID and BOS answer one
+    // line each, naming the call that lists the files; named, the same formats list them.
     [Fact]
-    public void DistributorOmittedReadsSkyPatcherThenSpidThenKid()
+    public void DistributorOmittedReadsSkyPatcherThenSpidThenKidThenBos()
     {
         var sky = Layer(distributor: new[] { "SkyPatcher" });
         var all = Layer();
         Assert.StartsWith(sky + "\n\nSPID layer (Spell Perk Item Distributor ", all);
         Assert.DoesNotContain("SPID layer", sky);
         int kidAt = all.IndexOf("\n\nKID layer (Keyword Item Distributor ", StringComparison.Ordinal);
+        int bosAt = all.IndexOf("\n\nBOS layer (Base Object Swapper ", StringComparison.Ordinal);
         Assert.Equal(Layer(distributor: new[] { "spid" }).Split('\n')[0] + "; distributor=[\"spid\"] lists its files", all[(sky.Length + 2)..kidAt]);
-        Assert.Equal(Layer(distributor: new[] { "kid" }).Split('\n')[0] + "; distributor=[\"kid\"] lists its files", all[(kidAt + 2)..]);
-        Assert.NotEqual(all, Layer(distributor: new[] { "skypatcher", "spid", "kid" }));
-        Assert.Equal(Layer(formids: new[] { _w.Plain }), Layer(formids: new[] { _w.Plain }, distributor: new[] { "skypatcher", "spid", "kid" }));
+        Assert.Equal(Layer(distributor: new[] { "kid" }).Split('\n')[0] + "; distributor=[\"kid\"] lists its files", all[(kidAt + 2)..bosAt]);
+        Assert.Equal(Layer(distributor: new[] { "bos" }).Split('\n')[0] + "; distributor=[\"bos\"] lists its files", all[(bosAt + 2)..]);
+        Assert.NotEqual(all, Layer(distributor: new[] { "skypatcher", "spid", "kid", "bos" }));
+        Assert.Equal(Layer(formids: new[] { _w.Plain }), Layer(formids: new[] { _w.Plain }, distributor: new[] { "skypatcher", "spid", "kid", "bos" }));
     }
 
     // r1 #12, Aaron's pick "Reads as omitted": an empty distributor= answers exactly as an omitted one.
@@ -361,15 +363,23 @@ public sealed class LayerSelectTests : IDisposable
     public void DistributorDsdIsNotRead() => Assert.StartsWith(
         "error: distributor='dsd' is not read: houseCARL does not read Dynamic String Distributor files", Layer(distributor: new[] { "dsd" }));
 
-    // The two still to come keep the "not read yet" refusal; the formats it says are read now include SPID and KID
+    // The one still to come keeps the "not read yet" refusal; the formats it says are read now include SPID, KID and BOS
     // (DECISIONS 2026-11-14 (17)).
-    [Theory]
-    [InlineData("bos", "Base Object Swapper")]
-    [InlineData("flm", "FormList Manipulator")]
-    public void ADistributorStillToComeIsNotReadYet(string name, string full)
-        => Assert.Equal($"error: distributor='{name}' is not read yet: this build reads SkyPatcher, Spell Perk Item Distributor and Keyword Item Distributor lines, " +
-                        $"and {full} lines are not among them. distributor= takes 'skypatcher', 'spid' or 'kid', or omit it for every format read.",
-            Layer(distributor: new[] { name }));
+    [Fact]
+    public void ADistributorStillToComeIsNotReadYet()
+        => Assert.Equal("error: distributor='flm' is not read yet: this build reads SkyPatcher, Spell Perk Item Distributor, Keyword Item Distributor and Base Object Swapper lines, " +
+                        "and FormList Manipulator lines are not among them. distributor= takes 'skypatcher', 'spid', 'kid' or 'bos', or omit it for every format read.",
+            Layer(distributor: new[] { "flm" }));
+
+    // BOS's lines are read now: its refusal is retired, and the name reads BOS's layer alone.
+    [Fact]
+    public void DistributorBosIsRead()
+    {
+        var text = Layer(distributor: new[] { "bos" });
+        Assert.StartsWith("BOS layer (Base Object Swapper 3.5.0 model; 3.4.0 reads its files the same)", text);
+        Assert.DoesNotContain("SkyPatcher layer", text);
+        Assert.DoesNotContain("KID layer", text);
+    }
 
     // KID's lines are read now: its refusal is retired, and the name reads KID's layer alone.
     [Fact]
@@ -392,7 +402,7 @@ public sealed class LayerSelectTests : IDisposable
 
     [Fact]
     public void AnUnknownDistributorIsNotAFormat()
-        => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid', 'kid' are read; oar, ied, desc, dsd are not read; bos, flm are not read yet.",
+        => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid', 'kid', 'bos' are read; oar, ied, desc, dsd are not read; flm is not read yet.",
             Layer(distributor: new[] { "xyz" }));
 
     // Q1 (a): the tool is housecarl_layer, and the old name is a retired row naming it.

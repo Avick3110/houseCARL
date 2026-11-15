@@ -142,7 +142,7 @@ public static class SkseTools
          "the other two. Everything here is what a file declares, never what the DLL does: loading, registering, " +
          "hooking and reading happen at runtime and are never observed, and a missing token proves nothing. Treat a " +
          "finding as a plausibility verdict to verify, and 'nothing found' as no clean bill of health. Not covered: " +
-         "distributor INIs in the Data root, SPID *_DISTR and KID *_KID, which " + ToolNames.Layer + " reads. " +
+         "distributor INIs in the Data root, SPID *_DISTR, KID *_KID and BOS *_SWAP, which " + ToolNames.Layer + " reads. " +
          "Every response ends on its accounting (total / rendered / skipped / capped / truncated / " +
          "offset / remaining / notes), so what a window or a cap left out is a number.")]
     public static string Skse(

@@ -1,0 +1,6 @@
+BOS layer (Base Object Swapper 3.5.0 model; 3.4.0 reads its files the same) — profile 'Default' — 2 file(s) in Data (2 read), 9 line(s): form swaps 5, reference swaps 2, conditional form swaps 1, property overrides 1; 2 more line(s) BOS reads no entry from as SimpleIni and BOS split the file (a repeat of an earlier line of its section, no key, no '|', or a header with no ']')
+  - HcA_SWAP.ini  (file 1 of 2, 8 line(s)) ← HcBosIni
+  - HcB_SWAP.ini  (file 2 of 2, 1 line(s)) ← HcBosIni  [!] shadows same-path copies from HcBosLoser, never read
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.
+
+→ filter='<file or mod>' expands a BOS file's lines with what BOS does with each; formids= or plugins= lists the lines naming a form, labelled target, filter or value.
