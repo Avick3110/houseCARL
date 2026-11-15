@@ -134,6 +134,17 @@ public sealed class RuntimeTargetsTests
         Assert.Contains("'manySeparators' = 'lastWins'", ex.Message);
     }
 
+    // r1 #8: every distributor row states its rule; a row without one fails the load rather than taking a default.
+    // Pins unchanged behaviour.
+    [Theory]
+    [InlineData("flm", "\"manySeparators\": \"addressAtFirst\",")]
+    [InlineData("bos", "\"manySeparators\": \"name\",")]
+    public void ARowWithNoManySeparatorsValueFailsTheLoad(string key, string line)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ShippedRows.Distributor(key, (line, "")));
+        Assert.Contains($"[distributors.{key}.targets]: 'manySeparators' is missing", ex.Message);
+    }
+
     // (b) Probe: FLM's row erases the written load index of a ten-character side before the add; a shorter side
     // keeps it, and the same tokens under the rows that add raw are unchanged.
     [Fact]
