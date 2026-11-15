@@ -15,12 +15,11 @@ namespace HousecarlMcp;
 /// <param name="TermDefines">What a plugin term selects of its plugin ("NPCs").</param>
 /// <param name="ReadHoldsParseNotes">True when a line's read notes begin with its split notes, so a read line prints
 /// its drop before them; false prints the split notes first.</param>
-/// <param name="OrderLine">The order line a part with places states under an expanded listing; null for a format with none.</param>
-/// <param name="PlaceRow">One line's place row; null for a format with none.</param>
+/// <param name="OrderLine">The order line a part with line rows states under an expanded listing; null for a format with none.</param>
 sealed record DistributorWords(
     string Name, string Key, Func<DistributorFormat, IReadOnlyList<string>> Reads, Func<int, string> Skipped,
     string SkipLead, string ZeroTail, string TermWhere, string TermDefines, bool ReadHoldsParseNotes,
-    Func<DistributorLayerData, string>? OrderLine = null, Func<SpidLines.Place, string>? PlaceRow = null);
+    Func<DistributorLayerData, string>? OrderLine = null);
 
 /// <summary>Renders the distributor formats' parts of the layer answer, bounded by max_chars with explicit cut notices,
 /// and joins the formats one call reads: SkyPatcher's part is its own render, unchanged, and each later format takes
@@ -154,7 +153,7 @@ static class DistributorWire
                 return Close(s, d, earlier, sb.Append(".\n\nnothing matched: no ").Append(w.Name).Append(" file name or providing mod contains '").Append(filter).Append("'.\n"), cap, caveats, owner);
             sb.Append(", expanded to their lines with what ").Append(w.Name).Append(" does with each.\n");
         }
-        if (expand && s.Places.Count > 0 && w.OrderLine is { } order) sb.Append(order(s));
+        if (expand && s.LineRows.Count > 0 && w.OrderLine is { } order) sb.Append(order(s));
 
         var notes = NoteLines(s, d, earlier, owner, Math.Min(cap / BatchRender.CaveatShare, Math.Max(0, cap - sb.Length)));
         cap -= notes.Length;
@@ -215,7 +214,7 @@ static class DistributorWire
         return sb.Append('\n').ToString();
     }
 
-    /// <summary>One line with its notes, its place where the format has places and, under a selector, the labels of what it keeps.</summary>
+    /// <summary>One line with its notes, the format's own row under it and, under a selector, the labels of what it keeps.</summary>
     static string LineText(DistributorLayerData s, DistributorWords w, int fi, int li, DistributorSelected? picked)
     {
         var l = s.Files[fi].Lines[li];
@@ -229,7 +228,7 @@ static class DistributorWire
             if (read.Dropped is { } why) sb.Append("          [!] ").Append(w.Name).Append(" drops this line: ").Append(why).Append('\n');
             foreach (var n in read.Notes) sb.Append("          [!] ").Append(n).Append('\n');
         }
-        if (w.PlaceRow is { } placeRow && s.Places.TryGetValue((fi, li), out var p)) sb.Append(placeRow(p));
+        if (s.LineRows.TryGetValue((fi, li), out var row)) sb.Append(row);
         foreach (var f in picked?.Forms ?? [])
             sb.Append("          ↳ ").Append(Place(f.Place)).Append(' ').Append(f.Where).Append(": ").Append(f.Token).Append(" → ").Append(FormIdToken.Of(f.Form)).Append('\n');
         foreach (var t in picked?.PluginTerms ?? [])

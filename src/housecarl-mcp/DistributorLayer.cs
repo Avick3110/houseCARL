@@ -10,15 +10,15 @@ internal sealed partial class AssetLayers
 {
     /// <summary>Read one distributor format's layer in an open replay context: every file it reads, as it finds them,
     /// each line split by <paramref name="parse"/>; under a selector, or a <paramref name="filter"/> some file matches,
-    /// every line of every file read by <paramref name="readAll"/> in one call, the format's own places taken by
-    /// <paramref name="places"/> (null for none), and, with <paramref name="wanted"/>, the forms and plugin terms the
+    /// every line of every file read by <paramref name="readAll"/> in one call, the format's own row under each line
+    /// it places taken by <paramref name="lineRows"/> (null for none), and, with <paramref name="wanted"/>, the forms and plugin terms the
     /// records selectors keep.</summary>
     static DistributorLayerData DistributorLayer<TLine, TRead>(
         DistributorFormat format, SkyPatcherReplay replay, string? filter,
         Func<FormKey, bool>? wanted, IReadOnlyList<string>? namedPlugins, bool formIdsGiven, CancellationToken ct,
         Func<string, IReadOnlyList<TLine>> parse, Func<IReadOnlyList<TLine>, IReadOnlyList<TRead?>> readAll,
-        Func<IReadOnlyList<(IReadOnlyList<TLine> Lines, IReadOnlyList<TRead?> Reads)>, Dictionary<(int File, int Line), SpidLines.Place>>? places = null)
-        where TLine : DistributorLines.ILine where TRead : class, DistributorLines.IRead
+        Func<IReadOnlyList<(IReadOnlyList<TLine> Lines, IReadOnlyList<TRead?> Reads)>, IReadOnlyDictionary<(int File, int Line), string>>? lineRows = null)
+        where TLine : class, DistributorLines.ILine where TRead : class, DistributorLines.IRead
     {
         var files = new List<(DistributorDiscovery.ConfigFile File, IReadOnlyList<TLine> Lines, string? ReadError)>();
         foreach (var f in DistributorDiscovery.Scan(replay.Assets, format))
@@ -31,7 +31,7 @@ internal sealed partial class AssetLayers
                 files.Add((f, [], $"could not be read ({ex.Message})"));
             }
         }
-        var data = new DistributorLayerData(format, files.Select(x => new DistributorFileData(x.File, (IReadOnlyList<DistributorLines.ILine>)x.Lines, x.ReadError)).ToList(), replay.ProfileName);
+        var data = new DistributorLayerData(format, files.Select(x => new DistributorFileData(x.File, x.Lines, x.ReadError)).ToList(), replay.ProfileName);
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         if (wanted is null && (filter is null || !data.Files.Any(f => f.Matches(filter)))) return data;
 
@@ -62,7 +62,7 @@ internal sealed partial class AssetLayers
         return data with
         {
             Reads = reads,
-            Places = places?.Invoke(files.Select((x, i) => (x.Lines, reads[i])).ToList()) ?? data.Places,
+            LineRows = lineRows?.Invoke(files.Select((x, i) => (x.Lines, reads[i])).ToList()) ?? data.LineRows,
             Selected = selected,
             UnreadableNotes = UnreadableNotes(replay),
         };

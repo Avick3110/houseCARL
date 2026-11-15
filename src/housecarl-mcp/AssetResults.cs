@@ -341,15 +341,15 @@ public sealed record SkyPatcherLayerData(
 }
 
 /// <summary>One distributor format's layer (SPID's, KID's): the files it reads in its order, each line split, and, when
-/// the call resolves them, each line's read, the format's own line places and the lines the records selectors keep.
+/// the call resolves them, each line's read, the format's own line rows and the lines the records selectors keep.
 /// Valid only in its call.</summary>
 public sealed record DistributorLayerData(HousecarlCore.DistributorFormat Format, IReadOnlyList<DistributorFileData> Files, string ProfileName)
 {
     /// <summary>Each file's line reads, index for index with its lines; null when the call does not resolve them.</summary>
     public IReadOnlyList<IReadOnlyList<HousecarlCore.DistributorLines.IRead?>>? Reads { get; init; }
 
-    /// <summary>Each first-wins line's place in its type's order, by (file index, line index): SPID's; empty for a format with none.</summary>
-    public IReadOnlyDictionary<(int File, int Line), HousecarlCore.SpidLines.Place> Places { get; init; } = new Dictionary<(int, int), HousecarlCore.SpidLines.Place>();
+    /// <summary>The format's own row under a line, by (file index, line index): SPID's first-wins place; empty for a format with none.</summary>
+    public IReadOnlyDictionary<(int File, int Line), string> LineRows { get; init; } = new Dictionary<(int, int), string>();
 
     /// <summary>The lines the records selectors keep, by (file index, line index); null when no selector was given.</summary>
     public IReadOnlyDictionary<(int File, int Line), DistributorSelected>? Selected { get; init; }

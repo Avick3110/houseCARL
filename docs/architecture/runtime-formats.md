@@ -50,6 +50,10 @@ BOS's and FLM's land with theirs.
   name finds nothing, and the format's reader says what it does there: SPID's by the line's type and the field (SPID
   research answer 3), KID's by the section (KID research answer 5: a keyword is created, a filter kept as text). No
   row has the resolver say a keyword is created.
+- **A term holding the separator twice is the row's call.** Each distributor row states `targets.manySeparators`:
+  `addressAtFirst` (SPID, FLM: split at the first `~`, the plugin up to the next) or `name` (KID, BOS: no address),
+  which `RuntimeTargets.Read` reads before anything else; SkyPatcher's row states none and keeps the address at the
+  first, as its reader always has (`RuntimeTargetsTests.ATermHoldingTheSeparatorTwiceIsReadByItsRowsRule`).
 - **A lines block on a row with no reader fails the load.** SPID's and KID's readers have landed, so a `lines` block on
   BOS's or FLM's row has no rule.
 - **A kind is a name the code knows.** The file order, the comparer, the conflict rules, the gate kind, the
