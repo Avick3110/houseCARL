@@ -1,0 +1,16 @@
+SPID layer (Spell Perk Item Distributor 7.3.3 model; 7.3.0 reads its files the same) — profile 'Default' — 2 file(s) in Data (2 read), 10 line(s): Perk 4, Outfit 3, Spell 2, ExclusiveGroup 1; 1 line(s) SPID skips
+filter 'HcA_' — 1 of 2 file(s) match, expanded to their lines with what SPID does with each.
+order: files by name in byte order, each file's lines by key (A to Z, any case) then line, Form lines after every typed line; for Skin, SleepOutfit, Outfit the first line whose filters pass an NPC wins it.
+  - HcA_DISTR.ini  (file 1 of 2, 9 line(s)) ← HcSpidIni
+      :1  Perk = HcPerk
+      :2  Perk = HcNoSuchPerk
+          [!] SPID drops this line: value 'HcNoSuchPerk' finds no record by that EditorID in the active order, so SPID drops the line
+      :3  Spell = HcSpell|NONE|0x1000810,HcDeerRace
+      :4  Outfit = HcOutfit|Skald
+          [!] string filter 'Skald' is no NPC or keyword EditorID, so in the running game SPID matches it against an NPC's name, its own and its template's EditorIDs and its keywords' EditorIDs (its race's and a keyword SPID creates included), which is not read here
+          first wins: Outfit line 1 of 3 in SPID's order
+      :5  Spell = HcSpell||HcOther.esp
+      :6  ExclusiveGroup = Mine|HcKeyword,HcPerk
+      :7  Perk = 0x812~HcSpid.esp~more
+      ... [SPID lines cut at max_chars — raise it or narrow filter=, formids= or plugins=]
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.

@@ -18,3 +18,6 @@
 # asset-resolver-guard's native-read + at-rest arms read these on CI). .pex fixtures are already
 # auto-detected as binary by git; pin .bsa explicitly so no autocrlf pass can corrupt one.
 *.bsa binary
+
+# Held tool answers a test compares byte for byte (DistributorLayerHeldTests): never converted.
+src/housecarl-mcp-tests/DistributorLayerHeld/*.txt -text

@@ -28,4 +28,9 @@
     <Using Include="HousecarlCore" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- DistributorLayerHeldTests' held answers, compared byte for byte. -->
+    <None Include="DistributorLayerHeld\*.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

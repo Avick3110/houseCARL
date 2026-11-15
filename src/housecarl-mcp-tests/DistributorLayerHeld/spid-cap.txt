@@ -1,0 +1,5 @@
+SPID layer (Spell Perk Item Distributor 7.3.3 model; 7.3.0 reads its files the same) — profile 'Default' — 2 file(s) in Data (2 read), 10 line(s): Perk 4, Outfit 3, Spell 2, ExclusiveGroup 1; 1 line(s) SPID skips
+  ... [SPID files cut at max_chars — raise it or narrow filter=]
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.
+
+→ filter='<file or mod>' expands a SPID file's lines with what SPID does with each; formids= or plugins= lists the lines naming a form, labelled target, filter or value.
