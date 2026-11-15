@@ -9,7 +9,7 @@
     },
     {
       "name": "KID",
-      "pinned": "3.5.0",
+      "pinned": "4.1.0",
       "source": { "type": "github", "repo": "powerof3/Keyword-Item-Distributor" },
       "depends": [".claude/skills/kid-authoring"]
     },
