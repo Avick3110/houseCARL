@@ -55,6 +55,11 @@ public sealed class KidLayerTests : IDisposable
         Assert.Contains("0 line(s) in 0 of 2 file(s)", Kid(_w, formids: new[] { "000800:HcOther.esp" }));
     }
 
+    // r1 #18: with formids= and plugins= both given, a plugin term names no form, so it selects no line.
+    [Fact]
+    public void BothSelectorsGivenLeaveAPluginTermOut()
+        => Assert.DoesNotContain("(the plugin, selecting the items it defines)", Kid(_w, formids: new[] { Keyword }, plugins: new[] { SpidWorld.Other }));
+
     // R41 and answer 5: under filter= a line's outcome by section is said: a filter naming a plugin the order lacks drops
     // the line, a type KID does not take drops it without a log.
     [Fact]
