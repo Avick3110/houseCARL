@@ -28,8 +28,8 @@ so the corpus draws on two complementary sources:
   diffed against v4.1.0 (`99adaaa`) on 2026-11-15. The `generated:kid.*` regions of
   `grammar-core.md` are printed from that reading. The 2026-09-09 findings below cite 3.5's files,
   tagged so; every other source path in this corpus is 4.0.6's.
-- **Grammar source of truth — the MIT GitHub source** (`powerof3/Keyword-Item-Distributor`, `master`,
-  **MIT License**). Authoritative for the line shape, the exact type-strings, the trait syntax, the
+- **Grammar source of truth — the MIT GitHub source** (`powerof3/Keyword-Item-Distributor`, tag `v4.0.6`,
+  commit `895df22`, **MIT License**). Authoritative for the line shape, the exact type-strings, the trait syntax, the
   filter dispatch, file discovery, and `ExclusiveGroup`.
 - **User-facing docs + worked examples — the Nexus #55728 description.** Authoritative for the value
   tables (enum numbers), the per-type Form-filter list, and the copy-paste examples.
