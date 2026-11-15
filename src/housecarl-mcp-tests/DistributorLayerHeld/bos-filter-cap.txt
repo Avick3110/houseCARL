@@ -1,0 +1,15 @@
+BOS layer (Base Object Swapper 3.5.0 model; 3.4.0 reads its files the same) — profile 'Default' — 2 file(s) in Data (2 read), 9 line(s): form swaps 5, reference swaps 2, conditional form swaps 1, property overrides 1; 2 more line(s) BOS reads no entry from as SimpleIni and BOS split the file (a repeat of an earlier line of its section, no key, no '|', or a header with no ']')
+filter 'HcA_' — 1 of 2 file(s) match, expanded to their lines with what BOS does with each.
+order: files by name in byte order, each file's sections in first appearance (a header repeated in any case joins the first) and each section's lines in order; per reference BOS tries the reference's own swaps (not for a reference made at runtime), then its base's conditional form swaps (condition sets from the last 'file|conditions' in byte order back), then its base's form swaps, each from its last line back, and the first whose chance passes and whose swap finds an object wins; property overrides are tried the same way after the winning swap's own. Conditions and chance are not evaluated here.
+  - HcA_SWAP.ini  (file 1 of 2, 8 line(s)) ← HcBosIni
+      :3  HcRock|HcRockMossy
+          last wins: line 1 of 3 for base HcRock among its form swaps, tried from the last back
+      :4  HcRock|HcLantern,HcNoRock|NONE|chanceR(50)
+          [!] swap member 'HcNoRock' finds no record by that EditorID in the active order; BOS logs 'failed to process' and leaves it out of the swap set
+          last wins: line 2 of 3 for base HcRock among its form swaps, tried from the last back
+      :5  HcNoRock|HcRock
+          [!] BOS drops this line: base 'HcNoRock' finds no record by that EditorID in the active order; BOS logs 'fail : [HcNoRock|HcRock] (BASE formID not found)' and drops the line
+      :6  HcRock|HcRock
+          [!] BOS drops this line: its swap names the base itself and it sets no properties; BOS logs 'fail : [HcRock|HcRock] (BASE formID == SWAP formID)' and drops the line
+      ... [BOS lines cut at max_chars — raise it or narrow filter=, formids= or plugins=]
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.

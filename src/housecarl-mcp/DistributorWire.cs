@@ -10,7 +10,7 @@ namespace HousecarlMcp;
 /// <param name="Reads">The versions its line grammar reads the same.</param>
 /// <param name="Skipped">The header's clause for this many lines the format skips as it splits the file.</param>
 /// <param name="SkipLead">A skipped line's lead, before ": it ".</param>
-/// <param name="ZeroTail">The selector zero's close, after "and a plugin through ".</param>
+/// <param name="ZeroTail">The selector zero's close, after "or by an EditorID": how the format names a plugin, if it does.</param>
 /// <param name="TermWhere">Where a plugin term sits, in its row ("form filter").</param>
 /// <param name="TermDefines">What a plugin term selects of its plugin ("NPCs").</param>
 /// <param name="ReadHoldsParseNotes">True when a line's read notes begin with its split notes, so a read line prints
@@ -39,6 +39,7 @@ static class DistributorWire
         var read = new List<(DistributorLayerData Data, DistributorWords Words)>();
         if (d.Spid is { } spid) read.Add((spid, SpidWire.Words));
         if (d.Kid is { } kid) read.Add((kid, KidWire.Words));
+        if (d.Bos is { } bos) read.Add((bos, BosWire.Words));
         // Each part skips the notes every earlier distributor part holds, whether or not that part printed them.
         var parts = read.Select((p, i) => new Part(p.Words.Name, p.Words.Key,
             (c, after) => Render(p.Data, p.Words, d, read.Take(i).Select(e => e.Data).ToList(), filter, c, selectEcho, after),
@@ -143,7 +144,7 @@ static class DistributorWire
               .Append(" — ").Append(n).Append(" line(s) in ").Append(shown.Count).Append(" of ").Append(files.Count).Append(" file(s)");
             if (n == 0)
                 return Close(s, d, earlier, sb.Append(".\n\nnothing matched: no ").Append(w.Name).Append(" line names such a form as a target, a filter form or a value. " +
-                    "A line names a form by FormID~Plugin, by a 0x runtime FormID or by an EditorID, and a plugin through ").Append(w.ZeroTail).Append('\n'), cap, caveats, owner);
+                    "A line names a form by FormID~Plugin, by a 0x runtime FormID or by an EditorID").Append(w.ZeroTail).Append('\n'), cap, caveats, owner);
             sb.Append("; only those files are listed, each selected form labelled where the line names it.\n");
         }
         else if (filter is not null)

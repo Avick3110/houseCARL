@@ -1,0 +1,7 @@
+
+
+BOS layer (Base Object Swapper 3.5.0 model; 3.4.0 reads its files the same) — profile 'Default' — 0 file(s) in Data (0 read), 0 line(s)
+no BOS files in the active order: no file directly in Data has '_SWAP' in its name and the '.ini' extension.
+lines naming a form of formids=[000810:HcSpid.esp, 000800:HcArmorSrc.esp] — 0 line(s) in 0 of 0 file(s).
+
+nothing matched: no BOS line names such a form as a target, a filter form or a value. A line names a form by FormID~Plugin, by a 0x runtime FormID or by an EditorID; BOS names no plugin as a term.

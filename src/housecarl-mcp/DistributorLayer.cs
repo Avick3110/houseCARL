@@ -9,14 +9,14 @@ namespace HousecarlMcp;
 internal sealed partial class AssetLayers
 {
     /// <summary>Read one distributor format's layer in an open replay context: every file it reads, as it finds them,
-    /// each line split by <paramref name="parse"/>; under a selector, or a <paramref name="filter"/> some file matches,
+    /// each line split by <paramref name="parse"/> (given the text and the file's Data-relative path); under a selector, or a <paramref name="filter"/> some file matches,
     /// every line of every file read by <paramref name="readAll"/> in one call, the format's own row under each line
     /// it places taken by <paramref name="lineRows"/> (null for none), and, with <paramref name="wanted"/>, the forms and plugin terms the
     /// records selectors keep.</summary>
     static DistributorLayerData DistributorLayer<TLine, TRead>(
         DistributorFormat format, SkyPatcherReplay replay, string? filter,
         Func<FormKey, bool>? wanted, IReadOnlyList<string>? namedPlugins, bool formIdsGiven, CancellationToken ct,
-        Func<string, IReadOnlyList<TLine>> parse, Func<IReadOnlyList<TLine>, IReadOnlyList<TRead?>> readAll,
+        Func<string, string, IReadOnlyList<TLine>> parse, Func<IReadOnlyList<TLine>, IReadOnlyList<TRead?>> readAll,
         Func<IReadOnlyList<(IReadOnlyList<TLine> Lines, IReadOnlyList<TRead?> Reads)>, IReadOnlyDictionary<(int File, int Line), string>>? lineRows = null)
         where TLine : class, DistributorLines.ILine where TRead : class, DistributorLines.IRead
     {
@@ -25,7 +25,7 @@ internal sealed partial class AssetLayers
         {
             ct.ThrowIfCancellationRequested();
             if (f.NotApplied is not null || f.LooseFilePath is null) { files.Add((f, [], null)); continue; }
-            try { files.Add((f, parse(File.ReadAllText(f.LooseFilePath)), null)); }
+            try { files.Add((f, parse(File.ReadAllText(f.LooseFilePath), f.RelPath), null)); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 files.Add((f, [], $"could not be read ({ex.Message})"));

@@ -246,16 +246,36 @@
    }
   ],
   "targets": {
-   "source": "BOS 3.4.0/3.5.0 resolve HEX~Plugin by LookupFormID, raw (distributor-lines research-topup B3, X1), and a term holding two or more '~' is no address (BOS v3.5.0 src/Util.cpp:17, splitID.size() == 2); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
+   "source": "BOS v3.4.0 52f6b80 (v3.5.0 c0b9c09 the same) src/Util.cpp:15-38: exactly one '~' is HEX~Plugin, stoul base 16 then LookupFormID raw (CommonLibSSE a3ca17a1 TESDataHandler.cpp:42-65: the plugin's index added unmasked, no form checked, the plugin found in any case), a term holding two or more '~' is no address (:17, splitID.size() == 2); else '0x' and all hex is a runtime FormID kept with no form (:27-33; CLibUtil a7a877a0 string.hpp:65-77); else an untyped LookupByEditorID (:34-36); no plugin-name term; a name no record holds does what its field says (SwapData.cpp, Util.cpp:40-76, ConditionalData.cpp:9-21)",
    "addressOrder": "formIdFirst",
    "separator": "~",
    "manySeparators": "name",
    "formId": "runtimeAdd",
-   "bareFormId": "unread",
-   "pluginTerm": "unread",
+   "bareFormId": "runtimeFormId",
+   "pluginTerm": "notATerm",
    "pluginExtensions": [],
-   "missingName": "unread",
-   "editorIds": "unread"
+   "missingName": "byPosition",
+   "editorIds": "everyType"
+  },
+  "lines": {
+   "source": "BOS v3.4.0 52f6b80 (v3.5.0 c0b9c09 the same in these lines, research bos-lines answer 2): src/Manager.cpp:16 (get_configs), :28-30 (SetUnicode, SetMultiKey, SetAllowKeyOnly), :38-99 (every section in load order; a header holding '|': head 'Forms' conditional form swaps, any other head conditional property overrides, the conditions between the first and second '|' split on ','; 'Transforms' or 'Properties' property overrides, 'Forms' form swaps, any other name reference swaps), :204-272 (per reference: references, conditional forms, forms, each from the last line back; properties the same after the winning swap's own); src/SwapData.cpp:19-33 (base|properties|chance), :58-135 (base|swap|properties|chance, a base or swap set, BASE formID == SWAP formID), src/Util.cpp:40-76 (a set member naming nothing leaves the set); src/ConditionalData.cpp:9-21 (a leading '-' negates; a condition naming no form is kept as text); src/ObjectProperties.cpp:119-135 (a property names pos, rot, scale or flags); CLibUtil a7a877a0 distribution.hpp:76-79 (NONE or empty is no entry); SimpleIni 4.22 :1252-1253 (comment leads), :1630-1702 (a header trimmed, its tail dropped; a key to '=' trimmed; a key-only line), :2458-2483 (keys and sections merged in any case, each key once)",
+   "reads": ["3.4.0", "3.5.0"],
+   "section": "every",
+   "keys": "onceIgnoreCase",
+   "commentLeads": [";", "#"],
+   "assign": "=",
+   "fields": "|",
+   "item": ",",
+   "not": "-",
+   "unset": "NONE",
+   "conditional": "|",
+   "formsSection": "Forms",
+   "propertySections": ["Transforms", "Properties"],
+   "swapFields": ["base", "swap", "properties", "chance"],
+   "propertyFields": ["base", "properties", "chance"],
+   "propertyNames": ["pos", "rot", "scale", "flags"],
+   "conflict": "lastWins",
+   "swapOrder": ["references", "conditionalForms", "forms"]
   }
  },
  {

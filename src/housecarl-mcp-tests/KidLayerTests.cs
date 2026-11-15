@@ -147,7 +147,7 @@ public sealed class KidLayerTests : IDisposable
         // SPID's lines fill what SkyPatcher's part leaves at the default max_chars, as on main.
         var two = SkyPatcherTools.Layer(w.Svc, distributor: new[] { "skypatcher", "spid" }, filter: "HcShared");
         Assert.EndsWith("      ... [SPID lines cut at max_chars after SkyPatcher's part — distributor=[\"spid\"] reads SPID alone at the whole max_chars]", two);
-        var three = SkyPatcherTools.Layer(w.Svc, filter: "HcShared");
+        var three = SkyPatcherTools.Layer(w.Svc, distributor: new[] { "skypatcher", "spid", "kid" }, filter: "HcShared");
         const string Cut = "  ... [KID files cut at max_chars after SkyPatcher's and SPID's parts — distributor=[\"kid\"] reads KID alone at the whole max_chars]";
         Assert.StartsWith(two + "\n\nKID layer (", three);
         Assert.Contains("\n" + Cut + "\n[!] this response runs past the max_chars=40000 it was given: SkyPatcher's part comes first", three);

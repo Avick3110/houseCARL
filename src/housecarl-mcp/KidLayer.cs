@@ -14,7 +14,7 @@ internal sealed partial class AssetLayers
     {
         var format = RuntimeFormats.Kid;
         return DistributorLayer(format, replay, filter, wanted, namedPlugins, formIdsGiven, ct,
-            text => KidLines.Parse(text, format),
+            (text, _) => KidLines.Parse(text, format),
             lines => KidLines.ReadAll(lines, new KidLines.Context(replay.Forms, view.WinnerClassOf, format)));
     }
 }

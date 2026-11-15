@@ -280,13 +280,25 @@ public sealed class RuntimeTargetsTests
 
     // Probe: a rule a row has not read is said to be unread, never guessed as a name.
     [Theory]
-    [InlineData("bos")]
     [InlineData("flm")]
     public void ATokenUnderARowWithAnUnreadRuleIsUnread(string key)
     {
         Assert.Equal(RuntimeTargets.TargetKind.Unread, RuntimeTargets.Read("0x800", Spelling(key)).Kind);
         Assert.Null(RuntimeTargets.Resolve("0x800", null, Order(), Spelling(key)));
         Assert.Contains("is not read yet", RuntimeTargets.Report("0x800", null, Order(), Format(key)));
+    }
+
+    // bos-lines answer 7 (BOS Util.cpp:27-36): BOS's row reads bare 0x hex as a runtime FormID, no plugin name as a term
+    // (a '.esp' text is a name), and every other token as a name looked up among every type.
+    [Theory]
+    [InlineData("0x800", RuntimeTargets.TargetKind.RuntimeFormId)]
+    [InlineData("Midwood Isle.esp", RuntimeTargets.TargetKind.EditorId)]
+    [InlineData("HcLantern", RuntimeTargets.TargetKind.EditorId)]
+    public void BossRowReadsEachTokenAsBosDoes(string token, RuntimeTargets.TargetKind kind)
+    {
+        Assert.Equal(kind, RuntimeTargets.Read(token, Spelling("bos")).Kind);
+        Assert.Equal(TargetEditorIdScope.EveryType, Spelling("bos").EditorIds);
+        Assert.Equal(TargetMissingName.ByPosition, Spelling("bos").MissingName);
     }
 
     // Probe: the address half of BOS's and FLM's rows is read though four of their other rules are not — the

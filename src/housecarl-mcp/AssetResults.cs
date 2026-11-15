@@ -338,9 +338,12 @@ public sealed record SkyPatcherLayerData(
 
     /// <summary>KID's layer, read in the same replay context after SPID's; null when the call does not read KID.</summary>
     public DistributorLayerData? Kid { get; init; }
+
+    /// <summary>BOS's layer, read in the same replay context after KID's; null when the call does not read BOS.</summary>
+    public DistributorLayerData? Bos { get; init; }
 }
 
-/// <summary>One distributor format's layer (SPID's, KID's): the files it reads in its order, each line split, and, when
+/// <summary>One distributor format's layer (SPID's, KID's, BOS's): the files it reads in its order, each line split, and, when
 /// the call resolves them, each line's read, the format's own line rows and the lines the records selectors keep.
 /// Valid only in its call.</summary>
 public sealed record DistributorLayerData(HousecarlCore.DistributorFormat Format, IReadOnlyList<DistributorFileData> Files, string ProfileName)
