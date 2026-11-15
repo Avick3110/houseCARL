@@ -67,8 +67,8 @@ public sealed class KidLayerTests : IDisposable
     {
         var text = Kid(_w, filter: "HcA_");
         Assert.Contains(":4  Keyword = HcSkull|Armor|HcAbsent.esp\n          [!] KID drops this line: filters 'HcAbsent.esp' names plugin 'HcAbsent.esp', which is not in the active order;", text);
-        Assert.Contains(":5  Keyword = HcTag|FormList|HcBoots\n          [!] KID drops this line: it has type 'FormList', which is not one of KID's types", text);
-        Assert.Contains("2 file(s) in Data (2 read), 4 line(s): Armor 3, Weapon 1; 1 line(s) KID reads no entry from (no '=', under a named section, or dropped as KID parses it)", text);
+        Assert.Contains(":5  Keyword = HcTag|FormList|HcBoots\n          [!] KID does not apply this line: it has type 'FormList', which is not one of KID's types", text);
+        Assert.Contains("2 file(s) in Data (2 read), 4 line(s): Armor 3, Weapon 1; 1 line(s) KID does not apply (no '=', under a named section, or dropped or ignored as KID parses it)", text);
     }
 
     // Pick Q3 (a): a selector naming a plugin the order does not carry answers for KID as for SPID: plugins= is refused

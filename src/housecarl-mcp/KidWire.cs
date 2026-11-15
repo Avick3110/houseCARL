@@ -22,7 +22,7 @@ static class KidWire
         var byType = files.SelectMany(f => f.Lines).Where(l => l.Skipped is null)
             .GroupBy(l => l.IsGroup ? l.Key : l.Type!).OrderByDescending(x => x.Count()).ThenBy(x => x.Key, StringComparer.Ordinal);
         if (lines > 0) sb.Append(": ").Append(string.Join(", ", byType.Select(x => x.Key + " " + x.Count())));
-        if (skipped > 0) sb.Append("; ").Append(skipped).Append(" line(s) KID reads no entry from (no '=', under a named section, or dropped as KID parses it)");
+        if (skipped > 0) sb.Append("; ").Append(skipped).Append(" line(s) KID does not apply (no '=', under a named section, or dropped or ignored as KID parses it)");
         return sb.ToString();
     }
 
@@ -123,7 +123,7 @@ static class KidWire
     {
         var l = s.Files[fi].Lines[li];
         var sb = new StringBuilder("      :").Append(l.Number).Append("  ").Append(l.Raw.Trim()).Append('\n');
-        if (l.Skipped is { } skip) return sb.Append("          [!] KID drops this line: it ").Append(skip).Append('\n').ToString();
+        if (l.Skipped is { } skip) return sb.Append("          [!] KID does not apply this line: it ").Append(skip).Append('\n').ToString();
         if (s.Reads?[fi][li] is { } read)
         {
             if (read.Dropped is { } why) sb.Append("          [!] KID drops this line: ").Append(why).Append('\n');
