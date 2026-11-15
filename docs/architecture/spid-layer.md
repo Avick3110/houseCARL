@@ -59,7 +59,7 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   place depends on which earlier lines SPID drops. A `filter=` no SPID file matches resolves nothing, so it walks no
   EditorID table for SPID (`SpidFileData.Matches`, the one predicate the render's listing uses). Nothing is kept between calls (R15): each call reads the files again; there is no parse cache (DECISIONS
   2026-11-13 (15)).
-- **Two formats, one call.** With `distributor` omitted (or `distributor=[]`, which reads the same) the answer is SkyPatcher's render, then SPID's. SkyPatcher's
+- **Two formats, one call.** With `distributor=["skypatcher","spid"]` the answer is SkyPatcher's render, then SPID's. SkyPatcher's
   part is the `distributor=["skypatcher"]` answer's body at the whole `max_chars`, so it is never shorter than that
   answer; SPID's part takes what is left and says where it is cut (`SPID files cut at max_chars after SkyPatcher's
   part`, `SPID lines cut at max_chars after SkyPatcher's part`). A wider `max_chars` goes to SkyPatcher's part first, so
@@ -69,8 +69,8 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   was left, with the same `distributor=["spid"]` remedy. It names no cap to raise to, since while SkyPatcher's part is
   cut a higher cap shows no more SPID; `RenderCap.Settle` is not used here. SPID is read after SkyPatcher's scans in the same
   replay context, so the two share one EditorID table. SkyPatcher's part carries the build caveats; SPID's alone
-  carries them when it is the whole answer. KID's part follows SPID's in the same way ([`kid-layer.md`](kid-layer.md)):
-  with `distributor` omitted and no selector or `filter=`, SPID's and KID's parts are one summary line each, closed by
+  carries them when it is the whole answer. With `distributor` omitted (or `[]`) KID's part follows SPID's in the same way ([`kid-layer.md`](kid-layer.md)):
+  with no selector or `filter=`, SPID's and KID's parts are one summary line each, closed by
   `distributor=["spid"] lists its files`; the over-cap sentence then names every part that came first and every part
   that did not fit. A call naming `skypatcher` and `spid` only reads as this section says.
 
