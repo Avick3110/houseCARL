@@ -206,6 +206,19 @@ public sealed class KidLinesTests
         Assert.Contains("keyword 'HcNew' is no keyword's EditorID, so KID creates a keyword of that name, which the dropped line hands to no item", r.Notes);
     }
 
+    // r1 #11 (Cache.h:5, addedKeywords an IStringMap): KID finds a created keyword by name in any case, so a second
+    // spelling in another case finds the first line's keyword and creates none (ARR 4thcreatures_KID.ini:7 'BestiaryFlesh
+    // colossus', Dragonborns Bestiary_KID.ini:60 'BestiaryFlesh Colossus').
+    [Fact]
+    public void AKeywordSpeltInAnotherCaseFindsTheKeywordAnEarlierLineCreates()
+    {
+        var reads = new World().ReadAll("Keyword = NewKw|Armor|HcHelmet\nKeyword = newkw|Weapon|HcSword\nKeyword = NewKw|Book");
+        Assert.Contains("keyword 'NewKw' is no keyword's EditorID, so KID creates a keyword of that name and hands it out", reads[0]!.Notes);
+        Assert.Contains("keyword 'newkw' is no keyword's EditorID, but another KID line creates it as 'NewKw' and KID finds a created keyword in any case, "
+                        + "so KID creates no second one and hands it out", reads[1]!.Notes);
+        Assert.Contains("keyword 'NewKw' is no keyword's EditorID, so KID creates a keyword of that name and hands it out", reads[2]!.Notes);
+    }
+
     // Answer 5 by section, the filters: a name no record holds is kept as text (dev BOOBIES_Skyrim_KID.ini ArmorTypeArmlets),
     // unless a KID line creates a keyword of that name, which it then names (dev BOOBIES ArmorTypeLeftHandRing); a filter
     // never creates a keyword.

@@ -36,7 +36,8 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
   row's `record`), in the plain list or a `+` group, is `target`; any other resolved filter form, an excluded one of
   the line's own type and a group member is `filter`.
 - **What KID does where a name finds nothing, by section** (research answer 5): the keyword section's name no keyword
-  holds is created, also where a record of another type holds it; a keyword FormID that names nothing, or names no
+  holds is created, also where a record of another type holds it, and a later line spelling it in another case finds
+  that keyword (KID's created keywords are found in any case, `Cache.h` `addedKeywords`); a keyword FormID that names nothing, or names no
   keyword, drops the line. Every line's keyword is created before any filter is read, so a dropped line still creates
   its keyword (said "which the dropped line hands to no item") and another line's filter finds it. A filter FormID,
   runtime FormID or plugin that names nothing, or a record of a type the row's `filterTypes` does not list, is skipped

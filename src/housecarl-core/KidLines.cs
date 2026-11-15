@@ -190,6 +190,11 @@ public static class KidLines
             : null).ToList();
         var keywords = lines.Select(l => l.Skipped is not null || l.IsGroup ? null
             : names.TryGetValue(l.Keyword, out var k) ? k : names[l.Keyword] = ResolveKeyword(l.Keyword, ctx)).ToList();
+        // KID finds a created keyword by name in any case, so a later spelling in another case creates no second one.
+        var firstSpelling = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < keywords.Count; i++)
+            if (keywords[i] is { Created: true } ck && !firstSpelling.TryAdd(ck.Raw, ck.Raw) && firstSpelling[ck.Raw] != ck.Raw)
+                keywords[i] = ck with { Created = false, CreatedAs = firstSpelling[ck.Raw] };
         var created = new HashSet<string>(keywords.Where(k => k is { Created: true }).Select(k => k!.Raw), StringComparer.OrdinalIgnoreCase);
         return lines.Select((l, i) => l.Skipped is not null ? null
             : l.IsGroup ? ReadGroup(l, resolved[i]!, created, ctx)
@@ -226,7 +231,7 @@ public static class KidLines
 
     /// <summary>The keyword section as KID reads it: a FormID looked up as a keyword, or a name (a plugin name too) looked
     /// up among keywords and created when none holds it.</summary>
-    sealed record Keyword(string Raw, FormKey? Form, bool ByEditorId, bool Created, string? Miss, string? Note);
+    sealed record Keyword(string Raw, FormKey? Form, bool ByEditorId, bool Created, string? Miss, string? Note, string? CreatedAs = null);
 
     static Keyword ResolveKeyword(string raw, Context ctx)
     {
@@ -267,6 +272,11 @@ public static class KidLines
         {
             createdNote = notes.Count;
             notes.Add($"keyword '{kw.Raw}' is no keyword's EditorID{Spaced(kw.Raw, g)}, so KID creates a keyword of that name");
+        }
+        else if (kw.CreatedAs is { } ca)
+        {
+            createdNote = notes.Count;
+            notes.Add($"keyword '{kw.Raw}' is no keyword's EditorID, but another KID line creates it as '{ca}' and KID finds a created keyword in any case, so KID creates no second one");
         }
 
         // The plain list: KID drops the line when every exact term fails, or every '-' term fails; one that fails while
