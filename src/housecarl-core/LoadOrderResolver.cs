@@ -887,6 +887,14 @@ public sealed class LoadOrderResolver : IDisposable
                 .Select(x => (x.fk, x.body, x.plugin, names[x.plugin]));
         }
 
+        /// <summary>Each of <paramref name="keys"/> the plugin at load position <paramref name="position"/> holds, by its
+        /// place among that file's records, read off the record headers alone (<see cref="RecordHeaderKeys.Places"/>).</summary>
+        public IReadOnlyDictionary<FormKey, int> FilePlaces(int position, IReadOnlyCollection<FormKey> keys)
+        {
+            _r.CheckUnchanged(position, _s);
+            return RecordHeaderKeys.Places(_r._paths[position], keys);
+        }
+
         public IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string source)> RecordsIn(
             IReadOnlyList<string> plugins, IReadOnlyList<Type>? getterTypes)
             => _r.RecordsIn(plugins, getterTypes, _s, _absences);

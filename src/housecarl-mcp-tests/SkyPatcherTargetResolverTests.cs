@@ -346,10 +346,10 @@ public sealed class SkyPatcherTargetResolverTests
         Assert.Equal(new FormKey(Rel, 0x852), Assert.Single(table.Find("HcPlacedNpc", null, out _)).Record);
     }
 
-    // Two records of one name in one plugin tie by the walk's type order, not by the file, whose keywords come before its cells
-    // (unchanged by the one-pass walk; skypatcher-layer.md).
+    // Two records of one name in one plugin tie by the file, whose keywords come before its cells, not by the walk's type
+    // order (bos-lines Q1 (a), DECISIONS 2026-11-15 (13): the game's map keeps the one named first).
     [Fact]
-    public void ASamePluginTieGoesByTypeOrderNotFileOrder()
+    public void ASamePluginTieGoesByFileOrderNotTypeOrder()
     {
         using var w = new SkyPatcherRelevanceWorld(Array.Empty<(string, string)>(), records: m =>
         {
@@ -358,6 +358,6 @@ public sealed class SkyPatcherTargetResolverTests
         });
         var table = SkyPatcherEditorIdTable.For(w.Svc.CaptureView(), null);
         table.Cover(new[] { typeof(ICellGetter), typeof(IKeywordGetter) });
-        Assert.Equal(new[] { new FormKey(Rel, 0x861), new FormKey(Rel, 0x860) }, table.Find("HcTie", null, out _).Select(h => h.Record));
+        Assert.Equal(new[] { new FormKey(Rel, 0x860), new FormKey(Rel, 0x861) }, table.Find("HcTie", null, out _).Select(h => h.Record));
     }
 }

@@ -71,7 +71,33 @@ internal sealed class SkyPatcherEditorIdTable
         if (scope is not null) Cover(scope);
         incomplete = scope is null ? _incomplete.Count > 0 : scope.Any(_incomplete.Contains);
         if (!_names.TryGetValue(editorId, out var holders)) return Array.Empty<Holder>();
-        return holders.Values.Where(h => scope is null || scope.Any(t => t.IsAssignableFrom(h.Getter)))
-            .OrderBy(h => h.Position).ThenBy(h => _rank[h.Getter]).ToList();   // a same-plugin tie by type, as skypatcher-layer.md says
+        var found = holders.Values.Where(h => scope is null || scope.Any(t => t.IsAssignableFrom(h.Getter))).ToList();
+        // One plugin's records of two types under one name: the game's map keeps the one first in the plugin's file, whatever
+        // this call walked first. Records of one type already come in file order, as walked.
+        return found.OrderBy(h => h.Position)
+            .ThenBy(h => found.Any(o => o.Position == h.Position && o.Getter != h.Getter) ? FilePlace(h) : 0)
+            .ThenBy(h => _rank[h.Getter]).ToList();
+    }
+
+    readonly Dictionary<int, Dictionary<FormKey, int>> _places = new();
+
+    /// <summary>A record's place in the file of the plugin that loaded it under its name, read once per plugin and key in
+    /// this call; a file that cannot be read places nothing, and the tie falls back to the walk's type order.</summary>
+    int FilePlace(Holder h)
+    {
+        if (!_places.TryGetValue(h.Position, out var known)) _places[h.Position] = known = new();
+        if (!known.ContainsKey(h.Record))
+        {
+            // Every two-type tie this plugin holds in the table so far, so one walk of the file places them all.
+            var keys = _names.Values.Select(n => n.Values.Where(x => x.Position == h.Position).ToList())
+                .Where(t => t.Select(x => x.Getter).Distinct().Count() > 1)
+                .SelectMany(t => t.Select(x => x.Record)).Where(k => !known.ContainsKey(k)).ToHashSet();
+            Dictionary<FormKey, int>? read = null;
+            try { read = new(_view.FilePlaces(h.Position, keys)); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            foreach (var k in keys) known[k] = read is not null && read.TryGetValue(k, out var p) ? p : int.MaxValue;
+        }
+        return known[h.Record];
     }
 }
