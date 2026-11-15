@@ -1,6 +1,6 @@
 ---
 updated: 2026-11-15
-covers: [src/housecarl-core/KidLines.cs, src/housecarl-core/KidGrammar.cs, src/housecarl-mcp/KidLayer.cs, src/housecarl-mcp/KidWire.cs]
+covers: [src/housecarl-core/KidLines.cs, src/housecarl-core/KidGrammar.cs, src/housecarl-core/DistributorLines.cs, src/housecarl-mcp/KidLayer.cs, src/housecarl-mcp/KidWire.cs, src/housecarl-mcp/DistributorLayer.cs, src/housecarl-mcp/DistributorWire.cs]
 ---
 # The KID layer
 
@@ -29,7 +29,7 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
   group of its own, each part trimmed and read for `-` then `*`.
 - **Every form a line names resolves through the one target resolver on KID's row**, `RuntimeTargets`: a term with
   exactly one `~` is an address added to the plugin's runtime base, unmasked; a term with two or more is a name (KID's
-  own rule, read before the resolver); bare `0x` hex is a runtime FormID; a filter ending `.esm`, `.esp` or `.esl`
+  own rule, its row's `targets.manySeparators` = `name`, which the resolver reads first); bare `0x` hex is a runtime FormID; a filter ending `.esm`, `.esp` or `.esl`
   (ordinal) is a plugin term. A filter name is looked up among every type; the keyword section's name among keywords
   only. Every filter of every line is looked up before any keyword, so the call's table walks every type once.
 - **Labels** (DECISIONS 2026-11-13 (13) KID Q1 (a)): the keyword is `value`; a filter form of the line's own type (its
@@ -56,7 +56,7 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
   `filter=` that at least one KID file matches, resolve every line, since a filter's name may be another line's
   created keyword. A `filter=` no KID file matches resolves nothing. Nothing is kept between calls (R15); there is no
   parse cache (DECISIONS 2026-11-14 (26)).
-- **Three formats, one call** (`SpidWire.RenderLayers`). With `distributor` omitted (or `[]`) the answer is
+- **Three formats, one call** (`DistributorWire.RenderLayers`). With `distributor` omitted (or `[]`) the answer is
   SkyPatcher's render, then SPID's part, then KID's. With no selector and no `filter=` (pick 2026-11-15 (1) Q1 (b)),
   SPID's and KID's parts are one summary line each, the format's header line closed by the call that lists its files
   (`distributor=["spid"]`, `distributor=["kid"]`); named, the same formats list their files. Otherwise (Q2 (a), format
@@ -100,5 +100,6 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
 ## Where
 
 `src/housecarl-core/KidLines.cs` (split, read), `src/housecarl-core/KidGrammar.cs` (the row's lines block),
-`src/housecarl-mcp/KidLayer.cs` (the service read in the replay context), `src/housecarl-mcp/KidWire.cs` (the render);
-the join is `SpidWire.RenderLayers`, the tool front `SkyPatcherTools.Layer`.
+`src/housecarl-core/DistributorLines.cs` (what KID shares with SPID), `src/housecarl-mcp/KidLayer.cs` (KID's split and
+read given to the one reader, `DistributorLayer.cs`), `src/housecarl-mcp/KidWire.cs` (KID's own words); the render
+and the join are `DistributorWire` (`RenderLayers`), the tool front `SkyPatcherTools.Layer`.

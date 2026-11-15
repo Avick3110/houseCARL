@@ -1,6 +1,6 @@
 ---
 updated: 2026-11-15
-covers: [src/housecarl-core/SpidLines.cs, src/housecarl-core/SpidGrammar.cs, src/housecarl-mcp/SpidLayer.cs, src/housecarl-mcp/SpidWire.cs]
+covers: [src/housecarl-core/SpidLines.cs, src/housecarl-core/SpidGrammar.cs, src/housecarl-core/DistributorLines.cs, src/housecarl-mcp/SpidLayer.cs, src/housecarl-mcp/SpidWire.cs, src/housecarl-mcp/DistributorLayer.cs, src/housecarl-mcp/DistributorWire.cs]
 ---
 # The SPID layer
 
@@ -96,6 +96,10 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   not touched, a display-name token touching nothing, the plugin term under `plugins=` and not `formids=`, every line
   kind selected, the outcomes under `filter=`, first-wins places across files, the shadowed copy, an edited file read
   anew, one EditorID walk for both formats, none for a `filter=` no SPID file matches; `SpidWireTests` — an archive-only copy said not applied.
+- `DistributorLayerHeldTests` — SPID's and KID's parts compared whole, byte for byte, to answers held from the build
+  before the two formats shared one reader and renderer: the file lists with the skipped clause and the hint, the
+  expanded lines with the order line, the first-wins rows, a skip and a drop, both selectors' zeros, the own and joined
+  file and line cuts, the plural over-cap, no files, a read error, and the unreadable-plugin notes an earlier part holds.
 - `SpidLayerTests.SkyPatcherKeepsItsWholeAnswerAndSpidTakesWhatIsLeft` and `SpidLinesAreCutWithTheirNoticeAfterSkyPatchersPart`
   — the shared `max_chars`.
 - `LayerSelectTests.DistributorOmittedReadsSkyPatcherThenSpidThenKid`, `DistributorSpidIsRead`,
@@ -104,5 +108,7 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
 ## Where
 
 `src/housecarl-core/SpidLines.cs` (split, read, places), `src/housecarl-core/SpidGrammar.cs` (the row's lines block),
-`src/housecarl-mcp/SpidLayer.cs` (the service read in the replay context), `src/housecarl-mcp/SpidWire.cs` (the render);
-the tool front is `SkyPatcherTools.Layer`.
+`src/housecarl-core/DistributorLines.cs` (the named-form record, the line and read shapes and the token resolve SPID
+shares with KID), `src/housecarl-mcp/SpidLayer.cs` (SPID's split, read and first-wins rows given to the one reader,
+`DistributorLayer.cs`), `src/housecarl-mcp/SpidWire.cs` (SPID's own words); the render and the join are
+`DistributorWire` (`RenderLayers`), the tool front is `SkyPatcherTools.Layer`.
