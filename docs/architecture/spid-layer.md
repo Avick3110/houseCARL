@@ -78,8 +78,9 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
 
 - A value whose record is of a type the line does not take (`Spell = <a perk>`) is not reported; SPID throws on it and
   drops the line.
-- An EditorID two records share is not reported, and inside one plugin the tie falls to the table's type order, not
-  the plugin's record order (research-topup X6). No dev SPID name is shared.
+- An EditorID two records share is not reported. Inside one plugin the tie goes to the record first in the plugin's
+  file, as the game's map keeps it ([`skypatcher-layer.md`](skypatcher-layer.md)); SPID then checks that record's type.
+  No dev or ARR SPID name is shared (bos-lines research-topup T1).
 - Where a name lands under po3 Tweaks' absence follows the call's EditorID table; SPID's own keyword lookup reads the
   keyword array, which the table's kept types already cover.
 - The keyword dependency re-sort of `Keyword` lines is not modelled; keyword lines have no place.

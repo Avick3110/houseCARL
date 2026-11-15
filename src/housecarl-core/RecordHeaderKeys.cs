@@ -27,6 +27,40 @@ public static class RecordHeaderKeys
         return keys;
     }
 
+    /// <summary>The place of each of <paramref name="wanted"/> among the major records of the file at <paramref name="path"/>,
+    /// counted in file order through every group, read header by header with each record's body skipped; a key the file
+    /// does not hold is absent. Stops once every key is placed.</summary>
+    public static Dictionary<FormKey, int> Places(string path, IReadOnlyCollection<FormKey> wanted)
+    {
+        var meta = GameConstants.SkyrimSE;
+        var places = new Dictionary<FormKey, int>();
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+        int len = meta.MajorConstants.HeaderLength;
+        var head = new byte[len];
+        if (fs.Read(head, 0, len) < len) return places;
+        var tes4 = new byte[len + BitConverter.ToUInt32(head, 4)];
+        head.CopyTo(tes4, 0);
+        fs.ReadExactly(tes4, len, tes4.Length - len);
+        var self = ModKey.FromFileName(Path.GetFileName(path));
+        var masters = new List<ModKey>();
+        foreach (var sub in RecordSpanExtensions.EnumerateSubrecords(new MajorRecordFrame(meta, tes4).Content, meta, 0))
+            if (sub.RecordType.Type == "MAST")
+                masters.Add(ModKey.FromFileName(Encoding.Latin1.GetString(sub.Content.Span).TrimEnd('\0')));
+        int place = 0;
+        // A group's header is followed by its contents, so the walk steps into it; a record's body is skipped.
+        while (places.Count < wanted.Count && fs.Read(head, 0, len) == len)
+        {
+            if (head.AsSpan(0, 4).SequenceEqual("GRUP"u8)) continue;
+            uint raw = BitConverter.ToUInt32(head, 12);
+            int index = (int)(raw >> 24);
+            var fk = new FormKey(index < masters.Count ? masters[index] : self, raw & 0xFFFFFF);
+            if (wanted.Contains(fk)) places.TryAdd(fk, place);
+            place++;
+            fs.Seek(BitConverter.ToUInt32(head, 4), SeekOrigin.Current);
+        }
+        return places;
+    }
+
     static long Group(GameConstants meta, ReadOnlyMemorySlice<byte> at, List<ModKey> masters, ModKey self, List<FormKey> keys)
     {
         var group = new GroupFrame(meta, at);

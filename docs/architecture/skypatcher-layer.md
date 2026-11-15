@@ -311,7 +311,7 @@ say the state is unknown.
 - The game's map is one name space across every type, so a record of another type that loaded a
   name first can hide a typed lookup in game. houseCARL does not model that hiding: a scoped lookup
   takes the first loaded record of its scope, whatever other types share the name, so one line's
-  answer does not depend on which other lines the layer holds, except for the same-plugin tie below.
+  answer does not depend on which other lines the layer holds.
   For the ten types the engine keeps
   names of itself, the first-loaded rule is po3 Tweaks', not read from the game executable.
 - `Plugin|+hex` and `Plugin|-hex` are read as malformed; SkyPatcher's `stoul` takes the sign.
@@ -326,9 +326,13 @@ say the state is unknown.
   direct target named by an LVLI EditorID is also reported as finding no LeveledNpc record, and one
   named by an LVLN EditorID as finding no LeveledItem record, though the line applies. FormID targets
   are unaffected.
-- Two records of one scope that share a name in one plugin tie by walk order (types in scope
-  order, then later walks), not by their order in the file, so the duplicate note can name the
-  other one, and which one wins can change with the other lines the layer holds.
+- Two records of one scope and of two types that share a name in one plugin tie by their place in
+  that plugin's file, read off its record headers once per call (the game's map keeps the one named
+  first, bos-lines Q1 (a)), whatever the call walked first; records of one type keep their walk
+  order, which is the file's. That the engine names a plugin's records front to back is an
+  inference (bos-lines research-topup T2); a file that cannot be read falls back to the walk's type
+  order. SkyPatcher's own lookup is not read (no source), so on a SkyPatcher line this is the
+  game's map, not shown to be SkyPatcher's.
 - A post read of a form list with an EditorID item walks every record type once in its call (one
   pass over every plugin; without po3 Tweaks only the types the game keeps names of), as
   does the layer listing under any `filter=` whose match expands a form-list INI with one (its
@@ -392,7 +396,7 @@ hardened.
   (`AnUnscopedOpEditorIdMissesBesideAScopedOne`), one call walks once (`EditorIdsAreWalkedOncePerCall`), a walk over
   every type reads each group of each plugin once and puts the first loaded holder first
   (`AnEveryTypeWalkReadsEachGroupOfEachPluginOnce`, `AnEveryTypeWalkPutsTheFirstLoadedHolderFirst`), a same-plugin
-  tie goes by type order (`ASamePluginTieGoesByTypeOrderNotFileOrder`), a call
+  tie goes by file order (`ASamePluginTieGoesByFileOrderNotTypeOrder`; `BosLayerTests.TheTieFollowsTheFilesOwnGroupOrder`), a call
   that looks up no form-list item walks only its own scopes (`ACallThatLooksUpNoFormListItemWalksOnlyItsScopes`), and
   without Tweaks a form-list item of a kept type resolves (`WithoutTweaksAFormListItemEditorIdOfAKeptTypeResolves`);
   holders sort by load position alone, each view in a call gets its own table, a digit-first name resolves, the
