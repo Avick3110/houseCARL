@@ -85,11 +85,13 @@ it a leading `*` makes the term a partial string. Traits are read on `Armor`, `W
 `Enchantment` lines; on `Location`, `Misc Item`, `Key`, `Activator`, `Flora`, `Race` and `Talking
 Activator` lines they are ignored. Each type reads its traits its own way (`traits.md`): a trait no
 rule of the type takes is ignored, which widens the line, but some types match a trait by what it
-holds (`R(`, `D(`, `W(`, digits only) or read any other trait as a soul gem's capacity, so a
-misspelt trait can read as a different one and narrow the line (`XR(40)` on a magic effect line is a
-resistance filter). Chance is a number from 0 to 100, 100 when unset; a chance that does not start
-with a number fails the line, and KID logs `Failed to parse entry`. In a group line the members are
-split on `,` and not trimmed, and a leading `-` takes a keyword out of the group.
+holds (`R(`, `D(`, `W(`, digits only), and a soul gem line reads a trait that is not `BLACK`,
+`-BLACK` or `SOUL(` as the gem's capacity when it holds a number (one with no number sets none, and
+clears one an earlier trait set), so a misspelt trait can read as a different one and narrow the
+line (`XR(40)` on a magic effect line is a resistance filter). Chance is a number from 0 to 100, 100
+when unset; a chance that does not start with a number fails the line, and KID logs `Failed to parse
+entry`. In a group line the members are split on `,` and not trimmed, and a leading `-` takes a
+keyword out of the group.
 <!-- end generated:kid.lines -->
 
 ---
