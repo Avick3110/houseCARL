@@ -1,0 +1,6 @@
+KID layer (Keyword Item Distributor 4.1.0 model; 4.0.6 reads its files the same) — profile 'Default' — 2 file(s) in Data (2 read), 6 line(s): Armor 5, Weapon 1; 2 more line(s) KID drops or ignores as it parses the file, before it reads any form (no '=', under a named section, a type or entry KID cannot parse, or a group with no members)
+  - HcA_KID.ini  (file 1 of 2, 5 line(s)) ← HcSpidIni
+  ... [KID files cut at max_chars — raise it or narrow filter=]
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.
+
+→ filter='<file or mod>' expands a KID file's lines with what KID does with each; formids= or plugins= lists the lines naming a form, labelled target, filter or value.

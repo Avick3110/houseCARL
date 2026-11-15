@@ -1,0 +1,29 @@
+SkyPatcher layer (SkyPatcher 8.0.1 model) — profile 'Default' — 1 type folder(s), 1 INI(s) (0 applied), 1 patch line(s) (0 in applied files), 0 set-conflict(s); ITM: 0 intra-file dead write(s), 0 cross-INI duplicate(s), 0 no-op write(s)
+lines naming a form of formids=[000810:HcSpid.esp, 000800:HcArmorSrc.esp] — 1 line(s) in 1 of 1 INI(s), in 1 of 1 type folder(s); only those folders are listed below, each in full apply order with the matching files expanded to those lines, each selected form labelled where the line names it (the counts above are the whole layer).
+
+npc: 1 INI(s), 1 patch line(s)  [!] SkyPatcher.ini is not loose in this order, which leaves 'npc' patching off — the DLL skips this whole folder
+  - HcSky.ini  (1 line(s)) ← HcSpidIni
+      :1  filterByNpcs=HcSpid.esp|810:weight=5
+          ↳ target filterByNpcs: 000810:HcSpid.esp
+[!] no loose SkyPatcher.ini in this order — without its keys every patcher but Light is off.
+[!] SkyPatcher.ini is not loose in this order, which leaves 'npc' patching off — its 1 INI(s) are present but the DLL skips the whole subfolder.
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.
+
+→ housecarl_records formids=['<FormID>'] source={"overlay": "skypatcher", "state": "post"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' for just the type folders holding a match, each listed in full apply order with the matching files expanded to their lines.
+
+SPID layer (Spell Perk Item Distributor 7.3.3 model; 7.3.0 reads its files the same) — profile 'Default' — 2 file(s) in Data (2 read), 10 line(s): Perk 4, Outfit 3, Spell 2, ExclusiveGroup 1; 1 line(s) SPID skips
+lines naming a form of formids=[000810:HcSpid.esp, 000800:HcArmorSrc.esp] — 2 line(s) in 1 of 2 file(s); only those files are listed, each selected form labelled where the line names it.
+order: files by name in byte order, each file's lines by key (A to Z, any case) then line, Form lines after every typed line; for Skin, SleepOutfit, Outfit the first line whose filters pass an NPC wins it.
+  - HcA_DISTR.ini  (file 1 of 2, 9 line(s)) ← HcSpidIni
+      :3  Spell = HcSpell|NONE|0x1000810,HcDeerRace
+          ↳ target form filter: 0x1000810 → 000810:HcSpid.esp
+      :9  Outfit = 0x815~HcSpid.esp|HcAranea
+          first wins: Outfit line 2 of 3 in SPID's order
+          ↳ target string filter: HcAranea → 000810:HcSpid.esp
+
+KID layer (Keyword Item Distributor 4.1.0 model; 4.0.6 reads its files the same) — profile 'Default' — 2 file(s) in Data (2 read), 6 line(s): Armor 5, Weapon 1; 2 more line(s) KID drops or ignores as it parses the file, before it reads any form (no '=', under a named section, a type or entry KID cannot parse, or a group with no members)
+lines naming a form of formids=[000810:HcSpid.esp, 000800:HcArmorSrc.esp] — 1 line(s) in 1 of 2 file(s); only those files are listed, each selected form labelled where the line names it.
+  - HcA_KID.ini  (file 1 of 2, 5 line(s)) ← HcSpidIni
+      :1  Keyword = HcVisor|Armor|HcBoots
+          [!] keyword 'HcVisor' is no keyword's EditorID, so KID creates one keyword of that name for all the KID lines naming it, in any case, and this line hands it out
+          ↳ target filters: HcBoots → 000800:HcArmorSrc.esp
