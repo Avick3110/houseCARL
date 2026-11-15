@@ -195,6 +195,13 @@ public sealed class KidLinesTests
         Assert.StartsWith("keyword '0x999~HcKid.esp' names 01000999", w.Read("Keyword = 0x999~HcKid.esp|Armor").Dropped);
         Assert.StartsWith("its keyword section is empty", w.Read("Keyword = |Armor").Dropped);
     }
+
+    // r1 #16: a keyword FormID written with a load index owes its note, also on the line it drops.
+    [Fact]
+    public void AKeywordFormIdWrittenWithALoadIndexIsNoted()
+        => Assert.Contains(new World().Read("Keyword = 0x1000800~HcKid.esp|Armor").Notes,
+            n => n.StartsWith("keyword '0x1000800~HcKid.esp' is written with a load index"));
+
     // The keyword is created before any filter is read (LookupForms.cpp:41-47), so a line its filters drop still creates
     // it and hands it to no item.
     [Fact]
