@@ -167,10 +167,10 @@ public sealed class KidLinesTests
     public void AnOwnTypeFilterFormIsTargetOtherFiltersFilterAndTheKeywordValue()
     {
         var r = new World().Read("Keyword = 0x801~HcKid.esp|Armor|HcHelmet,HcKeyword,-HcElsewhere");
-        Assert.Contains(new KidLines.Named(SkyPatcherOverlay.FormPlace.Value, "keyword", "0x801~HcKid.esp", Kw, false), r.Forms);
-        Assert.Contains(new KidLines.Named(SkyPatcherOverlay.FormPlace.Target, "filters", "HcHelmet", Helmet, true), r.Forms);
-        Assert.Contains(new KidLines.Named(SkyPatcherOverlay.FormPlace.Filter, "filters", "HcKeyword", Kw, true), r.Forms);
-        Assert.Contains(new KidLines.Named(SkyPatcherOverlay.FormPlace.Filter, "filters -", "HcElsewhere", Elsewhere, true), r.Forms);
+        Assert.Contains(new DistributorLines.Named(SkyPatcherOverlay.FormPlace.Value, "keyword", "0x801~HcKid.esp", Kw, false), r.Forms);
+        Assert.Contains(new DistributorLines.Named(SkyPatcherOverlay.FormPlace.Target, "filters", "HcHelmet", Helmet, true), r.Forms);
+        Assert.Contains(new DistributorLines.Named(SkyPatcherOverlay.FormPlace.Filter, "filters", "HcKeyword", Kw, true), r.Forms);
+        Assert.Contains(new DistributorLines.Named(SkyPatcherOverlay.FormPlace.Filter, "filters -", "HcElsewhere", Elsewhere, true), r.Forms);
         Assert.Null(r.Dropped);
         var w = new World().Read("Keyword = HcKeyword|Weapon|HcHelmet");
         Assert.Equal(SkyPatcherOverlay.FormPlace.Filter, w.Forms.Single(f => f.Form == Helmet).Place);

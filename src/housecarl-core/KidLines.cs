@@ -1,4 +1,6 @@
 using Mutagen.Bethesda.Plugins;
+using Named = HousecarlCore.DistributorLines.Named;
+using Resolved = HousecarlCore.DistributorLines.Resolved;
 
 namespace HousecarlCore;
 
@@ -25,7 +27,11 @@ public static class KidLines
     /// <see cref="Keyword"/> is the keyword section (a group's name); <see cref="Skipped"/> says why KID does not apply
     /// it (null when it does); <see cref="Notes"/> are what KID ignores on the way.</summary>
     public sealed record Line(int Number, string Raw, string Key, bool IsGroup, string? Type, string Keyword,
-                              IReadOnlyList<Token> Tokens, string? Skipped, IReadOnlyList<string> Notes);
+                              IReadOnlyList<Token> Tokens, string? Skipped, IReadOnlyList<string> Notes) : DistributorLines.ILine
+    {
+        /// <summary>The header's count key: a group line's key, else its type.</summary>
+        public string HeaderKey => IsGroup ? Key : Type!;
+    }
 
     const string FailedToParse = "so KID fails to parse the entry and logs 'Failed to parse entry'";
 
@@ -160,13 +166,9 @@ public static class KidLines
 
     // ---- what a line names --------------------------------------------------------------
 
-    /// <summary>One form a line names: where (target, filter or value), in which section and list, the token as written,
-    /// the record, and whether it was named by EditorID.</summary>
-    public sealed record Named(SkyPatcherOverlay.FormPlace Place, string Where, string Token, FormKey Form, bool ByEditorId);
-
     /// <summary>What one line names and what KID does with it: every form it names that resolves, every plugin it names
     /// as a term (present in the order), the notes its tokens owe, and why KID drops the line (null when it keeps it).</summary>
-    public sealed record LineRead(IReadOnlyList<Named> Forms, IReadOnlyList<string> PluginTerms, IReadOnlyList<string> Notes, string? Dropped);
+    public sealed record LineRead(IReadOnlyList<Named> Forms, IReadOnlyList<string> PluginTerms, IReadOnlyList<string> Notes, string? Dropped) : DistributorLines.IRead;
 
     /// <summary>The lookups a read needs: the call's target resolver, and the class of a resolved record off the order.</summary>
     public sealed record Context(SkyPatcherOverlay.IFormResolver Resolver, Func<FormKey, Type?> ClassOf, DistributorFormat Format)
@@ -200,29 +202,8 @@ public static class KidLines
     /// after lower-casing the path.</summary>
     static bool IsModel(string term, KidGrammar g) => term.EndsWith(g.ModelEnding, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>One token resolved: the record it names, the plugin it names as a term (and whether the order holds it),
-    /// why it names nothing, a note it owes even when it resolves (a load index written in), and whether it was a name.</summary>
-    sealed record Resolved(FormKey? Form, string? Plugin, bool PluginPresent, string? Miss, string? Note, bool ByEditorId);
-
-    /// <summary>A token as KID's row reads it, with KID's own rule first: a term with two or more '~' is a name.</summary>
-    static RuntimeTargets.TargetToken ReadToken(string raw, TargetSpelling s)
-        => raw.IndexOf(s.Separator) is var at and >= 0 && raw.IndexOf(s.Separator, at + 1) >= 0 ? new RuntimeTargets.TargetToken(RuntimeTargets.TargetKind.EditorId, raw, null, null) : RuntimeTargets.Read(raw, s);
-
-    static Resolved Resolve(string raw, Context ctx)
-    {
-        var read = ReadToken(raw, ctx.S);
-        var fk = RuntimeTargets.Resolve(read, null, ctx.Resolver, ctx.S);
-        // A resolved address still owes the load-index note; a resolved name or runtime FormID owes nothing.
-        var report = fk is null || read.Kind == RuntimeTargets.TargetKind.Address ? RuntimeTargets.Report(read, null, ctx.Resolver, "KID", ctx.S) : null;
-        bool byName = read.Kind == RuntimeTargets.TargetKind.EditorId;
-        if (read.Kind == RuntimeTargets.TargetKind.PluginName)
-        {
-            bool present = ctx.Resolver.PluginPresent(read.Raw);
-            return new Resolved(null, read.Raw, present, present ? null : report, null, false);
-        }
-        if (fk is not null) return new Resolved(fk, null, false, null, report, byName);
-        return new Resolved(null, null, false, report ?? "names nothing", null, byName);
-    }
+    // A term with two or more '~' is a name by KID's row (manySeparators), read in the one target resolver.
+    static Resolved Resolve(string raw, Context ctx) => DistributorLines.Resolve(raw, ctx.Resolver, ctx.S, "KID");
 
     /// <summary>The keyword section as KID reads it: a FormID looked up as a keyword, or a name (a plugin name too) looked
     /// up among keywords and created when none holds it.</summary>
@@ -230,7 +211,7 @@ public static class KidLines
 
     static Keyword ResolveKeyword(string raw, Context ctx)
     {
-        var read = ReadToken(raw, ctx.S);
+        var read = RuntimeTargets.Read(raw, ctx.S);
         if (read.Kind is RuntimeTargets.TargetKind.Address or RuntimeTargets.TargetKind.RuntimeFormId)
         {
             var fk = RuntimeTargets.Resolve(read, null, ctx.Resolver, ctx.S);

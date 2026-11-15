@@ -43,12 +43,14 @@ public static class RuntimeTargets
 
     // ---- reading a token ----------------------------------------------------------------
 
-    /// <summary>Read one token under <paramref name="s"/>, in the frameworks' own order: the separator first, then a
-    /// plugin term, then bare hex, else a name. A row that has not read what a format makes of a token carrying no
-    /// separator says so, rather than falling through to a name.</summary>
+    /// <summary>Read one token under <paramref name="s"/>, in the frameworks' own order: the separator first (a term
+    /// holding it twice or more is a name where the row says so), then a plugin term, then bare hex, else a name. A row
+    /// that has not read what a format makes of a token carrying no separator says so, rather than falling through to a name.</summary>
     public static TargetToken Read(string token, TargetSpelling s)
     {
         token ??= "";
+        if (s.ManySeparators == TargetManySeparators.Name && token.IndexOf(s.Separator) is var at and >= 0 && token.IndexOf(s.Separator, at + 1) >= 0)
+            return new TargetToken(TargetKind.EditorId, token, null, null);
         if (TryParseAddress(token, s) is { } a) return new TargetToken(TargetKind.Address, token, a, a.FormId);
         if (Unread(s)) return new TargetToken(TargetKind.Unread, token, null, null);
         if (IsPluginName(token, s)) return new TargetToken(TargetKind.PluginName, token, null, null);

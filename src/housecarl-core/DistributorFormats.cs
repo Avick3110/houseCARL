@@ -31,7 +31,17 @@ public static partial class RuntimeFormats
         if (folders.Count == 0) throw new InvalidOperationException($"runtime-format source [{ctx}]: 'folders' is empty.");
         // Only SPID's and KID's readers have landed, so a lines block on another row has no rule.
         if (key is not ("spid" or "kid") && row.TryGetProperty("lines", out _)) throw Unknown(ctx, "lines", "a lines block");
-        return new DistributorFormat(key, Str(row, "format", ctx), Str(row, "version", ctx), folders, Targets(row.GetProperty("targets"), ctx + ".targets"),
+        var t = row.GetProperty("targets");
+        var targets = Targets(t, ctx + ".targets") with
+        {
+            ManySeparators = Str(t, "manySeparators", ctx + ".targets") switch
+            {
+                "addressAtFirst" => TargetManySeparators.AddressAtFirst,
+                "name" => TargetManySeparators.Name,
+                var v => throw Unknown(ctx + ".targets", "manySeparators", v),
+            },
+        };
+        return new DistributorFormat(key, Str(row, "format", ctx), Str(row, "version", ctx), folders, targets,
             key == "spid" ? Lines(row, ctx) : null, key == "kid" ? KidLinesBlock(row, ctx) : null);
     }
 
@@ -146,7 +156,8 @@ public sealed record DistributorFolder(
 
 /// <summary>How one format spells a target: the address shape and its FormID arithmetic, whether a bare FormID or a
 /// plugin name is a term of its own, and what it does with a name no record holds. <c>Unread</c> is a rule this build
-/// has not read for that format, never a claim about it.</summary>
+/// has not read for that format, never a claim about it. <see cref="ManySeparators"/> is stated by each distributor row;
+/// SkyPatcher's row keeps the default, the address at the first separator its reader has always read.</summary>
 public sealed record TargetSpelling(
     TargetAddressOrder AddressOrder,
     char Separator,
@@ -155,7 +166,11 @@ public sealed record TargetSpelling(
     TargetPluginTerm PluginTerm,
     IReadOnlyList<string> PluginExtensions,
     TargetMissingName MissingName,
-    TargetEditorIdScope EditorIds);
+    TargetEditorIdScope EditorIds,
+    TargetManySeparators ManySeparators = TargetManySeparators.AddressAtFirst);
+
+/// <summary>What a term holding the separator twice or more is: an address split at the first one, or a name.</summary>
+public enum TargetManySeparators { AddressAtFirst, Name }
 
 /// <summary>Which side of the separator the FormID is written on.</summary>
 public enum TargetAddressOrder { PluginFirst, FormIdFirst }
