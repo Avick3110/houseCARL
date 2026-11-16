@@ -55,7 +55,7 @@ body's promises do not hold in.
 
    | Entry | Upstream sentence | Correction | Source |
    |---|---|---|---|
-   | `StorageUtil.IntListSet` | This will return the previous value or 0 if there was a problem. | houseCARL correction (replaces upstream's .psc sentence, which PapyrusUtil's native code contradicts): returns the value written, not the value it replaced; at an index past the end nothing is written and it returns 0 (0.0, "", None), and on an invalid key it returns 0; index 0 on a missing or empty list appends the value and returns it. FloatListSet, StringListSet and FormListSet behave the same, on a form or globally. | PapyrusUtil `Data.cpp` `Lists::ListSet` and `StorageUtil.cpp` `ListSet`, 4.6; reported in game in #1408 |
+   | `StorageUtil.IntListSet` | This will return the previous value or 0 if there was a problem. | houseCARL correction (replaces upstream's .psc sentence, which PapyrusUtil's native code contradicts): returns the value written, not the value it replaced; at an index past the end, or with an empty KeyName, nothing is written and it returns 0 (0.0, "", None); index 0 on a missing or empty list appends the value and returns it. FloatListSet, StringListSet and FormListSet behave the same, on a form or globally. | PapyrusUtil `Data.cpp` `Lists::ListSet` and `StorageUtil.cpp` `ListSet`, 4.6; reported in game in #1408 |
 
    Known limit: upstream attaches the shared ListSet comment to `IntListSet` only, so the Float,
    String and Form blocks carry no return sentence; the correction names them instead.
