@@ -39,8 +39,9 @@ step 30).
 - **What BOS does where a name finds nothing, by field** (research answers 3-5): a base, or a single swap, BOS gets no
   FormID for drops the line with BOS's own log text (`BASE formID not found`, `SWAP formID not found`); a swap naming its
   own base with no properties is refused (`BASE formID == SWAP formID`); a set member naming nothing leaves the set and
-  the rest stand, and a set keeping none drops the line; a base holding `,` that names nothing whole is a base set, its
-  swap set keeping one form or at least as many as the bases; an address or runtime FormID naming no record is kept (a
+  the rest stand, and a set keeping none drops the line; in a swap section a base holding `,` that names nothing whole
+  is a base set, its swap set keeping one form or at least as many as the bases (a property line's such base drops the
+  line, `BASE formID not found`); an address or runtime FormID naming no record is kept (a
   base then applies to no reference, a swap finds no object and an earlier line is tried); a condition naming no form is
   kept as text and matched in the running game, one whose FormID names no record kept as that FormID; a FormID side
   `stoul` cannot read throws out of BOS's loader with no handler, said so, the game's outcome not claimed; a property
@@ -62,8 +63,8 @@ step 30).
   takes what the earlier parts leave and says where it is cut (Q2 (a)). BOS is read after KID in the same replay
   context, so all four share one EditorID table.
 - **A name one plugin holds twice** (pick 2026-11-15 (13) Q1 (a)): the table breaks a same-plugin tie between two types
-  by the record's place in the plugin's file (`RecordHeaderKeys.Places`, read off record headers once per call for that
-  plugin's ties), the record the game's map keeps; dev's and ARR's `0DVDiverseDarkElfLanterns_SWAP.ini` swap to the
+  by the record's place in the plugin's file (`RecordHeaderKeys.Places`, read off record headers once per plugin and key
+  in the call; a tie a later walk adds reads the file again), the record the game's map keeps; dev's and ARR's `0DVDiverseDarkElfLanterns_SWAP.ini` swap to the
   Statics, not the MoveableStatics, whatever else the call reads.
 
 ## Known limitations
