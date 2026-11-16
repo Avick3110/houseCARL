@@ -7,8 +7,8 @@ namespace HousecarlMcpTests;
 /// before the two formats shared one reader and one renderer (distributor-share). A change made to both formats at
 /// once fails here, where a test comparing two calls of one build would pass. These pin unchanged behaviour: each held
 /// answer is the one the separate SPID and KID code gave. With distributor omitted, BOS's part follows them (bos-lines,
-/// pick (1) Q1 (b)): it is held in a file of its own, captured on that lane's build, and the over-cap sentence that names
-/// it is held whole (omitted-cap-bos). The held files are in DistributorLayerHeld/, LF only.</summary>
+/// pick (1) Q1 (b)), then FLM's (flm-lines): each is held in a file of its own, captured on its lane's build, and the
+/// over-cap sentence that names them is held whole (omitted-cap-flm). The held files are in DistributorLayerHeld/, LF only.</summary>
 [Trait("tier", "integration")]
 public sealed class DistributorLayerHeldTests : IDisposable
 {
@@ -55,20 +55,23 @@ public sealed class DistributorLayerHeldTests : IDisposable
         => Assert.Equal(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "DistributorLayerHeld", name + ".txt")), actual);
 
     /// <summary>An answer with distributor omitted: SkyPatcher's, SPID's and KID's parts against the answer held before
-    /// BOS was read, and BOS's part, which follows them, against its own held file.</summary>
-    static void HeldThenBos(string name, string bos, string actual)
+    /// BOS was read, then BOS's part and FLM's, which follow them, each against its own held file.</summary>
+    static void HeldThenBosThenFlm(string name, string bos, string flm, string actual)
     {
         int at = actual.IndexOf("\n\nBOS layer (", StringComparison.Ordinal);
+        int flmAt = actual.IndexOf("\n\nFLM layer (", StringComparison.Ordinal);
         Assert.True(at > 0, "no BOS part");
+        Assert.True(flmAt > at, "no FLM part after BOS's");
         Held(name, actual[..at]);
-        Held(bos, actual[at..]);
+        Held(bos, actual[at..flmAt]);
+        Held(flm, actual[flmAt..]);
     }
 
     static readonly string[] Spid = { "spid" }, Kid = { "kid" }, Both = { "spid", "kid" };
 
-    // The bare overview: SkyPatcher's layer, then SPID's and KID's summary lines as held, then BOS's (pick (1) Q1 (b)).
+    // The bare overview: SkyPatcher's layer, then SPID's and KID's summary lines as held, then BOS's and FLM's (pick (1) Q1 (b)).
     [Fact]
-    public void TheBareOverviewIsHeld() => HeldThenBos("omitted", "omitted-bos", Layer());
+    public void TheBareOverviewIsHeld() => HeldThenBosThenFlm("omitted", "omitted-bos", "omitted-flm", Layer());
 
     // SPID's skipped clause in its header and the → filter= hint.
     [Fact]
@@ -93,7 +96,7 @@ public sealed class DistributorLayerHeldTests : IDisposable
 
     // formids= labels on both formats, three parts joined.
     [Fact]
-    public void ThreePartsUnderFormIdsAreHeld() => HeldThenBos("omitted-formids", "omitted-formids-bos", Layer(formids: new[] { Aranea, Boots }));
+    public void ThreePartsUnderFormIdsAreHeld() => HeldThenBosThenFlm("omitted-formids", "omitted-formids-bos", "omitted-formids-flm", Layer(formids: new[] { Aranea, Boots }));
 
     // SPID's and KID's selector zero: "nothing matched: no SPID line" and its KID twin.
     [Fact]
@@ -123,9 +126,9 @@ public sealed class DistributorLayerHeldTests : IDisposable
     [Fact]
     public void KidsJoinedLineCutIsHeld() => Held("spid-kid-filter-cap", Layer(Both, filter: "HcA_", maxChars: 4200));
 
-    // The summary path past its cap: the plural over-cap sentence, which names BOS's part after SPID's and KID's.
+    // The summary path past its cap: the plural over-cap sentence, which names BOS's and FLM's parts after SPID's and KID's.
     [Fact]
-    public void ThePluralOverCapIsHeld() => Held("omitted-cap-bos", Layer(maxChars: 900));
+    public void ThePluralOverCapIsHeld() => Held("omitted-cap-flm", Layer(maxChars: 900));
 
     // "no SPID files in the active order" and "no KID files".
     [Fact]

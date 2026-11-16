@@ -1,0 +1,6 @@
+FLM layer (FormList Manipulator 1.8.1 model) — profile 'Default' — 2 file(s) in Data (2 read), 14 line(s): FormList 8, Alias 1, Collection 1, Filter 1, Group 1, Plant 1, Remove 1; 1 more line(s) FLM reads no entry from or counts invalid as SimpleIni and FLM split the file (no '=', under a named section, or a key FLM does not know)
+  - HcA_FLM.ini  (file 1 of 2, 12 line(s)) ← HcFlmIni
+  - HcB_FLM.ini  (file 2 of 2, 2 line(s)) ← HcFlmIni  [!] shadows same-path copies from HcFlmLoser, never read
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.
+
+→ filter='<file or mod>' expands a FLM file's lines with what FLM does with each; formids= or plugins= lists the lines naming a form, labelled target, filter or value.

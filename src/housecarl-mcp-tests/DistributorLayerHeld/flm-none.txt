@@ -1,0 +1,5 @@
+FLM layer (FormList Manipulator 1.8.1 model) — profile 'Default' — 0 file(s) in Data (0 read), 0 line(s)
+no FLM files in the active order: no file directly in Data has '_FLM' in its name and the '.ini' extension, and no '.ini' file is in Data\FLM.
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.
+
+→ filter='<file or mod>' expands a FLM file's lines with what FLM does with each; formids= or plugins= lists the lines naming a form, labelled target, filter or value.

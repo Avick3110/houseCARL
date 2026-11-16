@@ -230,11 +230,11 @@ public sealed class BosLayerTests
         Assert.StartsWith("error: plugins= names nothing the load order carries", w.Layer(new[] { "kid" }, plugins: new[] { "Midwood Isle.esp" }));
     }
 
-    // The flm refusal names BOS among the formats read (DECISIONS 2026-11-14 (17)).
+    // The lid refusal names BOS among the formats read (DECISIONS 2026-11-14 (17)).
     [Fact]
-    public void FlmIsStillRefusedNamingBos()
+    public void LidIsRefusedNamingBos()
     {
         using var w = new BosWorld(Array.Empty<(string, string)>());
-        Assert.Contains("this build reads SkyPatcher, Spell Perk Item Distributor, Keyword Item Distributor and Base Object Swapper lines", w.Layer(new[] { "flm" }));
+        Assert.Contains("this build reads SkyPatcher, Spell Perk Item Distributor, Keyword Item Distributor, Base Object Swapper and FormList Manipulator lines", w.Layer(new[] { "lid" }));
     }
 }

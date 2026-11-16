@@ -1,0 +1,35 @@
+FLM layer (FormList Manipulator 1.8.1 model) — profile 'Default' — 2 file(s) in Data (2 read), 14 line(s): FormList 8, Alias 1, Collection 1, Filter 1, Group 1, Plant 1, Remove 1; 1 more line(s) FLM reads no entry from or counts invalid as SimpleIni and FLM split the file (no '=', under a named section, or a key FLM does not know)
+filter 'HcA_' — 1 of 2 file(s) match, expanded to their lines with what FLM does with each.
+order: files by name in byte order, then Data\FLM's; FLM reads every file's Filter, then Collection lines first, then file by file its Alias and Group lines, then the rest, each file's lines by key (A to Z, any case) then line; it fills Plant, BToys, GToys, HairColors, AtronachForge, AtronachForgeSigil, FormList lists in that order, each key's lines in that order, and skips a form already in its list. Collection members are not read here.
+  - HcA_FLM.ini  (file 1 of 2, 12 line(s)) ← HcFlmIni
+      :2  FormList = HcList|HcOld,HcCoin,HcCoin
+          adds 1 form(s) to HcList (000800:HcFlm.esp), skipping 2 already in it: HcOld (the list's own record), HcCoin (earlier on this line)
+      :3  FormList = HcList2|#Mine,*HcHolder,HcNoSuch,
+          [!] item 'HcNoSuch' finds no record by that EditorID in the active order; FLM logs 'Unable to find Form: HcNoSuch.' and adds the rest
+          [!] an empty item (a ',' with nothing after it) names nothing; FLM logs 'Unable to find Form: .' and adds the rest
+          adds 2 form(s) to HcList2 (000801:HcFlm.esp)
+      :4  Group = Mine|HcFar
+      :5  Filter = hasOther|+HcFlmOther.esp
+          [!] filter 'hasother' is true on this order: '+hcflmother.esp' holds
+      :6  FormList = HcList|HcGem|#hasOther
+          [!] its filter '#hasOther' is true: the Filter line at HcA_FLM.ini:5 is true
+          adds 1 form(s) to HcList (000800:HcFlm.esp)
+      :7  FormList = HcList|HcFar|-HcFlmOther.esp
+          [!] its filter '-HcFlmOther.esp' is false: '-hcflmother.esp' (hcflmother.esp is in the order) fails, so FLM counts the line filtered out and adds nothing from it
+      :8  FormList = HcCoin|HcGem
+          [!] FLM drops this line: its list 'HcCoin' names 000802:HcFlm.esp, a record of type MiscItem, not a FormList, so FLM logs 'Unable to find FormList: HcCoin.' and counts the line invalid
+      :9  Collection = Shiny|Misc|HcKw
+          [!] its members (every misc with the keywords listed and none of the '-' ones) are not read here
+      :10  FormList = HcList2|#Shiny
+          adds 0 form(s) to HcList2 (000801:HcFlm.esp), and what collection 'Shiny' holds (not read)
+      :11  Plant = HcSeed|HcBush
+          adds HcSeed to flPlanterPlantableItem and HcBush to flPlanterPlantedFlora
+      :12  FromList = HcList|HcCoin
+          [!] FLM does not read this line: it has key 'FromList', which is not one of FLM's 16 keys (Alias, Group, Collection, Filter, ModEvent, ModEventRemove, Remove, FormList, FormsPair, Plant, BToys, GToys, HairColors, AtronachForge, AtronachForgeSigil, DragonbornSpiderCrafting, in any case), so FLM logs 'Unknown key FromList!' and counts it invalid
+      :13  Remove = HcList|HcOld
+          [!] FLM 1.8.1 counts a Remove line valid and does nothing with it at data load: its parser stores nothing
+      :14  FormList = HcList|0x02000803
+          [!] FLM rewrites '0x02000803' to '0x000803~Dawnguard.esm' before it reads the line (its Sanitize reads a FormID written with load index 02 as Dawnguard.esm's, whatever plugin is written after it, which it then ignores)
+          [!] item '0x000803~Dawnguard.esm' names plugin 'Dawnguard.esm', which is not in the active order, so it names nothing; FLM logs 'Unable to find Form: 0x000803~Dawnguard.esm.' and adds the rest
+          adds 0 form(s) to HcList (000800:HcFlm.esp)
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.

@@ -1,0 +1,5 @@
+FLM layer (FormList Manipulator 1.8.1 model) — profile 'Default' — 1 file(s) in Data (1 read), 1 line(s): FormList 1
+lines naming a form of formids=[000803:HcFlm.esp] — 0 line(s) in 0 of 1 file(s).
+
+nothing matched: no FLM line names such a form as a target, a filter form or a value. A line names a form by FormID~Plugin, by a 0x runtime FormID or by an EditorID; FLM names no plugin as a term: a filter's plugins gate the line and touch nothing.
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.

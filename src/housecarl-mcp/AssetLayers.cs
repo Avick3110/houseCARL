@@ -680,9 +680,10 @@ internal sealed partial class AssetLayers
     /// <param name="spid">Read SPID's layer in the same replay context.</param>
     /// <param name="kid">Read KID's layer in the same replay context, after SPID's.</param>
     /// <param name="bos">Read BOS's layer in the same replay context, after KID's.</param>
-    /// <param name="filter">The call's filter=: SPID's, KID's and BOS's lines resolve when one of the format's files matches it, or under a selector.</param>
+    /// <param name="flm">Read FLM's layer in the same replay context, after BOS's.</param>
+    /// <param name="filter">The call's filter=: SPID's, KID's, BOS's and FLM's lines resolve when one of the format's files matches it, or under a selector.</param>
     public T SkyPatcherLayer<T>(Func<SkyPatcherLayerData, T> use, bool lint = true, CancellationToken ct = default, SkyPatcherLineSelect? select = null,
-                                bool skyPatcher = true, bool spid = false, string? filter = null, bool kid = false, bool bos = false)
+                                bool skyPatcher = true, bool spid = false, string? filter = null, bool kid = false, bool bos = false, bool flm = false)
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
         // One hold, one profile refresh: a warm asset build pairs with the pinned index; a cold one reads the profile itself.
@@ -710,10 +711,11 @@ internal sealed partial class AssetLayers
         DistributorLayerData? Spid() => spid ? SpidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         DistributorLayerData? Kid() => kid ? KidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         DistributorLayerData? Bos() => bos ? BosLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
+        DistributorLayerData? Flm() => flm ? FlmLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         if (!skyPatcher)
             return use(new SkyPatcherLayerData(scan with { Folders = [], Notes = [] }, [], [], [], [], [], assets.RootFailures,
                 scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName)
-                { SkyPatcherRead = false, SelectNote = selectNote, Spid = Spid(), Kid = Kid(), Bos = Bos() });
+                { SkyPatcherRead = false, SelectNote = selectNote, Spid = Spid(), Kid = Kid(), Bos = Bos(), Flm = Flm() });
         var conflicts = new List<SkyPatcherConflicts.SkyPatcherConflict>();
         var itms = new List<SkyPatcherConflicts.SkyPatcherItm>();
         var duplicates = new List<SkyPatcherConflicts.SkyPatcherDuplicate>();
@@ -800,7 +802,7 @@ internal sealed partial class AssetLayers
 
         var data = new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
             scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName, lint ? LintOf : null)
-            { UnreadableNotes = unreadableNotes, Spid = Spid(), Kid = Kid(), Bos = Bos() };
+            { UnreadableNotes = unreadableNotes, Spid = Spid(), Kid = Kid(), Bos = Bos(), Flm = Flm() };
         if (wanted is null) return use(data);
         return use(data with { SelectNote = selectNote, Select = (folder, file, i) => replay.LineForms(folder, file.Lines[i]).Where(f => wanted(f.Form)).ToList() });
     }

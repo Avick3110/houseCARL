@@ -1,0 +1,20 @@
+FLM layer (FormList Manipulator 1.8.1 model) — profile 'Default' — 2 file(s) in Data (2 read), 14 line(s): FormList 8, Alias 1, Collection 1, Filter 1, Group 1, Plant 1, Remove 1; 1 more line(s) FLM reads no entry from or counts invalid as SimpleIni and FLM split the file (no '=', under a named section, or a key FLM does not know)
+lines naming a form of plugins=[HcFlmOther.esp] — 4 line(s) in 2 of 2 file(s); only those files are listed, each selected form labelled where the line names it.
+order: files by name in byte order, then Data\FLM's; FLM reads every file's Filter, then Collection lines first, then file by file its Alias and Group lines, then the rest, each file's lines by key (A to Z, any case) then line; it fills Plant, BToys, GToys, HairColors, AtronachForge, AtronachForgeSigil, FormList lists in that order, each key's lines in that order, and skips a form already in its list. Collection members are not read here.
+  - HcA_FLM.ini  (file 1 of 2, 12 line(s)) ← HcFlmIni
+      :3  FormList = HcList2|#Mine,*HcHolder,HcNoSuch,
+          [!] item 'HcNoSuch' finds no record by that EditorID in the active order; FLM logs 'Unable to find Form: HcNoSuch.' and adds the rest
+          [!] an empty item (a ',' with nothing after it) names nothing; FLM logs 'Unable to find Form: .' and adds the rest
+          adds 2 form(s) to HcList2 (000801:HcFlm.esp)
+          ↳ value items through group: #Mine → 000800:HcFlmOther.esp
+      :4  Group = Mine|HcFar
+          ↳ value group members: HcFar → 000800:HcFlmOther.esp
+      :7  FormList = HcList|HcFar|-HcFlmOther.esp
+          [!] its filter '-HcFlmOther.esp' is false: '-hcflmother.esp' (hcflmother.esp is in the order) fails, so FLM counts the line filtered out and adds nothing from it
+          ↳ value items: HcFar → 000800:HcFlmOther.esp
+  - HcB_FLM.ini  (file 2 of 2, 2 line(s)) ← HcFlmIni  [!] shadows same-path copies from HcFlmLoser, never read
+      :2  FormList = #Both|HcFar
+          adds 1 form(s) to HcList (000800:HcFlm.esp)
+          adds 0 form(s) to HcList2 (000801:HcFlm.esp), skipping 1 already in it: HcFar (HcA_FLM.ini:3)
+          ↳ value items: HcFar → 000800:HcFlmOther.esp
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.
