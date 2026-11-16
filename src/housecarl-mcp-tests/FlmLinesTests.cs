@@ -197,6 +197,18 @@ public sealed class FlmLinesTests
         Assert.Contains("its filter '+HcFlm.esp' is true: '+hcflm.esp' holds", Notes(on));
     }
 
+    // Manipulator.hpp:754-756: FLM reads the filter before the list and the items, so a filtered-out line logs no miss
+    // and is not invalid for a list it never looks up; its forms are still labelled.
+    [Fact]
+    public void AFilteredOutLineLooksNothingUp()
+    {
+        var r = new World().Read("FormList = HcNoList|HcNoSuch,HcCoin|-HcFlm.esp");
+        Assert.True(r.FilteredOut);
+        Assert.Null(r.Dropped);
+        Assert.DoesNotContain("Unable to find", Notes(r));
+        Assert.NotNull(Labelled(r, SkyPatcherOverlay.FormPlace.Value, "items", Coin));
+    }
+
     // Manipulator.hpp:1396-1432: '#' names a Filter line's verdict, the name lowercased; ARR BAC_FL-OCF_LIGH_FLM.ini:87
     // ends '|#', an empty name, which is invalid.
     [Fact]
@@ -347,6 +359,28 @@ public sealed class FlmLinesTests
         Assert.Contains("logs 'Keyword HcNoKw do not exist!' and drops the whole collection", w.Read("Collection = C|Armor|HcKw,HcNoKw").Dropped);
         Assert.Contains("keyword 'HcCoin' names 000802:HcFlm.esp, a record of type MiscItem, not a Keyword", w.Read("Collection = C|Armor|HcCoin").Dropped);
         Assert.StartsWith("has type 'Shout', which is not one of FLM's collection types", w.Read("Collection = C|Shout|HcKw").Dropped);
+    }
+
+    // Manipulator.hpp:1001-1043: a collection's own filter is read after its keywords are stored, so a false one still
+    // leaves the name to be filled at load (said, not shown); no ARR collection has a filter.
+    [Fact]
+    public void AFilteredOutCollectionMayStillBeFilled()
+    {
+        var r = new World().Read("Collection = C|Misc|HcKw|-HcFlm.esp");
+        Assert.True(r.FilteredOut);
+        Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load", Notes(r));
+    }
+
+    // Manipulator.hpp:921-934: a group member '#collection' brings the collection's forms, so a group holding only
+    // one is kept only if the collection fills, which is not read.
+    [Fact]
+    public void AGroupOfACollectionAloneIsKeptOnlyIfItFills()
+    {
+        var reads = new World().Reads("Group = G|#Shiny\nCollection = Shiny|Misc|HcKw\nGroup = H|#NoSuch");
+        Assert.Contains("FLM keeps group 'G' only if collection 'Shiny' holds a form at load, which is not read here", Notes(reads[0]!));
+        Assert.NotNull(Labelled(reads[0]!, SkyPatcherOverlay.FormPlace.Filter, "group members through collection", Kw));
+        Assert.Contains("group member '#NoSuch' names no collection FLM holds, so FLM logs 'Unknown Collection: NoSuch.'", Notes(reads[2]!));
+        Assert.StartsWith("holds no form FLM finds", reads[2]!.Dropped);
     }
 
     // Manipulator.hpp:284-296, FormListType.hpp: a simplified key's fixed list is the target, marked implied (DECISIONS
