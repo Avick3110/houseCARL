@@ -405,6 +405,15 @@ public sealed class LayerSelectTests : IDisposable
         => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid', 'kid', 'bos' are read; oar, ied, desc, dsd are not read; flm is not read yet.",
             Layer(distributor: new[] { "xyz" }));
 
+    // PR #1413 r1 #11: rows from two parses of the source (two first calls racing) still leave only flm not read yet.
+    [Fact]
+    public void TheNotYetRowsHoldOnlyFlmAcrossTwoParses()
+    {
+        var all = RuntimeFormats.DistributorsFrom(RuntimeFormats.SourceText());
+        var landed = RuntimeFormats.DistributorsFrom(RuntimeFormats.SourceText()).Where(d => d.LinesRead);
+        Assert.Equal("flm", Assert.Single(SkyPatcherTools.NotYetOf(all, landed)).Name);
+    }
+
     // Q1 (a): the tool is housecarl_layer, and the old name is a retired row naming it.
     [Fact]
     public void TheOldNameIsRefusedNamingTheNewOne()
