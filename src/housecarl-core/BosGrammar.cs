@@ -37,7 +37,8 @@ public static partial class RuntimeFormats
             Single(Str(l, "item", ctx), ctx + ".item"), Single(Str(l, "not", ctx), ctx + ".not"),
             Single(Str(l, "conditional", ctx), ctx + ".conditional"),
             Str(l, "unset", ctx), Str(l, "formsSection", ctx), Strs(l, "propertySections", ctx),
-            Strs(l, "propertyNames", ctx), RecordTypes(l, "conditionTypes", ctx), order);
+            Strs(l, "propertyNames", ctx), RecordTypes(l, "conditionTypes", ctx),
+            RecordTypes(l, "baseTypes", ctx), RecordTypes(l, "propertyBaseTypes", ctx), order);
     }
 }
 
@@ -54,8 +55,15 @@ public sealed record BosGrammar(
     IReadOnlyList<string> PropertySections,
     IReadOnlyList<string> PropertyNames,
     IReadOnlyList<string> ConditionTypes,
+    IReadOnlyList<string> BaseTypes,
+    IReadOnlyList<string> PropertyBaseTypes,
     IReadOnlyList<BosKind> SwapOrder)
 {
+    /// <summary>Whether a base of record class <paramref name="cls"/> is one a reference is looked up by in a <paramref name="kind"/> map (docs/architecture/bos-layer.md).</summary>
+    public bool BaseCanApply(BosKind kind, Type cls)
+        => kind == BosKind.References || SpidGrammar.IsOneOf(cls, BaseTypes)
+           || (!Swaps(kind) && SpidGrammar.IsOneOf(cls, PropertyBaseTypes));
+
     /// <summary>The map a section's lines go to, by the section's name as SimpleIni keeps it (its first spelling), compared exactly as BOS compares it.</summary>
     public BosKind KindOf(string section)
     {

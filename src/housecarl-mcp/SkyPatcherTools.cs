@@ -120,7 +120,7 @@ public static class SkyPatcherTools
             "a swap naming its own base with no properties, a base set whose swap set keeps more than one form but fewer than its bases), a FormID " +
             "side BOS's stoul cannot read, said to stop BOS's load (the game's outcome not claimed), except a base set's single swap, whose line BOS drops as naming no form, a set member naming nothing left out, a FormID with a load index added as BOS adds " +
             "it, a condition naming no record kept as text and matched in the running game (not read), a condition of a type BOS never matches (under '-', one that " +
-            "excludes nothing), a property line naming no property, and " +
+            "excludes nothing), a base no reference is looked up by (a keyword, a form list, a placed reference in a form swap), a property line naming no property, and " +
             "each kept line's place among its base's lines of its map, the last tried first. Which references a line swaps is not evaluated: no " +
             "condition, chance or random pick is tested. Under formids= and plugins= the base (a reference or a base object) is the target, each " +
             "swap a value, each condition of the section's header a filter; BOS names no plugin as a term." + ListText.Names)]

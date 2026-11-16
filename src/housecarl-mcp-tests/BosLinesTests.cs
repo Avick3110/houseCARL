@@ -257,6 +257,24 @@ public sealed class BosLinesTests
         => Assert.Equal("conditions - 'HcRock' names 000800:HcBos.esp, a record of type Static, and BOS matches a condition only against a record of type Location, Region, Keyword, Cell or Worldspace, so this one never matches and excludes no reference: BOS reads the line as if the condition were absent",
             Assert.Single(new World().Read("[Forms|-HcRock]\nHcRockMossy|HcRockSnowy").Notes));
 
+    // Call D row 20 (arr-calld.md; Manager.cpp:227-233, :266-273): a form swap is looked up by a reference's base, a
+    // property override by the base or the reference itself, so a base of another type applies to no reference. ARR
+    // AnimatedShips JKsSolitudeOutskirts BOS_SWAP.ini:8 is a [Transforms] line whose base is a FormList, Campfire
+    // Fixes_SWAP.ini:27 a [Forms] line whose base is a placed reference; Utenlands :49-50, a placed reference in
+    // [Transforms], stands. A reference swap keys by the reference itself and is not judged.
+    [Fact]
+    public void ABaseNoReferenceCanBeLookedUpByAppliesToNoReference()
+    {
+        const string Dead = "and it applies to no reference";
+        Assert.Contains("base 'HcTownKw' names 000804:HcBos.esp, a record of type Keyword, which no reference has as its base; BOS keeps the line under it, and it applies to no reference",
+            new World().Read("[Forms]\nHcTownKw|HcRock").Notes);
+        Assert.Contains(Dead, Notes(new World().Read("[Forms]\nHcRockRef|HcRock")));
+        Assert.Contains("which is neither a reference nor any reference's base", Notes(new World().Read("[Transforms]\nHcTownKw|posA(1,2,3)")));
+        Assert.Empty(new World().Read("[Transforms]\nHcRockRef|posA(1,2,3)").Notes);
+        Assert.Empty(new World().Read("[References]\nHcRockRef|HcRock").Notes);
+        Assert.Empty(new World().Read("[Forms]\nHcRock|HcRockMossy").Notes);
+    }
+
     // Answer 3, dev Sleipnir Beds - BOS Windhelm Only_SWAP.ini:1: only the text between the first and second '|' is conditions.
     [Fact]
     public void OnlyTheFirstConditionPartIsRead()
