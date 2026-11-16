@@ -169,8 +169,9 @@ public static class BosLines
             {
                 forms.Add(new Named(SkyPatcherOverlay.FormPlace.Filter, where, c.Raw, fk, t.R.ByEditorId));
                 if (ctx.ClassOf(fk) is { } cls && !SpidGrammar.IsOneOf(cls, g.ConditionTypes))
-                    notes.Add($"{where} '{c.Raw}' names {FormIdToken.Of(fk)}, a {RecordNaming.StripOverlay(cls.Name)} record, and BOS matches a condition " +
-                              $"only against a {Prose(g.ConditionTypes)}, so this one never matches");
+                    notes.Add($"{where} '{c.Raw}' names {FormIdToken.Of(fk)}, a record of type {RecordNaming.StripOverlay(cls.Name)}, and BOS matches a condition " +
+                              $"only against a record of type {Prose(g.ConditionTypes)}, so this one never matches" +
+                              (c.Not ? " and excludes no reference: BOS reads the line as if the condition were absent" : ""));
             }
             else if (t.Id is not null) notes.Add($"{where} '{c.Raw}' {Miss(t)}; BOS keeps it as that FormID, which matches no reference");
             else text.Add((c.Not ? g.Not.ToString() : "") + c.Raw);

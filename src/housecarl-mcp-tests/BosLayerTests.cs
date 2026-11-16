@@ -166,7 +166,7 @@ public sealed class BosLayerTests
     {
         using var w = new BosWorld(new[] { ("Hc_SWAP.ini", "[Forms|HcRock,HcTownLocation]\r\nHcRockMossy|HcRock\r\n") });
         var text = w.Layer(BosOnly, filter: "Hc_");
-        Assert.Contains("conditions 'HcRock' names 000800:HcBos.esp, a Static record, and BOS matches a condition only against", text);
+        Assert.Contains("conditions 'HcRock' names 000800:HcBos.esp, a record of type Static, and BOS matches a condition only against", text);
         Assert.DoesNotContain("'HcTownLocation' names", text);
     }
 
