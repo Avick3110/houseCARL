@@ -288,6 +288,15 @@ public sealed class BosLinesTests
         Assert.Contains("swap member ' HcRockSnowy' finds no record by that EditorID in the active order; BOS logs 'failed to process' and leaves it out of the swap set", r.Notes);
     }
 
+    // SwapData.cpp:96-128: a base set's swap set of two or more gives each base a member at random; one swap is shared.
+    [Fact]
+    public void ABaseSetWithASwapSetPicksAtRandom()
+    {
+        const string Random = "BOS gives each base of the set a different member of the swap set, picked at random once at load";
+        Assert.Contains(Random, new World().Read("[Forms]\nHcRock,HcRockMossy|HcRockSnowy,HcRock").Notes);
+        Assert.DoesNotContain(Random, new World().Read("[Forms]\nHcRock,HcRockMossy|HcRockSnowy").Notes);
+    }
+
     // ---- BOS's order ---------------------------------------------------------------------------
 
     // Answer 4 (Manager.cpp:204-216): per base and map, lines file in file order, then section order then line; BOS tries the last first.
