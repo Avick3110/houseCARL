@@ -160,6 +160,16 @@ public sealed class BosLayerTests
         Assert.DoesNotContain(":5  ", text);
     }
 
+    // A condition naming a Static is said never to match, off the record's class in the order (ARR BlendedShrooms_SWAP.ini:4).
+    [Fact]
+    public void AConditionNamingAStaticIsSaidNeverToMatch()
+    {
+        using var w = new BosWorld(new[] { ("Hc_SWAP.ini", "[Forms|HcRock,HcTownLocation]\r\nHcRockMossy|HcRock\r\n") });
+        var text = w.Layer(BosOnly, filter: "Hc_");
+        Assert.Contains("conditions 'HcRock' names 000800:HcBos.esp, a Static record, and BOS matches a condition only against", text);
+        Assert.DoesNotContain("'HcTownLocation' names", text);
+    }
+
     // R40: the winning copy only; a shadowed copy is named and never read.
     [Fact]
     public void AShadowedCopyIsNamedAndNeverRead()

@@ -22,6 +22,7 @@ public sealed class BosLinesTests
     sealed class World
     {
         public readonly SkyPatcherOverlayHarness.StubResolver R = new();
+        readonly Dictionary<FormKey, Type> _classes = new();
 
         public World()
         {
@@ -43,9 +44,10 @@ public sealed class BosLinesTests
             R.EditorIdTypes[eid] = cls.Name;
             R.Winners[fk] = fk.ModKey.FileName;
             R.RuntimeForms[0x01000000 + fk.ID] = fk;
+            _classes[fk] = cls;
         }
 
-        public BosLines.Context Ctx => new(R, Bos);
+        public BosLines.Context Ctx => new(R, fk => _classes.GetValueOrDefault(fk), Bos);
 
         public BosLines.LineRead Read(string text) => ReadAll(text).Single(r => r is not null)!;
 
@@ -232,6 +234,20 @@ public sealed class BosLinesTests
         Assert.Null(r.Dropped);
         Assert.Contains("conditions 'WhiterunLocation', '-0x1~Gone.esp' name no record, so BOS keeps them as text", Notes(r));
         Assert.Contains("conditions '0x01000999' names 01000999, which no plugin in the active order defines, so it names nothing; BOS keeps it as that FormID, which matches no reference", Notes(r));
+    }
+
+    // ConditionalData.cpp:33-70: BOS matches a form condition only against a Location, Region, Keyword, Cell or
+    // WorldSpace, so one naming another type never matches, said on every line under it; ARR BlendedShrooms_SWAP.ini:4
+    // names a HeadPart, '01', among 67 conditions.
+    [Fact]
+    public void AConditionOfATypeBosNeverMatchesIsSaid()
+    {
+        var w = new World();
+        var reads = w.ReadAll("[Forms|HcRock,HcTownLocation,-HcTownKw]\nHcRockMossy|HcRockSnowy\nHcRockSnowy|HcRockMossy");
+        const string Never = "conditions 'HcRock' names 000800:HcBos.esp, a Static record, and BOS matches a condition only against a Location, Region, Keyword, Cell or Worldspace, so this one never matches";
+        Assert.All(reads, r => Assert.Contains(Never, r!.Notes));
+        Assert.All(reads, r => Assert.Single(r!.Notes));
+        Assert.Contains(reads[0]!.Forms, f => f.Form == Rock && f.Place == SkyPatcherOverlay.FormPlace.Filter);
     }
 
     // Answer 3, dev Sleipnir Beds - BOS Windhelm Only_SWAP.ini:1: only the text between the first and second '|' is conditions.

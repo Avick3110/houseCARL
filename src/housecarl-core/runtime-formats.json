@@ -258,7 +258,7 @@
    "editorIds": "everyType"
   },
   "lines": {
-   "source": "BOS v3.4.0 52f6b80 (v3.5.0 c0b9c09 the same in these lines, research bos-lines answer 2): src/Manager.cpp:16 (get_configs), :28-30 (SetUnicode, SetMultiKey, SetAllowKeyOnly), :38-99 (every section in load order; a header holding '|': head 'Forms' conditional form swaps, any other head conditional property overrides, the conditions between the first and second '|' split on ','; 'Transforms' or 'Properties' property overrides, 'Forms' form swaps, any other name reference swaps), :204-272 (per reference: references, conditional forms, forms, each from the last line back; properties the same after the winning swap's own); src/SwapData.cpp:19-33 (base|properties|chance), :58-135 (base|swap|properties|chance, a base or swap set, BASE formID == SWAP formID), src/Util.cpp:40-76 (a set member naming nothing leaves the set); src/ConditionalData.cpp:9-21 (a leading '-' negates; a condition naming no form is kept as text); src/ObjectProperties.cpp:119-135 (a property names pos, rot, scale or flags); CLibUtil a7a877a0 distribution.hpp:76-79 (NONE or empty is no entry); SimpleIni 4.22 :1252-1253 (comment leads), :1630-1702 (a header trimmed, its tail dropped; a key to '=' trimmed; a key-only line), :2458-2483 (keys and sections merged in any case, each key once)",
+   "source": "BOS v3.4.0 52f6b80 (v3.5.0 c0b9c09 the same in these lines, research bos-lines answer 2): src/Manager.cpp:16 (get_configs), :28-30 (SetUnicode, SetMultiKey, SetAllowKeyOnly), :38-99 (every section in load order; a header holding '|': head 'Forms' conditional form swaps, any other head conditional property overrides, the conditions between the first and second '|' split on ','; 'Transforms' or 'Properties' property overrides, 'Forms' form swaps, any other name reference swaps), :204-272 (per reference: references, conditional forms, forms, each from the last line back; properties the same after the winning swap's own); src/SwapData.cpp:19-33 (base|properties|chance), :58-135 (base|swap|properties|chance, a base or swap set, BASE formID == SWAP formID), src/Util.cpp:40-76 (a set member naming nothing leaves the set); src/ConditionalData.cpp:9-21 (a leading '-' negates; a condition naming no form is kept as text), :33-70 (a form condition matches only a Location, Region, Keyword, Cell or WorldSpace); src/ObjectProperties.cpp:119-135 (a property names pos, rot, scale or flags); CLibUtil a7a877a0 distribution.hpp:76-79 (NONE or empty is no entry); SimpleIni 4.22 :1252-1253 (comment leads), :1630-1702 (a header trimmed, its tail dropped; a key to '=' trimmed; a key-only line), :2458-2483 (keys and sections merged in any case, each key once)",
    "reads": ["3.4.0", "3.5.0"],
    "section": "every",
    "keys": "onceIgnoreCase",
@@ -274,6 +274,7 @@
    "swapFields": ["base", "swap", "properties", "chance"],
    "propertyFields": ["base", "properties", "chance"],
    "propertyNames": ["pos", "rot", "scale", "flags"],
+   "conditionTypes": ["Location", "Region", "Keyword", "Cell", "Worldspace"],
    "conflict": "lastWins",
    "swapOrder": ["references", "conditionalForms", "forms"]
   }
