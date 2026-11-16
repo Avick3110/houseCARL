@@ -56,10 +56,10 @@ a form list is not followed to what it holds, and KID's pass order and keyword d
   `filter=` that at least one KID file matches, resolve every line, since a filter's name may be another line's
   created keyword. A `filter=` no KID file matches resolves nothing. Nothing is kept between calls (R15); there is no
   parse cache (DECISIONS 2026-11-14 (26)).
-- **Four formats, one call** (`DistributorWire.RenderLayers`). With `distributor` omitted (or `[]`) the answer is
-  SkyPatcher's render, then SPID's part, then KID's, then BOS's ([`bos-layer.md`](bos-layer.md)). With no selector and no `filter=` (pick 2026-11-15 (1) Q1 (b)),
-  SPID's, KID's and BOS's parts are one summary line each, the format's header line closed by the call that lists its files
-  (`distributor=["spid"]`, `distributor=["kid"]`, `distributor=["bos"]`); named, the same formats list their files. Otherwise (Q2 (a), format
+- **Five formats, one call** (`DistributorWire.RenderLayers`). With `distributor` omitted (or `[]`) the answer is
+  SkyPatcher's render, then SPID's part, then KID's, then BOS's, then FLM's ([`bos-layer.md`](bos-layer.md), [`flm-layer.md`](flm-layer.md)). With no selector and no `filter=` (pick 2026-11-15 (1) Q1 (b)),
+  SPID's, KID's, BOS's and FLM's parts are one summary line each, the format's header line closed by the call that lists its files
+  (`distributor=["spid"]`, `distributor=["kid"]`, `distributor=["bos"]`, `distributor=["flm"]`); named, the same formats list their files. Otherwise (Q2 (a), format
   order) each later part takes what the earlier ones leave, and a cut notice names the earlier parts and the call that
   reads the format alone (`KID files cut at max_chars after SkyPatcher's and SPID's parts — distributor=["kid"] reads
   KID alone at the whole max_chars`). Past the cap the answer closes on one over-cap sentence: the parts that came first
