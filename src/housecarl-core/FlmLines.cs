@@ -268,6 +268,7 @@ public static class FlmLines
         readonly List<Add> adds = new();
         string? dropped;
         bool filteredOut;
+        int? stopAt;   // the notes a false or invalid filter leaves, for a key whose forms FLM reads only past it
         IReadOnlyList<string> F => line.Fields;
         string At => line.File + ":" + line.Number;
 
@@ -294,6 +295,12 @@ public static class FlmLines
                 case FlmKind.FormsPair:
                     Drop($"FLM 1.8.1's {spec.Key} parser returns false for every line, so FLM counts it invalid and reads nothing from it");
                     break;
+            }
+            // FLM reads such a line's forms only once its filter passes, so it logs nothing for them; their labels stay.
+            if (stopAt is int n && spec.Kind is FlmKind.FormList or FlmKind.Pair or FlmKind.List)
+            {
+                notes.RemoveRange(n, notes.Count - n);
+                if (filteredOut) dropped = null;
             }
             return new LineRead(forms, notes, dropped, filteredOut && dropped is null, dropped is null && !filteredOut ? adds : Array.Empty<Add>());
         }
@@ -352,9 +359,11 @@ public static class FlmLines
                 case -1:
                     filteredOut = true;
                     notes.Add($"its filter '{filter}' is false: {v.Why}, so FLM counts the line filtered out and adds nothing from it");
+                    stopAt = notes.Count;
                     return false;
                 default:
                     Drop($"its filter '{filter}' is invalid ({v.Why}), so FLM logs 'Filter … was omitted because it is invalid' and counts the line invalid");
+                    stopAt = notes.Count;
                     return false;
             }
         }
