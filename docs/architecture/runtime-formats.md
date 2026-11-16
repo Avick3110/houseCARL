@@ -1,6 +1,6 @@
 ---
-updated: 2026-11-15
-covers: [src/housecarl-core/runtime-formats.json, src/housecarl-core/RuntimeFormats.cs, src/housecarl-core/DistributorFormats.cs, src/housecarl-core/SpidGrammar.cs, src/housecarl-core/KidGrammar.cs, src/housecarl-core/BosGrammar.cs, src/housecarl-core/DistributorDiscovery.cs, src/housecarl-core/RuntimeTargets.cs, src/housecarl-generator/RuntimeFormatSkillText.cs]
+updated: 2026-11-16
+covers: [src/housecarl-core/runtime-formats.json, src/housecarl-core/RuntimeFormats.cs, src/housecarl-core/DistributorFormats.cs, src/housecarl-core/SpidGrammar.cs, src/housecarl-core/KidGrammar.cs, src/housecarl-core/BosGrammar.cs, src/housecarl-core/FlmGrammar.cs, src/housecarl-core/DistributorDiscovery.cs, src/housecarl-core/RuntimeTargets.cs, src/housecarl-generator/RuntimeFormatSkillText.cs]
 ---
 # The runtime-format source
 
@@ -9,8 +9,9 @@ One data file holds, per runtime-layer format, where its files are found, the or
 conflict and how a line is split. The server reads those values; the generator prints the skill paragraphs that state
 them. The file has two shapes of row: SkyPatcher's, which carries everything down to its line grammar, and a
 **distributor** row for SPID, KID, BOS and FLM, which carries discovery and target spelling, and a `lines` block once
-the format's reader has landed: SPID's, KID's and BOS's have ([`spid-layer.md`](spid-layer.md), [`kid-layer.md`](kid-layer.md), [`bos-layer.md`](bos-layer.md));
-FLM's lands with its own. BOS has no skill, so its row prints no region (bos-lines research answer 2).
+the format's reader has landed: all four have ([`spid-layer.md`](spid-layer.md), [`kid-layer.md`](kid-layer.md), [`bos-layer.md`](bos-layer.md),
+[`flm-layer.md`](flm-layer.md)). BOS and FLM have no skill, so their rows print no region (bos-lines research answer 2,
+flm-lines research answer 2).
 
 ## Contracts
 - **A distributor row says where and how a target is spelt, not what a line means.** `folders` is one or more folders
@@ -25,7 +26,7 @@ FLM's lands with its own. BOS has no skill, so its row prints no region (bos-lin
 - **`unread` is not a claim.** A `targets` value the research has not settled for that format is written `unread`, and
   the resolver then answers "not read yet" for every token of that format carrying no separator, rather than guessing
   one; an address is read either way, because its rules are sourced for all four.
-  FLM carries four of those today; filling one is its format lane's work (BOS's lane filled its four).
+  No shipped row carries one since FLM's lane filled its four, as BOS's lane filled BOS's.
 - **One resolver, one spelling per row.** `RuntimeTargets` turns a token into a record for every format, SkyPatcher
   included: SkyPatcher's row is one `targets` block among five. SkyPatcher's address character is its `grammar.address`
   and is not repeated in its `targets`, so the row spells it once.
@@ -46,16 +47,17 @@ FLM's lands with its own. BOS has no skill, so its row prints no region (bos-lin
   the five sections, the type table with each type's record, pass and whether it takes traits, the model ending, the
   keyword record and the filter record types) and its `targets`, and the generator prints the same values into the
   `kid.*` regions of `kid-authoring`'s `grammar-core.md` ([`kid-layer.md`](kid-layer.md)).
-- **A missing name by position.** SPID's, KID's and BOS's `targets.missingName` are `byPosition`: the resolver says only that a
+- **A missing name by position.** Every distributor row's `targets.missingName` is `byPosition`: the resolver says only that a
   name finds nothing, and the format's reader says what it does there: SPID's by the line's type and the field (SPID
-  research answer 3), KID's by the section (KID research answer 5: a keyword is created, a filter kept as text), BOS's by the field (a line dropped, a set member left out, a condition kept as text). No
+  research answer 3), KID's by the section (KID research answer 5: a keyword is created, a filter kept as text), BOS's by the field (a line dropped, a set member left out, a condition kept as text), FLM's by the field (a list missing drops the line, an item missing is skipped, a keyword missing drops its collection). No
   row has the resolver say a keyword is created.
 - **A term holding the separator twice is the row's call.** Each distributor row states `targets.manySeparators`:
   `addressAtFirst` (SPID, FLM: split at the first `~`, the plugin up to the next) or `name` (KID, BOS: no address),
   which `RuntimeTargets.Read` reads before anything else; SkyPatcher's row states none and keeps the address at the
   first, as its reader always has (`RuntimeTargetsTests.ATermHoldingTheSeparatorTwiceIsReadByItsRowsRule`).
-- **A lines block on a row with no reader fails the load.** SPID's, KID's and BOS's readers have landed, so a `lines` block on
-  FLM's row has no rule.
+- **A lines block on a row with no reader fails the load.** SPID's, KID's, BOS's and FLM's readers have landed; a `lines`
+  block on any other row has no rule. A format later on the same table with no row yet (LID) is answered "not read
+  yet" by name from the refusal's own list (`SkyPatcherTools.Later`, DECISIONS 2026-11-13 (14) Q4).
 - **A kind is a name the code knows.** The file order, the comparer, the conflict rules, the gate kind, the
   missing-switch default and the other kind values select a rule written in code; a value the code has no rule for
   fails the load, naming the field. Changing a rule's behaviour is a code change; the row only picks it.
@@ -91,11 +93,13 @@ FLM's lands with its own. BOS has no skill, so its row prints no region (bos-lin
     its flat `Data/` root and its byte-order file sort; grammar-core.md §2's subfolder paragraph (`_DISTR`, `.ini`);
     and the skill's version line (7.3.0), which the `spid.discovery` region's modelled version does not replace.
   - The server: the layer tool's `distributor=` parameter text names the four distributor rows' keys and restates
-    SPID's, KID's and BOS's discovery and labels, and the refusals name the rows (`SkyPatcherTools`); SPID's render spells its order
+    SPID's, KID's, BOS's and FLM's discovery and labels, and the refusals name the rows (`SkyPatcherTools`); SPID's render spells its order
     sentence and the Npc/keyword string-lookup wording (`SpidWire`, `SpidLines`); KID's reader spells its log
     lines (`Failed to parse entry`, `FAIL - keyword doesn't exist`) and the string-match wording (`KidLines`); BOS's
     reader spells its log lines (`BASE formID not found`, `SWAP formID not found`, `failed to process`) and the
-    condition-match wording (`BosLines`), and its render the map order sentence (`BosWire`); the layer tool's two empty-layer answers spell `Data\SKSE\Plugins\SkyPatcher` and its folder
+    condition-match wording (`BosLines`), and its render the map order sentence (`BosWire`); FLM's reader spells its log
+    lines (`Unable to find FormList`, `Unknown key`, `Keyword … do not exist!`) and its verdict wording (`FlmLines`), and
+    its render the pass and fill order sentence (`FlmWire`); the layer tool's two empty-layer answers spell `Data\SKSE\Plugins\SkyPatcher` and its folder
     lines' switch-off and unreadable marks spell `SkyPatcher.ini` (`SkyPatcherTools`); the draft's not-absolute
     refusal's example path spells `SkyPatcher\weapon\` (`SkyPatcherDraft.Prepare`); the overlay's packed-value unpack
     and two item splits use literal `=` and `,` (`SkyPatcherOverlay`); the records tool's source parameter text and
@@ -127,8 +131,10 @@ FLM's lands with its own. BOS has no skill, so its row prints no region (bos-lin
   hex, the two plugin-name rules, an every-type name lookup, a name no record holds (and `createsKeyword` no longer a
   value), and an `unread` rule answering "not read yet". The same tokens under SkyPatcher's row read as SkyPatcher
   reads them today.
-- `LayerSelectTests.ADistributorStillToComeIsNotReadYet` — the `distributor=` refusals spell the unread row's
-  names and the formats read; `DistributorSpidIsRead`, `DistributorKidIsRead`, `DistributorBosIsRead` — a row with a lines block is read; `BosLinesTests` and `BosLayerTests` BOS's ([`bos-layer.md`](bos-layer.md)).
+- `LayerSelectTests.LidIsNotReadYetByName` — the `distributor=` refusals spell the later format's name and the formats
+  read; `DistributorSpidIsRead`, `DistributorKidIsRead`, `DistributorBosIsRead`, `DistributorFlmIsRead` — a row with a
+  lines block is read; `BosLinesTests` and `BosLayerTests` BOS's ([`bos-layer.md`](bos-layer.md)); `FlmLinesTests` and
+  `FlmLayerTests` FLM's ([`flm-layer.md`](flm-layer.md)).
 - `SpidLinesTests` and `SpidLayerTests` — SPID's lines block drives the read ([`spid-layer.md`](spid-layer.md));
   `KidLinesTests` and `KidLayerTests` KID's ([`kid-layer.md`](kid-layer.md)), and
   `KidLinesTests.OneRowDrivesTheReadAndTheSkillText` one edited type string both outputs;

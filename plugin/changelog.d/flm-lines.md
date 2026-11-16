@@ -1,0 +1,1 @@
+- **`housecarl_layer` now reads FormList Manipulator's `_FLM.ini`: a bare call adds an FLM summary line after BOS's, `distributor=["flm"]` lists them, `formids=` / `plugins=` find lines adding a record, and `filter=` shows what each adds to which list.** Check: `housecarl_layer distributor=["flm"] filter="<mod>"`.

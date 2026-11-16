@@ -1,6 +1,6 @@
 # houseCARL
 
-houseCARL is an MCP server that exposes a Skyrim Special Edition load order at the data layer. It reads a Mod Organizer 2 instance's profile and presents every plugin record, every Data-relative asset, the compiled Papyrus, the SKSE plugin layer and the SkyPatcher, SPID, KID and BOS INI layers to an AI assistant as a set of tools. It is built on [Mutagen](https://github.com/Mutagen-Modding/Mutagen). The host is [Claude Code](https://claude.com/claude-code) or OpenAI Codex.
+houseCARL is an MCP server that exposes a Skyrim Special Edition load order at the data layer. It reads a Mod Organizer 2 instance's profile and presents every plugin record, every Data-relative asset, the compiled Papyrus, the SKSE plugin layer and the SkyPatcher, SPID, KID, BOS and FLM INI layers to an AI assistant as a set of tools. It is built on [Mutagen](https://github.com/Mutagen-Modding/Mutagen). The host is [Claude Code](https://claude.com/claude-code) or OpenAI Codex.
 
 A write produces a new plugin in a new MO2 mod folder. Editing an existing plugin in place is an opt-in that names the file. MO2 does not need to be running. No plugin file handle is held between calls.
 
@@ -33,7 +33,7 @@ All 31 tools carry the `housecarl_` prefix.
 | NIF | `nif_inspect` `nif_set` |
 | Papyrus | `compile_script` `decompile_script` |
 | BSA | `bsa_list` `bsa_extract` `bsa_repack` |
-| SkyPatcher, SPID, KID, BOS | `layer` |
+| SkyPatcher, SPID, KID, BOS, FLM | `layer` |
 | SKSE | `skse` |
 | Nexus | `nexus_search` `nexus_mod` `nexus_graphql` `nexus_check_updates` `nexus_identify` |
 | Session | `set_mo2_instance` `set_tool_path` `load_order_status` `update_status` |
@@ -96,7 +96,7 @@ Record identity is not writable. `FormKey` on a record, and `ModKey` and `Master
 
 ## Runtime layers
 
-Seven layers below the plugin plane decide what the game runs. houseCARL reads all seven.
+Eight layers below the plugin plane decide what the game runs. houseCARL reads all eight.
 
 - **The MO2 virtual file system.** Which copy of a Data-relative path wins: the overwrite folder, a mod folder, game Data, or a BSA, with the conflict chain. `place` writes a winning override into a new mod folder and reports that the file is written and not yet winning.
 - **NIF internals.** Shape names, embedded skin and FaceTint texture paths, flags, alpha, partitions, read from the winning copy. A whitelisted subset is written back with readback verification.
@@ -105,6 +105,7 @@ Seven layers below the plugin plane decide what the game runs. houseCARL reads a
 - **The SPID layer.** Every `_DISTR.ini` SPID reads, in its order, each line split as SPID splits it, every form it names labelled target, filter or value, and what SPID does where a name finds nothing.
 - **The KID layer.** Every `_KID.ini` KID reads, in its order, each line split as KID splits it, every form it names labelled target, filter or value, and what KID does where a name finds nothing, by section.
 - **The BOS layer.** Every `_SWAP.ini` Base Object Swapper reads, in its order, each line split as SimpleIni and BOS split it, every form it names labelled target (the base), value (a swap) or filter (a section's condition), what BOS does where a name finds nothing, and each kept line's place in BOS's last-wins order for its base.
+- **The FLM layer.** Every `_FLM.ini` (and `Data\FLM` file) FormList Manipulator reads, in its order, each line split as SimpleIni and FLM split it, every form it names labelled target (the list), value (what is added) or filter (a collection's keyword), each filter's verdict on the order, what FLM does where a name finds nothing, and what each kept line adds to which list.
 
 The SKSE and runtime-layer tools report what a file declares. They do not observe the running game.
 

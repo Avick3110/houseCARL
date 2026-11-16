@@ -63,10 +63,10 @@ step 30).
 - **What is resolved when.** The overview lists files and line counts and resolves nothing; the selectors, and a
   `filter=` at least one BOS file matches, resolve every line, since a place depends on every file's lines. Nothing is
   kept between calls (R15); there is no parse cache (DECISIONS 2026-11-14 (26)).
-- **Four formats, one call** (`DistributorWire.RenderLayers`). With `distributor` omitted (or `[]`) BOS's part follows
-  SkyPatcher's, SPID's and KID's: one summary line with no selector or `filter=` (pick 2026-11-15 (1) Q1 (b)), else it
+- **Five formats, one call** (`DistributorWire.RenderLayers`). With `distributor` omitted (or `[]`) BOS's part follows
+  SkyPatcher's, SPID's and KID's, and FLM's follows it ([`flm-layer.md`](flm-layer.md)): one summary line with no selector or `filter=` (pick 2026-11-15 (1) Q1 (b)), else it
   takes what the earlier parts leave and says where it is cut (Q2 (a)). BOS is read after KID in the same replay
-  context, so all four share one EditorID table.
+  context, so all five share one EditorID table.
 - **A name one plugin holds twice** (pick 2026-11-15 (13) Q1 (a)): the table breaks a same-plugin tie between two types
   by the record's place in the plugin's file (`RecordHeaderKeys.Places`, read off record headers once per plugin and key
   in the call; a tie a later walk adds reads the file again), the record the game's map keeps; dev's and ARR's `0DVDiverseDarkElfLanterns_SWAP.ini` swap to the
@@ -97,7 +97,7 @@ step 30).
 - `BosLayerTests` — the tool on a live order: the same-plugin tie by file and by the file's own group order, whatever
   else the call reads; `plugins=` by EditorID value; `formids=` by a section's condition; the shadowed copy; an edited
   file read anew; no EditorID walk added; BOS taking what KID leaves with its cut; an absent plugin selector as for
-  SPID and KID; the `flm` refusal naming BOS.
+  SPID and KID; the `lid` refusal naming BOS.
 - `BosLayerHeldTests` — BOS's part held whole, byte for byte: the file list, the expanded lines, both selectors, the
   selector zero, its own file and line cuts, no files. `DistributorLayerHeldTests` — BOS's summary line and part after
   the held SPID and KID parts, and the over-cap sentence naming it.

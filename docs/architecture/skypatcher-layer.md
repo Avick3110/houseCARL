@@ -256,11 +256,12 @@ zero answer leaves them out (#1286).
 ### Selecting lines: `housecarl_layer`
 
 The tool is `housecarl_layer`, one tool for the runtime layers with a format selector (spec R3, R38). `distributor=`
-takes `skypatcher`, `spid`, `kid` and `bos`, the formats read; omitted, every format read is read, SkyPatcher's answer
-first, then SPID's, KID's and BOS's, sharing `max_chars`, each later part taking the room the earlier ones leave; with
-no selector and no `filter=` SPID, KID and BOS answer one summary line each, closed by the `distributor=` call that
-lists its files ([`spid-layer.md`](spid-layer.md), [`kid-layer.md`](kid-layer.md), [`bos-layer.md`](bos-layer.md)).
-`oar`, `ied`, `desc` and `dsd` are refused as not read, by name; `flm` as not read yet. The old name `housecarl_skypatcher_layer` is
+takes `skypatcher`, `spid`, `kid`, `bos` and `flm`, the formats read; omitted, every format read is read, SkyPatcher's
+answer first, then SPID's, KID's, BOS's and FLM's, sharing `max_chars`, each later part taking the room the earlier ones
+leave; with no selector and no `filter=` SPID, KID, BOS and FLM answer one summary line each, closed by the
+`distributor=` call that lists its files ([`spid-layer.md`](spid-layer.md), [`kid-layer.md`](kid-layer.md),
+[`bos-layer.md`](bos-layer.md), [`flm-layer.md`](flm-layer.md)). `oar`, `ied`, `desc` and `dsd` are refused as not read,
+by name; `lid` as not read yet. The old name `housecarl_skypatcher_layer` is
 refused by its `AliasTable` row, naming `housecarl_layer`.
 
 `formids=` and `plugins=` select lines with the records meaning (R42, R47): `formids=` takes the FormID door's two
