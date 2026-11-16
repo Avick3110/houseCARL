@@ -110,8 +110,8 @@ public static class BosLines
         public IReadOnlyList<string> PluginTerms => Array.Empty<string>();
     }
 
-    /// <summary>The lookups a read needs: the call's target resolver, and the format's row.</summary>
-    public sealed record Context(SkyPatcherOverlay.IFormResolver Resolver, DistributorFormat Format)
+    /// <summary>The lookups a read needs: the call's target resolver, the class of a resolved record off the order, and the format's row.</summary>
+    public sealed record Context(SkyPatcherOverlay.IFormResolver Resolver, Func<FormKey, Type?> ClassOf, DistributorFormat Format)
     {
         internal BosGrammar G => Format.BosLines!;
         internal TargetSpelling S => Format.Targets;
@@ -165,7 +165,13 @@ public static class BosLines
             var where = "conditions" + (c.Not ? " " + g.Not : "");
             if (t.R.Note is { } index) notes.Add($"{where} '{c.Raw}' {index}");
             if (t.Throws) Drop($"{where} '{c.Raw}' {Miss(t)}; {StoulThrows}");
-            else if (t.R.Form is { } fk) forms.Add(new Named(SkyPatcherOverlay.FormPlace.Filter, where, c.Raw, fk, t.R.ByEditorId));
+            else if (t.R.Form is { } fk)
+            {
+                forms.Add(new Named(SkyPatcherOverlay.FormPlace.Filter, where, c.Raw, fk, t.R.ByEditorId));
+                if (ctx.ClassOf(fk) is { } cls && !SpidGrammar.IsOneOf(cls, g.ConditionTypes))
+                    notes.Add($"{where} '{c.Raw}' names {FormIdToken.Of(fk)}, a {RecordNaming.StripOverlay(cls.Name)} record, and BOS matches a condition " +
+                              $"only against a {Prose(g.ConditionTypes)}, so this one never matches");
+            }
             else if (t.Id is not null) notes.Add($"{where} '{c.Raw}' {Miss(t)}; BOS keeps it as that FormID, which matches no reference");
             else text.Add((c.Not ? g.Not.ToString() : "") + c.Raw);
         }

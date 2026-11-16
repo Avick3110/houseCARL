@@ -709,7 +709,7 @@ internal sealed partial class AssetLayers
         // SPID's lines are read after SkyPatcher's scans, so every SkyPatcher answer is built as it was before SPID was read.
         DistributorLayerData? Spid() => spid ? SpidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         DistributorLayerData? Kid() => kid ? KidLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
-        DistributorLayerData? Bos() => bos ? BosLayer(replay, filter, wanted, named, select?.FormIds is not null, ct) : null;
+        DistributorLayerData? Bos() => bos ? BosLayer(replay, view, filter, wanted, named, select?.FormIds is not null, ct) : null;
         if (!skyPatcher)
             return use(new SkyPatcherLayerData(scan with { Folders = [], Notes = [] }, [], [], [], [], [], assets.RootFailures,
                 scan.ReadIncomplete || assets.ReadIncomplete, replay.AssetWarnings, replay.ProfileName)

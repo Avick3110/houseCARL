@@ -37,7 +37,7 @@ public static partial class RuntimeFormats
             Single(Str(l, "item", ctx), ctx + ".item"), Single(Str(l, "not", ctx), ctx + ".not"),
             Single(Str(l, "conditional", ctx), ctx + ".conditional"),
             Str(l, "unset", ctx), Str(l, "formsSection", ctx), Strs(l, "propertySections", ctx),
-            Strs(l, "propertyNames", ctx), order);
+            Strs(l, "propertyNames", ctx), RecordTypes(l, "conditionTypes", ctx), order);
     }
 }
 
@@ -53,6 +53,7 @@ public sealed record BosGrammar(
     string FormsSection,
     IReadOnlyList<string> PropertySections,
     IReadOnlyList<string> PropertyNames,
+    IReadOnlyList<string> ConditionTypes,
     IReadOnlyList<BosKind> SwapOrder)
 {
     /// <summary>The map a section's lines go to, by the section's name as SimpleIni keeps it (its first spelling), compared exactly as BOS compares it.</summary>
