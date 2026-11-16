@@ -118,7 +118,7 @@ public static class SkyPatcherTools
             "order, the mod that wins each (a shadowed copy is never read; a BSA-only one is flagged not applied); every section, a header repeated in any case joining the first, a line repeated in its section read " +
             "once. filter= expands a file's lines with what BOS does with each: a line it drops and logs (a base or a whole swap naming nothing, " +
             "a swap naming its own base with no properties, a base set whose swap set keeps more than one form but fewer than its bases), a FormID " +
-            "side BOS's stoul cannot read, said to stop BOS's load (the game's outcome not claimed), except a base set's single swap, whose line BOS drops as naming no form, a set member naming nothing left out, a FormID with a load index added as BOS adds " +
+            "side BOS's stoul cannot read, said to stop BOS's load (the game's outcome not claimed; a base set's single swap excepted, whose line BOS drops as naming no form), a set member naming nothing left out, a FormID with a load index added as BOS adds " +
             "it, a condition naming no record kept as text and matched in the running game (not read), a condition of a type BOS never matches (under '-', one that " +
             "excludes nothing), a base no reference is looked up by (a keyword, a form list, a placed reference in a form swap), a property line naming no property, and " +
             "each kept line's place among its base's lines of its map, the last tried first. Which references a line swaps is not evaluated: no " +
