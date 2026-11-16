@@ -360,4 +360,19 @@ public sealed class SkyPatcherTargetResolverTests
         table.Cover(new[] { typeof(ICellGetter), typeof(IKeywordGetter) });
         Assert.Equal(new[] { new FormKey(Rel, 0x860), new FormKey(Rel, 0x861) }, table.Find("HcTie", null, out _).Select(h => h.Record));
     }
+
+    // The file place counts records inside nested groups: a cell, in its block and sub-block groups, comes before a
+    // form list whose group follows the cells, whatever the walk's type order.
+    [Fact]
+    public void ASamePluginTieCountsARecordInsideNestedGroups()
+    {
+        using var w = new SkyPatcherRelevanceWorld(Array.Empty<(string, string)>(), records: m =>
+        {
+            AddCell(m, 0x862, "HcNestedTie");
+            m.FormLists.Add(new FormList(new FormKey(m.ModKey, 0x863), SkyrimRelease.SkyrimSE) { EditorID = "HcNestedTie" });
+        });
+        var table = SkyPatcherEditorIdTable.For(w.Svc.CaptureView(), null);
+        table.Cover(new[] { typeof(IFormListGetter), typeof(ICellGetter) });
+        Assert.Equal(new[] { new FormKey(Rel, 0x862), new FormKey(Rel, 0x863) }, table.Find("HcNestedTie", null, out _).Select(h => h.Record));
+    }
 }
