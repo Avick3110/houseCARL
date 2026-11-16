@@ -89,16 +89,19 @@ public static class FlmLines
     {
         var s = Comma.Replace(Bar.Replace(value, "|"), ",");
         s = Zeros.Replace(s, "0x$2");
-        foreach (var (re, plugin) in new[] { (Dawnguard, "Dawnguard.esm"), (Dragonborn, "Dragonborn.esm") })
+        if (!s.Contains("0x", StringComparison.OrdinalIgnoreCase)) return s;
+        foreach (var (re, plugin, index) in Dlc)
             s = re.Replace(s, m =>
             {
                 var to = "0x" + m.Groups[2].Value + "~" + plugin;
                 notes?.Add($"FLM rewrites '{m.Value}' to '{to}' before it reads the line (its Sanitize reads a FormID written with load index " +
-                           $"{(plugin[1] == 'a' ? "02" : "04")} as {plugin}'s, whatever plugin is written after it, which it then ignores)");
+                           $"{index} as {plugin}'s, whatever plugin is written after it, which it then ignores)");
                 return to;
             });
         return s;
     }
+
+    static readonly (Regex Re, string Plugin, string Index)[] Dlc = { (Dawnguard, "Dawnguard.esm", "02"), (Dragonborn, "Dragonborn.esm", "04") };
 
     /// <summary>FLM's SanitizeFilter (Utility.hpp:140-149): spaces round ',' stripped and every letter lowercased.</summary>
     public static string SanitizeFilter(string value) => Lower(Comma.Replace(value, ","));
@@ -124,12 +127,12 @@ public static class FlmLines
         do
         {
             int prev = next + 1;
-            var at = new SortedSet<int>();
+            int min = int.MaxValue;
+            found = 0;
             foreach (var e in extensions)
-                if (prev <= f.Length && f.IndexOf(e, prev, StringComparison.Ordinal) is var p and > 0) at.Add(p);
-            found = at.Count;
+                if (prev <= f.Length && f.IndexOf(e, prev, StringComparison.Ordinal) is var p and > 0) { found++; min = Math.Min(min, p); }
             if (found == 0) break;
-            next = at.Min + 4;
+            next = min + 4;
             conditions.Add(f.Substring(prev, next - prev));
         } while (found > 1);
         end = next;
@@ -323,7 +326,7 @@ public static class FlmLines
             if (t.R.Note is { } index) notes.Add($"{where} '{token}' {index}");
             if (t.Trim is { } trim) notes.Add($"{where} '{token}' {trim}");
             if (t.R.Form is not { } fk) return null;
-            if (what is var type && type.Length > 0 && !SpidGrammar.IsOneOf(ctx.ClassOf(fk), new[] { type }))
+            if (what.Length > 0 && !SpidGrammar.IsOneOf(ctx.ClassOf(fk), new[] { what }))
                 return null;
             return fk;
         }
@@ -609,7 +612,7 @@ public static class FlmLines
             }
             var l0 = Implied(spec.Lists[0]);
             var l1 = Implied(spec.Lists[1]);
-            if (g.AddPlace(spec) is null)
+            if (!g.Adds(spec))
                 notes.Add($"FLM 1.8.1 reads {spec.Key} lines and never adds them (its fill step has no {spec.Key} list), so this line adds nothing");
             else if (halves[0] is { } a && halves[1] is { } b && l0 is { } la && l1 is { } lb)
                 adds.Add(new Add(la, spec.Lists[0], new[] { (a, F[0]) }, Array.Empty<string>(), (lb, spec.Lists[1], b, F[1])));
@@ -621,7 +624,7 @@ public static class FlmLines
             if (F.Count == 2) Gate(F[1]);
             var list = Implied(spec.Lists[0]);
             var (items, colls) = Items(F[0]);
-            if (list is { } l && g.AddPlace(spec) is not null) adds.Add(new Add(l, spec.Lists[0], items, colls));
+            if (list is { } l && g.Adds(spec)) adds.Add(new Add(l, spec.Lists[0], items, colls));
         }
 
         static string Cap(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
@@ -653,10 +656,11 @@ public static class FlmLines
             return have[list] = h;
         }
         var rows = new Dictionary<(int, int), StringBuilder>();
+        var byKey = order.Where(i => flat[i].Spec is not null && reads[i] is not null).ToLookup(i => flat[i].Spec!.Key);
         foreach (var key in g.AddOrder)
-            foreach (var i in order)
+            foreach (var i in byKey[key])
             {
-                if (flat[i].Spec?.Key != key || reads[i] is not { } r) continue;
+                var r = reads[i]!;
                 var (fi, li) = place[i];
                 string here = flat[i].File + ":" + flat[i].Number;
                 foreach (var add in r.Adds)
