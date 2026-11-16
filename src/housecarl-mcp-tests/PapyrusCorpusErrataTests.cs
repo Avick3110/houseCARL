@@ -65,7 +65,7 @@ public sealed class PapyrusCorpusErrataTests
         Assert.DoesNotContain("previous value", block);
         Assert.Contains("houseCARL correction", block);
         Assert.Contains("returns the value written", block);
-        Assert.Contains("at an index past the end nothing is written and it returns 0", block);
+        Assert.Contains("at an index past the end, or with an empty KeyName, nothing is written and it returns 0 (0.0, \"\", None)", block);
         Assert.Contains("index 0 on a missing or empty list appends the value and returns it", block);
         Assert.Contains("FloatListSet, StringListSet and FormListSet behave the same, on a form or globally", block);
     }

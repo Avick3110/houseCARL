@@ -5877,7 +5877,7 @@ Sizes the given list to a set number of elements. If the list exists already it 
 **Flags:** Native Global
 
 Set a value in list by index on form or globally.
-  houseCARL correction (replaces upstream's .psc sentence, which PapyrusUtil's native code contradicts): returns the value written, not the value it replaced; at an index past the end nothing is written and it returns 0 (0.0, "", None), and on an invalid key it returns 0; index 0 on a missing or empty list appends the value and returns it. FloatListSet, StringListSet and FormListSet behave the same, on a form or globally.
+  houseCARL correction (replaces upstream's .psc sentence, which PapyrusUtil's native code contradicts): returns the value written, not the value it replaced; at an index past the end, or with an empty KeyName, nothing is written and it returns 0 (0.0, "", None); index 0 on a missing or empty list appends the value and returns it. FloatListSet, StringListSet and FormListSet behave the same, on a form or globally.
 
   ObjKey: form to set value on. Set none to set global list value.
   KeyName: name of list.
