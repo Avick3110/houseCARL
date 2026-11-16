@@ -48,8 +48,8 @@ body's promises do not hold in.
 5. **Apply the upstream doc errata.** Upstream copies each script's doc comment verbatim, and a few
    of those comments contradict the plugin's native code. For each row of the table below, find the
    entry block whose `qualified` name matches (through the index, never by line number) and replace
-   the upstream sentence in it, one line for one line, with the correction, which says it is a
-   houseCARL correction. One line for one line keeps every index range from pass 4 valid. If the
+   the upstream sentence in it, one line for one line, with the correction. One line for one line
+   keeps every index range from pass 4 valid. If the
    block or the sentence is not there, **stop and say so**: upstream fixed or moved it, so check
    the new text against the native source and drop the row rather than applying it anywhere else.
 

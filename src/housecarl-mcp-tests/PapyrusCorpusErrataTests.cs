@@ -18,7 +18,8 @@ public sealed class PapyrusCorpusErrataTests
         .Where(l => l.Length > 0)
         .Select(l =>
         {
-            var e = JsonDocument.Parse(l).RootElement;
+            using var doc = JsonDocument.Parse(l);
+            var e = doc.RootElement;
             return new Row(e.GetProperty("name").GetString()!, e.GetProperty("qualified").GetString()!,
                 e.GetProperty("file").GetString()!, e.GetProperty("line_start").GetInt32(), e.GetProperty("line_end").GetInt32());
         })
@@ -82,7 +83,7 @@ public sealed class PapyrusCorpusErrataTests
         }
         var corrected = Directory.EnumerateFiles(Refs, "*.md", SearchOption.AllDirectories)
             .Where(f => Path.GetFileName(f) != "corpus-notes.md")
-            .SelectMany(f => File.ReadLines(f))
+            .SelectMany(f => Lines(Path.GetRelativePath(Skill, f).Replace('\\', '/')))
             .Count(l => l.Contains("houseCARL correction"));
         Assert.Equal(errata.Count, corrected);
     }
