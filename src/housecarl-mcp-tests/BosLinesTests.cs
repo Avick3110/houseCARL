@@ -277,6 +277,17 @@ public sealed class BosLinesTests
         Assert.Contains("BOS catches nothing, so its load stops there", new World().Read("[Forms]\nHcRock|HcRockMossy,zz~HcBos.esp").Dropped);
     }
 
+    // CLibUtil string.hpp:224-228: BOS's split trims nothing, so a token with a space beside '|' or ',' is that text,
+    // which names no record.
+    [Fact]
+    public void ASpaceBesideABarOrACommaIsPartOfTheToken()
+    {
+        Assert.StartsWith("base 'HcRock ' finds no record by that EditorID", new World().Read("[Forms]\nHcRock | HcRockMossy").Dropped);
+        var r = new World().Read("[Forms]\nHcRock|HcRockMossy, HcRockSnowy");
+        Assert.Null(r.Dropped);
+        Assert.Contains("swap member ' HcRockSnowy' finds no record by that EditorID in the active order; BOS logs 'failed to process' and leaves it out of the swap set", r.Notes);
+    }
+
     // ---- BOS's order ---------------------------------------------------------------------------
 
     // Answer 4 (Manager.cpp:204-216): per base and map, lines file in file order, then section order then line; BOS tries the last first.
