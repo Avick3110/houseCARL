@@ -328,7 +328,8 @@ say the state is unknown.
   named by an LVLN EditorID as finding no LeveledItem record, though the line applies. FormID targets
   are unaffected.
 - Two records of one scope and of two types that share a name in one plugin tie by their place in
-  that plugin's file, read off its record headers once per call (the game's map keeps the one named
+  that plugin's file, read off its record headers once per plugin and key in the call, a tie a later
+  walk adds reading the file again (the game's map keeps the one named
   first, bos-lines Q1 (a)), whatever the call walked first; records of one type keep their walk
   order, which is the file's. That the engine names a plugin's records front to back is an
   inference (bos-lines research-topup T2); a file that cannot be read falls back to the walk's type
