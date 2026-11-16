@@ -108,9 +108,10 @@ public static class SkyPatcherTools
             "plugins= a filter form of the line's own type is the target (in a '-' list, a filter), the keyword the value, any other " +
             "filter form a filter; a plugin term touches its plugin; a form list is not followed to what it holds. BOS is read as BOS 3.4.0 and " +
             "3.5.0 read it: every file directly in Data with '_SWAP' in its name and the '.ini' extension (both case-sensitive), names in byte " +
-            "order, the winning copy of each; every section, a header repeated in any case joining the first, a line repeated in its section read " +
+            "order, the mod that wins each (a shadowed copy is never read; a BSA-only one is flagged not applied); every section, a header repeated in any case joining the first, a line repeated in its section read " +
             "once. filter= expands a file's lines with what BOS does with each: a line it drops and logs (a base or a whole swap naming nothing, " +
-            "a swap naming its own base with no properties), a set member naming nothing left out, a FormID with a load index added as BOS adds " +
+            "a swap naming its own base with no properties, a base set whose swap set keeps more than one form but fewer than its bases), a FormID " +
+            "side BOS's stoul cannot read, said to stop BOS's load (the game's outcome not claimed), a set member naming nothing left out, a FormID with a load index added as BOS adds " +
             "it, a condition naming no record kept as text and matched in the running game (not read), a property line naming no property, and " +
             "each kept line's place among its base's lines of its map, the last tried first. Which references a line swaps is not evaluated: no " +
             "condition, chance or random pick is tested. Under formids= and plugins= the base (a reference or a base object) is the target, each " +
