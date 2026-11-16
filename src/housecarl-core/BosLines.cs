@@ -189,7 +189,13 @@ public static class BosLines
         if (b.Throws) Drop($"base '{f[0]}' {Miss(b)}; {StoulThrows}");
         else if (b.Id is { } baseId)
         {
-            if (b.R.Form is { } fk) forms.Add(new Named(SkyPatcherOverlay.FormPlace.Target, "base", f[0], fk, b.R.ByEditorId));
+            if (b.R.Form is { } fk)
+            {
+                forms.Add(new Named(SkyPatcherOverlay.FormPlace.Target, "base", f[0], fk, b.R.ByEditorId));
+                if (ctx.ClassOf(fk) is { } cls && !g.BaseCanApply(line.Section.Kind, cls))
+                    notes.Add($"base '{f[0]}' names {FormIdToken.Of(fk)}, a record of type {RecordNaming.StripOverlay(cls.Name)}, which " +
+                              $"{(swaps ? "no reference has as its base" : "is neither a reference nor any reference's base")}; BOS keeps the line under it, and it applies to no reference");
+            }
             else notes.Add($"base '{f[0]}' {Miss(b)}; BOS keeps the line under that FormID, and it applies to no reference");
             bases.Add((baseId, f[0]));
             if (swaps) Swap(baseId);
