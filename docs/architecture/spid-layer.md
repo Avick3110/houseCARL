@@ -69,10 +69,11 @@ level, trait or chance filter is evaluated, and an outfit or leveled list is not
   was left, with the same `distributor=["spid"]` remedy. It names no cap to raise to, since while SkyPatcher's part is
   cut a higher cap shows no more SPID; `RenderCap.Settle` is not used here. SPID is read after SkyPatcher's scans in the same
   replay context, so the two share one EditorID table. SkyPatcher's part carries the build caveats; SPID's alone
-  carries them when it is the whole answer. With `distributor` omitted (or `[]`) KID's part follows SPID's in the same way ([`kid-layer.md`](kid-layer.md)):
-  with no selector or `filter=`, SPID's and KID's parts are one summary line each, closed by
-  `distributor=["spid"] lists its files`; the over-cap sentence then names every part that came first and every part
-  that did not fit. A call naming `skypatcher` and `spid` only reads as this section says.
+  carries them when it is the whole answer. With `distributor` omitted (or `[]`) KID's part follows SPID's in the same way, then BOS's
+  ([`kid-layer.md`](kid-layer.md), [`bos-layer.md`](bos-layer.md)): with no selector or `filter=`, SPID's, KID's and
+  BOS's parts are one summary line each, each closed by the `distributor=` call that lists its files
+  (`distributor=["spid"] lists its files`); the over-cap sentence then names every part that came first and every part
+  that did not fit, in format order. A call naming `skypatcher` and `spid` only reads as this section says.
 
 ## Known limitations
 
