@@ -244,11 +244,18 @@ public sealed class BosLinesTests
     {
         var w = new World();
         var reads = w.ReadAll("[Forms|HcRock,HcTownLocation,-HcTownKw]\nHcRockMossy|HcRockSnowy\nHcRockSnowy|HcRockMossy");
-        const string Never = "conditions 'HcRock' names 000800:HcBos.esp, a Static record, and BOS matches a condition only against a Location, Region, Keyword, Cell or Worldspace, so this one never matches";
+        const string Never = "conditions 'HcRock' names 000800:HcBos.esp, a record of type Static, and BOS matches a condition only against a record of type Location, Region, Keyword, Cell or Worldspace, so this one never matches";
         Assert.All(reads, r => Assert.Contains(Never, r!.Notes));
         Assert.All(reads, r => Assert.Single(r!.Notes));
         Assert.Contains(reads[0]!.Forms, f => f.Form == Rock && f.Place == SkyPatcherOverlay.FormPlace.Filter);
     }
+
+    // ConditionalData.cpp (3.4.0 :99-109): a '-' entry excludes only when it is valid, so one of a type BOS never
+    // matches excludes nothing and the line applies as if it were absent.
+    [Fact]
+    public void ANegatedConditionOfATypeBosNeverMatchesExcludesNothing()
+        => Assert.Equal("conditions - 'HcRock' names 000800:HcBos.esp, a record of type Static, and BOS matches a condition only against a record of type Location, Region, Keyword, Cell or Worldspace, so this one never matches and excludes no reference: BOS reads the line as if the condition were absent",
+            Assert.Single(new World().Read("[Forms|-HcRock]\nHcRockMossy|HcRockSnowy").Notes));
 
     // Answer 3, dev Sleipnir Beds - BOS Windhelm Only_SWAP.ini:1: only the text between the first and second '|' is conditions.
     [Fact]

@@ -45,7 +45,7 @@ step 30).
   base then applies to no reference, a swap finds no object and an earlier line is tried); a condition naming no form is
   kept as text and matched in the running game, one whose FormID names no record kept as that FormID, and one naming a form that is not a
   Location, Region, Keyword, Cell or WorldSpace said never to match (ConditionalData.cpp:33-70; the row's
-  `conditionTypes`); a FormID side
+  `conditionTypes`), and under `-` to exclude nothing, the line applying as if it were absent (3.4.0 :99-109); a FormID side
   `stoul` cannot read throws out of BOS's loader with no handler, said so, the game's outcome not claimed; a property
   line naming none of `pos`, `rot`, `scale`, `flags` sets nothing and never applies.
 - **Last wins** (research answer 4): every kept line states its place among its base's lines of its map: files in BOS's
