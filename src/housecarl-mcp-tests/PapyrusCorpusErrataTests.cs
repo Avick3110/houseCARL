@@ -4,7 +4,7 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>The papyrus-reference corpus's upstream doc errata (corpus-notes.md "Regenerating", pass 5): each listed
-/// correction replaces its upstream sentence in exactly its entry's block, the StorageUtil.IntListSet block states the
+/// correction is in its entry's block and its upstream sentence is in no corpus block, the StorageUtil.IntListSet block states the
 /// value written (#1408), and every index row still lands on its own heading.</summary>
 [Trait("tier", "unit")]
 public sealed class PapyrusCorpusErrataTests
@@ -75,16 +75,17 @@ public sealed class PapyrusCorpusErrataTests
     {
         var errata = Errata();
         Assert.Contains(errata, e => e.Entry == "StorageUtil.IntListSet");
-        foreach (var (entry, upstream, correction) in errata)
-        {
-            var block = Block(entry);
-            Assert.DoesNotContain(upstream, block);
-            Assert.Contains("  " + correction, block.Split('\n'));
-        }
-        var corrected = Directory.EnumerateFiles(Refs, "*.md", SearchOption.AllDirectories)
+        // corpus-notes.md is left out: its table quotes each upstream sentence on purpose
+        var corpus = Directory.EnumerateFiles(Refs, "*.md", SearchOption.AllDirectories)
             .Where(f => Path.GetFileName(f) != "corpus-notes.md")
             .SelectMany(f => Lines(Path.GetRelativePath(Skill, f).Replace('\\', '/')))
-            .Count(l => l.Contains("houseCARL correction"));
+            .ToList();
+        foreach (var (entry, upstream, correction) in errata)
+        {
+            Assert.Contains("  " + correction, Block(entry).Split('\n'));
+            Assert.DoesNotContain(corpus, l => l.Contains(upstream));
+        }
+        var corrected = corpus.Count(l => l.Contains("houseCARL correction"));
         Assert.Equal(errata.Count, corrected);
     }
 
