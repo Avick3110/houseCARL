@@ -267,6 +267,16 @@ public sealed class BosLinesTests
     public void AnUnreadableFormIdIsSaidToStopBossLoad()
         => Assert.Contains("throws on it and BOS catches nothing, so its load stops there", new World().Read("[Forms]\nzz~HcBos.esp|HcRock").Dropped);
 
+    // The same throw from a header's condition and from a swap set's member (ConditionalData.cpp:9-21, Util.cpp:40-76
+    // read each through the same stoul).
+    [Fact]
+    public void AnUnreadableConditionOrSwapSetMemberIsSaidToStopBossLoad()
+    {
+        Assert.StartsWith("conditions 'zz~HcBos.esp' ", new World().Read("[Forms|zz~HcBos.esp]\nHcRock|HcRockMossy").Dropped);
+        Assert.StartsWith("swap member 'zz~HcBos.esp' ", new World().Read("[Forms]\nHcRock|HcRockMossy,zz~HcBos.esp").Dropped);
+        Assert.Contains("BOS catches nothing, so its load stops there", new World().Read("[Forms]\nHcRock|HcRockMossy,zz~HcBos.esp").Dropped);
+    }
+
     // ---- BOS's order ---------------------------------------------------------------------------
 
     // Answer 4 (Manager.cpp:204-216): per base and map, lines file in file order, then section order then line; BOS tries the last first.
