@@ -18,7 +18,7 @@ Two files are **hand-authored** and are not produced by any generator:
 
 ## Regenerating
 
-Regenerate from upstream, then apply the four post-passes below in order. All four are part of the
+Regenerate from upstream, then apply the five post-passes below in order. All five are part of the
 regeneration, not one-off edits: skipping any of them puts the shipped tree back into a state the
 body's promises do not hold in.
 
@@ -45,6 +45,20 @@ body's promises do not hold in.
    it touches; every affected row's `line_start` and `line_end` shift by the size of the inserted
    block. Verify afterwards that every row's `line_start` lands on a `### ` heading naming that
    row's `name` — 7,345 rows on the tree shipped 2026-09-08, all resolving.
+5. **Apply the upstream doc errata.** Upstream copies each script's doc comment verbatim, and a few
+   of those comments contradict the plugin's native code. For each row of the table below, find the
+   entry block whose `qualified` name matches (through the index, never by line number) and replace
+   the upstream sentence in it, one line for one line, with the correction, which says it is a
+   houseCARL correction. One line for one line keeps every index range from pass 4 valid. If the
+   block or the sentence is not there, **stop and say so**: upstream fixed or moved it, so check
+   the new text against the native source and drop the row rather than applying it anywhere else.
+
+   | Entry | Upstream sentence | Correction | Source |
+   |---|---|---|---|
+   | `StorageUtil.IntListSet` | This will return the previous value or 0 if there was a problem. | houseCARL correction (replaces upstream's .psc sentence, which PapyrusUtil's native code contradicts): returns the value written, not the value it replaced; at an index past the end nothing is written and it returns 0 (0.0, "", None), and on an invalid key it returns 0; index 0 on a missing or empty list appends the value and returns it. FloatListSet, StringListSet and FormListSet behave the same, on a form or globally. | PapyrusUtil `Data.cpp` `Lists::ListSet` and `StorageUtil.cpp` `ListSet`, 4.6; reported in game in #1408 |
+
+   Known limit: upstream attaches the shared ListSet comment to `IntListSet` only, so the Float,
+   String and Form blocks carry no return sentence; the correction names them instead.
 
 ## Hand-authoring an entry
 
