@@ -1,0 +1,1 @@
+- **papyrus-reference now says `StorageUtil.IntListSet` returns the value written, not the previous one, and 0 past the list's end; Float, String and Form variants match.** Check: look up `IntListSet`. Reported by @pprarj (#1408).
