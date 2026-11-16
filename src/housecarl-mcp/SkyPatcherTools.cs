@@ -39,8 +39,15 @@ public static class SkyPatcherTools
 
     /// <summary>Formats the layer is to read whose lines this build does not read yet, named by their rows of the
     /// runtime-format source; built on the first refusal, so the rows parse there and not at type init.</summary>
-    static (string Name, string Full)[] NotYet
-        => _notYet ??= RuntimeFormats.Distributors.Except(Landed).Select(d => (d.Key, d.Name)).ToArray();
+    static (string Name, string Full)[] NotYet => _notYet ??= NotYetOf(RuntimeFormats.Distributors, Landed);
+
+    /// <summary>The rows of <paramref name="all"/> not landed, by key: two parses of the source give rows equal in value but
+    /// not as records, whose lists compare by reference.</summary>
+    internal static (string Name, string Full)[] NotYetOf(IEnumerable<DistributorFormat> all, IEnumerable<DistributorFormat> landed)
+    {
+        var keys = landed.Select(d => d.Key).ToHashSet();
+        return all.Where(d => !keys.Contains(d.Key)).Select(d => (d.Key, d.Name)).ToArray();
+    }
 
     /// <summary>The refusal for a distributor= value this build does not read, or null when every value is read.</summary>
     internal static string? DistributorRefusal(IReadOnlyList<string>? values)
