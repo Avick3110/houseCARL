@@ -40,6 +40,7 @@ static class DistributorWire
         if (d.Spid is { } spid) read.Add((spid, SpidWire.Words));
         if (d.Kid is { } kid) read.Add((kid, KidWire.Words));
         if (d.Bos is { } bos) read.Add((bos, BosWire.Words));
+        if (d.Flm is { } flm) read.Add((flm, FlmWire.Words));
         // Each part skips the notes every earlier distributor part holds, whether or not that part printed them.
         var parts = read.Select((p, i) => new Part(p.Words.Name, p.Words.Key,
             (c, after) => Render(p.Data, p.Words, d, read.Take(i).Select(e => e.Data).ToList(), filter, c, selectEcho, after),
@@ -105,8 +106,10 @@ static class DistributorWire
         var files = s.Files;
         int lines = files.Sum(f => f.Lines.Count(l => l.Skipped is null));
         int skipped = files.Sum(f => f.Lines.Count(l => l.Skipped is not null));
-        sb.Append(w.Name).Append(" layer (").Append(s.Format.Name).Append(' ').Append(s.Format.Version).Append(" model; ")
-          .Append(string.Join(", ", w.Reads(s.Format).Where(v => v != s.Format.Version))).Append(" reads its files the same) — profile '")
+        // A format whose grammar only its modelled version reads names no other.
+        var others = w.Reads(s.Format).Where(v => v != s.Format.Version).ToList();
+        sb.Append(w.Name).Append(" layer (").Append(s.Format.Name).Append(' ').Append(s.Format.Version).Append(" model")
+          .Append(others.Count == 0 ? "" : "; " + string.Join(", ", others) + " reads its files the same").Append(") — profile '")
           .Append(s.ProfileName).Append("' — ").Append(files.Count).Append(" file(s) in Data (")
           .Append(files.Count(f => f.File.NotApplied is null && f.ReadError is null)).Append(" read), ")
           .Append(lines).Append(" line(s)");
@@ -130,7 +133,9 @@ static class DistributorWire
         var sb = new StringBuilder(Header(s, w)).Append('\n');
         if (files.Count == 0)
             sb.Append("no ").Append(w.Name).Append(" files in the active order: no file directly in Data has '").Append(s.Format.Folders[0].NameToken)
-              .Append("' in its name and the '").Append(s.Format.Folders[0].Extension).Append("' extension.\n");
+              .Append("' in its name and the '").Append(s.Format.Folders[0].Extension).Append("' extension")
+              .Append(string.Concat(s.Format.Folders.Skip(1).Select(f => ", and no '" + f.Extension + "' file is in Data\\" + f.Root)))
+              .Append(".\n");
 
         bool Matches(DistributorFileData f) => filter is null || f.Matches(filter);
         var holding = s.Selected?.Keys.Select(k => k.File).ToHashSet();

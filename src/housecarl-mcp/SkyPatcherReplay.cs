@@ -89,6 +89,9 @@ internal sealed partial class AssetLayers
         /// <summary>The call's form lookups, for a site outside the replay that resolves a target the same way.</summary>
         internal SkyPatcherOverlay.IFormResolver Forms => _formResolver;
 
+        /// <summary>The forms a form list's winning record holds, read once per context through the same door as the lines' other winners.</summary>
+        internal IReadOnlyList<FormKey>? ListItemsOf(FormKey list) => _formResolver.ListItemsOf(list);
+
         /// <summary>Per folder, the lines checked against every record and the lines that can touch only the records they name.</summary>
         readonly Dictionary<string, (List<int> Always, IReadOnlyList<SkyPatcherOverlay.OrderedLine> AlwaysLines, Dictionary<FormKey, List<int>> ByKey)> _lineIndex = new(StringComparer.OrdinalIgnoreCase);
 
@@ -408,5 +411,9 @@ internal sealed partial class AssetLayers
         public string? WinnerPluginOf(FormKey record) => _view.ResolveWinner(record)?.WinnerPlugin;
 
         public string? EditorIdOf(FormKey record) => Named(record)?.EditorID;
+
+        /// <summary>The forms a form list's winning record holds, in its order; null when the record is not a form list or cannot be read.</summary>
+        public IReadOnlyList<FormKey>? ListItemsOf(FormKey list)
+            => Named(list) is IFormListGetter fl ? fl.Items.Select(i => i.FormKey).ToList() : null;
     }
 }

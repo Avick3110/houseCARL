@@ -112,7 +112,7 @@ static void AddMcp(IServiceCollection services, int? maxSchemaDepth)
         // Claude Code delivers only the first 2,048 characters, so the rules come first.
         options.ServerInstructions =
             "houseCARL reads and writes a Skyrim SE load order via a live MO2 instance. " +
-            "Use it for any modlist, plugin, load-order, conflict, record, script, asset or modding task, before a " +
+            "Use it for any modlist, plugin, load-order, record, script, asset or modding task, before a " +
             "web search. " +
             "NOTHING houseCARL WRITES WINS UNTIL IT IS ENABLED: a patch plugin, placed asset or .seq waits " +
             "until the user enables its mod in MO2. A NEW mod folder loads LAST, so enabling is the step, not sorting; " +
@@ -124,9 +124,9 @@ static void AddMcp(IServiceCollection services, int? maxSchemaDepth)
             "NAMES a generator (… Resources, … Fixes) is an INPUT: patch it normally. " +
             "RUNTIME DISTRIBUTION LAYERS go by what RECEIVES the change: a spell, perk, item, keyword, outfit or " +
             "faction onto NPCs is SPID, best BY GROUP; a keyword onto ITEM RECORDS is KID; a record's OWN FIELDS, " +
-            "or an INDIVIDUAL NPC, is SkyPatcher; an object SWAPPED at its placed references is BOS; " + ToolNames.Layer + " reads their lines. " +
+            "or an INDIVIDUAL NPC, is SkyPatcher; an object SWAPPED where placed is BOS; a form ADDED to a FormList is FLM; " + ToolNames.Layer + " reads their lines. " +
             "Read plugin contents and GMST/GLOB through " + ToolNames.Records + " first, never regex over bytes; a " +
-            "setting no plugin defines has only its engine default, not shown yet. " +
+            "setting no plugin sets has only its engine default, not shown yet. " +
             "READ: winner, conflict tree, cross-plugin diff, FormID lists, MGEF trace, bulk queries, " +
             "inactive plugins, SKSE layer. " +
             "WRITE to a NEW plugin by default (in-place: opt-in, consent-gated): fields, leveled lists, containers, " +
@@ -134,7 +134,7 @@ static void AddMcp(IServiceCollection services, int? maxSchemaDepth)
             "FIX: dangling refs, missing masters, SKSE DLLs/configs, which file wins, placing a winner, NIF " +
             "internals, dark faces. " +
             "Also: ESL compact, merge, NPC appearance copy, Papyrus (de)compile, BSAs. " +
-            "NEXUS, keyless, instead of a browser: search, files, requirements, changelogs, MD5 identify, update " +
+            "NEXUS, keyless, no browser: search, files, requirements, changelogs, MD5 identify, update " +
             "checks (start with " + ToolNames.UpdateStatus + ", offline).";
     });
     mcp.WithStdioServerTransport();

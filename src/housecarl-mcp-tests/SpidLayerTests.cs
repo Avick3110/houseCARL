@@ -317,7 +317,8 @@ public sealed class SpidLayerTests : IDisposable
         Assert.Contains(" 1 file(s) in Data (1 read), 1 line(s): Perk 1\nfilter 'npc' — 0 of 1 file(s) match.\n\n"
                         + "nothing matched: no SPID file name or providing mod contains 'npc'.\n\nKID layer (", text);
         Assert.Contains("nothing matched: no KID file name or providing mod contains 'npc'.\n\nBOS layer (", text);
-        Assert.EndsWith("nothing matched: no BOS file name or providing mod contains 'npc'.", text);
+        Assert.Contains("nothing matched: no BOS file name or providing mod contains 'npc'.\n\nFLM layer (", text);
+        Assert.EndsWith("nothing matched: no FLM file name or providing mod contains 'npc'.", text);
         Assert.Equal(0, sweeps);
     }
 

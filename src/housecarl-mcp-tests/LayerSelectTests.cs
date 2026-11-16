@@ -319,7 +319,7 @@ public sealed class LayerSelectTests : IDisposable
     // KID's, then BOS's. Pick "(b) One summary line each": with no selector and no filter= SPID, KID and BOS answer one
     // line each, naming the call that lists the files; named, the same formats list them.
     [Fact]
-    public void DistributorOmittedReadsSkyPatcherThenSpidThenKidThenBos()
+    public void DistributorOmittedReadsSkyPatcherThenSpidThenKidThenBosThenFlm()
     {
         var sky = Layer(distributor: new[] { "SkyPatcher" });
         var all = Layer();
@@ -327,11 +327,13 @@ public sealed class LayerSelectTests : IDisposable
         Assert.DoesNotContain("SPID layer", sky);
         int kidAt = all.IndexOf("\n\nKID layer (Keyword Item Distributor ", StringComparison.Ordinal);
         int bosAt = all.IndexOf("\n\nBOS layer (Base Object Swapper ", StringComparison.Ordinal);
+        int flmAt = all.IndexOf("\n\nFLM layer (FormList Manipulator ", StringComparison.Ordinal);
         Assert.Equal(Layer(distributor: new[] { "spid" }).Split('\n')[0] + "; distributor=[\"spid\"] lists its files", all[(sky.Length + 2)..kidAt]);
         Assert.Equal(Layer(distributor: new[] { "kid" }).Split('\n')[0] + "; distributor=[\"kid\"] lists its files", all[(kidAt + 2)..bosAt]);
-        Assert.Equal(Layer(distributor: new[] { "bos" }).Split('\n')[0] + "; distributor=[\"bos\"] lists its files", all[(bosAt + 2)..]);
-        Assert.NotEqual(all, Layer(distributor: new[] { "skypatcher", "spid", "kid", "bos" }));
-        Assert.Equal(Layer(formids: new[] { _w.Plain }), Layer(formids: new[] { _w.Plain }, distributor: new[] { "skypatcher", "spid", "kid", "bos" }));
+        Assert.Equal(Layer(distributor: new[] { "bos" }).Split('\n')[0] + "; distributor=[\"bos\"] lists its files", all[(bosAt + 2)..flmAt]);
+        Assert.Equal(Layer(distributor: new[] { "flm" }).Split('\n')[0] + "; distributor=[\"flm\"] lists its files", all[(flmAt + 2)..]);
+        Assert.NotEqual(all, Layer(distributor: new[] { "skypatcher", "spid", "kid", "bos", "flm" }));
+        Assert.Equal(Layer(formids: new[] { _w.Plain }), Layer(formids: new[] { _w.Plain }, distributor: new[] { "skypatcher", "spid", "kid", "bos", "flm" }));
     }
 
     // r1 #12, Aaron's pick "Reads as omitted": an empty distributor= answers exactly as an omitted one.
@@ -363,13 +365,23 @@ public sealed class LayerSelectTests : IDisposable
     public void DistributorDsdIsNotRead() => Assert.StartsWith(
         "error: distributor='dsd' is not read: houseCARL does not read Dynamic String Distributor files", Layer(distributor: new[] { "dsd" }));
 
-    // The one still to come keeps the "not read yet" refusal; the formats it says are read now include SPID, KID and BOS
-    // (DECISIONS 2026-11-14 (17)).
+    // LID, a later value on the same table, is answered "not read yet" by name (DECISIONS 2026-11-13 (14) Q4); the formats
+    // the refusal says are read now include FLM (DECISIONS 2026-11-14 (17)).
     [Fact]
-    public void ADistributorStillToComeIsNotReadYet()
-        => Assert.Equal("error: distributor='flm' is not read yet: this build reads SkyPatcher, Spell Perk Item Distributor, Keyword Item Distributor and Base Object Swapper lines, " +
-                        "and FormList Manipulator lines are not among them. distributor= takes 'skypatcher', 'spid', 'kid' or 'bos', or omit it for every format read.",
-            Layer(distributor: new[] { "flm" }));
+    public void LidIsNotReadYetByName()
+        => Assert.Equal("error: distributor='lid' is not read yet: this build reads SkyPatcher, Spell Perk Item Distributor, Keyword Item Distributor, Base Object Swapper " +
+                        "and FormList Manipulator lines, and Security Overhaul SKSE - Lock Variations lines are not among them. distributor= takes 'skypatcher', 'spid', 'kid', 'bos' or 'flm', or omit it for every format read.",
+            Layer(distributor: new[] { "lid" }));
+
+    // FLM's lines are read now: its refusal is retired, and the name reads FLM's layer alone; 1.8.1 is the only version its grammar is read for.
+    [Fact]
+    public void DistributorFlmIsRead()
+    {
+        var text = Layer(distributor: new[] { "flm" });
+        Assert.StartsWith("FLM layer (FormList Manipulator 1.8.1 model) — profile '", text);
+        Assert.DoesNotContain("SkyPatcher layer", text);
+        Assert.DoesNotContain("BOS layer", text);
+    }
 
     // BOS's lines are read now: its refusal is retired, and the name reads BOS's layer alone.
     [Fact]
@@ -402,16 +414,18 @@ public sealed class LayerSelectTests : IDisposable
 
     [Fact]
     public void AnUnknownDistributorIsNotAFormat()
-        => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid', 'kid', 'bos' are read; oar, ied, desc, dsd are not read; flm is not read yet.",
+        => Assert.Equal("error: distributor='xyz' is not a format — 'skypatcher', 'spid', 'kid', 'bos', 'flm' are read; oar, ied, desc, dsd are not read; lid is not read yet.",
             Layer(distributor: new[] { "xyz" }));
 
-    // PR #1413 r1 #11: rows from two parses of the source (two first calls racing) still leave only flm not read yet.
+    // PR #1413 r1 #11: rows from two parses of the source (two first calls racing) are matched by key, so a row left out
+    // of the landed set is the only one not read yet; with every row landed, none is.
     [Fact]
-    public void TheNotYetRowsHoldOnlyFlmAcrossTwoParses()
+    public void TheNotYetRowsMatchByKeyAcrossTwoParses()
     {
         var all = RuntimeFormats.DistributorsFrom(RuntimeFormats.SourceText());
-        var landed = RuntimeFormats.DistributorsFrom(RuntimeFormats.SourceText()).Where(d => d.LinesRead);
-        Assert.Equal("flm", Assert.Single(SkyPatcherTools.NotYetOf(all, landed)).Name);
+        var landed = RuntimeFormats.DistributorsFrom(RuntimeFormats.SourceText()).Where(d => d.LinesRead).ToList();
+        Assert.Empty(SkyPatcherTools.NotYetOf(all, landed));
+        Assert.Equal("flm", Assert.Single(SkyPatcherTools.NotYetOf(all, landed.Where(d => d.Key != "flm"))).Name);
     }
 
     // Q1 (a): the tool is housecarl_layer, and the old name is a retired row naming it.

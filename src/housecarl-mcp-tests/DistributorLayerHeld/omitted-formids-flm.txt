@@ -1,0 +1,7 @@
+
+
+FLM layer (FormList Manipulator 1.8.1 model) — profile 'Default' — 0 file(s) in Data (0 read), 0 line(s)
+no FLM files in the active order: no file directly in Data has '_FLM' in its name and the '.ini' extension, and no '.ini' file is in Data\FLM.
+lines naming a form of formids=[000810:HcSpid.esp, 000800:HcArmorSrc.esp] — 0 line(s) in 0 of 0 file(s).
+
+nothing matched: no FLM line names such a form as a target, a filter form or a value. A line names a form by FormID~Plugin, by a 0x runtime FormID or by an EditorID; FLM names no plugin as a term: a filter's plugins gate the line and touch nothing.

@@ -1,0 +1,14 @@
+FLM layer (FormList Manipulator 1.8.1 model) — profile 'Default' — 2 file(s) in Data (2 read), 14 line(s): FormList 8, Alias 1, Collection 1, Filter 1, Group 1, Plant 1, Remove 1; 1 more line(s) FLM reads no entry from or counts invalid as SimpleIni and FLM split the file (no '=', under a named section, or a key FLM does not know)
+lines naming a form of formids=[000805:HcFlm.esp, 000808:HcFlm.esp] — 3 line(s) in 1 of 2 file(s); only those files are listed, each selected form labelled where the line names it.
+order: files by name in byte order, then Data\FLM's; FLM reads every file's Filter, then Collection lines first, then file by file its Alias and Group lines, then the rest, each file's lines by key (A to Z, any case) then line; it fills Plant, BToys, GToys, HairColors, AtronachForge, AtronachForgeSigil, FormList lists in that order, each key's lines in that order, and skips a form already in its list. Collection members are not read here.
+  - HcA_FLM.ini  (file 1 of 2, 12 line(s)) ← HcFlmIni
+      :9  Collection = Shiny|Misc|HcKw
+          [!] its members (every misc with the keywords listed and none of the '-' ones) are not read here
+          ↳ filter keywords: HcKw → 000805:HcFlm.esp
+      :10  FormList = HcList2|#Shiny
+          adds 0 form(s) to HcList2 (000801:HcFlm.esp), and what collection 'Shiny' holds (not read)
+          ↳ filter items through collection: #Shiny → 000805:HcFlm.esp
+      :11  Plant = HcSeed|HcBush
+          adds HcSeed to flPlanterPlantableItem and HcBush to flPlanterPlantedFlora
+          ↳ target implied list: flPlanterPlantableItem → 000808:HcFlm.esp
+[!] could not read the [Archive] sResourceArchiveList from SkyrimCustom.ini or Skyrim.ini (looked in the profile folder) — the base-game BSAs (Skyrim - Textures*.bsa, etc.) are NOT in the asset scan, so an asset present ONLY in a vanilla archive may read as absent. Make sure the active profile has a Skyrim.ini that lists the base archives.
