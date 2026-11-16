@@ -284,10 +284,10 @@
  {
   "format": "FormList Manipulator",
   "key": "flm",
-  "version": "82a694e5",
+  "version": "1.8.1",
   "folders": [
    {
-    "source": "CLibUtil get_configs, called with \"_FLM\" (FLM Manipulator.hpp:357-360 at 82a694e5)",
+    "source": "CLibUtil get_configs, called with \"_FLM\" (FLM Manipulator.hpp:357-360 at 82a694e5, tag 1.7.0; 1.8.1's findConfigs the same, read off its shipped PDB, flm-lines research-topup T2 (3))",
     "root": "",
     "nameToken": "_FLM",
     "tokenCase": "ordinal",
@@ -308,16 +308,57 @@
    }
   ],
   "targets": {
-   "source": "FLM resolves HEX~Plugin by LookupFormID, raw, after FindForm erases two characters of an exactly ten-character hex part (FLM 1.7.0 src/Utility/Utility.hpp:58-59; distributor-lines research-topup.md X1), any '~' making the term an address (FLM 82a694e5 Utility.hpp:53-56); its bare-FormID, plugin-term, missing-name and EditorID-scope rules land with its own reader",
+   "source": "FLM resolves HEX~Plugin by LookupFormID, raw, after FindForm erases two characters of an exactly ten-character hex part (FLM 1.7.0 src/Utility/Utility.hpp:58-59; distributor-lines research-topup.md X1), any '~' making the term an address, the plugin its second field (FLM 82a694e5 Utility.hpp:53-56); else '0x' is a runtime FormID (LookupByID, :77-84; FLM finds '0x' anywhere and in lower case only, a Known limit of the shared rule); else an untyped LookupByEditorID (:85-86), then As<T> per field; no form field names a plugin (a filter's plugins gate the line, flm-lines research answer 7); a name no record holds does what its field says (Manipulator.hpp:743-809, :1434-1486)",
    "addressOrder": "formIdFirst",
    "separator": "~",
    "manySeparators": "addressAtFirst",
    "formId": "runtimeAddTrimmedAtTen",
-   "bareFormId": "unread",
-   "pluginTerm": "unread",
+   "bareFormId": "runtimeFormId",
+   "pluginTerm": "notATerm",
    "pluginExtensions": [],
-   "missingName": "unread",
-   "editorIds": "unread"
+   "missingName": "byPosition",
+   "editorIds": "everyType"
+  },
+  "lines": {
+   "source": "FLM 1.7.0 82a694e5 (1.8.1 read off its shipped PDB where named, flm-lines research-topup T2): src/Manipulator/Manipulator.hpp:391-433 (pass 1, every file: Filter lines, then Collection lines), :449 (collections filled after), :469-523 (pass 2, file by file: Alias and Group lines, then the rest; an unknown key logged 'Unknown key'), :407, :487 (the unnamed section only), :417-418 (keys lowercased); each pass visits a file's lines key by key (SimpleIni's multimap, keyed case-insensitively, research-topup F1); src/Utility/Types/Keywords.hpp and 1.8.1's keywords_initializer (16 keys; remove a no-op counted valid, formspair always invalid, T2 (1)); Utility.hpp:98-123 (Sanitize: spaces round '|' and ',', leading zeros, index 02/04 to Dawnguard/Dragonborn), :140-149 (a filter lowercased), :166-224 (adds gathered per list, a form already in it skipped), :231-303 (the filter split and verdict, 1.8.1 the same, T2 (2)); Manipulator.hpp:284-296 (simplified lists filled before FormList adds; spider crafting never added), :743-809 (FormList), :811-824, :1280-1379 (simplified keys), :826-967 (Alias, Group; first name wins, a '*' list read for its record's forms at parse), :969-1046 (Collection; one missing keyword drops it), :1143-1176 (Filter; first name wins), :1396-1432 (a filter: '#' a named one, else inline), :1434-1486 (an item: '#' a group or collection, '*' a list's forms, else any form); CLibUtil 191c90a8 string.hpp:225-229 (split keeps empty fields); src/Utility/Types/FormListType.hpp (the simplified keys' lists), FormType.hpp (collection types); SimpleIni (comment leads ';' and '#' at a line's start, read off 1.8.1's FindEntry, T5)",
+   "reads": ["1.8.1"],
+   "section": "unnamedOnly",
+   "commentLeads": [";", "#"],
+   "assign": "=",
+   "fields": "|",
+   "item": ",",
+   "name": "#",
+   "listForms": "*",
+   "not": "-",
+   "require": "+",
+   "filterExtensions": [".esp", ".esl", ".esm"],
+   "lineOrder": "keyIgnoreCaseThenLine",
+   "passes": "filtersCollectionsThenAliasesGroupsThenRest",
+   "conflict": "skipsDuplicates",
+   "listRecord": "FormList",
+   "keywordRecord": "Keyword",
+   "keys": [
+    { "key": "Alias", "kind": "alias" },
+    { "key": "Group", "kind": "group" },
+    { "key": "Collection", "kind": "collection" },
+    { "key": "Filter", "kind": "filter" },
+    { "key": "ModEvent", "kind": "modEvent" },
+    { "key": "ModEventRemove", "kind": "modEvent" },
+    { "key": "Remove", "kind": "remove" },
+    { "key": "FormList", "kind": "formList" },
+    { "key": "FormsPair", "kind": "formsPair" },
+    { "key": "Plant", "kind": "pair", "names": ["seed", "plant"], "lists": ["flPlanterPlantableItem", "flPlanterPlantedFlora"] },
+    { "key": "BToys", "kind": "list", "lists": ["BYOHRelationshipAdoptionPlayerGiftChildMale"] },
+    { "key": "GToys", "kind": "list", "lists": ["BYOHRelationshipAdoptionPlayerGiftChildFemale"] },
+    { "key": "HairColors", "kind": "list", "lists": ["HairColorList"] },
+    { "key": "AtronachForge", "kind": "pair", "names": ["recipe", "result"], "lists": ["AtrFrgAtronachForgeRecipeList", "AtrFrgAtronachForgeResultList"] },
+    { "key": "AtronachForgeSigil", "kind": "pair", "names": ["recipe", "result"], "lists": ["AtrFrgSigilStoneRecipeList", "AtrFrgSigilStoneResultList"] },
+    { "key": "DragonbornSpiderCrafting", "kind": "pair", "names": ["recipe", "result"], "lists": ["DLC2ExpSpiderCraftingRecipesList", "DLC2ExpSpiderCraftingResultsList"] }
+   ],
+   "addOrder": ["Plant", "BToys", "GToys", "HairColors", "AtronachForge", "AtronachForgeSigil", "FormList"],
+   "collectionTypes": ["armor", "weapon", "ammo", "magiceffect", "alchemyitem", "scroll", "location", "ingredient", "book", "misc", "key", "soulgem", "activator", "flora", "furniture", "race", "talkingactivator", "enchantment", "npc", "spell"],
+   "seedTypes": ["Ingredient", "Ingestible", "Activator"],
+   "plantTypes": ["Flora", "Tree", "Container", "Activator", "MiscItem"]
   }
  }
 ]

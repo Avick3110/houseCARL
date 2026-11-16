@@ -278,14 +278,28 @@ public sealed class RuntimeTargetsTests
         public string? EditorIdOf(FormKey record) => null;
     }
 
-    // Probe: a rule a row has not read is said to be unread, never guessed as a name.
-    [Theory]
-    [InlineData("flm")]
-    public void ATokenUnderARowWithAnUnreadRuleIsUnread(string key)
+    // Probe: a rule a row has not read is said to be unread, never guessed as a name. No shipped row leaves one unread
+    // since FLM's landed, so FLM's row is read with one rule flipped back.
+    [Fact]
+    public void ATokenUnderARowWithAnUnreadRuleIsUnread()
     {
-        Assert.Equal(RuntimeTargets.TargetKind.Unread, RuntimeTargets.Read("0x800", Spelling(key)).Kind);
-        Assert.Null(RuntimeTargets.Resolve("0x800", null, Order(), Spelling(key)));
-        Assert.Contains("is not read yet", RuntimeTargets.Report("0x800", null, Order(), Format(key)));
+        var row = ShippedRows.Distributor("flm", ("\"bareFormId\": \"runtimeFormId\"", "\"bareFormId\": \"unread\""));
+        Assert.Equal(RuntimeTargets.TargetKind.Unread, RuntimeTargets.Read("0x800", row.Targets).Kind);
+        Assert.Null(RuntimeTargets.Resolve("0x800", null, Order(), row.Targets));
+        Assert.Contains("is not read yet", RuntimeTargets.Report("0x800", null, Order(), row));
+    }
+
+    // flm-lines research answer 7 (FLM Utility.hpp:53-91): FLM's row reads bare 0x hex as a runtime FormID, no plugin
+    // name as a term (a '.esp' text is a name), and every other token as a name looked up among every type.
+    [Theory]
+    [InlineData("0x800", RuntimeTargets.TargetKind.RuntimeFormId)]
+    [InlineData("Katana.esp", RuntimeTargets.TargetKind.EditorId)]
+    [InlineData("VoicesJarl", RuntimeTargets.TargetKind.EditorId)]
+    public void FlmsRowReadsEachTokenAsFlmDoes(string token, RuntimeTargets.TargetKind kind)
+    {
+        Assert.Equal(kind, RuntimeTargets.Read(token, Spelling("flm")).Kind);
+        Assert.Equal(TargetEditorIdScope.EveryType, Spelling("flm").EditorIds);
+        Assert.Equal(TargetMissingName.ByPosition, Spelling("flm").MissingName);
     }
 
     // bos-lines answer 7 (BOS Util.cpp:27-36): BOS's row reads bare 0x hex as a runtime FormID, no plugin name as a term
