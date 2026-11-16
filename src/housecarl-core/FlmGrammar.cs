@@ -91,10 +91,6 @@ public sealed record FlmGrammar(
     /// <summary>A key as FLM matches it, lowercased; null for a key FLM does not know.</summary>
     public FlmKey? Key(string written) => Keys.FirstOrDefault(k => k.Key.Equals(written, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Where a key's adds come in FLM's fill order; null for a key whose lines FLM never adds.</summary>
-    public int? AddPlace(FlmKey k)
-    {
-        for (int i = 0; i < AddOrder.Count; i++) if (AddOrder[i] == k.Key) return i;
-        return null;
-    }
+    /// <summary>Whether FLM's fill step adds a key's lines at all.</summary>
+    public bool Adds(FlmKey k) => AddOrder.Contains(k.Key);
 }
