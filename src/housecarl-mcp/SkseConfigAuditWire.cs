@@ -18,6 +18,9 @@ static class SkseConfigAuditWire
     /// <summary>What this family's accounting counts: the config FILES the audit covers.</summary>
     internal const string RowNoun = "config(s)";
 
+    /// <summary>What a config only inside a BSA is said to be, one sentence for every framework.</summary>
+    internal const string ArchiveOnlyNote = "only inside a BSA: most SKSE plugins read loose files only, so it may never be read";
+
     public static string Render(SkseConfigAuditData d, string? filter, int cap, RowWindow window = default, int trailer = 0)
     {
         if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window, trailer);
@@ -138,6 +141,21 @@ static class SkseConfigAuditWire
                 sb.Append(row); shown++; tally.Mark(f.RelPath);
             }
         }
+        var archiveOnly = rows.Where(f => f.ArchiveOnly).ToList();
+        string ArchiveCut(int shown) => "  ... [" + shown + " of " + archiveOnly.Count + "; raise max_chars]\n";
+        int archiveCut = archiveOnly.Count == 0 ? 0 : ArchiveCut(archiveOnly.Count).Length;
+        if (archiveOnly.Count > 0 && !SkseRenderParts.Head(sb, budget - archiveCut, "\nconfigs " + ArchiveOnlyNote + " (" + archiveOnly.Count + "):\n")) missed++;
+        else if (archiveOnly.Count > 0)
+        {
+            int rows5 = budget - archiveCut;
+            int shown = 0;
+            foreach (var f in archiveOnly)
+            {
+                var row = "  - " + f.RelPath + Prov(f) + "\n";
+                if (sb.Length + row.Length > rows5) { sb.Append(ArchiveCut(shown)); break; }
+                sb.Append(row); shown++; tally.Mark(f.RelPath);
+            }
+        }
 
         // ── Accounted-for remainder: everything that is not a diagnostic, so nothing is dropped. ──
         var healthyFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
@@ -221,6 +239,7 @@ static class SkseConfigAuditWire
             if (f.ProviderCount > 1)
                 sb.Append("  [!] contested by ").Append(f.ProviderCount).Append(" mods (winner audited): ")
                   .Append(string.Join(" › ", f.Providers.Select(p => $"{p.Name} ({p.Kind})"))).Append('\n');
+            if (f.ArchiveOnly) sb.Append("  [!] ").Append(ArchiveOnlyNote).Append('\n');
             if (f.ReadError is not null) sb.Append("  [!] ").Append(f.ReadError).Append('\n');
             else if (f.Refs.Count == 0) sb.Append("  (no form-shaped references)\n");
             int head = sb.Length;
@@ -404,6 +423,7 @@ static class SkseConfigAuditWire
         w.WriteNumber("provider_count", file.ProviderCount);
         SkseJsonDoc.Providers(w, file.Providers);
         SkseJsonDoc.Nullable(w, "read_error", file.ReadError);
+        if (file.ArchiveOnly) w.WriteString("note", ArchiveOnlyNote);
         if (!close) return;
         w.WriteStartArray("references");
         w.WriteEndArray();

@@ -367,7 +367,8 @@ internal sealed partial class AssetLayers
     const long SkseConfigSizeCap = 16L * 1024 * 1024;
 
     /// <summary>Audit the SKSE-plugin config layer: read each config's winning copy, extract the form references and
-    /// plugin gates it declares, and resolve each into a verdict. Framework-agnostic; two captures pin the scan.</summary>
+    /// plugin gates it declares, and resolve each into a verdict. Framework-agnostic but for SkyPatcher's INIs, which
+    /// the layer tool reads and this audit leaves out; two captures pin the scan.</summary>
     public SkseConfigAuditData SkseConfigAudit()
     {
         // One gate hold for both captures, so a rebuild cannot pair a config read from one build against an index from the next.
@@ -380,6 +381,7 @@ internal sealed partial class AssetLayers
         {
             var ext = Path.GetExtension(rel).ToLowerInvariant();
             if (ext is not (".ini" or ".toml" or ".json" or ".yaml" or ".yml")) continue;   // configs only (DLLs/content are SkseInventory's)
+            if (SkyPatcherDiscovery.IsSkyPatcherIni(rel)) continue;   // SkyPatcher's INIs are the layer tool's to read
 
             string group = SkseGroupOf(rel, pre);
             var place = view.ResolveForPlacement(rel);
@@ -407,7 +409,8 @@ internal sealed partial class AssetLayers
             foreach (var r in extracted) audited.Add(Adjudicate(r, index));
 
             files.Add(new SkseConfigFileAudit(rel, Path.GetFileName(rel), group,
-                winner?.ProviderName, providers.Count, providers, audited, readError, multiLine));
+                winner?.ProviderName, providers.Count, providers, audited, readError, multiLine,
+                ArchiveOnly: place.Sources.Count > 0 && place.Sources.All(s => s.Kind == AssetKind.Bsa)));
         }
         return new SkseConfigAuditData(files, files.Count, view.BsaFailures, view.RootFailures, view.ReadIncomplete, warnings, profileName);
     }
