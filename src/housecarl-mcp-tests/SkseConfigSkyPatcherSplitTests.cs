@@ -17,6 +17,7 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
     const string PackedSp = @"skse\plugins\skypatcher\npc\packed.ini";
     const string NotIni = @"SKSE\Plugins\SkyPatcher\notes.json";
     const string IniInName = @"SKSE\Plugins\SkyPatcher\weapon\named.ini.json";   // '.ini' in the name, not at its end
+    const string RootLevel = @"SKSE\Plugins\SkyPatcher\rootlevel.ini";            // in the root, no type subfolder
     const string LookAlike = @"SKSE\Plugins\SkyPatcherExtra\keep.ini";
     const string LooseKeep = @"SKSE\Plugins\Foo\keep.ini";
     const string PackedKeep = @"skse\plugins\inventoryinjector\packed.json";
@@ -29,7 +30,7 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
 
     public SkseConfigSkyPatcherSplitTests()
     {
-        foreach (var rel in new[] { Upper, Switches, NotIni, IniInName, LookAlike, LooseKeep, BothKeep })
+        foreach (var rel in new[] { Upper, Switches, NotIni, IniInName, RootLevel, LookAlike, LooseKeep, BothKeep })
             PlaceInstance.Loose(_p.Mod("Other"), rel, Token);
         PlaceInstance.Loose(_p.Mod("Lower"), Lower, Token);
         var folders = new[] { PackedSp, PackedKeep, BothKeep }
@@ -59,6 +60,22 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
 
     [Fact]
     public void ASkyPatcherIniInsideABsaLeaves() => Assert.False(Audited(PackedSp));
+
+    [Fact]
+    public void AnIniDirectlyInTheSkyPatcherRootLeaves() => Assert.False(Audited(RootLevel));
+
+    [Fact]
+    public void ASkyPatcherIniOnlyInsideABsaLeaves()
+    {
+        using var p = new PlaceInstance();
+        File.WriteAllBytes(Path.Combine(p.Mod("Arch"), "Dummy.bsa"), BsaBuilder.Build(105,
+            BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
+            new[] { (@"skse\plugins", new[] { ("skypatcher.ini", Token), ("other.ini", Token) }) }));
+        p.ProfileWithDummy("Arch", "+Arch");
+        var audit = p.Open().SkseConfigAudit();
+        var only = Assert.Single(audit.Files);   // the packed neighbour stays, so the packed switches file is what left
+        Assert.Equal(@"skse\plugins\other.ini", only.RelPath, StringComparer.OrdinalIgnoreCase);
+    }
 
     [Fact]
     public void ANonIniUnderTheSkyPatcherFolderStays() => Assert.True(Audited(NotIni));
