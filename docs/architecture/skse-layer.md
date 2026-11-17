@@ -279,7 +279,7 @@ number describes a wider set than the rows beside it.
   spellings, `SkyPatcher.ini` in another case and one only in a BSA, a packed SkyPatcher INI, one in the root and a
   name holding `.ini` mid-name leave; a non-INI under the root, a look-alike folder and every other config stay with
   their references; a config only in a BSA carries the sentence in both renders and json and is counted in the json
-  totals, and one with a loose copy does not; the whole audit and a filter matching nothing name `housecarl_layer`.
+  totals, and one with a loose copy does not; the whole audit and a filter matching nothing name `housecarl_layer`, the caveats one newline after it.
   `SkseConfigFileSectionTests` pins the read-errors and BSA-only sections: heading, rows, cut notice, a heading that
   does not fit, and the window.
 - *Transport*: `SkseTransportTests.EachFamilysTextRenderFilledPastItsCapAnswersInsideIt` and
