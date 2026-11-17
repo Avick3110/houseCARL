@@ -316,8 +316,8 @@ public sealed class LayerSelectTests : IDisposable
     }
 
     // Omitted reads every format read: SkyPatcher's answer as distributor=['skypatcher'] gives it, then SPID's, then
-    // KID's, then BOS's. Pick "(b) One summary line each": with no selector and no filter= SPID, KID and BOS answer one
-    // line each, naming the call that lists the files; named, the same formats list them.
+    // KID's, then BOS's, then FLM's. Pick "(b) One summary line each": with no selector and no filter= SPID, KID, BOS and
+    // FLM answer one line each, naming the call that lists the files; named, the same formats list them.
     [Fact]
     public void DistributorOmittedReadsSkyPatcherThenSpidThenKidThenBosThenFlm()
     {
