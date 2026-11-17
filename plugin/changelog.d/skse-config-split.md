@@ -1,0 +1,1 @@
+- **`housecarl_skse findings="config"` no longer audits SkyPatcher's INIs (its folder and `SkyPatcher.ini`), which `housecarl_layer` reads, and a config found only inside a BSA now says most SKSE plugins read loose files only, so it may never be read.** Check: `housecarl_skse findings="config" filter="SkyPatcher"` matches nothing.
