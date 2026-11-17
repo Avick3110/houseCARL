@@ -83,9 +83,8 @@ public static class SpidReach
     public static ReachResult Evaluate(ReachTerm term, SpidLines.Line asked, SpidLines.LineRead read,
                                        IReadOnlyList<(SpidLines.Line Line, SpidLines.LineRead? Read)> layer,
                                        SpidLines.Context ctx, IReachWorld world, ReachFields fields,
-                                       IReadOnlyDictionary<FormKey, List<string>>? raceTags = null)
+                                       KidRaceTags? raceLines = null)
     {
-        raceTags ??= new Dictionary<FormKey, List<string>>();
         var result = new ReachResult(term, "Npc");
         if (read.Dropped is { } dropped)
         {
@@ -145,11 +144,13 @@ public static class SpidReach
         if (earlier.Count > 0)
             result.Notes.Add($"{earlier.Count:N0} earlier line(s) of the layer handing out the same form were run first; an NPC they reach already has it.");
         result.HeldWhy = "already have it, on their record or from an earlier line of the same form, which SPID skips";
-        if (raceTags.Count > 0)
-            result.Notes.Add($"KID's Race lines may tag {raceTags.Count:N0} race(s) with a keyword; they are not replayed, so a keyword they give is not decidable for NPCs of those races.");
         var groups = Groups(layer, line, ctx, kwEid);
         int layerFeeders = feeders.Count;
-        feeders = Readable(feeders, line, groups, earlier);
+        feeders = Readable(feeders, line, groups, earlier, out var readExact, out var readPart);
+        // A keyword a KID Race line gives is judged, and noted, only when the line or a feeder it runs reads one.
+        var raceTags = Read(raceLines, readExact, readPart);
+        if (raceTags.Count > 0)
+            result.Notes.Add($"KID's Race lines may tag {raceTags.Count:N0} race(s) with a keyword it reads; they are not replayed, so that keyword is not decidable for NPCs of those races.");
         if (feeders.Count > 0)
             result.Notes.Add($"SPID's {feeders.Count:N0} Keyword line(s) of the layer were replayed first, so a keyword they give counts; the other {layerFeeders - feeders.Count:N0} give none it reads.");
         else if (layerFeeders > 0)
@@ -225,6 +226,18 @@ public static class SpidReach
         };
     }
 
+    /// <summary>The races each KID Race line keyword the line reads may tag, by an exact or partial string; the races are
+    /// judged on the first call that reads one.</summary>
+    static IReadOnlyDictionary<FormKey, List<string>> Read(KidRaceTags? lines, HashSet<string> exact, List<string> part)
+    {
+        bool Reads(string k) => exact.Contains(k) || part.Any(p => k.Contains(p, StringComparison.OrdinalIgnoreCase));
+        var tags = new Dictionary<FormKey, List<string>>();
+        if (lines is null || !lines.Keywords.Any(Reads)) return tags;
+        foreach (var (race, given) in lines.Tags)
+            if (given.Where(Reads).ToList() is { Count: > 0 } read) tags[race] = read;
+        return tags;
+    }
+
     /// <summary>A line as SPID parses it, in one case, so a copy spaced or cased otherwise is the same line.</summary>
     static string Parsed(SpidLines.Line l, SpidGrammar g)
         => string.Join("|", new[] { l.Kind.ToString(), l.Type ?? "" }
@@ -233,11 +246,11 @@ public static class SpidReach
 
     /// <summary>The feeders whose keyword the asked line or an earlier line of its form can read, directly or through another feeder it reads: a
     /// keyword no string of the line names, and no ExclusiveGroup sibling is, changes none of its verdicts.</summary>
-    static List<Line> Readable(List<Line> feeders, Line asked, List<Sib> groups, List<Line> earlier)
+    static List<Line> Readable(List<Line> feeders, Line asked, List<Sib> groups, List<Line> earlier, out HashSet<string> exact, out List<string> part)
     {
-        var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var part = new List<string>();
-        void Reads(Line l) { exact.UnionWith(l.SAll); exact.UnionWith(l.SNot); exact.UnionWith(l.SMatch); part.AddRange(l.SAny); }
+        var x = exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var p = part = new List<string>();
+        void Reads(Line l) { x.UnionWith(l.SAll); x.UnionWith(l.SNot); x.UnionWith(l.SMatch); p.AddRange(l.SAny); }
         Reads(asked);
         foreach (var l in earlier) Reads(l);
         foreach (var g in groups) if (g.Keyword is { } k) exact.Add(k);

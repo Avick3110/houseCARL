@@ -40,7 +40,9 @@ from the files, or decided only in the running game; the rows are the yes record
   counted as already holding it, which SPID skips, and is open when that field is not decidable. The layer's earlier lines of the same kind, type and
   form run first: an NPC they reach is counted as already holding it, which SPID skips. Every line of the layer when
   the asked line is not in it; the asked line is found in the layer by its parse, in any case (KID's too). A keyword a KID Race line may give the NPC's race (judged by the KID reach over the
-  races) is not decidable, since KID tags races before SPID reads them and the SPID reach does not replay KID.
+  races) is not decidable, since KID tags races before SPID reads them and the SPID reach does not replay KID. The
+  races are judged, and the note names them, only when the line, an earlier line of its form, a feeder it runs or a
+  group sibling reads one of the Race lines' keywords by an exact or partial string.
 - **Template chain (Q2 b).** Each field an NPC filter reads is taken from the first NPC up its template chain whose
   flag for that field's category is clear; the field-to-category table is data (`reach-fields.json`, `npcTemplate`). A
   chain reaching a leveled actor, a template that does not resolve, or a loop makes that field not decidable.

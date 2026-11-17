@@ -116,30 +116,33 @@ internal sealed partial class RecordReads
                                   unread.Count == 0 ? "" : $" {unread.Distinct().Count()} file(s) could not be read, so their lines were not replayed: {string.Join("; ", unread.Distinct())}.", null);
 
         static ReachSelection Refuse(ReachTerm t, string why) =>
-            new(Array.Empty<ReachResult>(), "",$"where= term '{t.Text}': the line {why}.");
+            new(Array.Empty<ReachResult>(), "", $"where= term '{t.Text}': the line {why}.");
     }
 
-    /// <summary>The keywords KID's Race lines may give each race, judged by the KID reach over the races: SPID reads a
-    /// race's keywords after KID has tagged it, and the SPID reach does not replay KID, so these stay open.</summary>
-    static Dictionary<FormKey, List<string>> RaceTags(AssetLayers.SkyPatcherReplay replay, LoadOrderResolver.IndexView view, IReachWorld world,
-                                                      ReachFields fields, List<string> unread, CancellationToken ct)
+    /// <summary>The keywords KID's Race lines give, and the races each may tag, judged by the KID reach over the races
+    /// only when a SPID line reads one of the keywords: SPID reads a race's keywords after KID has tagged it, and the
+    /// SPID reach does not replay KID, so these stay open.</summary>
+    static KidRaceTags RaceTags(AssetLayers.SkyPatcherReplay replay, LoadOrderResolver.IndexView view, IReachWorld world,
+                                ReachFields fields, List<string> unread, CancellationToken ct)
     {
-        var tags = new Dictionary<FormKey, List<string>>();
         var format = RuntimeFormats.Kid;
         var race = Layer(format, replay, unread, (text, _) => KidLines.Parse(text, format), ct)
             .Where(l => l is { Skipped: null, IsGroup: false, Type: "Race" }).ToList();
-        if (race.Count == 0) return tags;
         var ctx = new KidLines.Context(replay.Forms, view.WinnerClassOf, format);
-        var reads = KidLines.ReadAll(race, ctx);
-        var pairs = race.Select((l, i) => (l, reads[i])).ToList();
-        foreach (var (l, r) in pairs)
+        return new KidRaceTags(race.Select(l => KidReach.KeywordName(l, ctx)).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), () =>
         {
-            if (r is not { Dropped: null }) continue;
-            var answer = KidReach.Evaluate(new ReachTerm(l.Raw, "kid", l.Raw), l, r, pairs, ctx, world, fields);
-            var name = KidReach.KeywordName(l, ctx);
-            foreach (var fk in answer.Kept.Keys) { if (!tags.TryGetValue(fk, out var list)) tags[fk] = list = new(); list.Add(name); }
-        }
-        return tags;
+            var tags = new Dictionary<FormKey, List<string>>();
+            var reads = KidLines.ReadAll(race, ctx);
+            var pairs = race.Select((l, i) => (l, reads[i])).ToList();
+            foreach (var (l, r) in pairs)
+            {
+                if (r is not { Dropped: null }) continue;
+                var answer = KidReach.Evaluate(new ReachTerm(l.Raw, "kid", l.Raw), l, r, pairs, ctx, world, fields);
+                var name = KidReach.KeywordName(l, ctx);
+                foreach (var fk in answer.Kept.Keys) { if (!tags.TryGetValue(fk, out var list)) tags[fk] = list = new(); list.Add(name); }
+            }
+            return tags;
+        });
     }
 
     /// <summary>Every line of the format's files as it finds them, in file order; a file it does not apply gives none, and one it cannot read is named in <paramref name="unread"/>.</summary>

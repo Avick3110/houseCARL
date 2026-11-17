@@ -104,6 +104,14 @@ public readonly record struct Verdict(Reach V, string? Why = null)
     }
 }
 
+/// <summary>The keywords KID's Race lines give, and the races each may tag, judged once on first read.</summary>
+public sealed class KidRaceTags(IReadOnlyCollection<string> keywords, Func<IReadOnlyDictionary<FormKey, List<string>>> judge)
+{
+    readonly Lazy<IReadOnlyDictionary<FormKey, List<string>>> _tags = new(judge);
+    public IReadOnlyCollection<string> Keywords => keywords;
+    public IReadOnlyDictionary<FormKey, List<string>> Tags => _tags.Value;
+}
+
 /// <summary>What a reach evaluator needs of the load order, read through the call's own view and replay context.</summary>
 public interface IReachWorld
 {
