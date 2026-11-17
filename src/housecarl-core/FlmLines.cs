@@ -419,7 +419,7 @@ public static class FlmLines
             forms.AddRange(keywords);
             bool registered = F.Count < 4 || Gate(F[3]);
             if (!registered)
-                notes.Add($"FLM has stored its keywords before it reads the filter, so collection '{name}' may still be filled at load (members are not read here)");
+                notes.Add($"FLM has stored its keywords before it reads the filter, so collection '{name}' may still be filled at load, but only with forms of a type a kept collection names (members are not read here)");
             names.Collections[name] = (At, keywords, registered);
             if (registered) notes.Add($"its members (every form holding a keyword, with all those listed and none of the '{g.Not}' ones, of every type a kept collection names, not only this one's: FLM fills each collection from every type it walks, and walks armors for 'magiceffect') are not read here");
         }
