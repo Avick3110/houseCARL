@@ -57,12 +57,13 @@ internal sealed partial class RecordReads
                 asked.Add(l);
             }
             var layer = Layer(format, replay, unread, (text, _) => SpidLines.Parse(text, g), ct);
+            var raceTags = RaceTags(replay, view, world, fields, unread, ct);
             var ctx = new SpidLines.Context(replay.Forms, view.WinnerClassOf, format);
             // One read of every line, the asked ones last, so the call's EditorID table walks every type once.
             var reads = SpidLines.ReadAll(layer.Concat(asked).ToList(), ctx);
             var pairs = layer.Select((l, i) => (l, reads[i])).ToList();
             for (int i = 0; i < spid.Count; i++)
-                results.Add(SpidReach.Evaluate(spid[i], asked[i], reads[layer.Count + i]!, pairs, ctx, world, fields));
+                results.Add(SpidReach.Evaluate(spid[i], asked[i], reads[layer.Count + i]!, pairs, ctx, world, fields, raceTags));
         }
         if (kid.Count > 0)
         {
@@ -87,10 +88,33 @@ internal sealed partial class RecordReads
         // Several terms are ANDed like every where= term: the rows are the records every one says yes to.
         var ordered = terms.Select(t => results.First(r => ReferenceEquals(r.Term, t))).ToList();
         return new ReachSelection(ordered, ordered.Select(r => r.RecordType).Distinct().ToList(),
-                                  unread.Count == 0 ? "" : $" {unread.Count} file(s) could not be read, so their lines were not replayed: {string.Join("; ", unread)}.", null);
+                                  unread.Count == 0 ? "" : $" {unread.Distinct().Count()} file(s) could not be read, so their lines were not replayed: {string.Join("; ", unread.Distinct())}.", null);
 
         static ReachSelection Refuse(ReachTerm t, string why) =>
             new(Array.Empty<ReachResult>(), Array.Empty<string>(), "", $"where= term '{t.Text}': the line {why}.");
+    }
+
+    /// <summary>The keywords KID's Race lines may give each race, judged by the KID reach over the races: SPID reads a
+    /// race's keywords after KID has tagged it, and the SPID reach does not replay KID, so these stay open.</summary>
+    static Dictionary<FormKey, List<string>> RaceTags(AssetLayers.SkyPatcherReplay replay, LoadOrderResolver.IndexView view, IReachWorld world,
+                                                      ReachFields fields, List<string> unread, CancellationToken ct)
+    {
+        var tags = new Dictionary<FormKey, List<string>>();
+        var format = RuntimeFormats.Kid;
+        var race = Layer(format, replay, unread, (text, _) => KidLines.Parse(text, format), ct)
+            .Where(l => l is { Skipped: null, IsGroup: false, Type: "Race" }).ToList();
+        if (race.Count == 0) return tags;
+        var ctx = new KidLines.Context(replay.Forms, view.WinnerClassOf, format);
+        var reads = KidLines.ReadAll(race, ctx);
+        var pairs = race.Select((l, i) => (l, reads[i])).ToList();
+        foreach (var (l, r) in pairs)
+        {
+            if (r is not { Dropped: null }) continue;
+            var answer = KidReach.Evaluate(new ReachTerm(l.Raw, "kid", l.Raw), l, r, pairs, ctx, world, fields);
+            var name = KidReach.KeywordName(l, ctx);
+            foreach (var fk in answer.Kept.Keys) { if (!tags.TryGetValue(fk, out var list)) tags[fk] = list = new(); list.Add(name); }
+        }
+        return tags;
     }
 
     /// <summary>Every line of the format's files as it finds them, in file order; a file it does not apply gives none, and one it cannot read is named in <paramref name="unread"/>.</summary>

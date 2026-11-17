@@ -588,6 +588,14 @@ public static class KidReach
         return l;
     }
 
+    /// <summary>The EditorID of the keyword a line gives: a keyword record's, or the name KID creates.</summary>
+    public static string KeywordName(KidLines.Line l, KidLines.Context ctx)
+    {
+        var read = RuntimeTargets.Read(l.Keyword, ctx.S);
+        if (read.Kind is not (RuntimeTargets.TargetKind.Address or RuntimeTargets.TargetKind.RuntimeFormId)) return l.Keyword;
+        return RuntimeTargets.Resolve(read, null, ctx.Resolver, ctx.S) is { } fk ? ctx.Resolver.EditorIdOf(fk) ?? l.Keyword : l.Keyword;
+    }
+
     /// <summary>The keyword section's keyword as KID holds it, and the EditorID its chance seed reads.</summary>
     static (string Id, string Eid) KeywordOf(string raw, KidLines.Context ctx, World w)
     {
