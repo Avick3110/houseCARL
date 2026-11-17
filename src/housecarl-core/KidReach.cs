@@ -26,6 +26,7 @@ public static class KidReach
     {
         public string KeywordId = ""; public string KeywordEid = "";
         public List<Rule> Any = new(); public List<List<Rule>> All = new();
+        public List<Rule> Excluded = new(), Exact = new(), Partial = new();   // the plain list, split once
         public Func<IMajorRecordGetter, World, Verdict>? Traits;
         public float Chance = 1f; public string? ChanceText;
         public bool ReadsKeywords;
@@ -36,6 +37,7 @@ public static class KidReach
     {
         public IMajorRecordGetter Body = null!; public string Record = "";
         public HashSet<string> Own = new(StringComparer.Ordinal);
+        public List<string> OwnEids = new();   // lower case, for partial strings
         public Dictionary<string, Verdict> Added = new(StringComparer.Ordinal);
         public string? Edid; public string Name = ""; public string Model = "";
     }
@@ -78,8 +80,12 @@ public static class KidReach
         var line = Compile(asked, ctx, created, w);
         var feeders = Feeders(layer, asked.Type!, line.KeywordId, ctx, created, w);
         var siblings = Siblings(layer, line.KeywordId, ctx, created);
+        int layerFeeders = feeders.Count;
+        feeders = Readable(feeders, line, siblings, w);
         if (feeders.Count > 0)
-            result.Notes.Add($"KID's {feeders.Count:N0} other {asked.Type} line(s) of the layer were replayed first, in KID's order, so a keyword they give counts.");
+            result.Notes.Add($"KID's {feeders.Count:N0} other {asked.Type} line(s) of the layer were replayed first, in KID's order, so a keyword they give counts; the other {layerFeeders - feeders.Count:N0} give none it reads.");
+        else if (layerFeeders > 0)
+            result.Notes.Add($"None of KID's {layerFeeders:N0} other {asked.Type} line(s) of the layer gives a keyword it reads, so none was replayed.");
         if (line.ChanceText is not null)
             result.Notes.Add($"The line's chance is {line.ChanceText} as written; KID rolls it from the keyword's EditorID and the item's FormID, read here.");
         // Magic Effect lines run before every other type, so a magic item's costliest effect carries what they give.
@@ -110,13 +116,47 @@ public static class KidReach
         return result;
     }
 
+    /// <summary>The feeders whose keyword the asked line can read, directly or through another feeder it reads: a
+    /// keyword no keyword term, partial string or group sibling of the line names changes none of its verdicts. A line
+    /// reading a form list keeps every feeder, since a list may hold a keyword.</summary>
+    static List<Line> Readable(List<Line> feeders, Line asked, List<string> siblings, World w)
+    {
+        var ids = new HashSet<string>(siblings, StringComparer.Ordinal);
+        var part = new List<string>();
+        bool all = false;
+        void Reads(Line l)
+        {
+            foreach (var r in l.Any.Concat(l.All.SelectMany(x => x)))
+            {
+                if (r.Keyword is { } k) ids.Add(k);
+                else if (r.Part is { } p && !r.Model) part.Add(p);
+                else if (r.Cls is { } c && typeof(IKeywordGetter).IsAssignableFrom(c)) ids.Add(Id(r.Form!.Value));
+                else if (r.Cls is { } fc && typeof(IFormListGetter).IsAssignableFrom(fc)) all = true;
+            }
+        }
+        Reads(asked);
+        var kept = new HashSet<Line>();
+        for (bool grew = true; grew && !all;)
+        {
+            grew = false;
+            foreach (var f in feeders)
+            {
+                if (kept.Contains(f)) continue;
+                var eid = EidOf(f.KeywordId, w)?.ToLowerInvariant() ?? "";
+                if (!ids.Contains(f.KeywordId) && !part.Any(p => eid.Contains(p, StringComparison.Ordinal))) continue;
+                kept.Add(f); Reads(f); grew = true;
+            }
+        }
+        return all ? feeders : feeders.Where(kept.Contains).ToList();
+    }
+
     static bool IsFormId(string raw, KidLines.Context ctx)
         => RuntimeTargets.Read(raw, ctx.S).Kind is RuntimeTargets.TargetKind.Address or RuntimeTargets.TargetKind.RuntimeFormId;
 
     static Item Open(IMajorRecordGetter body, string record, string? edidGap, World w)
     {
         var it = new Item { Body = body, Record = record };
-        if (body is Mutagen.Bethesda.Plugins.Aspects.IKeywordedGetter<IKeywordGetter> k && k.Keywords is { } kws) foreach (var x in kws) it.Own.Add(Id(x.FormKey));
+        if (body is Mutagen.Bethesda.Plugins.Aspects.IKeywordedGetter<IKeywordGetter> k && k.Keywords is { } kws) foreach (var x in kws) { it.Own.Add(Id(x.FormKey)); if (w.KwEid.TryGetValue(x.FormKey, out var e)) it.OwnEids.Add(e.ToLowerInvariant()); }
         it.Edid = edidGap is null ? body.EditorID?.ToLowerInvariant() : null;
         it.Name = (body is Mutagen.Bethesda.Plugins.Aspects.INamedGetter n ? n.Name : null)?.ToLowerInvariant() ?? "";
         it.Model = ModelPath(body)?.ToLowerInvariant() ?? "";
@@ -182,11 +222,9 @@ public static class KidReach
         if (l.All.Count > 0)
             v = Verdict.Any(l.All, grp => Verdict.All(grp, r => r.Not ? Match(r, item, w).Not() : Match(r, item, w)));
         if (v.V == Reach.No || l.Any.Count == 0) return v;
-        v = Verdict.And(v, Verdict.All(l.Any.Where(r => r.Not), r => Match(r, item, w).Not()));
-        var exact = l.Any.Where(r => !r.Not && r.Part is null).ToList();
-        var part = l.Any.Where(r => !r.Not && r.Part is not null).ToList();
-        if (exact.Count > 0) v = Verdict.And(v, Verdict.Any(exact, r => Match(r, item, w)));
-        if (part.Count > 0) v = Verdict.And(v, Verdict.Any(part, r => Match(r, item, w)));
+        v = Verdict.And(v, Verdict.All(l.Excluded, r => Match(r, item, w).Not()));
+        if (l.Exact.Count > 0) v = Verdict.And(v, Verdict.Any(l.Exact, r => Match(r, item, w)));
+        if (l.Partial.Count > 0) v = Verdict.And(v, Verdict.Any(l.Partial, r => Match(r, item, w)));
         return v;
     }
 
@@ -196,7 +234,7 @@ public static class KidReach
         {
             if (r.Model) return Verdict.Of(item.Model.Contains(p, StringComparison.Ordinal));
             if (item.Edid?.Contains(p, StringComparison.Ordinal) == true || item.Name.Contains(p, StringComparison.Ordinal)) return Verdict.Yes;
-            if (item.Own.Any(id => EidOf(id, w)?.Contains(p, StringComparison.OrdinalIgnoreCase) == true)) return Verdict.Yes;
+            foreach (var e in item.OwnEids) if (e.Contains(p, StringComparison.Ordinal)) return Verdict.Yes;
             return Verdict.Any(item.Added.Where(kv => EidOf(kv.Key, w)?.Contains(p, StringComparison.OrdinalIgnoreCase) == true), kv => kv.Value);
         }
         if (r.Exact is { } s)
@@ -307,8 +345,10 @@ public static class KidReach
     static bool In((double Min, double Max) r, double v) => v >= r.Min && v <= r.Max;
 
     // KID numbers an actor value as the game does; Mutagen's ActorValue and Skill enums run in the same order.
-    static int Av(ActorValue av) => Array.IndexOf(Enum.GetValues<ActorValue>(), av);
-    static int Av(Skill? s) => s is { } k ? Array.IndexOf(Enum.GetValues<Skill>(), k) + Av(ActorValue.OneHanded) : -1;
+    static readonly ActorValue[] Avs = Enum.GetValues<ActorValue>();
+    static readonly Skill[] Skills = Enum.GetValues<Skill>();
+    static int Av(ActorValue av) => Array.IndexOf(Avs, av);
+    static int Av(Skill? s) => s is { } k ? Array.IndexOf(Skills, k) + Av(ActorValue.OneHanded) : -1;
 
     /// <summary>The line's traits as KID 4.0.6 reads them per type (include/Data/Traits.h); a trait KID does not know is ignored, as KID ignores it.</summary>
     static Func<IMajorRecordGetter, World, Verdict>? Traits(string typeKey, string section)
@@ -506,7 +546,7 @@ public static class KidReach
                 if (!groups.TryGetValue(t.Group, out var gr)) groups[t.Group] = gr = (new(), true);
                 if (rule is null) groups[t.Group] = (gr.Rules, false); else gr.Rules.Add(rule);
             }
-            else if (rule is not null) l.Any.Add(rule);
+            else if (rule is not null) { l.Any.Add(rule); (rule.Not ? l.Excluded : rule.Part is null ? l.Exact : l.Partial).Add(rule); }
         }
         // A '+' group with a part KID cannot use is dropped whole (BaseFilters.cpp:105-118).
         l.All = groups.Values.Where(x => x.Valid && x.Rules.Count > 0).Select(x => x.Rules).ToList();
