@@ -31,6 +31,10 @@ internal static class RenderBudget
     /// RecordsRenderCostTests.TheAccountingLineIsReservedFromTheRowBudget.</summary>
     internal const int AccountingReserve = 64;
 
+    /// <summary>The chars a render holds back for the statement over the records a deep read cut, from the first cut
+    /// row on, so an answer with no cut row renders as before.</summary>
+    internal const int CutReserve = 600;
+
     internal static string AccountingLine(int rows, long ms) =>
         $"rendered {rows}{(rows == 1 ? " row in " : " rows in ")}{ms} ms\n";
 

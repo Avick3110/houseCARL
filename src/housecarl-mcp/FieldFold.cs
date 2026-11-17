@@ -67,7 +67,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         var fields = rec.Fields;
         var setRoots = SetRoots.OrderByDescending(r => r.Length).ToList();
         // The element rows come from the 'rows' fold itself, run over the same lines.
-        var rows = setRoots.Count > 0 ? RowProjection.Fold(fields, setRoots, Depth) : fields;
+        var rows = setRoots.Count > 0 ? RowProjection.Fold(fields, setRoots, Depth, rec.CutAt) : fields;
 
         var cols = new IReadOnlyList<FieldValue>[Paths.Length];
         for (int i = 0; i < Paths.Length; i++)

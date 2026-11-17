@@ -21,9 +21,13 @@ public static class ResultArtifact
         readonly Dictionary<string, int> _typeCounts = new(StringComparer.Ordinal);
         int _rowCount;
 
-        /// <summary>Append one row, newline-terminated, counting <paramref name="type"/> into the manifest; the artifact passes an unreachable cap, because an artifact row is NEVER truncated.</summary>
-        public void WriteRow(Action<Utf8JsonWriter, CharCountedStream> write, string? type = null)
+        /// <summary>The rows whose read was cut at its line budget; a row writer whose read is not a <see cref="RecordFields"/> counts its own here.</summary>
+        public RecordCuts Cuts { get; } = new();
+
+        /// <summary>Append one row, newline-terminated, counting <paramref name="type"/> into the manifest, and <paramref name="read"/> when its deep read was cut; the artifact passes an unreachable cap, so no row is cut at max_chars, and a cut read is counted into the manifest.</summary>
+        public void WriteRow(Action<Utf8JsonWriter, CharCountedStream> write, string? type = null, RecordFields? read = null)
         {
+            Cuts.Add(read);
             using (var w = new Utf8JsonWriter(_rows, JsonTextEncoder.OneLine))   // deliberately NOT indented — one row, one line
             {
                 write(w, _rows);
@@ -36,6 +40,9 @@ public static class ResultArtifact
 
         public int RowCount => _rowCount;
 
+        /// <summary>How many cut records the manifest's statement names; <c>cut_records</c> lists them all.</summary>
+        const int ManifestNames = 10;
+
         /// <summary>Write the finished artifact, returning the manifest it stamped or a named error; never throws for an IO failure. <paramref name="total"/> exceeds <see cref="RowCount"/> only when the producing lane windowed.</summary>
         /// <param name="notes">Response-level statements the ROWS depend on for their meaning, stated once here rather than per row.</param>
         /// <param name="epochUncovered">The verdict classes <paramref name="epoch"/> does NOT describe (SPEC §2.1); non-empty stamps <c>epoch_covers_all_inputs: false</c>.</param>
@@ -46,13 +53,17 @@ public static class ResultArtifact
             IReadOnlyList<string>? notes = null, IReadOnlyList<string>? epochUncovered = null,
             IReadOnlyList<string>? excludedPlugins = null)
         {
+            // The cut rows' statement rides line 1 with the rest, since line 1 is all a caller reads before trusting the file.
+            if (Cuts.Sentence(ManifestNames) is { } cut) notes = (notes ?? Array.Empty<string>()).Append(cut).ToList();
             var manifest = new Manifest(tool, query, identity, rowSchema, sort, _rowCount, total,
                                         _typeCounts.Count > 0 ? _typeCounts : null, epoch,
                                         DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                                         notes is { Count: > 0 } ? notes : null,
                                         // Empty included: null is "no coverage claim", empty is "the stamp covers everything".
                                         epochUncovered,
-                                        excludedPlugins is { Count: > 0 } ? excludedPlugins : null);
+                                        excludedPlugins is { Count: > 0 } ? excludedPlugins : null,
+                                        Cuts.Count, Cuts.Count > 0 ? Cuts.Budget : null, Cuts.Count > 0 ? Cuts.FormIds : null)
+                           { CutNote = Cuts.Sentence() };
             target.EnsureUnwritten();   // a target is single-use; writing one twice is a bug, not an IO failure
             try
             {
@@ -89,8 +100,15 @@ public static class ResultArtifact
         string Created,
         IReadOnlyList<string>? Notes = null,
         IReadOnlyList<string>? EpochUncovered = null,
-        IReadOnlyList<string>? ExcludedPlugins = null)
+        IReadOnlyList<string>? ExcludedPlugins = null,
+        int RecordsCut = 0,
+        int? CutBudget = null,
+        IReadOnlyList<string>? CutRecords = null)
     {
+        /// <summary>The short statement over the cut rows a response shows beside this manifest; set by the writer and
+        /// not written to the file, whose <see cref="Notes"/> carry the longer one.</summary>
+        public string? CutNote { get; init; }
+
         /// <summary>Does <see cref="Epoch"/> describe everything these rows were read off? Null when the producing lane made no coverage claim.</summary>
         public bool? EpochCoversAllInputs => EpochUncovered is null ? null : EpochUncovered.Count == 0;
 
@@ -112,6 +130,15 @@ public static class ResultArtifact
             w.WriteString("sort", Sort);
             w.WriteNumber("row_count", RowCount);
             w.WriteNumber("total", Total);
+            // Beside the row counts: rows that are all here but not whole.
+            if (RecordsCut > 0)
+            {
+                w.WriteNumber("records_cut", RecordsCut);
+                if (CutBudget is { } b) w.WriteNumber("cut_budget", b);
+                w.WriteStartArray("cut_records");
+                foreach (var c in CutRecords ?? Array.Empty<string>()) w.WriteStringValue(c);
+                w.WriteEndArray();
+            }
             if (TypeCounts is not null)
             {
                 w.WriteStartObject("type_counts");
@@ -248,6 +275,9 @@ public static class ResultArtifact
                 excluded = new List<string>();
                 foreach (var p in ex.EnumerateArray()) if (p.ValueKind == JsonValueKind.String) excluded.Add(p.GetString()!);
             }
+            List<string>? cutRecords = null;
+            if (r.TryGetProperty("cut_records", out var cr2) && cr2.ValueKind == JsonValueKind.Array)
+                cutRecords = cr2.EnumerateArray().Where(c => c.ValueKind == JsonValueKind.String).Select(c => c.GetString()!).ToList();
             return (new Manifest(
                         r.TryGetProperty("tool", out var t) ? t.GetString() ?? "?" : "?",
                         query,
@@ -259,7 +289,10 @@ public static class ResultArtifact
                         typeCounts,
                         r.TryGetProperty("epoch", out var e) ? e.GetString() ?? "?" : "?",
                         r.TryGetProperty("created", out var cr) ? cr.GetString() ?? "?" : "?",
-                        notes, uncovered, excluded),
+                        notes, uncovered, excluded,
+                        r.TryGetProperty("records_cut", out var rcut) ? rcut.GetInt32() : 0,
+                        r.TryGetProperty("cut_budget", out var cb) ? cb.GetInt32() : null,
+                        cutRecords),
                     null);
         }
         catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)

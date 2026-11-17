@@ -43,6 +43,9 @@ internal sealed partial class RecordReads
     public sealed record DeltaRow(string Formid, DiffPole? Subject, DiffPole? Reference, FieldsDiff.Result? Diff,
                                   IReadOnlyList<string>? StackAbove, string? Note, string? Error)
     {
+        /// <summary>The line budget a side's read was cut at, which leaves this row's diff incomplete; null when neither was.</summary>
+        public int? CutAt => Error is null ? Diff?.CutAt : null;
+
         /// <summary>The winner, when a partial form tops <see cref="StackAbove"/> so its last plugin is not it; else null.</summary>
         public string? StackWinner { get; init; }
 
@@ -494,7 +497,8 @@ internal sealed partial class RecordReads
         CancellationToken ct,
         SkyPatcherDraft.Plan? draft,
         SkyPatcherOverlay.WarningSink? overlayWarnings,
-        bool summary = false)
+        bool summary = false,
+        int? lineBudget = null)
     {
         refusal = null; refusalEpoch = null;
         var (pin, _, assets) = CaptureOverlayPin();   // the replay runs over the asset build pinned with the winners
@@ -556,7 +560,7 @@ internal sealed partial class RecordReads
                 continue;
             }
             // For an unpatchable type the copy is the winner itself: post IS pre.
-            var record = ReadEngine.ReadFields(r.Copy!, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session), depths);
+            var record = ReadEngine.ReadFields(r.Copy!, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session), depths, lineBudget);
             if (summary) record = record with { Name = ReadEngine.DisplayName(r.Copy!) };
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new LinkMemo());
             var ok = (new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
@@ -590,6 +594,9 @@ internal sealed partial class RecordReads
                                  IReadOnlyList<TreeNodeDelta> Nodes, string? Error,
                                  IReadOnlyList<ChildDeclarers> ChildDeclarers)
     {
+        /// <summary>The line budget a node's read was cut at, which leaves that node's diff incomplete; null when none was.</summary>
+        public int? CutAt => Error is null ? Nodes.Select(n => n.Diff?.CutAt).FirstOrDefault(c => c is not null) : null;
+
         /// <summary>The shared-EditorID note the record's FormID owes, read off the batch's pin.</summary>
         public string? SharedNote { get; init; }
 

@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-06
+updated: 2026-11-17
 covers: [src/housecarl-mcp/OutputLocations.cs, src/housecarl-mcp/PatchStemShadow.cs, src/housecarl-mcp/SeqTools.cs, src/housecarl-mcp/Artifacts.cs, src/housecarl-mcp/ListInput.cs, src/housecarl-mcp/ListParams.cs, src/housecarl-mcp/ResultsStore.cs, src/housecarl-core/ResultArtifact.cs, src/housecarl-core/AtomicFile.cs, src/housecarl-core/FileStamp.cs, src/housecarl-core/OrderStamp.cs, src/housecarl-core/PathArguments.cs, src/housecarl-core/ListFile.cs]
 ---
 # Output locations and result artifacts: where a write lands, and the contracts that hold it
@@ -45,6 +45,13 @@ result artifact file. These are the contracts those three share, cited from the 
 - **Two dispositions write one:** `to_file=`, because the caller asked, which renders only the manifest inline; and
   the `ceiling` auto-spill, because the inline render hit `max_chars`, which renders the prefix it managed and claims
   the complete result only when the file holds every match, naming where the missing matches are when it cannot.
+- **A cut row is counted on line 1:** the writer counts each row whose deep read was cut at its line budget
+  (`Writer.Cuts`, beside `type_counts`; a delta or tree row counts a comparison whose side was cut), and the manifest
+  carries `records_cut`, `cut_budget`, `cut_records` (every cut FormID) and a `notes` clause naming the first ten.
+  `SpillInfo.Complete` is false while any row is cut, so the spill block says `every row, NOT every row whole` with a
+  `cut:` line naming the first three (json: `complete: false`, `records_cut`, `cut_budget`, `cut_note`). `row_count`,
+  `total` and `type_counts` count rows as before. The budget a `to_file=` read runs under is in
+  `docs/architecture/read-engine.md`.
 
 ### The reservation is the file
 

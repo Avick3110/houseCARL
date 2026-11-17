@@ -133,6 +133,8 @@ static partial class Wire
         // One captured build for the whole batch, so the epoch is response-level: the first non-null, since a malformed-FormID row consulted no view.
         if (outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp is { } stamp) sb.Append(Wire.EpochInline(stamp));
         sb.Append('\n');
+        int headAt = sb.Length;   // where the cut statement goes once the rows have been counted
+        var cuts = new RecordCuts();
         int rendered = 0;
         int costReserve = bodyCost is null ? 0 : RenderBudget.AccountingReserve;
         string Notice(int r) =>
@@ -145,6 +147,7 @@ static partial class Wire
         {
             if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
             var o = outcomes[i];
+            budget = CutBudget(budget, cuts, o);
             int mark = sb.Length;
             var noteMark = notes.Mark();
             sb.Append('\n');
@@ -163,12 +166,24 @@ static partial class Wire
                 break;
             }
             rendered++;
+            if (o.Error is null) cuts.Add(o.Record);
         }
+        InsertCuts(sb, headAt, cuts);
         AppendOwnedChildNotes(sb, notes);
         // What reading these bodies cost, stated whatever the transport: the rows were resolved before this render.
         if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+    }
+
+    /// <summary>The row budget once any row, <paramref name="o"/> included, was cut by its read: less the room the cut statement needs.</summary>
+    static int CutBudget(int budget, RecordCuts cuts, ReadOutcome o) =>
+        cuts.Count == 0 && o.Error is null && o.Record?.CutAt is not null ? budget - RenderBudget.CutReserve : budget;
+
+    /// <summary>State the rows the reads cut under the header line, at <paramref name="at"/>; nothing when none was.</summary>
+    static void InsertCuts(StringBuilder sb, int at, RecordCuts cuts)
+    {
+        if (cuts.Sentence() is { } cut) sb.Insert(at, "cut: " + cut + "\n");
     }
 
     // ---- the scan lane ----
@@ -220,6 +235,8 @@ static partial class Wire
         else if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit=, page with offset=, or narrow to see more)");
         if (q.Stamp is not null) sb.Append(Wire.EpochInline(q.Stamp));   // offset= windows tile ONLY within one epoch
         sb.Append('\n');
+        int headAt = sb.Length;   // where the cut statement goes once the rows have been counted
+        var cuts = new RecordCuts();
         foreach (var owed in q.OwedNotes(spill?.Spill is not null)) sb.Append(owed).Append('\n');
         // Under a plugins= scope the per-match fields are the SCOPED plugin's own values, not the live winner's, said once from the helper the json and dense renders share.
         if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, lv)).Append('\n');
@@ -246,10 +263,12 @@ static partial class Wire
             {
                 // winner_fields= reads the load-order winner's body whatever the scan scope; otherwise the body the scan filtered, pinned to the scan's own build.
                 var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
+                budget = CutBudget(budget, cuts, o);
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
                 else AppendRecordBlock(sb, o, new RenderCap(cap, budget), notes, lv);   // o carries the scan's pin
+                if (o.Error is null && sb.Length <= budget - notes.Reserve) cuts.Add(o.Record);   // counted only when the row stays
             }
             else
             {
@@ -280,6 +299,7 @@ static partial class Wire
             rendered++;
         }
         renderClock.Stop();
+        InsertCuts(sb, headAt, cuts);
         AppendOwnedChildNotes(sb, notes);
         // What the RENDER cost, stated in-band. A to_file= call renders its rows into the ARTIFACT, so its cost comes off the write rather than off the loop above.
         if (detail && spill?.ManifestOnly == true && spill.Spill is { RenderMs: { } artifactMs } a)
@@ -586,7 +606,9 @@ static partial class Wire
         AppendNote(sb, "", ExcludedNote(o.Pin, o.FormKey));
         sb.Append("fields (from ").Append(o.SourcePlugin).Append("):\n");
         // The field loop's cut notice is charged before the first line and quotes the caller's max_chars, never the reduced budget it cuts against.
-        string Cut(int i) => "  ... [truncated: showing " + i + " of " + r.Fields.Count +
+        // The read's own cut line is not a field line; the header states that cut.
+        int lines = r.Fields.Count - (r.CutAt is null ? 0 : 1);
+        string Cut(int i) => "  ... [truncated: showing " + i + " of " + lines +
                              " field lines at max_chars=" + cap.Cap +
                              (lv.HasFieldSelector ? $"; narrow with {lv.Fields}, lower " : "; lower ") +
                              lv.Depth + ", or raise max_chars]\n";

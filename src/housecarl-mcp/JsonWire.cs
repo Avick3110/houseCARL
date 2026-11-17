@@ -202,6 +202,20 @@ static class JsonWire
         return omitted;
     }
 
+    /// <summary>The cap a row renders under: <paramref name="cap"/>, less the room the cut statement needs once any
+    /// row, this one included, was cut by its read.</summary>
+    internal static int CutCap(int cap, RecordCuts cuts, ReadOutcome o) =>
+        cuts.Count > 0 || (o.Error is null && o.Record?.CutAt is not null) ? cap - RenderBudget.CutReserve : cap;
+
+    /// <summary>The answer's count of rows its reads cut, beside the row counts, and the statement naming them; nothing when none was.</summary>
+    internal static void WriteCuts(Utf8JsonWriter w, RecordCuts cuts)
+    {
+        if (cuts.Sentence() is not { } cut) return;
+        w.WriteNumber("records_cut", cuts.Count);
+        w.WriteNumber("cut_budget", cuts.Budget);
+        w.WriteString("cut_note", cut);
+    }
+
     // ---- shared record + field writers --------------------------------------------------------------
     /// <summary>Write the fields array: one flat <c>{path, value}</c> or <c>{path, note}</c> per leaf, then any cut sentinel.</summary>
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried.</param>
@@ -211,7 +225,7 @@ static class JsonWire
     {
         var lv = levers ?? LeverNames.Legacy;
         // The read's own expansion cut rides as the one '…' entry, last, where a max_chars cut joins it.
-        var expansion = r.Fields.FirstOrDefault(f => f.Path == "…");
+        var expansion = r.Fields.FirstOrDefault(r.IsCutLine);
         string? cut = null;
         w.WriteStartArray("fields");
         for (int i = 0; i < r.Fields.Count; i++)
@@ -380,15 +394,17 @@ static class JsonWire
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;
             var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the annotated fields the rows RENDERED carried, per tier
+            var cuts = new RecordCuts();   // over the rows rendered, as `rendered` counts them
             for (int i = 0; i < outcomes.Count; i++)
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
-                w.Flush();
-                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                 var o = outcomes[i];
+                int rowCap = CutCap(cap, cuts, o);
+                w.Flush();
+                if (Chars(ms) >= rowCap) { rowsTruncated = true; break; }
                 string? hit = matches is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
                 if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(o.FormKey)); w.WriteString("error", o.Error); if (hit is not null) w.WriteString("matches", hit); w.WriteEndObject(); }
-                else WriteReadRecord(w, o, ms, cap, hit, childFields: childFields, levers: levers);
+                else { WriteReadRecord(w, o, ms, rowCap, hit, childFields: childFields, levers: levers); cuts.Add(o.Record); }
                 rendered++;
             }
             w.WriteEndArray();
@@ -396,6 +412,7 @@ static class JsonWire
             // What the bodies this batch renders cost to read, when the caller clocked them (#582).
             if (bodyCost is { } bc) { w.WriteNumber("rows_read", bc.RowsRead); w.WriteNumber("render_ms", bc.Millis); }
             w.WriteBoolean("truncated", rowsTruncated);
+            WriteCuts(w, cuts);
             // Over the annotated fields this document actually carries, never the input list.
             WriteOwnedChildNote(w, childFields);
             truncated = rowsTruncated;
@@ -1144,6 +1161,7 @@ static class JsonWire
                 int rendered = 0; bool rowsTruncated = false;
                 var renderClock = System.Diagnostics.Stopwatch.StartNew();
                 var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the fields the rows carried
+                var cuts = new RecordCuts();   // over the rows rendered
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
@@ -1154,8 +1172,10 @@ static class JsonWire
                     {
                         // winner_fields=: the WINNER's body whatever the scan scope; pinned to the scan's build.
                         var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
+                        int rowCap = CutCap(cap, cuts, o);
+                        if (Chars(ms) >= rowCap) { rowsTruncated = true; break; }
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(fk)); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
-                        else WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers);
+                        else { WriteReadRecord(w, o, ms, rowCap, matches, childFields: childFields, levers: levers); cuts.Add(o.Record); }
                     }
                     else
                     {
@@ -1172,6 +1192,7 @@ static class JsonWire
                 { w.WriteNumber("rendered_to_file", a.Manifest.RowCount); w.WriteNumber("render_ms", artifactMs); }
                 else if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
                 w.WriteBoolean("truncated", rowsTruncated);
+                WriteCuts(w, cuts);
                 WriteOwnedChildNote(w, childFields);
                 truncated = rowsTruncated;
             }

@@ -20,8 +20,14 @@ public sealed record ResolvedRef(
     string Token, bool Resolved, string? Type = null, string? EditorId = null,
     string? Name = null, string? Winner = null, string? Error = null);
 
-/// <summary>A located record read out as structured fields: identity plus the requested (or all modeled) reads.</summary>
-public sealed record RecordFields(string Type, string FormKey, string? EditorId, IReadOnlyList<FieldValue> Fields, string? Name = null);
+/// <summary>A located record read out as structured fields: identity plus the requested (or all modeled) reads.
+/// <see cref="CutAt"/> is the line budget the deep read stopped at, null when the record was read whole.</summary>
+public sealed record RecordFields(string Type, string FormKey, string? EditorId, IReadOnlyList<FieldValue> Fields, string? Name = null,
+                                  int? CutAt = null)
+{
+    /// <summary>Is <paramref name="f"/> this record's own cut line, the one <c>…</c> entry the read ends with?</summary>
+    public bool IsCutLine(FieldValue f) => CutAt is not null && f.Path == ReadEngine.CutPath;
+}
 
 /// <summary>The reflection-driven READ surface, symmetric partner to <see cref="WriteEngine"/>: a record's modeled
 /// field OUT to a token that is the faithful inverse of Coerce, per PLUGIN. Navigation is the write engine's own
@@ -133,11 +139,13 @@ public static class ReadEngine
     public static RecordFields ReadFields(IMajorRecordGetter record, IReadOnlyList<string>? paths = null, int depth = 1,
                                           string? containerHint = DepthExpandHint,
                                           Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null,
-                                          IReadOnlyList<(int Depth, string[]? Tail)>? depths = null)
+                                          IReadOnlyList<(int Depth, string[]? Tail)>? depths = null,
+                                          int? lineBudget = null)
     {
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter");
         var targets = paths is { Count: > 0 } ? (IEnumerable<string>)paths : ModeledFieldNames(typeName, record.GetType());
         var fields = new List<FieldValue>();
+        int? cutAt = null;
         // A planned projection path this record's type lacks reads as the plan's token, never the per-record diagnosis.
         var plan = paths as PlannedFields;
         bool Lacking(string p)
@@ -171,7 +179,8 @@ public static class ReadEngine
         }
         else
         {
-            int budget = MaxExpandNodes;
+            int of = lineBudget ?? MaxExpandNodes;
+            int budget = of;
             // Per-path depths apply only when they line up with the paths the caller named.
             var perPath = paths is { Count: > 0 } && depths is not null && depths.Count == paths.Count ? depths : null;
             int at = 0;
@@ -189,8 +198,15 @@ public static class ReadEngine
                 // Same rule as the depth-1 branch, over the lines THIS path emitted, on the record the walk ran on.
                 AnnotateOpaqueBytes(fields, from, on.FormVersion);
             }
+            // Emit left its mark where the walk stopped; the line states the budget this read ran under.
+            int mark = fields.FindIndex(f => ReferenceEquals(f, CutMark));
+            if (mark >= 0)
+            {
+                fields[mark] = new FieldValue(CutPath, false, null, CutNote(of));
+                cutAt = of;
+            }
         }
-        return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields);
+        return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields, CutAt: cutAt);
     }
 
     /// <summary>A record body's display Name through Mutagen's <c>INamedGetter</c> aspect; null for a type with no Name, or an empty one.</summary>
@@ -494,6 +510,31 @@ public static class ReadEngine
     /// <summary>Max FieldValue lines one descendable read will GENERATE; over it, ONE truncation note is emitted.</summary>
     internal const int MaxExpandNodes = 2000;
 
+    /// <summary>The path of the one line a cut read ends with.</summary>
+    public const string CutPath = "…";
+
+    /// <summary>The cut line's note: where the read stopped and how to read less.</summary>
+    public static string CutNote(int budget) =>
+        $"(expansion truncated at {budget} lines — narrow with a field path or a lower depth)";
+
+    /// <summary>The response-level statement over the records a deep read cut: how many, which (the first
+    /// <paramref name="names"/>), at what budget, and how to read one whole.</summary>
+    /// <param name="compared">The rows are comparisons, whose sides' reads were cut, not reads ending in a <c>…</c> entry.</param>
+    public static string CutSentence(int count, int budget, IReadOnlyList<string> names, bool compared = false) =>
+        (compared
+            ? $"{count} record{(count == 1 ? " was" : "s were")} compared on a read cut at {budget} field lines, so " +
+              $"{(count == 1 ? "its comparison is" : "their comparisons are")} INCOMPLETE: "
+            : $"{count} record{(count == 1 ? " was" : "s were")} cut at {budget} field lines, so {(count == 1 ? "its row ends" : "each row ends")} " +
+              "with a '…' entry and the lines past it are missing: ") +
+        string.Join(", ", names) +
+        (count > names.Count ? $" and {count - names.Count} more" : "") +
+        (compared
+            ? " — compare less at once with a narrower field path."
+            : " — read one whole with a narrower field path, [*count] for a list's size, or an index window such as List[0..39].");
+
+    /// <summary>The placeholder <see cref="Emit"/> leaves where a walk stopped.</summary>
+    static readonly FieldValue CutMark = new(CutPath, false, null, null);
+
     static readonly string[] IdentityFieldNames = { "Name", "EditorID", "Title" };
 
     /// <summary>Emit one target path, expanding contents up to <paramref name="depth"/> levels under the same
@@ -758,8 +799,7 @@ public static class ReadEngine
         if (budget < 0) return false;
         if (budget == 0)
         {
-            sink.Add(new FieldValue("…", false, null,
-                $"(expansion truncated at {MaxExpandNodes} lines — narrow with a field path or a lower depth)"));
+            sink.Add(CutMark);   // ReadFields turns it into the cut line, with the budget it ran under
             budget = -1;
             return false;
         }

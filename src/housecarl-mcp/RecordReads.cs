@@ -42,12 +42,13 @@ internal sealed partial class RecordReads
                                    bool resolveNames = false, LinkMemo? linkMemo = null,
                                    string? containerHint = ReadEngine.DepthExpandHint,
                                    IReadOnlyList<(int Depth, string[]? Tail)>? depths = null,
-                                   IReadOnlyCollection<string>? countFields = null)
+                                   IReadOnlyCollection<string>? countFields = null,
+                                   int? lineBudget = null)
     {
         var resolver = _host.Resolver;
         var view = linkMemo is null ? resolver.Capture() : resolver.Capture(linkMemo.Absences);   // a lane's rows share one absence cache
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
-                           new ChildUnionMemo(), depths: depths, countFields: countFields)   // one named record: the union lane
+                           new ChildUnionMemo(), depths: depths, countFields: countFields, lineBudget: lineBudget)   // one named record: the union lane
                with { Stamp = view.Stamp, Pin = new LoadOrderService.ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
     }
 
@@ -64,7 +65,8 @@ internal sealed partial class RecordReads
                             IMajorRecordGetter? prefetched = null,
                             IReadOnlyCollection<string>? countFields = null,
                             bool summary = false,
-                            Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? heldParent = null)
+                            Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? heldParent = null,
+                            int? lineBudget = null)
     {
         // An explicitly-requested plugin excluded this session is said so, rather than falling through to a
         // misleading "does not define this record".
@@ -120,7 +122,7 @@ internal sealed partial class RecordReads
         // materialise while the session (overlay) is open; the *parent hop climbs the index's containment map and
         // fetches the containing record's winner body through the same session
         var hop = ContainmentIndex.ReadHop(view, session, heldParent);
-        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, hop, depths);
+        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, hop, depths, lineBudget);
         if (summary) record = record with { Name = ReadEngine.DisplayName(rec) };
         record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields, hop, countFields);   // the additive union (or the index-only note), display-only
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
@@ -331,13 +333,14 @@ internal sealed partial class RecordReads
                                        LoadOrderResolver.OverlaySession? session,
                                        IMajorRecordGetter? prefetched,
                                        IReadOnlyCollection<string>? countFields,
-                                       Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? heldParent = null)
+                                       Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? heldParent = null,
+                                       int? lineBudget = null)
         => q.Pin is { } p
             ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
                           batchSession: session, depths: depths, prefetched: prefetched, countFields: countFields,
-                          heldParent: heldParent)
+                          heldParent: heldParent, lineBudget: lineBudget)
               with { Stamp = p.View.Stamp, Pin = p }
-            : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, countFields);
+            : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, countFields, lineBudget);
 
     /// <summary>The summary twin of <see cref="ResolveReadOn"/>, one key read alone.</summary>
     internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk)
@@ -493,7 +496,8 @@ internal sealed partial class RecordReads
                                                    IReadOnlyList<(int Depth, string[]? Tail)>? depths,
                                                    CancellationToken ct,
                                                    IReadOnlyCollection<string>? countFields,
-                                                   bool summary = false)
+                                                   bool summary = false,
+                                                   int? lineBudget = null)
     {
         artifactRefusal = null; refusalEpoch = null;
         var resolver = _host.Resolver;           // build/refresh once for the batch
@@ -511,7 +515,7 @@ internal sealed partial class RecordReads
         using var batchSession = resolver.OpenSession();
         // The scan's body forms come through here too, so this lane and the scan render lane cost the same per row.
         var outcomes = ReadRowsOrdered(view, batchSession, resolver.Counters, formids, plugin, BatchPassRows, ct, (fk, body, parent) =>
-            ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, false, null, containerHint, unionMemo, batchSession, depths, body, countFields, summary, parent)
+            ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, false, null, containerHint, unionMemo, batchSession, depths, body, countFields, summary, parent, lineBudget)
                 with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         if (resolveNames) NameLinks(outcomes, view, batchSession, linkMemo!, ct);
         return outcomes;
@@ -689,7 +693,8 @@ internal sealed partial class RecordReads
         IReadOnlyList<(int Depth, string[]? Tail)>? depths,
         CancellationToken ct,
         IReadOnlyCollection<string>? countFields,
-        bool summary = false)
+        bool summary = false,
+        int? lineBudget = null)
     {
         pole = null; refusal = null; refusalEpoch = null;
         var (pin, roots) = _host.CapturePinAndRoots(AfterReadPinForGuard);   // one build and one set of roots for the pole test and every read
@@ -719,7 +724,7 @@ internal sealed partial class RecordReads
             var unionMemo = new ChildUnionMemo();   // named records again: the union lane
             using var batchSession = resolver.OpenSession();   // and one overlay cache for the batch, as ResolveBatch has
             var outcomes = ReadRowsOrdered(view, batchSession, resolver.Counters, formids, plugin, BatchPassRows, ct, (fk, body, parent) =>
-                ResolveRead(resolver, view, fk, plugin, fields, false, depth, false, null, containerHint, unionMemo, batchSession, depths, body, countFields, summary, parent)
+                ResolveRead(resolver, view, fk, plugin, fields, false, depth, false, null, containerHint, unionMemo, batchSession, depths, body, countFields, summary, parent, lineBudget)
                     with { Stamp = view.Stamp, Pin = pin });
             if (resolveNames) NameLinks(outcomes, view, batchSession, linkMemo!, ct);
             return outcomes;
@@ -790,7 +795,7 @@ internal sealed partial class RecordReads
                         with { Stamp = view.Stamp, Pin = pin };
                     continue;
                 }
-                var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, depths: depths);   // materialise while the overlay is open
+                var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, depths: depths, lineBudget: lineBudget);   // materialise while the overlay is open
                 if (summary) record = record with { Name = ReadEngine.DisplayName(rec) };
                 var winner = view.ResolveWinner(fk);                             // winner CONTEXT where the record also lives in the order
                 // No pin: an off-order body is never the copy the game loads, so it owes no shared-EditorID note.

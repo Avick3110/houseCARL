@@ -455,8 +455,9 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                                        LoadOrderResolver.OverlaySession? session = null,
                                        IMajorRecordGetter? prefetched = null,
                                        IReadOnlyCollection<string>? countFields = null,
-                                       Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? heldParent = null)
-        => _reads.ResolveReadOn(q, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, session, prefetched, countFields, heldParent);
+                                       Func<IMajorRecordGetter, FormKey, IMajorRecordGetter?>? heldParent = null,
+                                       int? lineBudget = null)
+        => _reads.ResolveReadOn(q, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, session, prefetched, countFields, heldParent, lineBudget);
     internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk) => _reads.ResolveSummaryOn(q, fk);
     internal (PlannedFields? Plan, string? Refusal) PlanFields(IReadOnlyList<string> paths, IReadOnlyList<string>? typeTokens) => _reads.PlanFields(paths, typeTokens);
     internal IReadOnlyList<RecordSummary>? FillSummaries(CrossQueryOutcome q, CancellationToken ct) => _reads.FillSummaries(q, ct);
@@ -474,9 +475,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
                                                    IReadOnlyList<(int Depth, string[]? Tail)>? depths = null,
                                                    CancellationToken ct = default,
                                                    IReadOnlyCollection<string>? countFields = null,
-                                                   bool summary = false)
+                                                   bool summary = false,
+                                                   int? lineBudget = null)
         => _reads.ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, artifactDemand, out artifactRefusal, out refusalEpoch,
-                               containerHint, depths, ct, countFields, summary);
+                               containerHint, depths, ct, countFields, summary, lineBudget);
     internal IReadOnlyList<ReadOutcome> ResolveBatchFromPole(
         IReadOnlyList<string> formids, string plugin, string? mod,
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
@@ -486,9 +488,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         IReadOnlyList<(int Depth, string[]? Tail)>? depths = null,
         CancellationToken ct = default,
         IReadOnlyCollection<string>? countFields = null,
-        bool summary = false)
+        bool summary = false,
+        int? lineBudget = null)
         => _reads.ResolveBatchFromPole(formids, plugin, mod, fields, depth, resolveNames, artifactDemand, out pole, out refusal, out refusalEpoch,
-                                       containerHint, depths, ct, countFields, summary);
+                                       containerHint, depths, ct, countFields, summary, lineBudget);
     internal RecordReads.PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error) => _reads.ProbeSourceArm(plugin, mod, out error);
     internal IReadOnlyList<RecordReads.DeltaRow> DeltaBatch(
         IReadOnlyList<string> formids, RecordReads.PoleSpec subject, RecordReads.PoleSpec reference, IReadOnlyList<string>? fields,
@@ -505,9 +508,10 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
         CancellationToken ct = default,
         SkyPatcherDraft.Plan? draft = null,
         SkyPatcherOverlay.WarningSink? overlayWarnings = null,
-        bool summary = false)
+        bool summary = false,
+        int? lineBudget = null)
         => _reads.OverlayPostBatch(formids, fields, depth, resolveNames, demand, out refusal, out refusalEpoch, out epoch,
-                                   containerHint, depths, ct, draft, overlayWarnings, summary);
+                                   containerHint, depths, ct, draft, overlayWarnings, summary, lineBudget);
     internal IReadOnlyList<RecordReads.TreeRow> TreeBatch(
         IReadOnlyList<string> formids, RecordReads.PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,

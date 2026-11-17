@@ -1,0 +1,1 @@
+- **`records` on `to_file=` now reads each record up to 30,000 field lines (2,000 inline), and every answer, spill block and manifest names the records a deep read still cut (`records_cut`, `complete: false`).** Check: a `to_file=` QUST sweep of Skyrim.esm, `Aliases` at depth 6, has no cut row.
