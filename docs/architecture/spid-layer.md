@@ -10,8 +10,9 @@ SPID (Spell Perk Item Distributor) hands spells, perks, items, keywords, outfits
 runtime from `_DISTR.ini` files in `Data`. `housecarl_layer` reads those files as SPID 7.3 reads them (7.3.0 and
 7.3.3 read their files the same): which files SPID reads and in what order, how each line splits, every form a line
 names and where, and what SPID does where a name finds nothing. It does not say which NPCs a line reaches: no string,
-level, trait or chance filter is evaluated, and an outfit or leveled list is not followed to what it holds; the
-`records` reach term does that, on the same split and read ([`record-reach.md`](record-reach.md)).
+level, trait or chance filter is evaluated, and an outfit or leveled list is not followed to what it holds. The
+`records` reach term evaluates the filters on the same split and read, and follows no outfit or leveled list either
+([`record-reach.md`](record-reach.md)).
 
 ## Contracts
 

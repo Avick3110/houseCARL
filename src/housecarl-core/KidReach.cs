@@ -72,6 +72,7 @@ public static class KidReach
             result.Notes.Add($"KID drops the line ({dropped}), so it reaches no item.");
             return result;
         }
+        result.Notes.Add("Deleted records are left out.");
         var w = new World { W = world, F = fields, G = g };
         foreach (var b in world.Winners(typeof(IKeywordGetter))) if (b.EditorID is { } e) w.KwEid[b.FormKey] = e;
         var created = new HashSet<string>(layer.Where(x => x.Line is { Skipped: null, IsGroup: false } && x.Read is not null)
@@ -180,9 +181,7 @@ public static class KidReach
         return file?.GetType().GetProperty("GivenPath")?.GetValue(file) as string ?? file?.ToString();
     }
 
-    /// <summary>KID's per-item pass: each other keyword of the type, its lines in order, the first passing one gives it,
-    /// a keyword the item holds is skipped; repeated until nothing is added, which is the dependency sort's order where
-    /// it has one. A give the files cannot settle is kept open with its reason.</summary>
+    /// <summary>KID's per-item pass in layer order, repeated until nothing is added (docs/architecture/record-reach.md).</summary>
     static void Replay(List<Line> feeders, Item item, World w)
     {
         if (feeders.Count == 0) return;
