@@ -46,7 +46,8 @@ from the files, or decided only in the running game; the rows are the yes record
   keyword is run over the NPC before the asked line, in layer order, repeated until nothing is added, at most 16
   passes, never taking a give back; a keyword it gives counts for later lines. A give the files cannot settle stays open with its reason, so a
   line reading it is not decidable or the running game's, the worse of the two. Only the lines whose keyword the asked
-  line can read (a string it names or holds part of, a group sibling, through each other) are run; the rest change
+  line or an earlier line of its form can read (a string it names or holds part of, a group sibling, through each
+  other) are run; the rest change
   none of its verdicts, and the note counts both.
 - **KID** (BaseFilters.cpp, ItemData.cpp, Traits.h): chance first, as KID's fixed roll (`KidReach.Roll`: Xoshiro256**
   seeded with szudzik_pair(fnv1a_32(keyword EditorID), runtime FormID)), then traits per type, then filters: one `+`

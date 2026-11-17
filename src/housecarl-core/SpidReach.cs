@@ -149,7 +149,7 @@ public static class SpidReach
             result.Notes.Add($"KID's Race lines may tag {raceTags.Count:N0} race(s) with a keyword; they are not replayed, so a keyword they give is not decidable for NPCs of those races.");
         var groups = Groups(layer, line, ctx, kwEid);
         int layerFeeders = feeders.Count;
-        feeders = Readable(feeders, line, groups);
+        feeders = Readable(feeders, line, groups, earlier);
         if (feeders.Count > 0)
             result.Notes.Add($"SPID's {feeders.Count:N0} Keyword line(s) of the layer were replayed first, so a keyword they give counts; the other {layerFeeders - feeders.Count:N0} give none it reads.");
         else if (layerFeeders > 0)
@@ -209,14 +209,15 @@ public static class SpidReach
                .Concat(l.Tokens.Select(t => $"{t.Field}:{t.List}:{t.Raw.Trim()}"))
                .Concat(Sections(l, g).Select(s => $"{s.Field}:{s.Section}"))).ToLowerInvariant();
 
-    /// <summary>The feeders whose keyword the asked line can read, directly or through another feeder it reads: a
+    /// <summary>The feeders whose keyword the asked line or an earlier line of its form can read, directly or through another feeder it reads: a
     /// keyword no string of the line names, and no ExclusiveGroup sibling is, changes none of its verdicts.</summary>
-    static List<Line> Readable(List<Line> feeders, Line asked, List<Sib> groups)
+    static List<Line> Readable(List<Line> feeders, Line asked, List<Sib> groups, List<Line> earlier)
     {
         var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var part = new List<string>();
         void Reads(Line l) { exact.UnionWith(l.SAll); exact.UnionWith(l.SNot); exact.UnionWith(l.SMatch); part.AddRange(l.SAny); }
         Reads(asked);
+        foreach (var l in earlier) Reads(l);
         foreach (var g in groups) if (g.Keyword is { } k) exact.Add(k);
         var kept = new List<Line>();
         var left = new List<Line>(feeders);
