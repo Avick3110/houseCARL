@@ -88,7 +88,7 @@
   }
  }
 ],
-"_distributors_about": "The four distributor formats: discovery and target spelling, and a 'lines' block (line kinds, order, conflict and grammar) on each row whose reader has landed; SPID's and KID's have, the others' land with their own readers. 'unread' is a rule this build has not read for that format, never a claim about it.",
+"_distributors_about": "The four distributor formats: discovery and target spelling, and a 'lines' block (line kinds, order, conflict and grammar) on each row whose reader has landed: SPID's, KID's, BOS's and FLM's, the only rows the loader admits one on. 'unread' is a rule this build has not read for that format, never a claim about it.",
 "distributors": [
  {
   "format": "Spell Perk Item Distributor",
