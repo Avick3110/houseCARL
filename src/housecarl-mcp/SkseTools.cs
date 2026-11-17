@@ -143,8 +143,8 @@ public static class SkseTools
          "hooking and reading happen at runtime and are never observed, and a missing token proves nothing. Treat a " +
          "finding as a plausibility verdict to verify, and 'nothing found' as no clean bill of health. Not covered: " +
          "distributor INIs in the Data root, SPID *_DISTR, KID *_KID, BOS *_SWAP and FLM *_FLM (and Data\\FLM), which " + ToolNames.Layer + " reads. " +
-         "The config audit also leaves out SkyPatcher's INIs (a name holding .ini under SKSE\\Plugins\\SkyPatcher\\, " +
-         "and SkyPatcher.ini), which " + ToolNames.Layer + " reads; inventory still lists them. " +
+         "The config audit also leaves out SkyPatcher's INIs (any name holding .ini under SKSE\\Plugins\\SkyPatcher\\, " +
+         "and the file SKSE\\Plugins\\SkyPatcher.ini), which " + ToolNames.Layer + " reads; inventory still lists them. " +
          "Every response ends on its accounting (total / rendered / skipped / capped / truncated / " +
          "offset / remaining / notes), so what a window or a cap left out is a number.")]
     public static string Skse(
