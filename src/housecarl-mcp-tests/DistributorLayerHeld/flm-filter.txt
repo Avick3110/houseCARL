@@ -19,7 +19,7 @@ order: files by name in byte order, then Data\FLM's; FLM reads file by file its 
       :8  FormList = HcCoin|HcGem
           [!] FLM drops this line: its list 'HcCoin' names 000802:HcFlm.esp, a record of type MiscItem, not a FormList, so FLM logs 'Unable to find FormList: HcCoin.' and counts the line invalid
       :9  Collection = Shiny|Misc|HcKw
-          [!] its members (every form with the keywords listed and none of the '-' ones, of every type a kept collection names, not only this one's: FLM fills each collection from every type it walks, and walks armors for 'magiceffect') are not read here
+          [!] its members (every form holding a keyword, with all those listed and none of the '-' ones, of every type a kept collection names, not only this one's: FLM fills each collection from every type it walks, and walks armors for 'magiceffect') are not read here
       :10  FormList = HcList2|#Shiny
           adds 0 form(s) to HcList2 (000801:HcFlm.esp), and what collection 'Shiny' holds (not read)
       :11  Plant = HcSeed|HcBush
