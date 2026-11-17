@@ -204,6 +204,12 @@ per-service settings (`Bounds` on the service, `MaxAssetPaths` on the assets are
 own world's; production never assigns them. `AccountingReserve` is held back from
 `max_chars` so the accounting line is paid for inside the cap.
 
+`CutReserve` (600 chars) is held back the same way for the statement naming the records a deep read cut, on the
+batch and scan lanes in both transports. `CutHold` charges it once, from the first row whose read was cut, so an
+answer with no cut row holds nothing and renders as before. The delta and tree forms need no hold: their statement
+is written in the header, ahead of the rows the cap is checked against. The dense table holds none: like its
+`read_note`, the statement rides the unreserved trailer after the rows.
+
 The comparison forms (delta/tree) are **measured, not predicted** (#932). The first reset dropped a predicted
 per-row cost, because each of four reviews found a read path it missed. The second dropped a flat worst-row price,
 because it was no ceiling either (a tree over records with 30–40 providers, a heavy `fields=` list, both poles
