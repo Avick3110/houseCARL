@@ -168,8 +168,8 @@ public static class FlmLines
     // ---- what a line names --------------------------------------------------------------
 
     /// <summary>What one line names and what FLM does with it: every form it names that resolves, the notes its tokens
-    /// owe, why FLM counts it invalid (null when FLM keeps it), whether its filter lets it apply, and what it adds.</summary>
-    public sealed record LineRead(IReadOnlyList<Named> Forms, IReadOnlyList<string> Notes, string? Dropped, bool FilteredOut,
+    /// owe (a filter's verdict among them), why FLM counts it invalid (null when FLM keeps it), and what it adds.</summary>
+    public sealed record LineRead(IReadOnlyList<Named> Forms, IReadOnlyList<string> Notes, string? Dropped,
                                   IReadOnlyList<Add> Adds) : DistributorLines.IRead
     {
         /// <summary>FLM names no plugin as a term: a filter's plugins gate the line (DECISIONS 2026-11-13 (12)(iii)).</summary>
@@ -304,7 +304,7 @@ public static class FlmLines
                 notes.RemoveRange(n, notes.Count - n);
                 if (filteredOut) dropped = null;
             }
-            return new LineRead(forms, notes, dropped, filteredOut && dropped is null, dropped is null && !filteredOut ? adds : Array.Empty<Add>());
+            return new LineRead(forms, notes, dropped, dropped is null && !filteredOut ? adds : Array.Empty<Add>());
         }
 
         bool Sections(string shape, params int[] counts)
