@@ -425,6 +425,22 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AnInListMemberTheReachLeavesOpenIsNamedUnmatched()
+    {
+        // The ARR :443 shape: HcLeveledTemplated is not decidable, so it is no row and its member matched none.
+        // Both scan lanes: the identity set alone, and under types=.
+        foreach (var types in new[] { null, new[] { "NPC_" } })
+        {
+            var r = RecordsTools.Records(_w.Svc, types: types, where: new[] { "spid reaches Spell = HcSpell||HcHumanRace",
+                $"formid in [{F(ReachWorld.Guard)}, {F(ReachWorld.LeveledTemplated)}]" });
+            Assert.Contains("scan: 1 match", r);
+            var note = r.Split('\n').Single(l => l.Contains("'in' list member(s)"));
+            Assert.Contains(F(ReachWorld.LeveledTemplated), note);
+            Assert.DoesNotContain(F(ReachWorld.Guard), note);
+        }
+    }
+
+    [Fact]
     public void AGroupOfCreatedKeywordsKeepsTheSiblingLineOff()
     {
         // ARR's OCF and Bestiary shape: SPID creates both keywords, and :4 gives HcMadeA to every human NPC first.
