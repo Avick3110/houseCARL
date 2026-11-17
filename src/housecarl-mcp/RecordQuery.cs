@@ -145,7 +145,18 @@ internal sealed partial class RecordReads
         var refSet = hasReferences ? new HashSet<FormKey>(references!) : null;
         bool multiTarget = references is { Count: >= 2 };
 
-        // The reach terms are judged first, over this scan's view; the records they say yes to become the identity set.
+        // where= becomes the field-value predicate set, parsed up front so a malformed predicate refuses the call
+        // before any reach term is judged.
+        if (reachTerms.Count > 0) { where = whereFields; hasWhere = where.Count > 0; }
+        FieldPredicateSet? predicate = null;
+        if (hasWhere)
+        {
+            var (set, perr) = FieldPredicateSet.Parse(where!, FormIdDoor.On(view).Parse);
+            if (perr is not null) return CrossQueryOutcome.Fail(perr);
+            predicate = set;
+        }
+
+        // The reach terms are judged next, over this scan's view; the records they say yes to become the identity set.
         string? reachNote = null;
         if (reachTerms.Count > 0)
         {
@@ -158,17 +169,6 @@ internal sealed partial class RecordReads
             // An empty selection is still the bound: the identity set is the universe, so the scan answers 0, not every record.
             formidSet = kept;
             hasFormidSet = true;
-            where = whereFields;
-            hasWhere = where.Count > 0;
-        }
-
-        // where= becomes the field-value predicate set, parsed up front so a malformed predicate refuses the call.
-        FieldPredicateSet? predicate = null;
-        if (hasWhere)
-        {
-            var (set, perr) = FieldPredicateSet.Parse(where!, FormIdDoor.On(view).Parse);
-            if (perr is not null) return CrossQueryOutcome.Fail(perr);
-            predicate = set;
         }
 
         // Artifact re-entry: checked HERE against the view this scan will answer from, not at the tool layer,
