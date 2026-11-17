@@ -41,6 +41,7 @@ public static class SpidReach
         public readonly Npc?[] Prov = new Npc?[Readers.Length];
         public readonly string?[] Why = new string?[Readers.Length];
         public FormKey? TemplateKey;
+        public bool Pick, PickEids;                 // its template is a leveled list; and SPID sees NPC EditorIDs
         public HashSet<string> Strings = null!;     // every exact string channel, lower case
         public string? StringsWhy;                  // a channel the files cannot read
         public Dictionary<string, Verdict> Added = new(StringComparer.OrdinalIgnoreCase);   // keywords SPID's Keyword lines give
@@ -236,6 +237,8 @@ public static class SpidReach
         if (n.Template is { } tk)
         {
             e.TemplateKey = tk;
+            e.Pick = !npcs.ContainsKey(tk) && world.ClassOf(tk) is { } tc && typeof(ILeveledNpcGetter).IsAssignableFrom(tc);
+            e.PickEids = e.Pick && npcEids;
             if (npcEids) templateEid = npcs.TryGetValue(tk, out var tn) ? tn.Eid : lvlnEid.GetValueOrDefault(tk);
         }
         // The exact string channels: keywords (own and the race's), the name, the NPC's and its template's EditorIDs.
@@ -305,18 +308,22 @@ public static class SpidReach
     }
 
     /// <summary>An exact string: a keyword's EditorID (the NPC's, its race's, one SPID gave), the name, or an EditorID SPID matches.</summary>
-    static Verdict Str(string s, Eff e)
+    static Verdict Str(string s, Eff e, bool pick = true)
     {
         if (e.Strings.Contains(s)) return Verdict.Yes;
-        var v = e.StringsWhy is { } w ? Verdict.Undecided(w) : Verdict.No;
+        var v = e.StringsWhy is { } w ? Verdict.Undecided(w) : pick ? Picked(e, e.PickEids) : Verdict.No;
         return e.Added.TryGetValue(s, out var a) ? Verdict.Or(v, a) : v;
     }
+
+    /// <summary>Not decidable when the NPC's template is a leveled list, whose pick SPID also matches; else no.</summary>
+    static Verdict Picked(Eff e, bool applies)
+        => applies ? Verdict.Undecided("its template is a leveled list, and SPID matches the NPC it picks too") : Verdict.No;
 
     /// <summary>Part of a string: of the name, of an EditorID SPID matches, of a keyword's EditorID.</summary>
     static Verdict Part(string s, Eff e)
     {
         foreach (var x in e.Strings) if (x.Contains(s, StringComparison.Ordinal)) return Verdict.Yes;
-        var v = e.StringsWhy is { } w ? Verdict.Undecided(w) : Verdict.No;
+        var v = e.StringsWhy is { } w ? Verdict.Undecided(w) : Picked(e, e.PickEids);
         foreach (var (k, a) in e.Added) if (k.Contains(s, StringComparison.OrdinalIgnoreCase)) { v = Verdict.Or(v, a); if (v.V == Reach.Yes) break; }
         return v;
     }
@@ -340,7 +347,7 @@ public static class SpidReach
         if (Is<IFactionGetter>(cls)) return On(R.Factions, n => n.Factions.Any(x => x.F == f && x.Rank > -1));
         if (Is<IRaceGetter>(cls)) return On(R.Race, n => n.Race == f);
         if (Is<IOutfitGetter>(cls)) return On(R.Outfit, n => n.Outfit == f);
-        if (Is<INpcGetter>(cls)) return Verdict.Of(e.Self.Key == f || e.TemplateKey == f);
+        if (Is<INpcGetter>(cls)) return e.Self.Key == f || e.TemplateKey == f ? Verdict.Yes : Picked(e, e.Pick);
         if (Is<IPlacedNpcGetter>(cls)) return Verdict.Game("a placed-actor filter");
         if (Is<IVoiceTypeGetter>(cls)) return On(R.Voice, n => n.Voice == f);
         if (Is<ISpellGetter>(cls)) return On(R.Spells, n => n.Spells.Contains(f));
@@ -574,5 +581,5 @@ public static class SpidReach
     /// <summary>Whether the NPC holds a group sibling: a keyword by its EditorID (one SPID gave included), any other form as SPID's has_form.</summary>
     static Verdict Sibling(Sib sib, Eff e, Dictionary<FormKey, RaceFact> races,
                            Dictionary<FormKey, IReadOnlyList<FormKey>?> lists, IReachWorld world)
-        => sib.Keyword is { } k ? Str(k, e) : Has(sib.Form!.Value, world.ClassOf(sib.Form.Value), e, races, lists, world, 0);
+        => sib.Keyword is { } k ? Str(k, e, pick: false) : Has(sib.Form!.Value, world.ClassOf(sib.Form.Value), e, races, lists, world, 0);
 }
