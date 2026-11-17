@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-15
+updated: 2026-11-17
 covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherReach.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-core/SkyPatcherEditorIds.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/SkyPatcherReplay.cs]
 ---
 # The SkyPatcher layer
@@ -135,7 +135,8 @@ limitations for the game's map across types).
 INIs live under `Data/SKSE/Plugins/SkyPatcher/<type>/`. The first path component under the root is
 the record type; deeper nesting is organisation only. An INI sitting directly in the root is listed
 with a note and applied to nothing — the DLL reads type subfolders only. An unrecognized subfolder
-name is listed but not interpreted, never guessed.
+name is listed but not interpreted, never guessed. These INIs and `SkyPatcher.ini` are this layer's
+alone: the SKSE config audit leaves them out ([`skse-layer.md`](skse-layer.md), Config references).
 
 Within a type folder, files apply breadth-first: the folder's own files, then each depth of
 subfolders, A to Z case-insensitive by path component within a level (8.0.1's General Information
