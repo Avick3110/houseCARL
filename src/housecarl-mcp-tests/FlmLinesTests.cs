@@ -435,6 +435,15 @@ public sealed class FlmLinesTests
         Assert.DoesNotContain("FLM logs a warning", Notes(r));
     }
 
+    // Manipulator.hpp:1341-1343: a pair's third field is its filter, read before its halves; ARR's 13 Plant lines have none.
+    [Fact]
+    public void APairLinesFilterFiltersItOut()
+    {
+        var w = new World();
+        FilteredOut(w.Read("Plant = HcSeed|HcBush|-HcFlm.esp"));
+        Assert.Empty(w.Rows("Plant = HcSeed|HcBush|-HcFlm.esp"));
+    }
+
     // T2 (4): DragonbornSpiderCrafting is read and never added in 1.8.1.
     [Fact]
     public void SpiderCraftingIsReadAndNeverAdded()
