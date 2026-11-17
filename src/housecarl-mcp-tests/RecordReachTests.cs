@@ -32,11 +32,12 @@ sealed class ReachWorld : IDisposable
         + "ExclusiveGroup = HcKidPair|HcKidA,HcKidB\r\n";                            // :2 HcIronSword already holds HcKidB
 
     /// <summary>A second plugin, loaded after the first, holding one NPC of each bucket for a scoped call.</summary>
-    public const string More = "HcReachMore.esp";
+    public const string More = "HcReachMore.esp", First = "HcReachFirst.esp", Off = "HcReachOff.esp";
     public static string MoreFk(uint id) => $"{id:X6}:{More}";
     public const uint MoreHuman = 0x800, MoreLeveled = 0x801;
 
-    public ReachWorld(bool more = false, string spid = "", string kid = "", bool pick = false)
+    public ReachWorld(bool more = false, string spid = "", string kid = "", bool pick = false,
+                      Action<SkyrimMod>? extra = null, bool first = false, bool off = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-reach-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
@@ -109,7 +110,16 @@ sealed class ReachWorld : IDisposable
         var spell = new Spell(K(ReachSpell), SkyrimRelease.SkyrimSE) { EditorID = "HcReachSpell" };
         spell.Effects.Add(new Effect { BaseEffect = new FormLinkNullable<IMagicEffectGetter>(K(Mgef)), Data = new EffectData() });
         mod.Spells.Add(spell);
+        extra?.Invoke(mod);
         mod.BeginWrite.ToPath(Path.Combine(mods, "HcReachPlugins", Plugin)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        var active = new List<string> { Plugin };
+        if (first)
+        {
+            new SkyrimMod(ModKey.FromFileName(First), SkyrimRelease.SkyrimSE).BeginWrite
+                .ToPath(Path.Combine(mods, "HcReachPlugins", First)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            active.Insert(0, First);
+        }
+        if (more) active.Add(More);
         if (more)
         {
             var add = new SkyrimMod(ModKey.FromFileName(More), SkyrimRelease.SkyrimSE);
@@ -123,13 +133,19 @@ sealed class ReachWorld : IDisposable
             add.Npcs.Add(lv);
             add.BeginWrite.ToPath(Path.Combine(mods, "HcReachPlugins", More)).WithLoadOrder(new ISkyrimModGetter[] { mod }).Write();
         }
-        var order = more ? Plugin + "\r\n" + More + "\r\n" : Plugin + "\r\n";
+        // An inactive plugin in the mods folder, outside the load order.
+        if (off)
+        {
+            var o = new SkyrimMod(ModKey.FromFileName(Off), SkyrimRelease.SkyrimSE);
+            o.Npcs.Add(new Npc(new FormKey(o.ModKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = "HcOffNpc" });
+            o.BeginWrite.ToPath(Path.Combine(mods, "HcReachPlugins", Off)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        }
 
         File.WriteAllText(Path.Combine(iniMod, "HcReach_DISTR.ini"), Spid + spid);
         File.WriteAllText(Path.Combine(iniMod, "HcReach_KID.ini"), Kid + kid);
         File.WriteAllText(Path.Combine(profileDir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + order);
-        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), "*" + order.Replace("\r\n" + More, "\r\n*" + More));
+        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + string.Concat(active.Select(p => p + "\r\n")));
+        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), string.Concat(active.Select(p => "*" + p + "\r\n")));
         File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n+HcReachIni\r\n+HcReachPlugins\r\n");
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
@@ -421,5 +437,169 @@ public sealed class RecordReachTests : IDisposable
         Assert.Contains("its template is a leveled list, and SPID matches the NPC it picks too: 1;", str);
         var part = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard" }, counts_only: true);
         Assert.Contains("its template is a leveled list, and SPID matches the NPC it picks too: 1;", part);
+    }
+}
+
+/// <summary>The reach term's arms one test each, every one failing on a mutation of its line (review round 1).</summary>
+[Trait("tier", "integration")]
+public sealed class RecordReachArmTests
+{
+    static string F(uint id) => ReachWorld.Fk(id);
+    static string Row(uint id) => "  " + F(id) + "  runtime=";
+    static string Reach(ReachWorld w, string term, bool countsOnly = true)
+        => RecordsTools.Records(w.Svc, where: new[] { term }, counts_only: countsOnly);
+
+    [Fact]
+    public void KidsRollIsAFixedKnownValue()
+    {
+        // Draws worked out apart from Roll, by a separate implementation of the same hash chain; each low bit is set.
+        Assert.Equal(0.8846440842744882, KidReach.Roll("OCF_WeapTypeSword1H", 0x000139A1));
+        Assert.Equal(0.7182297868870487, KidReach.Roll("OCF_WeapMelee", 0x00012EB9));
+    }
+
+    [Fact]
+    public void AnUninheritedCategoryIsReadOffTheNpcItself()
+    {
+        // HcOwnLevel inherits Traits from HcTemplateBase (level 8) but not Stats: its own level 30 decides.
+        using var w = new ReachWorld(extra: mod =>
+        {
+            var n = new Npc(new FormKey(mod.ModKey, 0x828), SkyrimRelease.SkyrimSE) { EditorID = "HcOwnLevel" };
+            n.Race.SetTo(new FormKey(mod.ModKey, ReachWorld.HumanRace));
+            n.Configuration.Level = new NpcLevel { Level = 30 };
+            n.Template.SetTo(new FormKey(mod.ModKey, ReachWorld.TemplateBase));
+            n.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+            mod.Npcs.Add(n);
+        });
+        var r = Reach(w, "spid reaches Spell = HcSpell|||25/40", countsOnly: false);
+        Assert.Contains(Row(0x828), r);
+    }
+
+    [Fact]
+    public void APcLevelMultRangeInsideIsYesAndOutsideIsNo()
+    {
+        using var w = new ReachWorld();
+        Assert.Contains(Row(ReachWorld.Mult), Reach(w, "spid reaches Spell = HcSpell|||1/60", countsOnly: false));   // CalcMin 1, CalcMax 50
+        Assert.Contains("yes 0, not decidable 0,", Reach(w, "spid reaches Spell = HcSpell|||60/70"));
+    }
+
+    [Fact]
+    public void AFeederIsReplayedWhenAPartialStringOrAGroupReadsItsKeyword()
+    {
+        // :1 gives HcGivenKw to the human NPCs; the asked line reads it by part of its name.
+        using var w = new ReachWorld(spid: "Keyword = HcMadeA|HcKwHumanoid\r\nExclusiveGroup = HcMadePair|HcMadeA,HcMadeB\r\n");
+        Assert.Contains("yes 4,", Reach(w, "spid reaches Spell = HcSpell|*GivenK"));
+        // A line reading only forms still sees HcMadeA, its group sibling, which :4 gives the human NPCs.
+        Assert.Contains("yes 0, not decidable 1", Reach(w, "spid reaches Keyword = HcMadeB||HcHumanRace"));
+    }
+
+    [Fact]
+    public void AKidFeederIsReplayedForAKeywordRecordAPartialStringOrAFormList()
+    {
+        using var w = new ReachWorld(kid: "Keyword = HcKidA|Book|*journal\r\n", extra: mod =>
+        {
+            var list = new FormList(new FormKey(mod.ModKey, 0x862), SkyrimRelease.SkyrimSE) { EditorID = "HcKwList" };
+            list.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(new FormKey(mod.ModKey, ReachWorld.KidA)));
+            mod.FormLists.Add(list);
+        });
+        Assert.Contains(Row(ReachWorld.Journal), Reach(w, "kid reaches Keyword = HcQ1|Book|HcKidA", countsOnly: false));
+        Assert.Contains(Row(ReachWorld.Journal), Reach(w, "kid reaches Keyword = HcQ2|Book|*kida", countsOnly: false));
+        Assert.Contains(Row(ReachWorld.Journal), Reach(w, "kid reaches Keyword = HcQ3|Book|HcKwList", countsOnly: false));
+    }
+
+    [Fact]
+    public void AMagicEffectLineFeedsASpellsCostliestEffect()
+    {
+        // HcReachSpell's one effect is tagged; HcTwoSpell has a tagged and an untagged one, so its costliest decides.
+        using var w = new ReachWorld(kid: "Keyword = HcMgefTag|Magic Effect|HcMgef\r\n", extra: mod =>
+        {
+            mod.MagicEffects.Add(new MagicEffect(new FormKey(mod.ModKey, 0x860), SkyrimRelease.SkyrimSE) { EditorID = "HcMgef2" });
+            var s = new Spell(new FormKey(mod.ModKey, 0x861), SkyrimRelease.SkyrimSE) { EditorID = "HcTwoSpell" };
+            s.Effects.Add(new Effect { BaseEffect = new FormLinkNullable<IMagicEffectGetter>(new FormKey(mod.ModKey, ReachWorld.Mgef)), Data = new EffectData() });
+            s.Effects.Add(new Effect { BaseEffect = new FormLinkNullable<IMagicEffectGetter>(new FormKey(mod.ModKey, 0x860)), Data = new EffectData() });
+            mod.Spells.Add(s);
+        });
+        var r = Reach(w, "kid reaches Keyword = HcS|Spell|HcMgefTag");
+        Assert.Contains("yes 1, not decidable 1 (its costliest effect decides, which the engine computes: 1", r);
+    }
+
+    [Fact]
+    public void AReachTermOnAnOffOrderSourceIsRefused()
+    {
+        using var w = new ReachWorld(off: true);
+        var r = RecordsTools.Records(w.Svc, source: ApplyGuardWorld.Je("\"" + ReachWorld.Off + "\""), where: new[] { "spid reaches Spell = HcSpell" });
+        Assert.Contains(RecordReads.ReachOffOrderRefusal, r);
+    }
+
+    [Fact]
+    public void KidsChanceReadsTheRuntimeFormIdOffTheLoadOrder()
+    {
+        // HcReach.esp loads second, so its records run 01xxxxxx in game: HcDice draws under 50 for 01000830 only.
+        using var w = new ReachWorld(first: true);
+        var r = Reach(w, "kid reaches Keyword = HcDice|Weapon|NONE|NONE|50", countsOnly: false);
+        Assert.Contains(Row(ReachWorld.IronSword), r);
+        Assert.DoesNotContain(Row(ReachWorld.FireSword), r);
+    }
+
+    [Fact]
+    public void AFeederChainIsReplayedUntilStable()
+    {
+        // :4 reads the keyword :5 gives, so a second pass is needed, and :5 is kept only because :4 reads it.
+        using var w = new ReachWorld(spid: "Keyword = HcChainB|HcChainA\r\nKeyword = HcChainA|HcKwHumanoid\r\n",
+                                     kid: "Keyword = HcKChainB|Book|HcKChainA\r\nKeyword = HcKChainA|Book|*journal\r\n");
+        Assert.Contains("yes 4,", Reach(w, "spid reaches Spell = HcSpell|HcChainB"));
+        Assert.Contains(Row(ReachWorld.Journal), Reach(w, "kid reaches Keyword = HcKQ|Book|HcKChainB", countsOnly: false));
+    }
+
+    [Fact]
+    public void AKeywordSiblingTheNpcHoldsKeepsTheLineOff()
+    {
+        // The human NPCs hold HcKwHumanoid through their race, HcSibOther's group sibling.
+        using var w = new ReachWorld(spid: "ExclusiveGroup = HcKwPair|HcKwHumanoid,HcSibOther\r\n");
+        Assert.Contains("yes 2, not decidable 1", Reach(w, "spid reaches Keyword = HcSibOther|*Hc"));
+    }
+
+    [Fact]
+    public void AGroupSiblingKeepsOffTheNpcThatHoldsIt()
+    {
+        using var w = new ReachWorld();
+        var r = Reach(w, "spid reaches Spell = HcSpellA|*Guard", countsOnly: false);
+        Assert.Contains(Row(ReachWorld.Guard), r);
+        Assert.DoesNotContain(Row(ReachWorld.Bodyguard), r);   // holds HcSpellB
+    }
+
+    [Fact]
+    public void TwoReachTermsAreAnded()
+    {
+        using var w = new ReachWorld();
+        var r = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard", "spid reaches Spell = HcSpell|-HcBodyguard" });
+        Assert.Contains("scan: 1 match", r);
+        Assert.Contains(Row(ReachWorld.Guard), r);
+    }
+
+    [Fact]
+    public void AGroupALinkedOrAnUnreadableLineIsRefused()
+    {
+        using var w = new ReachWorld();
+        Assert.Contains("is an ExclusiveGroup line", Reach(w, "spid reaches ExclusiveGroup = HcG|HcSpellA,HcSpellB"));
+        Assert.Contains("is a Linked line", Reach(w, "spid reaches LinkedSpell = HcSpell|HcSpellA"));
+        Assert.Contains("is no SPID line", Reach(w, "spid reaches Spell = HcSpell\nSpell = HcSpellA"));   // two lines in one term
+    }
+
+    [Fact]
+    public void OnlyAWholeOperatorMakesAReachTerm()
+    {
+        // 'exactly' is as long as 'reaches', so only the operator test keeps that term a field term.
+        var (others, terms) = ReachTerm.Split(new[] { "spid reachesX Spell = A", "kid", "kid contains x", "spid exactly Spell = A", "SPID  REACHES  Spell = A" });
+        Assert.Equal(new[] { "spid reachesX Spell = A", "kid", "kid contains x", "spid exactly Spell = A" }, others);
+        Assert.Equal("Spell = A", Assert.Single(terms).Line);
+    }
+
+    [Fact]
+    public void ReachFieldsMissingAReaderFailsTheLoad()
+    {
+        var readers = string.Join(",", Enum.GetNames<ReachFields.NpcReader>().Where(n => n != "Outfit").Select(n => $"\"{n}\": \"Traits\""));
+        var json = "{\"npcTemplate\":{\"readers\":{" + readers + "}},\"kidForms\":{\"fields\":[]},\"kidStrings\":{\"archetypes\":[],\"actorValues\":[]}}";
+        var ex = Assert.Throws<InvalidOperationException>(() => ReachFields.Parse(json));
+        Assert.Contains("names no category for 'Outfit'", ex.Message);
     }
 }
