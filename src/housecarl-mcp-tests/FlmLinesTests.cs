@@ -416,10 +416,10 @@ public sealed class FlmLinesTests
     {
         var r = new World().Read("Collection = C|Misc|HcKw|-HcFlm.esp");
         FilteredOut(r);
-        Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load", Notes(r));
+        Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load, but only with forms of a type a kept collection names", Notes(r));
         var invalid = new World().Read("Collection = C|Misc|HcKw|#nosuch");
         Assert.StartsWith("its filter '#nosuch' is invalid", invalid.Dropped);
-        Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load", Notes(invalid));
+        Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load, but only with forms of a type a kept collection names", Notes(invalid));
     }
 
     // Manipulator.hpp:980-987, :1036-1041: a name counts as defined only once a collection registers it, so a second
