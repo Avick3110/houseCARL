@@ -45,6 +45,9 @@
     <!-- The runtime-layer format source: discovery, order, conflict and grammar values per format, read by the
          server and printed into the skills by the generator (RuntimeFormatSourceTests holds the printed text). -->
     <EmbeddedResource Include="runtime-formats.json" />
+    <!-- The reach term's tables: the NPC template category per SPID filter field, the item field per KID filter form
+         type, and KID's archetype and actor-value names (ReachFields). -->
+    <EmbeddedResource Include="reach-fields.json" />
   </ItemGroup>
 
 </Project>
