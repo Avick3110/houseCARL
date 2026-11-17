@@ -179,6 +179,19 @@ public sealed class RecordsCutReportTests : RecordsTestBase
     }
 
     [Fact]
+    public void AnInlineDenseAnswerCountsAndNamesItsCutRecordAtTheTop()
+    {
+        var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, types: new[] { "FLST" },
+                                          format: "dense", project: Fields("Items[*]"), max_chars: 400_000));
+        Assert.Equal(1, doc.GetProperty("records_cut").GetInt32());
+        Assert.Equal(InlineBudget, doc.GetProperty("cut_budget").GetInt32());
+        Assert.Contains("HcRecBigList", doc.GetProperty("cut_note").GetString());
+        var whole = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, types: new[] { "FLST" },
+                                            format: "dense", project: Fields("Items[*count]"), max_chars: 400_000));
+        Assert.False(whole.TryGetProperty("records_cut", out _));
+    }
+
+    [Fact]
     public void AnAutoSpillReadsAtTheInlineBudgetAndCountsTheCut()
     {
         // Two wide rows: the first fills max_chars, so the second is held back and the answer spills.
