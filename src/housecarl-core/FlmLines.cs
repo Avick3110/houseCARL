@@ -351,7 +351,7 @@ public static class FlmLines
                 var name = Lower(filter[1..]);
                 v = names.Filters.TryGetValue(name, out var f)
                     ? new Verdict(f.On ? 1 : -1, $"the Filter line at {f.At} is {(f.On ? "true" : "false")}", Array.Empty<string>())
-                    : new Verdict(0, $"no Filter line defines '{name}'", Array.Empty<string>());
+                    : new Verdict(0, $"no Filter line defines '{name}' by then; FLM reads every file's Filter lines first, a Collection line's filter with only its own file's and earlier files'", Array.Empty<string>());
             }
             else v = Evaluate(SanitizeFilter(filter), g, ctx.Resolver.PluginPresent);
             notes.AddRange(v.Notes);

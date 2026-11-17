@@ -241,7 +241,7 @@ public sealed class FlmLinesTests
     public void AFilterInvalidLineLooksNothingUp()
     {
         var r = new World().Read("FormList = HcNoList|HcNoSuch|#nosuch");
-        Assert.StartsWith("its filter '#nosuch' is invalid (no Filter line defines 'nosuch')", r.Dropped);
+        Assert.StartsWith("its filter '#nosuch' is invalid (no Filter line defines 'nosuch' by then; FLM reads every file's Filter lines first, a Collection line's filter with only its own file's and earlier files'", r.Dropped);
         Assert.DoesNotContain("Unable to find", Notes(r));
         Assert.Empty(r.Adds);
     }
@@ -254,7 +254,18 @@ public sealed class FlmLinesTests
         var w = new World();
         var reads = w.Reads("FormList = HcList|HcCoin|#HasMe\nFilter = hasme|+HcFlm.esp\nFormList = HcList|HcGem|#");
         Assert.Contains("its filter '#HasMe' is true: the Filter line at Hc_FLM.ini:2 is true", Notes(reads[0]!));
-        Assert.StartsWith("its filter '#' is invalid (no Filter line defines '')", reads[2]!.Dropped);
+        Assert.StartsWith("its filter '#' is invalid (no Filter line defines '' by then; FLM reads every file's Filter lines first, a Collection line's filter with only its own file's and earlier files'", reads[2]!.Dropped);
+    }
+
+    // Manipulator.hpp:391-433: pass 1 reads file by file its Filter lines, then its Collection lines, so a Collection
+    // line's '#name' filter from a later file is not there yet; a pass-2 line's is.
+    [Fact]
+    public void ACollectionsNamedFilterCountsFromItsOwnFileAndEarlierOnes()
+    {
+        var (_, reads) = new World().ReadAll(("A_FLM.ini", "Collection = C|Misc|HcKw|#late\nFormList = HcList|HcCoin|#late"),
+                                             ("B_FLM.ini", "Filter = late|+HcFlm.esp"));
+        Assert.StartsWith("its filter '#late' is invalid (no Filter line defines 'late' by then; FLM reads every file's Filter lines first, a Collection line's filter with only its own file's and earlier files'", reads[0]!.Dropped);
+        Assert.Contains("its filter '#late' is true", Notes(reads[1]!));
     }
 
     // Manipulator.hpp:754-756 with split keeping an empty field: a trailing '|' is an empty filter, which names no
