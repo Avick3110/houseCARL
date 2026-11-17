@@ -137,6 +137,15 @@ public sealed class FlmLinesTests
         Assert.Equal(Coin, new World().Read("FormList = HcList | 0x00000802~HcFlm.esp").Forms.Single(f => f.Where == "items").Form);
     }
 
+    // Utility.hpp:111, :140-149: FLM's zeros rule needs a lower-case '0x' and two zeros, and its filter lowercasing is
+    // the C locale's, ASCII letters only; no dev or ARR token reaches either edge.
+    [Fact]
+    public void SanitizeLeavesOneZeroAnUpperCaseXAndNonAsciiLetters()
+    {
+        Assert.Equal("0X000804~HcFlm.esp,0x0804~HcFlm.esp", One("FormList = HcList|0X000804~HcFlm.esp,0x0804~HcFlm.esp").Fields[1]);
+        Assert.Equal("+Ärger.esp,+abc.esp", FlmLines.SanitizeFilter("+Ärger.ESP , +ABC.esp"));
+    }
+
     // Answer 4: the Dawnguard and Dragonborn rewrite runs on the whole value, in any case, whatever plugin follows; noted
     // as a load index is (DECISIONS 2026-11-13 (12)(ii)). 0 tokens on dev or ARR.
     [Fact]
