@@ -15,6 +15,8 @@ public static class SpidReach
     /// <summary>The PotentialFollowerFaction SPID's teammate trait reads (LookupNPC.cpp:72-73).</summary>
     static readonly FormKey FollowerFaction = FormKey.Factory("05C84D:Skyrim.esm");
     static readonly FormKey Player = FormKey.Factory("000007:Skyrim.esm");
+    static readonly R[] Readers = Enum.GetValues<R>();
+    static readonly Skill[] Skills = Enum.GetValues<Skill>();
 
     // ---- the records ------------------------------------------------------------------------
 
@@ -36,9 +38,9 @@ public static class SpidReach
     sealed class Eff
     {
         public Npc Self = null!;
-        public readonly Npc?[] Prov = new Npc?[Enum.GetValues<R>().Length];
-        public readonly string?[] Why = new string?[Enum.GetValues<R>().Length];
-        public string? TemplateEid; public FormKey? TemplateKey;
+        public readonly Npc?[] Prov = new Npc?[Readers.Length];
+        public readonly string?[] Why = new string?[Readers.Length];
+        public FormKey? TemplateKey;
         public HashSet<string> Strings = null!;     // every exact string channel, lower case
         public string? StringsWhy;                  // a channel the files cannot read
         public Dictionary<string, Verdict> Added = new(StringComparer.OrdinalIgnoreCase);   // keywords SPID's Keyword lines give
@@ -47,13 +49,12 @@ public static class SpidReach
     /// <summary>One line, compiled once.</summary>
     sealed class Line
     {
-        public string Type = ""; public SpidLineKind Kind; public string Where = "";
         public List<string> SAll = new(), SNot = new(), SMatch = new(), SAny = new();
         public List<Term> FAll = new(), FNot = new(), FMatch = new();
         public ushort LMin, LMax = ushort.MaxValue; public bool LevelSet;
         public List<(int Skill, byte Min, byte Max)> Skills = new(), Weights = new();
         public bool? Female, Unique, Summonable, Child, Leveled, Teammate, Dead;
-        public double Chance = 1.0; public string? ChanceText;
+        public string? ChanceText;
         public string? ValueKeyword; public FormKey? Value;
         public bool ReadsStrings => SAll.Count + SNot.Count + SMatch.Count + SAny.Count > 0;
     }
@@ -123,8 +124,12 @@ public static class SpidReach
             feeders.Add(c);
         }
         var groups = Groups(layer, line, ctx);
+        int layerFeeders = feeders.Count;
+        feeders = Readable(feeders, line, groups, kwEid);
         if (feeders.Count > 0)
-            result.Notes.Add($"SPID's {feeders.Count:N0} Keyword line(s) of the layer were replayed first, so a keyword they give counts.");
+            result.Notes.Add($"SPID's {feeders.Count:N0} Keyword line(s) of the layer were replayed first, so a keyword they give counts; the other {layerFeeders - feeders.Count:N0} give none it reads.");
+        else if (layerFeeders > 0)
+            result.Notes.Add($"None of SPID's {layerFeeders:N0} Keyword line(s) of the layer gives a keyword it reads, so none was replayed.");
         if (line.ChanceText is not null)
             result.Notes.Add($"The line's chance is {line.ChanceText} as written: every NPC its filters select is rolled in the running game.");
         if (asked.Kind == SpidLineKind.Death)
@@ -134,7 +139,7 @@ public static class SpidReach
         foreach (var n in npcs.Values)
         {
             world.Ct.ThrowIfCancellationRequested();
-            var e = Resolve(n, npcs, world, fields, races, kwEid, lvlnEid, npcEids);
+            var e = Resolve(n, npcs, world, fields, races, lvlnEid, npcEids);
             Replay(feeders, e, races, classes, lists, world);
             var v = Eval(line, e, races, classes, lists, world);
             if (asked.Kind == SpidLineKind.Death && v.V != Reach.No) v = Verdict.And(v, Verdict.Game("a Death line"));
@@ -143,6 +148,31 @@ public static class SpidReach
             result.Add(n.Key, v);
         }
         return result;
+    }
+
+    /// <summary>The feeders whose keyword the asked line can read, directly or through another feeder it reads: a
+    /// keyword no string of the line names, and no ExclusiveGroup sibling is, changes none of its verdicts.</summary>
+    static List<Line> Readable(List<Line> feeders, Line asked, List<FormKey> groups, Dictionary<FormKey, string> kwEid)
+    {
+        var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var part = new List<string>();
+        void Reads(Line l) { exact.UnionWith(l.SAll); exact.UnionWith(l.SNot); exact.UnionWith(l.SMatch); part.AddRange(l.SAny); }
+        Reads(asked);
+        foreach (var g in groups) if (kwEid.TryGetValue(g, out var k)) exact.Add(k);
+        var kept = new List<Line>();
+        var left = new List<Line>(feeders);
+        for (bool grew = true; grew;)
+        {
+            grew = false;
+            foreach (var f in left.ToList())
+            {
+                var k = f.ValueKeyword!;
+                if (!exact.Contains(k) && !part.Any(p => k.Contains(p, StringComparison.OrdinalIgnoreCase))) continue;
+                kept.Add(f); left.Remove(f); Reads(f); grew = true;
+            }
+        }
+        // In layer order, as SPID's pass runs them.
+        return feeders.Where(kept.Contains).ToList();
     }
 
     static string[] Eids(IReadOnlyList<IFormLinkGetter<IKeywordGetter>>? kws, Dictionary<FormKey, string> kwEid)
@@ -167,8 +197,7 @@ public static class SpidReach
             x.Flags = c.TemplateFlags; x.CFlags = c.Flags; x.CalcMin = c.CalcMinLevel; x.CalcMax = c.CalcMaxLevel;
             if (c.Level is IPcLevelMultGetter) x.PcMult = true;
             else if (c.Level is INpcLevelGetter l) x.Level = l.Level;
-            var skills = Enum.GetValues<Skill>();
-            x.Skills = skills.Select(s => n.PlayerSkills?.SkillValues.TryGetValue(s, out var v) == true ? v : (byte)0).ToArray();
+            x.Skills = Skills.Select(s => n.PlayerSkills?.SkillValues.TryGetValue(s, out var v) == true ? v : (byte)0).ToArray();
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { x.Fault = $"its record could not be read ({ex.GetType().Name})"; }
         return x;
@@ -177,11 +206,12 @@ public static class SpidReach
     /// <summary>The provider of each category: the NPC itself, or the first NPC up its template chain whose flag for that
     /// category is clear; a chain reaching a leveled actor, a record that does not resolve, or a loop decides nothing.</summary>
     static Eff Resolve(Npc n, Dictionary<FormKey, Npc> npcs, IReachWorld world, ReachFields fields, Dictionary<FormKey, RaceFact> races,
-                       Dictionary<FormKey, string> kwEid, Dictionary<FormKey, string> lvlnEid, bool npcEids)
+                       Dictionary<FormKey, string> lvlnEid, bool npcEids)
     {
         var e = new Eff { Self = n };
-        foreach (var reader in Enum.GetValues<R>())
+        foreach (var reader in Readers)
         {
+            if (n.Template is null && n.Fault is null) { e.Prov[(int)reader] = n; continue; }
             var flag = fields.NpcTemplate[reader];
             var at = n;
             var seen = new HashSet<FormKey> { n.Key };
@@ -202,15 +232,16 @@ public static class SpidReach
             }
             if (why is null) e.Prov[(int)reader] = at; else e.Why[(int)reader] = why;
         }
+        string? templateEid = null;
         if (n.Template is { } tk)
         {
             e.TemplateKey = tk;
-            if (npcEids) e.TemplateEid = npcs.TryGetValue(tk, out var tn) ? tn.Eid : lvlnEid.GetValueOrDefault(tk);
+            if (npcEids) templateEid = npcs.TryGetValue(tk, out var tn) ? tn.Eid : lvlnEid.GetValueOrDefault(tk);
         }
         // The exact string channels: keywords (own and the race's), the name, the NPC's and its template's EditorIDs.
         var s = new HashSet<string>(StringComparer.Ordinal);
         if (npcEids && n.Eid is { } eid) s.Add(eid);
-        if (e.TemplateEid is { } te) s.Add(te);
+        if (templateEid is { } te) s.Add(te);
         string? sw = null;
         if (P(e, R.Name) is { } nn) { if (nn.Name is { } name) s.Add(name); } else sw ??= e.Why[(int)R.Name];
         if (P(e, R.Keywords) is { } kn) s.UnionWith(kn.Kw); else sw ??= e.Why[(int)R.Keywords];
@@ -241,9 +272,7 @@ public static class SpidReach
                 if (v.V == Reach.No) continue;
                 var had = e.Added.TryGetValue(f.ValueKeyword!, out var old);
                 if (had && (old.V == Reach.Yes || v.V != Reach.Yes)) continue;
-                e.Added[f.ValueKeyword!] = v.V == Reach.Yes ? Verdict.Yes
-                    : v.V == Reach.Game ? Verdict.Game($"a Keyword line that gives a keyword it reads ({v.Why})")
-                    : Verdict.Undecided($"a Keyword line that gives a keyword it reads ({v.Why})");
+                e.Added[f.ValueKeyword!] = v.V == Reach.Yes ? Verdict.Yes : new Verdict(v.V, $"a Keyword line that gives a keyword it reads ({v.Why})");
                 changed = true;
             }
             first = false;
@@ -363,10 +392,9 @@ public static class SpidReach
             if (P(e, R.Class) is not { } c) v = Verdict.And(v, Unknown(e, R.Class));
             else if (classes.TryGetValue(c.Class, out var w))
             {
-                var skills = Enum.GetValues<Skill>();
                 foreach (var (sk, min, max) in l.Weights)
                 {
-                    var val = sk < skills.Length && w.TryGetValue(skills[sk], out var b) ? b : 0;
+                    var val = sk < Skills.Length && w.TryGetValue(Skills[sk], out var b) ? b : 0;
                     v = Verdict.And(v, Verdict.Of(val >= min && val <= max));
                 }
             }
@@ -403,7 +431,7 @@ public static class SpidReach
     static Line Compile(SpidLines.Line src, SpidLines.LineRead read, SpidLines.Context ctx)
     {
         var g = ctx.G;
-        var l = new Line { Type = src.Type ?? "", Kind = src.Kind };
+        var l = new Line();
         var filterTypes = g.FilterTypes;
         foreach (var t in src.Tokens)
         {
@@ -486,7 +514,7 @@ public static class SpidReach
                 case SpidField.Chance:
                     var num = sec.EndsWith('!') ? sec[..^1] : sec;
                     if (double.TryParse(num, NumberStyles.Float, CultureInfo.InvariantCulture, out var ch) && ch / 100.0 < 1)
-                    { l.Chance = ch / 100.0; l.ChanceText = sec; }
+                        l.ChanceText = sec;
                     break;
             }
         }

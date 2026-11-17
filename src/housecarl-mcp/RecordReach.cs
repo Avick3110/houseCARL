@@ -21,6 +21,7 @@ internal sealed partial class RecordReads
         var world = new World(view, replay, ct);
         var fields = ReachFields.Load();
         var results = new List<ReachResult>();
+        var unread = new List<string>();   // a file the format reads that could not be read here
         var spid = terms.Where(t => t.Format == "spid").ToList();
         var kid = terms.Where(t => t.Format == "kid").ToList();
         if (spid.Count > 0)
@@ -38,7 +39,7 @@ internal sealed partial class RecordReads
                     return Refuse(t, $"is {(l.Kind == SpidLineKind.Linked ? "a Linked line, which goes where its parent line goes; ask for the parent line" : "an ExclusiveGroup line, which hands nothing out")}");
                 asked.Add(l);
             }
-            var layer = Layer(format, replay, (text, _) => SpidLines.Parse(text, g), ct);
+            var layer = Layer(format, replay, unread, (text, _) => SpidLines.Parse(text, g), ct);
             var ctx = new SpidLines.Context(replay.Forms, view.WinnerClassOf, format);
             // One read of every line, the asked ones last, so the call's EditorID table walks every type once.
             var reads = SpidLines.ReadAll(layer.Concat(asked).ToList(), ctx);
@@ -59,7 +60,7 @@ internal sealed partial class RecordReads
                 if (l.IsGroup) return Refuse(t, "is an ExclusiveGroup line, which hands nothing out");
                 asked.Add(l);
             }
-            var layer = Layer(format, replay, (text, _) => KidLines.Parse(text, format), ct);
+            var layer = Layer(format, replay, unread, (text, _) => KidLines.Parse(text, format), ct);
             var ctx = new KidLines.Context(replay.Forms, view.WinnerClassOf, format);
             var reads = KidLines.ReadAll(layer.Concat(asked).ToList(), ctx);
             var pairs = layer.Select((l, i) => (l, reads[i])).ToList();
@@ -71,14 +72,14 @@ internal sealed partial class RecordReads
         IEnumerable<FormKey> yes = ordered[0].Yes;
         foreach (var r in ordered.Skip(1)) yes = yes.Where(r.Yes.Contains);
         return new ReachSelection(yes.ToList(), ordered.Select(r => r.RecordType).Distinct().ToList(),
-                                  string.Join(" ", ordered.Select(r => r.Sentence())), null);
+                                  string.Join(" ", ordered.Select(r => r.Sentence())) + (unread.Count == 0 ? "" : $" {unread.Count} file(s) could not be read, so their lines were not replayed: {string.Join("; ", unread)}."), null);
 
         static ReachSelection Refuse(ReachTerm t, string why) =>
             new(Array.Empty<FormKey>(), Array.Empty<string>(), "", $"where= term '{t.Text}': the line {why}.");
     }
 
-    /// <summary>Every line of the format's files as it finds them, in file order; a file it does not apply or cannot read gives none.</summary>
-    static List<TLine> Layer<TLine>(DistributorFormat format, AssetLayers.SkyPatcherReplay replay, Func<string, string, IReadOnlyList<TLine>> parse, CancellationToken ct)
+    /// <summary>Every line of the format's files as it finds them, in file order; a file it does not apply gives none, and one it cannot read is named in <paramref name="unread"/>.</summary>
+    static List<TLine> Layer<TLine>(DistributorFormat format, AssetLayers.SkyPatcherReplay replay, List<string> unread, Func<string, string, IReadOnlyList<TLine>> parse, CancellationToken ct)
     {
         var lines = new List<TLine>();
         foreach (var f in DistributorDiscovery.Scan(replay.Assets, format))
@@ -86,7 +87,7 @@ internal sealed partial class RecordReads
             ct.ThrowIfCancellationRequested();
             if (f.NotApplied is not null || f.LooseFilePath is null) continue;
             try { lines.AddRange(parse(File.ReadAllText(f.LooseFilePath), f.RelPath)); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { unread.Add($"{format.Key} file '{f.RelPath}' ({ex.Message})"); }
         }
         return lines;
     }

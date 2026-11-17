@@ -163,6 +163,8 @@ public sealed class RecordReachTests : IDisposable
         Assert.Contains(Row(ReachWorld.Bodyguard), r);
         Assert.DoesNotContain(Row(ReachWorld.Beast), r);
         Assert.Contains("Keyword line(s) of the layer were replayed first", r);
+        // Only the line giving a keyword it reads is replayed; HcChanceKw's line is not.
+        Assert.Contains("SPID's 1 Keyword line(s) of the layer were replayed first, so a keyword they give counts; the other 1 give none it reads.", r);
     }
 
     [Fact]
