@@ -86,6 +86,14 @@ public sealed class FlmLinesTests
 
     static string Notes(FlmLines.LineRead r) => string.Join("\n", r.Notes);
 
+    /// <summary>A line FLM's filter stops, as the answer shows it: kept, adding nothing, and said filtered out.</summary>
+    static void FilteredOut(FlmLines.LineRead r)
+    {
+        Assert.Null(r.Dropped);
+        Assert.Empty(r.Adds);
+        Assert.Contains("so FLM counts the line filtered out and adds nothing from it", Notes(r));
+    }
+
     static FormKey? Labelled(FlmLines.LineRead r, SkyPatcherOverlay.FormPlace place, string where, FormKey fk)
         => r.Forms.Any(n => n.Place == place && n.Where == where && n.Form == fk) ? fk : null;
 
@@ -187,12 +195,11 @@ public sealed class FlmLinesTests
     {
         var w = new World();
         var off = w.Read("FormList = HcList|HcCoin|-HcFlm.esp");
-        Assert.True(off.FilteredOut);
-        Assert.Empty(off.Adds);
+        FilteredOut(off);
         Assert.Contains("its filter '-HcFlm.esp' is false: '-hcflm.esp' (hcflm.esp is in the order) fails, so FLM counts the line filtered out", Notes(off));
         Assert.Empty(off.PluginTerms);
         var on = w.Read("FormList = HcList|HcCoin|+HcFlm.esp");
-        Assert.False(on.FilteredOut);
+        Assert.DoesNotContain("filtered out", Notes(on));
         Assert.Single(on.Adds);
         Assert.Contains("its filter '+HcFlm.esp' is true: '+hcflm.esp' holds", Notes(on));
     }
@@ -203,8 +210,7 @@ public sealed class FlmLinesTests
     public void AFilteredOutLineLooksNothingUp()
     {
         var r = new World().Read("FormList = HcNoList|HcNoSuch,HcCoin|-HcFlm.esp");
-        Assert.True(r.FilteredOut);
-        Assert.Null(r.Dropped);
+        FilteredOut(r);
         Assert.DoesNotContain("Unable to find", Notes(r));
         Assert.NotNull(Labelled(r, SkyPatcherOverlay.FormPlace.Value, "items", Coin));
     }
@@ -224,7 +230,7 @@ public sealed class FlmLinesTests
     // section and so is false.
     [Fact]
     public void ATrailingBarIsAnEmptyFilterAndFiltersTheLineOut()
-        => Assert.True(new World().Read("FormList = HcList|HcCoin|").FilteredOut);
+        => FilteredOut(new World().Read("FormList = HcList|HcCoin|"));
 
     // Manipulator.hpp:1154-1160: the first Filter of a name wins, names lowercased.
     [Fact]
@@ -367,7 +373,7 @@ public sealed class FlmLinesTests
     public void AFilteredOutCollectionMayStillBeFilled()
     {
         var r = new World().Read("Collection = C|Misc|HcKw|-HcFlm.esp");
-        Assert.True(r.FilteredOut);
+        FilteredOut(r);
         Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load", Notes(r));
         var invalid = new World().Read("Collection = C|Misc|HcKw|#nosuch");
         Assert.StartsWith("its filter '#nosuch' is invalid", invalid.Dropped);
