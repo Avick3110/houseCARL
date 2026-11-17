@@ -132,7 +132,7 @@ GPL-3.0-only. See [LICENSE](LICENSE). Required by Mutagen (GPL-3.0-only, no link
 
 - [Mutagen](https://github.com/Mutagen-Modding/Mutagen), Noggog. The Bethesda-format library houseCARL is built on.
 - [papyrus-index](https://github.com/BellCubeDev/papyrus-index), BellCube. Source corpus for `papyrus-reference`.
-- Zzyxzz (SkyPatcher) and powerofthree (SPID, KID, BOS). Public documentation the distributor grammars were drawn from.
+- Zzyxzz (SkyPatcher), powerofthree (SPID, KID, BOS) and MaskedRPGFan (FLM). Public documentation the SkyPatcher, SPID, KID and BOS grammars were drawn from; FLM's rules come from its 1.7.0 source and 1.8.1's binary.
 - DrHeisen. The `open-animation-replacer` skill, and two earlier skills since retired.
 
 The grammar, the predicate language, coverage, the runtime layers and the internals are in the [repository README](https://github.com/Avick3110/houseCARL#readme).
