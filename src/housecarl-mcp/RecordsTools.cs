@@ -1473,11 +1473,11 @@ public static partial class RecordsTools
             bool definedIn = plugins?.defined_in ?? false;
             // group_by=type names each match's record type, which only a body-bearing scope can supply, pre-checked
             // here in this tool's own levers. IN-ORDER lane only: the off-order scan returned above, where the
-            // file's own records ARE the universe. An unbounded references= is body-bearing too.
+            // file's own records ARE the universe. An unbounded references= is body-bearing too, and so is a reach term.
             if (form == "aggregate" && walk is null
                 && string.Equals(project!.group_by?.Trim(), "type", StringComparison.OrdinalIgnoreCase)
                 && !hasTypes && scanPlugins is not { Length: > 0 } && formidSet is null
-                && refFks is null && refNoneFks is null)
+                && refFks is null && refNoneFks is null && !HousecarlCore.ReachTerm.AnyIn(where))
                 return ToolAnswer.Refusal(json, "error: project.group_by='type' counts each match's record TYPE, which only a " +
                     "body-bearing scope can name — add types=, plugins=, formids=, references=, or an in-order source= plugin. " +
                     "(where= reads bodies too but takes one of those as its own bound; references= brings its own universe " +

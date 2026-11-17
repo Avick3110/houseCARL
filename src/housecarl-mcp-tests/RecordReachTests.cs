@@ -305,6 +305,19 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AReachTermBoundsAGroupByTypeCountTable()
+    {
+        var byType = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
+        var r = RecordsTools.Records(_w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard" }, project: byType);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("grouped by type — 2 matches across 1 group", r);
+        Assert.Contains("  Npc = 2", r);
+        // Without a reach term the same aggregate still has no body-bearing scope and is refused as before.
+        Assert.Contains("error: project.group_by='type' counts each match's record TYPE",
+                        RecordsTools.Records(_w.Svc, conflicts_only: true, project: byType));
+    }
+
+    [Fact]
     public void AMalformedFieldTermIsRefusedBeforeTheReachPass()
     {
         // The reach line is one SPID skips, so a reach pass run first would refuse with its sentence instead.
