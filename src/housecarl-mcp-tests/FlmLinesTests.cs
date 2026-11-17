@@ -458,6 +458,15 @@ public sealed class FlmLinesTests
     public void AListKeyAddsToItsFixedList()
         => Assert.Equal(Toys, new World().Read("BToys = HcCoin").Adds.Single().List);
 
+    // Manipulator.hpp:1309-1311: a list key's second field is its filter, read before its forms; no dev or ARR line has one.
+    [Fact]
+    public void AListKeysFilterFiltersItOut()
+    {
+        var w = new World();
+        FilteredOut(w.Read("BToys = HcCoin|-HcFlm.esp"));
+        Assert.Empty(w.Rows("BToys = HcCoin|-HcFlm.esp"));
+    }
+
     // T2 (1): Remove is a no-op counted valid, FormsPair always invalid (1.8.1's handlers); 0 lines on dev or ARR.
     [Fact]
     public void RemoveDoesNothingAndFormsPairIsAlwaysInvalid()
