@@ -146,13 +146,34 @@ public sealed class ReachResult
     public List<string> Notes { get; } = new();
     /// <summary>The format drops the line, so nothing was judged.</summary>
     public bool Dropped { get; set; }
+    /// <summary>Every record that is not a plain no, in the order judged, with its verdict.</summary>
+    public Dictionary<FormKey, Verdict> Kept { get; } = new();
+    /// <summary>The counts within the call's other terms, or null when the call has none.</summary>
+    public Tally? Scoped { get; set; }
 
     /// <summary>Record one judged record.</summary>
     public void Add(FormKey fk, Verdict v)
     {
         Universe++;
+        if (v.V == Reach.No) return;
+        Kept[fk] = v;
         if (v.V == Reach.Yes) Yes.Add(fk);
-        else if (v.V != Reach.No) Open[v.V].Add(fk, v.Why ?? "unstated");
+        else Open[v.V].Add(fk, v.Why ?? "unstated");
+    }
+
+    /// <summary>The verdict judged for a record; no for one not judged.</summary>
+    public Verdict Of(FormKey fk) => Kept.TryGetValue(fk, out var v) ? v : Verdict.No;
+
+    /// <summary>Counts by bucket over some of the judged records.</summary>
+    public sealed class Tally
+    {
+        public int Yes { get; private set; }
+        public Dictionary<Reach, Bucket> Open { get; } = new() { [Reach.NotDecidable] = new(), [Reach.Game] = new() };
+        public void Add(FormKey fk, Verdict v)
+        {
+            if (v.V == Reach.Yes) Yes++;
+            else if (v.V != Reach.No) Open[v.V].Add(fk, v.Why ?? "unstated");
+        }
     }
 
     /// <summary>One open bucket.</summary>
@@ -178,10 +199,15 @@ public sealed class ReachResult
             $"; e.g. {string.Join(", ", b.First.Select(FormIdToken.Of))})";
         var head = $"reach: {Term.Format} line '{Term.Line}'";
         if (Dropped) return head + ": " + string.Join(" ", Notes);
-        var nd = Open[Reach.NotDecidable];
-        var game = Open[Reach.Game];
+        string Counts(int yes, Dictionary<Reach, Bucket> open, bool why)
+        {
+            Bucket nd = open[Reach.NotDecidable], game = open[Reach.Game];
+            return $"yes {yes:N0}, not decidable {nd.Count:N0}{(why ? Reasons(nd) : "")}, needs the running game {game.Count:N0}{(why ? Reasons(game) : "")}";
+        }
         var s = $"{head} over {Universe:N0} {RecordName(RecordType)} record(s): " +
-                $"yes {Yes.Count:N0}, not decidable {nd.Count:N0}{Reasons(nd)}, needs the running game {game.Count:N0}{Reasons(game)}. " +
+                (Scoped is { } sc
+                    ? $"within the call's other terms {Counts(sc.Yes, sc.Open, true)}; over all {Universe:N0}, {Counts(Yes.Count, Open, false)}. "
+                    : $"{Counts(Yes.Count, Open, true)}. ") +
                 "The rows are the yes records only; the other two are counted apart and never an exact set.";
         if (AlreadyHeld > 0) s += $" {AlreadyHeld:N0} already hold the keyword, which KID skips, so the line does not reach them.";
         return Notes.Count == 0 ? s : s + " " + string.Join(" ", Notes);
