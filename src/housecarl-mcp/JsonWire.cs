@@ -1345,6 +1345,7 @@ static class JsonWire
         var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the cells the rows carried
         var foldNotes = new SortedSet<string>(StringComparer.Ordinal);   // what the read said that no column carries — the truncation note above all
         int foldRows = 0;            // rows, which a fold makes ELEMENTS; `rendered` stays records
+        var cuts = new RecordCuts();   // over the records rendered
         w.WriteStartArray("rows");
         for (int i = 0; i < rowKeys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
         {
@@ -1414,6 +1415,7 @@ static class JsonWire
                     if (cut) break;                                   // a half-written record is not a rendered one
                     if (sharedNote is not null) AddNote(FormIdToken.Of(fk), sharedNote);
                     if (Wire.ExcludedNote(o.Pin, fk) is { } foldExcluded) AddNote(FormIdToken.Of(fk), foldExcluded, "excluded_note");
+                    cuts.Add(r);
                     rendered++;
                     continue;
                 }
@@ -1479,6 +1481,7 @@ static class JsonWire
         if (fold is not null) w.WriteNumber("rows_rendered", foldRows);
         writeCost(renderClock.ElapsedMilliseconds);
         w.WriteBoolean("truncated", rowsTruncated);
+        WriteCuts(w, cuts);
         WriteOwnedChildNote(w, childFields);
         // The read's own note — a truncated expansion above all — belongs to this document.
         if (foldNotes.Count > 0) w.WriteString("read_note", string.Join(" ", foldNotes));
