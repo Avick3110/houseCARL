@@ -142,7 +142,8 @@ public static class SkseTools
          "the other two. Everything here is what a file declares, never what the DLL does: loading, registering, " +
          "hooking and reading happen at runtime and are never observed, and a missing token proves nothing. Treat a " +
          "finding as a plausibility verdict to verify, and 'nothing found' as no clean bill of health. Not covered: " +
-         "distributor INIs in the Data root, SPID *_DISTR, KID *_KID, BOS *_SWAP and FLM *_FLM (and Data\\FLM), which " + ToolNames.Layer + " reads. " +
+         "SkyPatcher's INIs (SKSE\\Plugins\\SkyPatcher\\ and SkyPatcher.ini) and the distributor INIs in the Data root, " +
+         "SPID *_DISTR, KID *_KID, BOS *_SWAP and FLM *_FLM (and Data\\FLM), which " + ToolNames.Layer + " reads. " +
          "Every response ends on its accounting (total / rendered / skipped / capped / truncated / " +
          "offset / remaining / notes), so what a window or a cap left out is a number.")]
     public static string Skse(
@@ -171,16 +172,18 @@ public static class SkseTools
             "declaration copy of a framework you don't have, never called broken). It answers whether a pairing is " +
             "plausible and healthy, never whether the DLL registers exactly these functions. " +
             "'config': whether the form references in SKSE configs resolve. It reads the winning copy of every " +
-            ".ini/.toml/.json/.yaml/.yml at any depth under Data\\SKSE\\Plugins and extracts every form-shaped " +
+            ".ini/.toml/.json/.yaml/.yml at any depth under Data\\SKSE\\Plugins, but SkyPatcher's INIs, which " +
+            ToolNames.Layer + " reads, and extracts every form-shaped " +
             "reference: a hex FormID beside a plugin filename in either order (0xFORM|Plugin.esp as DSD, CDF and " +
-            "po3 write it, Plugin.esp|0xFORM as SkyPatcher writes it, the ~ form), IED's {\"id\",\"plugin\"} " +
+            "po3 write it, Plugin.esp|0xFORM, the ~ form), IED's {\"id\",\"plugin\"} " +
             "objects and plugin-named folder gates (DynamicStringDistributor\\Plugin.esp\\...). Each resolves against the active order as OK, " +
             "PLUGIN MISSING (plugin not in the order), DANGLING (plugin present, no such record) or UNPARSEABLE " +
             "(shape-matched but cannot be normalized), summed as BROKEN (dangling or unparseable, actionable) versus " +
             "INERT (plugin missing, usually optional support for a mod you aren't running). It checks that a " +
             "reference resolves, never what it is for. A string token in a comment or " +
             "a disabled block still surfaces; 'no references found' is the commonest per-file result, not a " +
-            "warning. Bare EditorID and name strings are not validated.")]
+            "warning. Bare EditorID and name strings are not validated. A config only inside a BSA is marked so, " +
+            "since most SKSE plugins read loose files only.")]
             // JsonElement, not string: the array shape must BIND so the refusal above answers it.
             System.Text.Json.JsonElement? findings = null,
         [Description(
