@@ -63,8 +63,9 @@ the running game, which forms a collection gathers, or what a mod event adds (sp
   one an earlier add or the same line put there; each row says how many it adds and which it skips and why. A pair is
   skipped whole when either half is already in its list. What a collection gathers is said not read.
 - **Selecting lines** (R42): `formids=` and `plugins=` keep a line when a form it names passes the records meaning,
-  through a group, alias, list or collection included. A selector naming a plugin the order does not carry answers as
-  for the other formats (#1409).
+  through a group, alias, list or collection included. A filtered-out line's forms stay labelled, so the selectors
+  still keep it; it says it is filtered out (DECISIONS 2026-11-13 (12)(iii)). A selector naming a plugin the order does
+  not carry answers as for the other formats (#1409).
 - **What is resolved when.** The overview lists files and line counts and resolves nothing; the selectors, and a
   `filter=` at least one FLM file matches, resolve every line, since names cross files. Nothing is kept between calls
   (R15); there is no parse cache (DECISIONS 2026-11-14 (26)).
@@ -77,8 +78,9 @@ the running game, which forms a collection gathers, or what a mod event adds (sp
 ## Known limitations
 
 - What a list holds in game, a collection's members, and a mod event's adds are not read (spec concern 15, step 30); a
-  `#collection` item's row names the collection, not its forms. A filtered-out collection, whose keywords FLM has
-  stored, may still be filled at load; that is said, not shown.
+  `#collection` item's row names the collection, not its forms. A collection whose own filter is false or invalid,
+  whose keywords FLM has stored, may still be filled at load, and a `#name` naming it is then found; that is said, not
+  shown.
 - A list's own forms are its winning record's; a runtime edit of the list by another framework (SkyPatcher's) is not
   counted in the duplicate skip.
 - A `0x` written anywhere but at a token's start (`Ab0x12`, which FLM reads as a FormID) reads as a name; no dev or ARR
@@ -86,6 +88,13 @@ the running game, which forms a collection gathers, or what a mod event adds (sp
   in FLM and its top byte here (the shared rule); no dev or ARR side is ten characters.
 - `Data\FLM`'s order under MO2's virtual folder is not read (top-up T2 (3)); no dev or ARR file sits there.
 - A collection name defined again after a filtered-out first one appends keywords in FLM; here the later one replaces it.
+- A pair whose two halves both name nothing says only the first; FLM logs both.
+- A collection keyword another framework makes in the running game (KID, SPID) reads as naming nothing, and the line
+  says such a keyword is not read.
+- A collection keyword whose EditorID another record type also holds may read as missing; FLM looks keywords up in its
+  own keyword cache.
+- A line starting `[` with no `]` is read as a key; SimpleIni 4.26 skips it (1.8.1's SimpleIni revision unread).
+- A line led by a non-ASCII or `\v`/`\f` space is trimmed here; SimpleIni keeps it in the key.
 
 ## Pinned by
 
