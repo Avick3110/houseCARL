@@ -251,7 +251,6 @@ public static class FlmLines
 
     static Taken Take(string raw, Context ctx)
     {
-        if (raw.Length == 0) return new Taken(new Resolved(null, null, false, "is empty, so it names nothing", null, false), null);
         // FLM reads hex with no '~' as a FormID only where '0x' is written in lower case.
         var s = raw.Contains(ctx.S.Separator) || raw.Contains("0x", StringComparison.Ordinal) ? ctx.S : ctx.S with { BareFormId = TargetBareFormId.NotAFormId };
         var r = DistributorLines.Resolve(raw, ctx.Resolver, s, "FLM");
