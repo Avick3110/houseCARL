@@ -41,7 +41,7 @@ public static class SpidReach
         public readonly Npc?[] Prov = new Npc?[Readers.Length];
         public readonly string?[] Why = new string?[Readers.Length];
         public FormKey? TemplateKey;
-        public bool Pick, PickEids;                 // its template is a leveled list; and SPID sees NPC EditorIDs
+        public bool Pick, PickEids, PickHops;       // its template chain ends at a leveled list; SPID sees NPC EditorIDs; past an NPC template
         public NpcNames Names = null!;              // every NPC's EditorID, which a pick can add
         public HashSet<string> Strings = null!;     // every exact string channel, lower case
         public string? StringsWhy;                  // a channel the files cannot read
@@ -295,7 +295,12 @@ public static class SpidReach
         if (n.Template is { } tk)
         {
             e.TemplateKey = tk;
-            e.Pick = !npcs.ContainsKey(tk) && world.ClassOf(tk) is { } tc && typeof(ILeveledNpcGetter).IsAssignableFrom(tc);
+            // The chain's NPC templates, whatever their flags, up to the record that is not an NPC.
+            var end = tk;
+            var walked = new HashSet<FormKey> { n.Key };
+            while (npcs.TryGetValue(end, out var hop) && hop.Template is { } up && walked.Add(end)) end = up;
+            e.Pick = !npcs.ContainsKey(end) && world.ClassOf(end) is { } tc && typeof(ILeveledNpcGetter).IsAssignableFrom(tc);
+            e.PickHops = e.Pick && end != tk;
             e.PickEids = e.Pick && npcEids;
             if (npcEids) templateEid = npcs.TryGetValue(tk, out var tn) ? tn.Eid : lvlnEid.GetValueOrDefault(tk);
         }
@@ -375,7 +380,9 @@ public static class SpidReach
 
     /// <summary>Not decidable when the NPC's template is a leveled list, whose pick SPID also matches; else no.</summary>
     static Verdict Picked(Eff e, bool applies)
-        => applies ? Verdict.Undecided("its template is a leveled list, and SPID matches the NPC it picks too") : Verdict.No;
+        => !applies ? Verdict.No
+            : Verdict.Undecided(e.PickHops ? "its template chain reaches a leveled list past an NPC template, whose pick SPID may match too"
+                                           : "its template is a leveled list, and SPID matches the NPC it picks too");
 
     /// <summary>Part of a string: of the name, of an EditorID SPID matches, of a keyword's EditorID.</summary>
     static Verdict Part(string s, Eff e)

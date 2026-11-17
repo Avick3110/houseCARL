@@ -33,7 +33,7 @@ from the files, or decided only in the running game; the rows are the yes record
   placed-actor filters the running game; chance below 100 puts every selected NPC in the running-game bucket, the
   chance stated as written; a Death line likewise. An ExclusiveGroup sibling the NPC holds keeps the line off it; a
   keyword member is matched by its EditorID, so a keyword SPID creates counts. An NPC whose template is a leveled
-  list is not decidable for a string or NPC form filter it does not otherwise meet, since SPID also matches the NPC
+  list, directly or past NPC templates, is not decidable for a string or NPC form filter it does not otherwise meet, since SPID also matches the NPC
   the list picks (a string only when it is, or for a partial one is part of, some NPC's EditorID, the only string a
   pick adds, and only where SPID sees NPC EditorIDs). The layer's earlier lines of the same kind, type and
   form run first: an NPC they reach is counted as already holding it, which SPID skips. Every line of the layer when
