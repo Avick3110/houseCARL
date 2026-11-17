@@ -61,4 +61,15 @@ public sealed class SkseConfigFileSectionTests
         }
         Assert.True(omitted > 0, "no cap in the sweep left the heading out");
     }
+
+    [Fact]
+    public void AWindowedAuditListsOnlyTheBsaOnlyConfigsInsideItsWindow()
+    {
+        var d = Data(File(@"SKSE\Plugins\Foo\a.json", archiveOnly: true), File(@"SKSE\Plugins\Foo\b.ini"),
+                     File(@"SKSE\Plugins\Foo\c.json", archiveOnly: true));
+        var txt = SkseConfigAuditWire.Render(d, null, 40_000, new RowWindow(1, 2));
+        Assert.Contains("configs only inside a BSA (1):", txt);
+        Assert.Contains(@"  - SKSE\Plugins\Foo\c.json  [← Arch.bsa]", txt);
+        Assert.DoesNotContain(@"  - SKSE\Plugins\Foo\a.json", txt);
+    }
 }
