@@ -82,7 +82,7 @@ public static class FlmLines
         Dawnguard = new("(0x0*2)([0-9a-f]{6})", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase),
         Dragonborn = new("(0x0*4)([0-9a-f]{6})", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-    /// <summary>FLM's Sanitize (Utility.hpp:98-123): spaces round '|' and ',' stripped, leading zeros after '0x' dropped,
+    /// <summary>FLM's Sanitize (Utility.hpp:98-123): spaces round '|' and ',' stripped, two or more leading zeros after a lower-case '0x' dropped,
     /// then a FormID written with index 02 or 04 rewritten to Dawnguard's or Dragonborn's, in any case and anywhere in
     /// the value; each rewrite is noted, as a load index written in is (DECISIONS 2026-11-13 (12)(ii)).</summary>
     public static string Sanitize(string value, List<string>? notes = null)

@@ -24,7 +24,7 @@ the running game, which forms a collection gathers, or what a mod event adds (sp
   `#` is a comment; only the unnamed section is read (the lines before the first named header and after an empty
   `[]`); a line with no `=` or no key is not read; the key is matched in any case against FLM 1.8.1's 16 keys, and one
   FLM does not know is listed as logged and invalid. The value is sanitized as FLM sanitizes it (spaces round `|` and
-  `,`, leading zeros after `0x`, then a FormID written with index 02 or 04 rewritten to Dawnguard's or Dragonborn's,
+  `,`, the leading zeros after a lower-case `0x` when there are two or more, then a FormID written with index 02 or 04 rewritten to Dawnguard's or Dragonborn's,
   in any case and whatever plugin follows, noted as a load index is, DECISIONS 2026-11-13 (12)(ii)); a Filter line is
   then lowercased. Fields split on `|` and items on `,`, an empty field kept (CLibUtil's split), none for empty text.
 - **FLM's order** (`FlmLines.Visits`): pass 1 reads, file by file, its Filter lines, then its Collection lines; pass 2, file
