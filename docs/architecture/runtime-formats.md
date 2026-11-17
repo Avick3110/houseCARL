@@ -93,7 +93,7 @@ flm-lines research answer 2).
     its flat `Data/` root and its byte-order file sort; grammar-core.md §2's subfolder paragraph (`_DISTR`, `.ini`);
     and the skill's version line (7.3.0), which the `spid.discovery` region's modelled version does not replace.
   - The server: the layer tool's `distributor=` parameter text names the four distributor rows' keys and restates
-    SPID's, KID's, BOS's and FLM's discovery and labels, and the refusals name the rows (`SkyPatcherTools`); SPID's render spells its order
+    SPID's, KID's, BOS's and FLM's discovery and labels, and the refusals name the rows not landed, then the hand-kept `Later` formats that have no row yet (`lid`; `SkyPatcherTools`); SPID's render spells its order
     sentence and the Npc/keyword string-lookup wording (`SpidWire`, `SpidLines`); KID's reader spells its log
     lines (`Failed to parse entry`, `FAIL - keyword doesn't exist`) and the string-match wording (`KidLines`); BOS's
     reader spells its log lines (`BASE formID not found`, `SWAP formID not found`, `failed to process`) and the
