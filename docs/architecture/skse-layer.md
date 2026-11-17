@@ -137,14 +137,14 @@ residual edges, all of them false-flag or missed-flag modes of the audit:
 
 ### Config references
 
-The audit reads every config under `SKSE\Plugins` but SkyPatcher's INIs: an `.ini` under its root, either spelling,
+The audit reads every config under `SKSE\Plugins` but SkyPatcher's INIs: a name holding `.ini` under its root (the layer scan's own name rule), either spelling,
 and its switches file `SKSE\Plugins\SkyPatcher.ini`, both taken from SkyPatcher's row of the runtime-format source
 (`SkyPatcherDiscovery.IsSkyPatcherIni`). `housecarl_layer` reads those line by line, the switches included, so the
 audit leaves them out whether loose or packed (spec R44). Any other file under that root, and a folder whose name only
 starts with `SkyPatcher`, stays. The layer's overview has no count of SkyPatcher targets naming nothing, so the audit's
 headline counted them and no one call does now; `layer filter=` shows each on its line.
 
-A config every provider of which is a BSA is said to be only inside a BSA, with one sentence for every framework: most
+A config whose winner is a BSA (a loose copy always outranks one) is said to be only inside a BSA, with one sentence for every framework: most
 SKSE plugins read loose files only, so it may never be read. Its references are verdicted as for a loose one. The
 sentence does not name the framework's own read, because two (Inventory Injector, Dynamic Armor Variants) open their
 config through the game's archive stream and most are not sourced (DECISIONS 2026-11-17 (1), Q5 (c)). The text render

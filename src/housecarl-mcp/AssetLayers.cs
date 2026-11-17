@@ -410,7 +410,7 @@ internal sealed partial class AssetLayers
 
             files.Add(new SkseConfigFileAudit(rel, Path.GetFileName(rel), group,
                 winner?.ProviderName, providers.Count, providers, audited, readError, multiLine,
-                ArchiveOnly: place.Sources.Count > 0 && place.Sources.All(s => s.Kind == AssetKind.Bsa)));
+                ArchiveOnly: winner is { Kind: AssetKind.Bsa }));   // a loose copy always outranks an archive's
         }
         return new SkseConfigAuditData(files, files.Count, view.BsaFailures, view.RootFailures, view.ReadIncomplete, warnings, profileName);
     }

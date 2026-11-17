@@ -210,7 +210,7 @@ public enum SkseRefVerdict
 /// <summary>One reference a config declares, paired with its load-order <see cref="Verdict"/> and a <see cref="Detail"/> line: the resolved FormKey for OK, the reason otherwise.</summary>
 public sealed record SkseAuditedRef(HousecarlCore.SkseConfigRef Ref, SkseRefVerdict Verdict, string? Detail);
 
-/// <summary>One config file's audit: its VFS provenance as the full winner-first chain, of which only the WINNER is read, every reference it declares with a verdict, a named <see cref="ReadError"/> when the winning copy could not be read, and <see cref="ArchiveOnly"/> when every provider is a BSA.</summary>
+/// <summary>One config file's audit: its VFS provenance as the full winner-first chain, of which only the WINNER is read, every reference it declares with a verdict, a named <see cref="ReadError"/> when the winning copy could not be read, and <see cref="ArchiveOnly"/> when the winner is a BSA, so no loose copy exists.</summary>
 public sealed record SkseConfigFileAudit(
     string RelPath,
     string FileName,
