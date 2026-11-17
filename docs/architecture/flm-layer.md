@@ -56,8 +56,8 @@ the running game, which forms a collection gathers, or what a mod event adds (sp
   naming nothing drops the whole collection (`Keyword … do not exist!`); a pair half naming nothing drops the pair; a
   group or alias left with nothing is omitted. A wrong field count is invalid (`Wrong … format`). `Remove` lines are
   counted valid and do nothing at data load and `FormsPair` lines are always invalid (1.8.1's handlers, top-up T2 (1));
-  `DragonbornSpiderCrafting` lines are read and never added; a mod event line acts only in the running game and is not
-  resolved.
+  `DragonbornSpiderCrafting` lines are read and never added; a mod event line, which FLM checks at load and acts on
+  when the event is sent in the running game, is neither checked nor resolved.
 - **What a kept line adds** (`FlmLines.Rows`): FLM fills its lists in the row's `addOrder` (the simplified keys, then
   FormList lines), each key's lines in pass-2 order, and skips a form already in the list: its winning record's own, or
   one an earlier add or the same line put there; each row says how many it adds and which it skips and why. A pair is
