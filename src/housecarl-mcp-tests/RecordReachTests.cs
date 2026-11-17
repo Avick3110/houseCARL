@@ -298,6 +298,8 @@ public sealed class RecordReachTests : IDisposable
         var r = Records("spid reaches Spell = HcNoSuchSpell", countsOnly: true);
         Assert.Contains("scan: 0 matches", r);
         Assert.Contains("SPID drops the line", r);
+        // Under types= too the empty selection answers 0, never every NPC of the type.
+        Assert.Contains("scan: 0 matches", Records("spid reaches Spell = HcNoSuchSpell", types: new[] { "NPC_" }, countsOnly: true));
     }
 
     [Fact]

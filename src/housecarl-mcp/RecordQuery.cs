@@ -155,8 +155,8 @@ internal sealed partial class RecordReads
             reachNote = reach.Note;
             var keep = new HashSet<FormKey>(reach.Yes);
             var kept = hasFormidSet ? formidSet!.Where(keep.Contains).ToList() : reach.Yes.ToList();
-            // An empty selection is still a bound: one key no order holds, so the scan answers 0, not every record.
-            formidSet = kept.Count > 0 ? kept : new[] { FormKey.Null };
+            // An empty selection is still the bound: the identity set is the universe, so the scan answers 0, not every record.
+            formidSet = kept;
             hasFormidSet = true;
             where = whereFields;
             hasWhere = where.Count > 0;
