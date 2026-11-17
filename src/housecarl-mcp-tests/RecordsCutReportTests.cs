@@ -189,6 +189,28 @@ public sealed class RecordsCutReportTests : RecordsTestBase
         if (field.EndsWith("[*]")) Assert.Contains(lines[(from + 1)..at], l => l.StartsWith("  … ", StringComparison.Ordinal));   // the fold's cut line rendered first
     }
 
+    /// <summary>A max_chars that shows every field line and drops only the cut line gives no truncation notice; the
+    /// header still says the read was cut.</summary>
+    [Fact]
+    public void NoNoticeWhenOnlyTheCutLineIsDropped()
+    {
+        var full = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Deep(), max_chars: 400_000);
+        int whole = full.Length;
+        var fullLines = full.Split('\n');
+        var lastField = fullLines[Array.FindIndex(fullLines, l => l.StartsWith("  … ", StringComparison.Ordinal)) - 1];
+        bool seen = false;
+        // The render holds room for its notices and the cut statement, so the window sits above the whole answer's length.
+        for (int cap = whole; cap < whole + 1500; cap += 4)
+        {
+            var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Deep(), max_chars: cap);
+            if (!r.Contains(lastField + "\n") || r.Contains("expansion truncated")) continue;
+            seen = true;
+            Assert.DoesNotContain("[truncated: showing", r);
+            Assert.Contains($"cut: 1 record was cut at {InlineBudget} field lines", r);
+        }
+        Assert.True(seen);   // some max_chars in the sweep showed every field line and only the cut line was dropped
+    }
+
     [Fact]
     public void AnInlineDenseAnswerKeepsItsReadNote()
     {
