@@ -427,7 +427,7 @@ public sealed class FlmLinesTests
         Assert.Null(remove.Dropped);
         Assert.Contains("FLM 1.8.1 counts a Remove line valid and does nothing with it at data load", Notes(remove));
         Assert.StartsWith("FLM 1.8.1's FormsPair parser returns false for every line", w.Read("FormsPair = HcCoin|HcGem").Dropped);
-        Assert.Contains("acts only when a mod sends its event in the running game", Notes(w.Read("ModEvent = Ev|HcList|HcCoin")));
+        Assert.Contains("FLM checks a ModEvent line at load (three fields, an event name of letters only, its list and forms) and acts on it when a mod sends the event in the running game; neither is read here", Notes(w.Read("ModEvent = Ev|HcList|HcCoin")));
     }
 
     // ---- FLM's order -------------------------------------------------------------------------

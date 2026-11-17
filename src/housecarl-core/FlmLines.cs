@@ -289,7 +289,7 @@ public static class FlmLines
                 case FlmKind.Pair: Pair(spec); break;
                 case FlmKind.List: List(spec); break;
                 case FlmKind.ModEvent:
-                    notes.Add($"a {spec.Key} line acts only when a mod sends its event in the running game, which is not read here");
+                    notes.Add($"FLM checks a {spec.Key} line at load (three fields, an event name of letters only, its list and forms) and acts on it when a mod sends the event in the running game; neither is read here, so this line is not checked");
                     break;
                 case FlmKind.Remove:
                     notes.Add($"FLM 1.8.1 counts a {spec.Key} line valid and does nothing with it at data load: its parser stores nothing");
