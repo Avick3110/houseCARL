@@ -255,6 +255,7 @@ static partial class Wire
             var noteMark = notes.Mark();
             var fk = q.Keys[i];
             string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
+            RecordFields? read = null;   // counted once the row stays
             if (detail)
             {
                 // winner_fields= reads the load-order winner's body whatever the scan scope; otherwise the body the scan filtered, pinned to the scan's own build.
@@ -263,8 +264,7 @@ static partial class Wire
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
-                else AppendRecordBlock(sb, o, new RenderCap(cap, budget), notes, lv);   // o carries the scan's pin
-                if (o.Error is null && sb.Length <= budget - notes.Reserve) cuts.Add(o.Record);   // counted only when the row stays
+                else { AppendRecordBlock(sb, o, new RenderCap(cap, budget), notes, lv); read = o.Record; }   // o carries the scan's pin
             }
             else
             {
@@ -293,6 +293,7 @@ static partial class Wire
                 break;
             }
             rendered++;
+            cuts.Add(read);
         }
         renderClock.Stop();
         InsertCuts(sb, headAt, cuts);
