@@ -15,7 +15,10 @@ from the files, or decided only in the running game; the rows are the yes record
   each other and with field terms, formids= and plugins= like every where= term.
 - **Bounds.** A reach term bounds the scan itself: SPID's universe is every NPC_ winner but the player and deleted
   records, KID's every winner of the line's type section. A types= naming none of those types is refused; an off-order
-  source= is refused. The yes set becomes the scan's identity set, so an empty one answers 0 matches.
+  source= is refused. The records no reach term says no to become the scan's identity set, so an empty one answers 0
+  matches; the scan's other terms run over them, the yes ones are the rows and the open ones are only counted. A
+  group_by='type' count table takes a reach term as its bound. Field terms are parsed before the reach pass, so a
+  malformed one is refused before any line is judged.
 - **One read per format.** The line is parsed by the layer's own split (`SpidLines.Parse`, `KidLines.Parse`) and read with
   every line of the format's files in one `ReadAll`, in one replay context over the scan's own view, so the EditorID
   table walks every type once. A line the format skips, a Linked line and an ExclusiveGroup line are refused naming why;
@@ -27,13 +30,19 @@ from the files, or decided only in the running game; the rows are the yes record
   decidable), skill levels (an autocalc NPC not decidable), skill weights off its class; traits F/M, U, S, C off the
   record, L and D the running game, T yes when in PotentialFollowerFaction else the running game; location and
   placed-actor filters the running game; chance below 100 puts every selected NPC in the running-game bucket, the
-  chance stated as written; a Death line likewise. An ExclusiveGroup sibling the NPC holds keeps the line off it.
+  chance stated as written; a Death line likewise. An ExclusiveGroup sibling the NPC holds keeps the line off it; a
+  keyword member is matched by its EditorID, so a keyword SPID creates counts. An NPC whose template is a leveled
+  list is not decidable for a string or NPC form filter it does not otherwise meet, since SPID also matches the NPC
+  the list picks (strings only where SPID sees NPC EditorIDs). The layer's earlier lines of the same kind, type and
+  form run first: an NPC they reach is counted as already holding it, which SPID skips. Every line of the layer when
+  the asked line is not in it. A keyword a KID Race line may give the NPC's race (judged by the KID reach over the
+  races) is not decidable, since KID tags races before SPID reads them and the SPID reach does not replay KID.
 - **Template chain (Q2 b).** Each field an NPC filter reads is taken from the first NPC up its template chain whose
   flag for that field's category is clear; the field-to-category table is data (`reach-fields.json`, `npcTemplate`). A
   chain reaching a leveled actor, a template that does not resolve, or a loop makes that field not decidable.
 - **SPID's Keyword pass (Q3 b).** Every kept regular Keyword line of the layer but those giving the asked line's own
-  keyword is run over the NPC before the asked line, repeated until nothing is added (the dependency order where one
-  exists); a keyword it gives counts for later lines. A give the files cannot settle stays open with its reason, so a
+  keyword is run over the NPC before the asked line, in layer order, repeated until nothing is added, at most 16
+  passes, never taking a give back; a keyword it gives counts for later lines. A give the files cannot settle stays open with its reason, so a
   line reading it is not decidable or the running game's, the worse of the two. Only the lines whose keyword the asked
   line can read (a string it names or holds part of, a group sibling, through each other) are run; the rest change
   none of its verdicts, and the note counts both.
@@ -46,26 +55,52 @@ from the files, or decided only in the running game; the rows are the yes record
   keyword is skipped and counted. Trait H on a spell, scroll or enchantment is not decidable (Q4 a); a furniture `T()`
   trait, and an exact actor-value or archetype name that is not the item's EditorID or name, are not decidable.
 - **KID's pass order.** The type's other keywords are run over the item first, each keyword's lines in file order, the
-  first passing one giving it, repeated until nothing is added; Magic Effect lines run over every magic effect first
+  first passing one giving it, in layer order, repeated until nothing is added, at most 16 passes, never taking a give
+  back; the type's earlier lines of the asked keyword run too, and an item they tag is counted as already holding
+  it. Magic Effect lines run over every magic effect first
   when a line reads keywords, so a costliest-effect test sees what they give. An ExclusiveGroup sibling held or given
   keeps the line off the item. As for SPID, only the lines whose keyword the asked line can read are run (all of them
   when it reads a form list).
 - **The note.** One `reach:` note per term leads the scan's notes: the universe, the yes, not-decidable and
   running-game counts, the top reasons with counts and the first three records of each open bucket, that the rows are
-  the yes records only, and the owed sentences (replay, chance, base records not actors, a drop).
+  the yes records only, and the owed sentences (replay, earlier lines, chance, base records not actors, deleted
+  records left out, a drop). When the call has any other term (types=, plugins=, formids=, a field term, another
+  reach term, conflicts_only=, references=), the counts and examples are those within it, and the whole universe's
+  counts follow.
 
 ## Known limitations
 - Only SPID's Keyword lines are replayed; a faction or perk an earlier SPID pass hands out does not count.
 - Outfits, leveled lists, BOS and FLM are not followed (Q1 a).
-- An ExclusiveGroup member is taken by its resolved form; SPID's and KID's tie rules where a cycle or partial string
-  breaks the dependency order are not modelled (the repeat-until-stable pass gives every give).
+- The Keyword-pass replay runs feeders in layer order, repeated until nothing is added (at most 16 passes), and never
+  retracts a give, where SPID and KID sort lines by dependency first; a `-` keyword filter on a feeder placed before
+  the keyword's giver can give where the game would not.
 - KID partial keyword strings match keyword EditorIDs in any case.
 - The template-category table and the CK category of each field are read off UESP, not the engine.
+- A spid term ANDed with a kid term answers 0 with no sentence why (the two universes never overlap).
+- A plugin that turns unreadable after the index build fails the reach call; a fresh call answers.
+- A half-open level such as `5/` reads 0 for every NPC, but the note does not say SPID drops the line.
+- A keyword group sibling is tested on every string channel, so an NPC whose name or EditorID equals a sibling
+  keyword reads as holding it.
+- A RACE or CLAS record that will not read is skipped, so the NPCs using it are judged as if it held nothing, a
+  confident yes or no (KID: an MGEF, LCTN, ENCH or SPEL that will not read, likewise).
+- A feeder is replayed without its own ExclusiveGroup: it gives even where the record holds one of its siblings.
+- A SPID chance of 0 puts every selected NPC in the running-game bucket instead of no.
+- A KID `R()` actor value is compared by Mutagen's enum index, so a game value of 53 or more, or -1, never matches.
+- The note does not carry the replay's coverage caveats (an unread asset root, a BSA-only file, an EditorID-table
+  gap), which the layer answer states.
+- A plugin with a mid-file parse fault fails the whole reach call instead of being skipped and named.
+- SkyPatcher's NPC and item keyword or faction adds are not replayed before the reach, and a record they touch is not
+  marked open: SkyPatcher's replay works one record at a time, by copying it, so knowing which records its lines touch
+  would mean replaying every NPC or item.
 
 ## Pinned by
 - `RecordReachTests` — one test per pick (chain, leveled end, Keyword replay, chance upstream, KID H, no outfit
   following), each bucket, PC-level-mult, strings/traits/forms, KID pass order, KID trait, KID chance, both
-  ExclusiveGroup rules, the held keyword, the refusals, the drop, and composition with a field term.
+  ExclusiveGroup rules, the held keyword, the refusals, the drop, composition with a field term, the scoped note,
+  group_by='type', the parse-first refusal, created group keywords, the leveled pick, earlier lines, KID Race tags.
+- `RecordReachArmTests` — one test per arm the first review found untested (the roll's known values, uninherited
+  categories, the PC-level-mult range, feeder pruning, the costliest effect, the off-order refusal, the runtime
+  FormID, multi-pass chains, sibling tests, two ANDed terms, the line refusals, the term split, the data load).
 
 ## Where
 `ReachTerm.Split` (the where= split, verdicts, the note), `SpidReach.Evaluate`, `KidReach.Evaluate`, `ReachFields`

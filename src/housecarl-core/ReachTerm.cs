@@ -140,7 +140,8 @@ public sealed class ReachResult
     public HashSet<FormKey> Yes { get; } = new();
     /// <summary>Per open bucket: the count, the count by reason, and the first records.</summary>
     public Dictionary<Reach, Bucket> Open { get; } = new() { [Reach.NotDecidable] = new(), [Reach.Game] = new() };
-    /// <summary>Records the line's filters select that already hold what it hands out, which the format skips.</summary>
+    /// <summary>Records the format skips because they already hold what the line hands out: an item holding the keyword
+    /// (counted before any filter runs), or a record an earlier line of the same form or keyword reaches.</summary>
     public int AlreadyHeld { get; set; }
     /// <summary>What the already-held records hold and who skips them, as the note says it.</summary>
     public string HeldWhy { get; set; } = "already hold the keyword, which KID skips";

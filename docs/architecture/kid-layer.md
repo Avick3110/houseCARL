@@ -10,8 +10,10 @@ KID (Keyword Item Distributor) adds keywords to item records at runtime from `_K
 `housecarl_layer` reads those files as KID 4.1.0 reads them (4.0.6 and 4.1.0 read their files the same): which files
 KID reads and in what order, how each line splits, every form a line names and where, and what KID does where a name
 finds nothing, by section. It does not say which items a line tags: no string, trait or chance filter is evaluated,
-a form list is not followed to what it holds, and KID's pass order and keyword dependency sort are not modelled; the
-`records` reach term does that, on the same split and read ([`record-reach.md`](record-reach.md)).
+a form list is not followed to what it holds, and KID's pass order and keyword dependency sort are not modelled. The
+`records` reach term evaluates the filters, traits and chance on the same split and read, follows a form list, and
+runs the type's other lines first in layer order, repeated until nothing is added, with no dependency sort
+([`record-reach.md`](record-reach.md)).
 
 ## Contracts
 
