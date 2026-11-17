@@ -129,7 +129,7 @@ public static class SkyPatcherTools
             "swap a value, each condition of the section's header a filter; BOS names no plugin as a term. FLM is read as FLM 1.8.1 reads it: every " +
             "file directly in Data with '_FLM' in its name and the '.ini' extension (both case-sensitive), names in byte order, then every '.ini' in " +
             "Data\\FLM (that folder's own order is not claimed), the winning copy of each; the unnamed section, keys in any case. filter= expands a " +
-            "file's lines with what FLM does with each, in its order (every file's Filter and Collection lines first, then file by file its Alias and " +
+            "file's lines with what FLM does with each, in its order (file by file its Filter then its Collection lines first, then file by file its Alias and " +
             "Group lines, then the rest, each file key by key): a key it does not know or a wrong field count, a filter it finds true, false (the line " +
             "filtered out) or invalid with each plugin's verdict on the order (a plugin a filter names gates the line and touches nothing), a name " +
             "defined twice (the first wins; aliases and groups count from their own file on), a list, alias or collection keyword naming nothing " +

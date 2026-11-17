@@ -8,8 +8,8 @@ using Place = HousecarlCore.SkyPatcherOverlay.FormPlace;
 namespace HousecarlCore;
 
 /// <summary>FLM's <c>_FLM.ini</c> lines read as FLM 1.8.1 reads them (rules and sources: docs/architecture/flm-layer.md):
-/// the unnamed section, each value sanitized as FLM sanitizes it and split on '|' and ','; Filter and Collection lines of
-/// every file first, then file by file the Alias and Group lines and the rest, each file key by key; every form a line
+/// the unnamed section, each value sanitized as FLM sanitizes it and split on '|' and ','; file by file the Filter then the
+/// Collection lines first, then file by file the Alias and Group lines and the rest, each file key by key; every form a line
 /// names resolved through the one target resolver under FLM's row and labelled target (a list), value (what is added)
 /// or filter (a collection's keyword), through the group, alias, list or collection that holds it; each line's filter
 /// evaluated against the order's plugins; and what each kept line adds to which list, a form already there skipped.
@@ -209,8 +209,8 @@ public static class FlmLines
         return files;
     }
 
-    /// <summary>FLM's two passes over the files (Manipulator.hpp:391-533): pass 1 every file's Filter lines, then its
-    /// Collection lines; pass 2, file by file, its Alias and Group lines, then the rest.</summary>
+    /// <summary>FLM's two passes over the files (Manipulator.hpp:391-533): pass 1, file by file, its Filter lines, then
+    /// its Collection lines; pass 2, file by file, its Alias and Group lines, then the rest.</summary>
     public static IEnumerable<int> Visits(IReadOnlyList<Line> lines)
     {
         var files = Files(lines);
