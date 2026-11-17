@@ -1,0 +1,1 @@
+- **`records where=["spid reaches <line>"]` or `["kid reaches <line>"]` returns the NPCs or items a SPID or KID line reaches, with the not-decidable and running-game records counted apart.** Check: `records where=["spid reaches <a _DISTR.ini line>"] counts_only=true`.

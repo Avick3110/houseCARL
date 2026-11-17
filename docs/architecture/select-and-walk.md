@@ -76,6 +76,9 @@ path walk, and containment comes off Mutagen's context walk.
   answers on a record whose deep body Mutagen cannot parse. `winner` is the PROVENANCE term — which
   plugin wins the record, not its content — evaluated through the scan's bound resolution, so naming
   it forces winner resolution over the whole scanned scope.
+- A term starting `spid reaches ` or `kid reaches ` is not a field predicate: `ReachTerm.Split` takes it off the list
+  before `FieldPredicateSet.Parse`, the rest of the entry being one distributor line, and the scan intersects the
+  records it says yes to ([`record-reach.md`](record-reach.md)). Every other term parses exactly as before.
 - A membership list separates on commas and newlines ONLY, never a bare space, because a plugin
   filename can legally contain one; brackets and quotes are stripped per token, so a pasted JSON
   array parses as written. `@<absolute path>` reads a list FILE, and when that file is a result
