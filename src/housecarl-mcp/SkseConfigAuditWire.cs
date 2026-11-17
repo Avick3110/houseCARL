@@ -208,7 +208,7 @@ static class SkseConfigAuditWire
                 .Concat(d.Files.SelectMany(f => f.Refs.Select(r => r.Ref.Plugin)));
             sb.Append("\nnothing under SKSE\\Plugins matched. ")
               .Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter, suggestPool))
-              .Append('\n').Append(LeftToLayer).Append('\n');
+              .Append('\n').Append(LeftToLayer);
             sb.Append(tail);   // a "no match" over an incompletely-read build must carry the caveat (Q3)
             return sb.ToString().TrimEnd('\n') + Accounting();
         }

@@ -134,6 +134,15 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
     }
 
     [Fact]
+    public void AFilterMatchingNothingPutsTheCaveatsOneNewlineAfterTheLayerLineAsTheWholeAuditDoes()
+    {
+        var incomplete = _audit with { ReadIncomplete = true };
+        const string Caveat = "[!] a BSA or a loose mod folder failed to read";
+        Assert.Contains("\n" + LeftToLayer + "\n" + Caveat, SkseConfigAuditWire.Render(incomplete, null, 40_000));
+        Assert.Contains("\n" + LeftToLayer + "\n" + Caveat, SkseConfigAuditWire.Render(incomplete, "NoSuchConfigAnywhere", 40_000));
+    }
+
+    [Fact]
     public void TheJsonTotalsCountTheBsaOnlyConfigsOverTheWholeAnswerNotItsWindow()
     {
         int Count(string? filter, RowWindow window = default)
