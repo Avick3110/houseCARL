@@ -133,14 +133,17 @@ public sealed class RecordReachTests : IDisposable
 
     static string F(uint id) => ReachWorld.Fk(id);
 
+    /// <summary>A record's summary row, which the reach note's examples never spell.</summary>
+    static string Row(uint id) => "  " + F(id) + "  runtime=";
+
     [Fact]
     public void ARaceLineReadsATemplatedNpcThroughItsChain()
     {
         // Q2 (b): HcTemplated's own race is the beast's, but it takes Traits from a human template.
         var r = Records("spid reaches Spell = HcSpell||HcHumanRace");
-        Assert.Contains(F(ReachWorld.Templated), r);
-        Assert.Contains(F(ReachWorld.Guard), r);
-        Assert.DoesNotContain(F(ReachWorld.Beast), r);
+        Assert.Contains(Row(ReachWorld.Templated), r);
+        Assert.Contains(Row(ReachWorld.Guard), r);
+        Assert.DoesNotContain(Row(ReachWorld.Beast), r);
     }
 
     [Fact]
@@ -148,7 +151,7 @@ public sealed class RecordReachTests : IDisposable
     {
         var r = Records("spid reaches Spell = HcSpell||HcHumanRace", countsOnly: true);
         Assert.Contains("not decidable 1 (its template chain ends at a leveled actor: 1", r);
-        Assert.DoesNotContain(F(ReachWorld.LeveledTemplated) + "  ", Records("spid reaches Spell = HcSpell||HcHumanRace"));
+        Assert.DoesNotContain(Row(ReachWorld.LeveledTemplated), Records("spid reaches Spell = HcSpell||HcHumanRace"));
     }
 
     [Fact]
@@ -157,8 +160,8 @@ public sealed class RecordReachTests : IDisposable
         // Q3 (b): HcGivenKw exists on no record; SPID's :1 gives it to every NPC of a race carrying HcKwHumanoid.
         var r = Records("spid reaches Spell = HcSpell|HcGivenKw");
         Assert.Contains("scan: 4 matches", r);   // HcGuard, HcBodyguard, HcTemplateBase, and HcTemplated through its chain
-        Assert.Contains(F(ReachWorld.Bodyguard), r);
-        Assert.DoesNotContain(F(ReachWorld.Beast), r);
+        Assert.Contains(Row(ReachWorld.Bodyguard), r);
+        Assert.DoesNotContain(Row(ReachWorld.Beast), r);
         Assert.Contains("Keyword line(s) of the layer were replayed first", r);
     }
 
@@ -188,8 +191,8 @@ public sealed class RecordReachTests : IDisposable
     {
         var r = Records("spid reaches Spell = HcSpell|||5/10", countsOnly: true);
         Assert.Contains("a PC-level-mult NPC's level, which the player's level sets: 1", r);
-        Assert.Contains(F(ReachWorld.Guard), Records("spid reaches Spell = HcSpell|||5/10"));
-        Assert.DoesNotContain(F(ReachWorld.Bodyguard), Records("spid reaches Spell = HcSpell|||5/10"));
+        Assert.Contains(Row(ReachWorld.Guard), Records("spid reaches Spell = HcSpell|||5/10"));
+        Assert.DoesNotContain(Row(ReachWorld.Bodyguard), Records("spid reaches Spell = HcSpell|||5/10"));
     }
 
     [Fact]
@@ -206,7 +209,7 @@ public sealed class RecordReachTests : IDisposable
     public void AnOutfitIsNotFollowedToWhatItHolds()
     {
         // Q1 (a): the line hands HcOutfit to HcGuard; the armour it holds is no NPC, and the reach term reads NPCs only.
-        Assert.Contains(F(ReachWorld.Guard), Records("spid reaches Outfit = HcOutfit|HcGuard"));
+        Assert.Contains(Row(ReachWorld.Guard), Records("spid reaches Outfit = HcOutfit|HcGuard"));
         Assert.Contains("scan: 0 matches", Records("spid reaches Outfit = HcOutfit|HcGuard", formids: new[] { F(ReachWorld.Boots) }));
     }
 
@@ -216,7 +219,7 @@ public sealed class RecordReachTests : IDisposable
         // The dev BOOBIES chain: BOOBIES_GENERAL_KID.ini:16 reads BookTypeJournal, which BOOBIES_ImmersiveIcons_KID.ini:13 gives by '*journal'.
         var r = Records("kid reaches Keyword = HcBoobies|Book|HcBookTypeJournal");
         Assert.Contains("scan: 1 match", r);
-        Assert.Contains(F(ReachWorld.Journal), r);
+        Assert.Contains(Row(ReachWorld.Journal), r);
         Assert.Contains("other Book line(s) of the layer were replayed first", r);
     }
 
@@ -233,7 +236,7 @@ public sealed class RecordReachTests : IDisposable
     {
         var r = Records("kid reaches Keyword = HcTag|Weapon|NONE|E");
         Assert.Contains("scan: 1 match", r);
-        Assert.Contains(F(ReachWorld.FireSword), r);
+        Assert.Contains(Row(ReachWorld.FireSword), r);
         Assert.Contains("scan: 2 matches", Records("kid reaches Keyword = HcTag|Weapon|*Sword,-HcWoodSword", countsOnly: true));
     }
 
@@ -264,7 +267,7 @@ public sealed class RecordReachTests : IDisposable
         Assert.Contains("scan: 1 match", Records("spid reaches Spell = HcSpellA|*Guard", countsOnly: true));
         var kid = Records("kid reaches Keyword = HcKidA|Weapon|*Sword");
         Assert.Contains("scan: 2 matches", kid);
-        Assert.DoesNotContain(F(ReachWorld.IronSword) + "  ", kid);
+        Assert.DoesNotContain(Row(ReachWorld.IronSword), kid);
     }
 
     [Fact]
@@ -302,6 +305,6 @@ public sealed class RecordReachTests : IDisposable
     {
         var r = RecordsTools.Records(_w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard", "editorid = HcBodyguard" });
         Assert.Contains("scan: 1 match", r);
-        Assert.Contains(F(ReachWorld.Bodyguard), r);
+        Assert.Contains(Row(ReachWorld.Bodyguard), r);
     }
 }
