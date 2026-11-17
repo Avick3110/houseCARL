@@ -212,6 +212,25 @@ public sealed class RecordsCutReportTests : RecordsTestBase
         }
     }
 
+    /// <summary>A census over a cut comparison counts the cut row, and one over an uncut comparison carries no such count.</summary>
+    [Fact]
+    public void ADeltaAndATreeCensusCountTheirCutRows()
+    {
+        foreach (var form in new[] { "delta", "tree" })
+        {
+            JsonElement? versus = form == "delta" ? Plugin(W.MasterName) : null;
+            foreach (var (field, cut) in new[] { ("Items", true), ("EditorID", false) })
+            {
+                var p = new RecordsTools.RecordsProject { form = form, fields = new[] { field } };
+                var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, versus: versus, project: p, format: "json", counts_only: true));
+                Assert.Equal(cut, doc.TryGetProperty("records_cut", out var n) && n.GetInt32() == 1);
+                var text = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, versus: versus, project: p, counts_only: true);
+                Assert.Equal(cut, text.Contains(" records_cut=1"));
+                Assert.DoesNotContain("records_cut=0", text);
+            }
+        }
+    }
+
     [Fact]
     public void AReadUnderTheBudgetSaysNothingAboutACut()
     {
