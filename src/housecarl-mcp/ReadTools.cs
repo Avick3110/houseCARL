@@ -615,7 +615,13 @@ static partial class Wire
             int mark = sb.Length;                                          // depth= can produce many lines — cap them
             var f = r.Fields[i];
             AppendFieldLine(sb, "  ", f);
-            if (sb.Length > room) { sb.Length = mark; sb.Append(Cut(shown)); break; }
+            if (sb.Length > room)
+            {
+                sb.Length = mark;
+                // Every field line is shown: the dropped line is the cut line, which the header states.
+                if (shown < lines) sb.Append(Cut(shown));
+                break;
+            }
             if (!r.IsCutLine(f)) shown++;
             // The clause is earned HERE, by a line that reached the caller.
             if (notes is not null && o.OwnedChildFields is { } ann && ann.TryGetValue(f.Path, out var u))
