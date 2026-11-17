@@ -115,8 +115,9 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
     public void TheWholeAuditNamesEachBsaOnlyConfig()
     {
         var txt = SkseConfigAuditWire.Render(_audit, null, 40_000);
-        Assert.Contains("\nconfigs only inside a BSA (1): most SKSE plugins read loose files only, so they may never be read:\n  - ", txt);
-        Assert.Contains("packed.json  [← Dummy.bsa]", txt);
+        // The section whole: its heading, the one row once, then the accounted-for block.
+        Assert.Contains("\nconfigs only inside a BSA (1): most SKSE plugins read loose files only, so they may never be read:\n" +
+                        "  - " + PackedKeep + "  [← Dummy.bsa]\n\naccounted for:", txt, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
