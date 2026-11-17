@@ -199,7 +199,7 @@ public static class ReadEngine
                 AnnotateOpaqueBytes(fields, from, on.FormVersion);
             }
             // Emit left its mark where the walk stopped; the line states the budget this read ran under.
-            int mark = fields.FindIndex(f => ReferenceEquals(f, CutMark));
+            int mark = budget < 0 ? fields.FindIndex(f => ReferenceEquals(f, CutMark)) : -1;   // an uncut read pays no scan
             if (mark >= 0)
             {
                 fields[mark] = new FieldValue(CutPath, false, null, CutNote(of));
@@ -514,8 +514,10 @@ public static class ReadEngine
     public const string CutPath = "…";
 
     /// <summary>The cut line's note: where the read stopped and how to read less.</summary>
-    public static string CutNote(int budget) =>
-        $"(expansion truncated at {budget} lines — narrow with a field path or a lower depth)";
+    public static string CutNote(int budget) => CutLead(budget) + " narrow with a field path or a lower depth)";
+
+    /// <summary>The cut note up to its remedy, which a form with its own remedy restates.</summary>
+    public static string CutLead(int budget) => $"(expansion truncated at {budget} lines —";
 
     /// <summary>The response-level statement over the records a deep read cut: how many, which (the first
     /// <paramref name="names"/>), at what budget, and how to read one whole.</summary>

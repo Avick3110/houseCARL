@@ -92,7 +92,7 @@ static class RowProjection
     {
         if (cutAt is not { } budget || f.Path != ReadEngine.CutPath) return f;
         var lower = depth > 3 ? ", or lower depth to 3 (depth 2 leaves every element a bare type)" : "";
-        return f with { Note = $"(expansion truncated at {budget} lines — the fold runs AFTER the read, so the elements past the cut are " +
+        return f with { Note = ReadEngine.CutLead(budget) + " the fold runs AFTER the read, so the elements past the cut are " +
                                "missing from the rows: name one element to fold it alone (e.g. \"Conditions[0]\")" +
                                lower + ")" };
     }

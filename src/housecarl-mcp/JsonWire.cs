@@ -202,11 +202,6 @@ static class JsonWire
         return omitted;
     }
 
-    /// <summary>The cap a row renders under: <paramref name="cap"/>, less the room the cut statement needs once any
-    /// row, this one included, was cut by its read.</summary>
-    internal static int CutCap(int cap, RecordCuts cuts, ReadOutcome o) =>
-        cuts.Count > 0 || (o.Error is null && o.Record?.CutAt is not null) ? cap - RenderBudget.CutReserve : cap;
-
     /// <summary>The answer's count of rows its reads cut, beside the row counts, and the statement naming them; nothing when none was.</summary>
     internal static void WriteCuts(Utf8JsonWriter w, RecordCuts cuts)
     {
@@ -399,7 +394,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
                 var o = outcomes[i];
-                int rowCap = CutCap(cap, cuts, o);
+                int rowCap = cap - RenderBudget.CutHold(cuts, o);
                 w.Flush();
                 if (Chars(ms) >= rowCap) { rowsTruncated = true; break; }
                 string? hit = matches is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
@@ -1172,7 +1167,7 @@ static class JsonWire
                     {
                         // winner_fields=: the WINNER's body whatever the scan scope; pinned to the scan's build.
                         var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
-                        int rowCap = CutCap(cap, cuts, o);
+                        int rowCap = cap - RenderBudget.CutHold(cuts, o);
                         if (Chars(ms) >= rowCap) { rowsTruncated = true; break; }
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(fk)); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else { WriteReadRecord(w, o, ms, rowCap, matches, childFields: childFields, levers: levers); cuts.Add(o.Record); }

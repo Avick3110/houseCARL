@@ -7,7 +7,7 @@ namespace HousecarlMcp;
 static partial class RecordsTools
 {
     /// <summary>The header count of rows a deep read cut at its line budget, which no other count holds alone.</summary>
-    const string CutCount = " cut by the deep read's line budget (each such row says INCOMPLETE), ";
+    const string CutRowsCount = " cut by the deep read's line budget (each such row says INCOMPLETE), ";
 
     /// <summary>The delta form's text render: header counts, then per record the two pole lines, the stack-above fact stated neutrally, and the delta-line grammar, where a truncated deep read is never 'identical'; max_chars is a CEILING, per docs/architecture/render-budget.md.</summary>
     /// <remarks>Internal so a test can drive a row shape no fixture produces — an incomplete deep read with enough delta lines to be cut.</remarks>
@@ -33,7 +33,7 @@ static partial class RecordsTools
         if (noVerdict - noField > 0) sb.Append(noVerdict - noField).Append(" with a field that could not be read, ");
         if (noField > 0) sb.Append(noField).Append(" with a path that names no field, ");
         if (notCompared > 0) sb.Append(notCompared).Append(" with no path read on its type (nothing compared), ");
-        if (cutRows > 0) sb.Append(cutRows).Append(CutCount);
+        if (cutRows > 0) sb.Append(cutRows).Append(CutRowsCount);
         sb.Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
@@ -175,7 +175,7 @@ static partial class RecordsTools
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
         sb.Append(total).Append(" record(s): ").Append(contested).Append(" contested, ");
-        if (cutRows > 0) sb.Append(cutRows).Append(CutCount);
+        if (cutRows > 0) sb.Append(cutRows).Append(CutRowsCount);
         sb.Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
