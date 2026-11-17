@@ -92,6 +92,58 @@ public sealed class RecordsCutReportTests : RecordsTestBase
         Assert.Equal(1, Manifest(art).GetProperty("records_cut").GetInt32());
     }
 
+    /// <summary>A scan selection (types=, no formids=) whose form reads bodies on the scan's own body lane.</summary>
+    [Theory]
+    [InlineData("rows", "Items", 2)]
+    [InlineData("everything", "", 2)]
+    [InlineData("fields", "Items[*]", null)]
+    public void TheScanBodyLaneWritesUnderTheFileBudget(string form, string field, int? depth)
+    {
+        var art = W.Scratch("results", $"cut-scanbody-{form}.jsonl");
+        Served(RecordsTools.Records(Svc, types: new[] { "FLST" }, project: Deep(form, field, depth), format: "json", to_file: art));
+        Assert.False(EndsCut(Row(art, "HcRecBigList")));
+        Assert.Equal(new[] { Fid(W.HugeList) }, Manifest(art).GetProperty("cut_records").EnumerateArray().Select(x => x.GetString()));
+    }
+
+    /// <summary>The SkyPatcher overlay pole and an off-order file pole read under the file budget too.</summary>
+    [Fact]
+    public void TheOverlayAndOffOrderPolesWriteUnderTheFileBudget()
+    {
+        foreach (var (name, src) in new[] { ("overlay", Overlay("post")), ("offorder", Plugin(W.OldName)) })
+        {
+            var art = W.Scratch("results", $"cut-pole-{name}.jsonl");
+            Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, source: src, project: Deep(), format: "json", to_file: art));
+            Assert.False(EndsCut(Row(art, "HcRecBigList")), name);
+            Assert.False(Manifest(art).TryGetProperty("records_cut", out _), name);
+        }
+    }
+
+    /// <summary>A statement names three records inline and ten in the manifest notes, and counts the rest; the
+    /// manifest's cut_records lists every one.</summary>
+    [Fact]
+    public void TheCutStatementCountsTheRecordsItDoesNotName()
+    {
+        RecordFields Cut(int i) => new("FormList", $"{i:X6}:Hc.esm", $"HcCut{i}", Array.Empty<FieldValue>(), CutAt: InlineBudget);
+        var inline = new RecordCuts();
+        for (int i = 0; i < 4; i++) inline.Add(Cut(i));
+        Assert.Contains("HcCut2) and 1 more —", inline.Sentence());
+        Assert.DoesNotContain("HcCut3", inline.Sentence());
+
+        var file = W.Scratch("results", "cut-eleven.jsonl");
+        using (var writer = new ResultArtifact.Writer())
+        {
+            for (int i = 0; i < 11; i++)
+                writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteEndObject(); }, "FormList", Cut(i));
+            Assert.Null(writer.Save(ArtifactTarget.Named(file), ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(),
+                                    "formid", new[] { "formid" }, "input order", total: 11, epoch: "e2-deadbeef").Error);
+        }
+        var m = Manifest(file);
+        Assert.Equal(11, m.GetProperty("cut_records").GetArrayLength());
+        var note = m.GetProperty("notes").EnumerateArray().Single().GetString()!;
+        Assert.Contains("HcCut9) and 1 more —", note);
+        Assert.DoesNotContain("HcCut10", note);
+    }
+
     // ---- the report on a file ----------------------------------------------------------------------------
 
     [Fact]
@@ -150,7 +202,7 @@ public sealed class RecordsCutReportTests : RecordsTestBase
     public void AnInlineScanAnswerCountsItsCutRecordsAtTheTop()
     {
         var doc = Je(RecordsTools.Records(Svc, types: new[] { "FLST" }, project: Fields("Items"), format: "json", max_chars: 4_000_000));
-        Assert.Equal(0, doc.TryGetProperty("records_cut", out var none) ? none.GetInt32() : 0);   // depth 1 reads no element
+        Assert.False(doc.TryGetProperty("records_cut", out _));   // depth 1 reads no element, and an uncut answer carries no count
         var deep = RecordsTools.Records(Svc, types: new[] { "FLST" }, project: Deep(), max_chars: 4_000_000);
         Served(deep, "cut: 2 records were cut at 2000 field lines", "HcRecBigList", "HcRecHugeList");
         var deepJson = Je(RecordsTools.Records(Svc, types: new[] { "FLST" }, project: Deep(), format: "json", max_chars: 4_000_000));

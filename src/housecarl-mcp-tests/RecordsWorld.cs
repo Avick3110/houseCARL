@@ -225,6 +225,8 @@ public sealed class RecordsWorld : IDisposable
             .BasicStats = new WeaponBasicStats { Damage = 55, Weight = 1 };
         // The off-order file carries a list too, so a read of one can be driven through the off-order arm.
         WriteEngine.GenericGetOrAddAsOverride(oldMod, spellA);
+        // And the over-budget list, so an off-order read of it can be driven under the to_file= line budget.
+        WriteEngine.GenericGetOrAddAsOverride(oldMod, bigList);
 
         var midMod = new SkyrimMod(midKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(midMod, master.Weapons.First(w => w.FormKey == weapons[0])))
