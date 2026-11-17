@@ -275,9 +275,6 @@ public static class ResultArtifact
                 excluded = new List<string>();
                 foreach (var p in ex.EnumerateArray()) if (p.ValueKind == JsonValueKind.String) excluded.Add(p.GetString()!);
             }
-            List<string>? cutRecords = null;
-            if (r.TryGetProperty("cut_records", out var cr2) && cr2.ValueKind == JsonValueKind.Array)
-                cutRecords = cr2.EnumerateArray().Where(c => c.ValueKind == JsonValueKind.String).Select(c => c.GetString()!).ToList();
             return (new Manifest(
                         r.TryGetProperty("tool", out var t) ? t.GetString() ?? "?" : "?",
                         query,
@@ -289,10 +286,7 @@ public static class ResultArtifact
                         typeCounts,
                         r.TryGetProperty("epoch", out var e) ? e.GetString() ?? "?" : "?",
                         r.TryGetProperty("created", out var cr) ? cr.GetString() ?? "?" : "?",
-                        notes, uncovered, excluded,
-                        r.TryGetProperty("records_cut", out var rcut) ? rcut.GetInt32() : 0,
-                        r.TryGetProperty("cut_budget", out var cb) ? cb.GetInt32() : null,
-                        cutRecords),
+                        notes, uncovered, excluded),
                     null);
         }
         catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)
