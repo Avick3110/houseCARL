@@ -19,7 +19,9 @@ static class SkseConfigAuditWire
     internal const string RowNoun = "config(s)";
 
     /// <summary>What a config only inside a BSA is said to be, one sentence for every framework.</summary>
-    internal const string ArchiveOnlyNote = "only inside a BSA: most SKSE plugins read loose files only, so it may never be read";
+    internal const string ArchiveOnlyNote = ArchiveOnlyWhere + ": " + LooseOnly + "it may never be read";
+    const string ArchiveOnlyWhere = "only inside a BSA";
+    const string LooseOnly = "most SKSE plugins read loose files only, so ";
 
     public static string Render(SkseConfigAuditData d, string? filter, int cap, RowWindow window = default, int trailer = 0)
     {
@@ -129,8 +131,8 @@ static class SkseConfigAuditWire
             h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally)) missed++;
         if (!AppendFiles(sb, "read errors — configs that could not be read/decoded (NOT counted as clean)", readErrors, budget,
             f => "  - " + f.RelPath + ": " + f.ReadError + Prov(f), tally)) missed++;
-        if (!AppendFiles(sb, "configs " + ArchiveOnlyNote, rows.Where(f => f.ArchiveOnly).ToList(), budget,
-            f => "  - " + f.RelPath + Prov(f), tally)) missed++;
+        if (!AppendFiles(sb, "configs " + ArchiveOnlyWhere, rows.Where(f => f.ArchiveOnly).ToList(), budget,
+            f => "  - " + f.RelPath + Prov(f), tally, ": " + LooseOnly + "they may never be read")) missed++;
 
         // ── Accounted-for remainder: everything that is not a diagnostic, so nothing is dropped. ──
         var healthyFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
@@ -300,14 +302,15 @@ static class SkseConfigAuditWire
         return true;
     }
 
-    // A list of whole files under one heading, cut at the budget with its own notice; false when not even the heading fits.
+    // A list of whole files under one heading (label, count, then any reason), cut at the budget with its own notice;
+    // false when not even the heading fits.
     static bool AppendFiles(StringBuilder sb, string label, IReadOnlyList<SkseConfigFileAudit> files, int cap,
-                            Func<SkseConfigFileAudit, string> line, RowTally tally)
+                            Func<SkseConfigFileAudit, string> line, RowTally tally, string reason = "")
     {
         if (files.Count == 0) return true;
         string Cut(int shown) => "  ... [" + shown + " of " + files.Count + "; raise max_chars]\n";
         int room = cap - Cut(files.Count).Length;
-        if (!SkseRenderParts.Head(sb, room, "\n" + label + " (" + files.Count + "):\n")) return false;
+        if (!SkseRenderParts.Head(sb, room, "\n" + label + " (" + files.Count + ")" + reason + ":\n")) return false;
         int n = 0;
         foreach (var f in files)
         {
