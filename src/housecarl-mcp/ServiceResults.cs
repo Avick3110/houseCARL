@@ -79,6 +79,9 @@ public sealed record CrossQueryOutcome(
     /// <summary>That build's fingerprint, read through the stamp so an outcome cannot carry an epoch without the build's health.</summary>
     public string? Epoch => Stamp?.Epoch;
 
+    /// <summary>The where= reach terms' answer: each line's counts by bucket and what the rows are. Null without one.</summary>
+    public string? ReachNote { get; init; }
+
     /// <summary>The reverse-reference index's accounting for this call: a triggered build's cost, its per-plugin freshness key, and the universe declaration. Null when unused.</summary>
     public string? ReverseIndexNote { get; init; }
 
@@ -106,7 +109,7 @@ public sealed record CrossQueryOutcome(
     public IReadOnlyList<string> FieldNotes { get; init; } = Array.Empty<string>();
 
     IReadOnlyList<string> Owed(string? unmatched) =>
-        new[] { PredicateNote, unmatched, ScanNote, WhereSourceNote, ReverseIndexNote }.OfType<string>().Concat(FieldNotes).ToList();
+        new[] { ReachNote, PredicateNote, unmatched, ScanNote, WhereSourceNote, ReverseIndexNote }.OfType<string>().Concat(FieldNotes).ToList();
 
 
     /// <summary>The scan's pinned resolver and view, so the render's per-match fills read off the same build the scan matched. Never serialized.</summary>

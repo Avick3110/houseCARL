@@ -60,6 +60,8 @@ internal sealed partial class RecordReads
         bool hasPlugins = plugins is { Count: > 0 };
         bool hasType = typeSet is { Count: > 0 };
         bool hasWhere = where is { Count: > 0 };
+        // A reach term selects the records of its own line's type, so it bounds the scan itself.
+        var (whereFields, reachTerms) = ReachTerm.Split(where);
         bool hasReferences = references is { Count: > 0 };
         // The negated half of references=: a record is kept only when it links to NONE of these.
         var refNone = referencesNone is { Count: > 0 } ? new HashSet<FormKey>(referencesNone) : null;
@@ -73,7 +75,7 @@ internal sealed partial class RecordReads
         // needs a bound — the index knows links, not field values.
         string? reverseNote = null;
         bool indexUniverse = false;                                    // the scan universe came from the index, not from the caller
-        if (bodyFilter && !hasType && !hasPlugins && !hasFormidSet)
+        if (bodyFilter && !hasType && !hasPlugins && !hasFormidSet && reachTerms.Count == 0)
         {
             bool reverseOnly = !hasWhere && string.IsNullOrEmpty(editoridContains);
             if (!reverseOnly)
@@ -142,6 +144,23 @@ internal sealed partial class RecordReads
         }
         var refSet = hasReferences ? new HashSet<FormKey>(references!) : null;
         bool multiTarget = references is { Count: >= 2 };
+
+        // The reach terms are judged first, over this scan's view; the records they say yes to become the identity set.
+        string? reachNote = null;
+        if (reachTerms.Count > 0)
+        {
+            var reach = Reach(reachTerms, view, ct);
+            if (reach.Refusal is not null) return CrossQueryOutcome.Fail(reach.Refusal) with { Stamp = view.Stamp };
+            if (hasType && ReachTypesRefusal(typeSet!, reach.Types) is { } terr) return CrossQueryOutcome.Fail(terr) with { Stamp = view.Stamp };
+            reachNote = reach.Note;
+            var keep = new HashSet<FormKey>(reach.Yes);
+            var kept = hasFormidSet ? formidSet!.Where(keep.Contains).ToList() : reach.Yes.ToList();
+            // An empty selection is still a bound: one key no order holds, so the scan answers 0, not every record.
+            formidSet = kept.Count > 0 ? kept : new[] { FormKey.Null };
+            hasFormidSet = true;
+            where = whereFields;
+            hasWhere = where.Count > 0;
+        }
 
         // where= becomes the field-value predicate set, parsed up front so a malformed predicate refuses the call.
         FieldPredicateSet? predicate = null;
@@ -666,10 +685,26 @@ internal sealed partial class RecordReads
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
                { Stamp = view.Stamp, Pin = pin,
+                 ReachNote = reachNote,
                  ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList(),
                  Unmatched = predicate?.Unmatched ?? Array.Empty<string>(),
                  UnmatchedGap = UnjudgedClause((view.Stamp?.ExcludedPlugins.Count ?? 0) + unreadablePlugins.Count, unscannable) };
+    }
+
+    /// <summary>The refusal for a reach term on an off-order source=: a line reaches what the load order holds.</summary>
+    internal const string ReachOffOrderRefusal =
+        "a where= reach term judges the load order's winners, and this scan streams a file outside the load order. Drop source= to ask which winners the line reaches.";
+
+    /// <summary>The refusal for a types= naming none of the record types the reach terms select; null when one matches.</summary>
+    string? ReachTypesRefusal(IReadOnlyList<string> typeSet, IReadOnlyList<string> reachTypes)
+    {
+        IReadOnlyList<Type> asked;
+        try { asked = _host.Types.ResolveSet(typeSet); } catch (ArgumentException) { return null; }   // the scan's own type check names it
+        var getters = reachTypes.Select(SpidGrammar.Getter).OfType<Type>().ToList();
+        if (asked.Any(a => getters.Any(g => g.IsAssignableFrom(a) || a.IsAssignableFrom(g)))) return null;
+        return $"types=[{string.Join(", ", typeSet)}] names no {string.Join(" or ", reachTypes)} record, the type the where= reach term's line selects; " +
+               "drop types= (the reach term bounds the scan itself) or name that type.";
     }
 
     /// <summary>Why the scan left records unjudged (a plugin the build or the scan could not read, a record it could not scan), as one clause for the unmatched note; null when it judged everything.</summary>
@@ -783,6 +818,8 @@ internal sealed partial class RecordReads
             return CrossQueryOutcome.Fail(ReadSentences.NoOffsetOnCountTable("group_by="));
 
         FieldPredicateSet? predicate = null;
+        if (ReachTerm.AnyIn(where))
+            return CrossQueryOutcome.Fail(ReachOffOrderRefusal) with { Stamp = view.Stamp };
         if (where is { Count: > 0 })
         {
             var (set, perr) = FieldPredicateSet.Parse(where, FormIdDoor.On(view).Parse);
