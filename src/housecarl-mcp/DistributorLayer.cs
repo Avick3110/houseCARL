@@ -20,18 +20,9 @@ internal sealed partial class AssetLayers
         Func<IReadOnlyList<(IReadOnlyList<TLine> Lines, IReadOnlyList<TRead?> Reads)>, IReadOnlyDictionary<(int File, int Line), string>>? lineRows = null)
         where TLine : class, DistributorLines.ILine where TRead : class, DistributorLines.IRead
     {
-        var files = new List<(DistributorDiscovery.ConfigFile File, IReadOnlyList<TLine> Lines, string? ReadError)>();
-        foreach (var f in DistributorDiscovery.Scan(replay.Assets, format))
-        {
-            ct.ThrowIfCancellationRequested();
-            if (f.NotApplied is not null || f.LooseFilePath is null) { files.Add((f, [], null)); continue; }
-            try { files.Add((f, parse(File.ReadAllText(f.LooseFilePath), f.RelPath), null)); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                files.Add((f, [], $"could not be read ({ex.Message})"));
-            }
-        }
-        var data = new DistributorLayerData(format, files.Select(x => new DistributorFileData(x.File, x.Lines, x.ReadError)).ToList(), replay.ProfileName);
+        var files = DistributorFiles(format, replay, parse, ct);
+        var data = new DistributorLayerData(format, files.Select(x => new DistributorFileData(x.File, x.Lines,
+            x.ReadError is null ? null : $"could not be read ({x.ReadError})")).ToList(), replay.ProfileName);
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
         if (wanted is null && (filter is null || !data.Files.Any(f => f.Matches(filter)))) return data;
 
@@ -66,5 +57,21 @@ internal sealed partial class AssetLayers
             Selected = selected,
             UnreadableNotes = UnreadableNotes(replay),
         };
+    }
+
+    /// <summary>Every file the format reads, as it finds them, each split by <paramref name="parse"/>: a file it does
+    /// not apply gives no lines, and one that cannot be read gives none and its read error.</summary>
+    internal static List<(DistributorDiscovery.ConfigFile File, IReadOnlyList<TLine> Lines, string? ReadError)> DistributorFiles<TLine>(
+        DistributorFormat format, SkyPatcherReplay replay, Func<string, string, IReadOnlyList<TLine>> parse, CancellationToken ct)
+    {
+        var files = new List<(DistributorDiscovery.ConfigFile File, IReadOnlyList<TLine> Lines, string? ReadError)>();
+        foreach (var f in DistributorDiscovery.Scan(replay.Assets, format))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (f.NotApplied is not null || f.LooseFilePath is null) { files.Add((f, [], null)); continue; }
+            try { files.Add((f, parse(File.ReadAllText(f.LooseFilePath), f.RelPath), null)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { files.Add((f, [], ex.Message)); }
+        }
+        return files;
     }
 }
