@@ -1194,7 +1194,9 @@ public static partial class RecordsTools
             int notCompared = rows.Count(x => x.Error is null && x.Diff!.NothingCompared);
             var notComparedCount = notCompared > 0 ? new[] { KvI("not_compared", notCompared) } : Array.Empty<KeyValuePair<string, int>>();
             // A row a deep read cut at its line budget, which no count above holds when it found no delta.
-            int cut = rows.Count(x => x.CutAt is not null);
+            var cuts = new RecordCuts();
+            foreach (var x in rows) if (x.CutAt is { } at) cuts.AddCompared(x.Formid, x.Subject?.EditorId, at);
+            int cut = cuts.Count;
             var deltaCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }
                                         .Concat(notComparedCount).Concat(CutCount(cut)).ToArray());
             if (counts_only)
@@ -1210,8 +1212,8 @@ public static partial class RecordsTools
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render(SpillState? sp, out bool trunc) => json
-                ? JsonWire.RenderDelta(winRows, max_chars, epoch, Env(sp), deltaCounts, sp, out trunc)
-                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, Head(sp), epoch, max_chars, sp, out trunc, noField: noField, notCompared: notCompared, cutRows: cut);
+                ? JsonWire.RenderDelta(winRows, max_chars, epoch, Env(sp), deltaCounts, sp, out trunc, cuts)
+                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, Head(sp), epoch, max_chars, sp, out trunc, noField: noField, notCompared: notCompared, cuts: cuts);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
@@ -1238,7 +1240,9 @@ public static partial class RecordsTools
             StateOverlayWarnings();
             int contested = rows.Count(x => x.Error is null && x.Touchers.Count > 1);
             int errs = rows.Count(x => x.Error is not null);
-            int cut = rows.Count(x => x.CutAt is not null);
+            var cuts = new RecordCuts();
+            foreach (var x in rows) if (x.CutAt is { } at) cuts.AddCompared(x.Formid, x.EditorId, at);
+            int cut = cuts.Count;
             if (counts_only)
                 return ToolAnswer.Served(json
                     ? JsonWire.RenderNamedCounts(Env(null), new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }.Concat(CutCount(cut)).ToArray(), epoch, max_chars)
@@ -1253,8 +1257,8 @@ public static partial class RecordsTools
             }
             var treeCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }.Concat(CutCount(cut)).ToArray());
             string Render(SpillState? sp, out bool trunc) => json
-                ? JsonWire.RenderTree(winRows, max_chars, epoch, Env(sp), treeCounts, sp, out trunc, LeverNames.Records)
-                : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Count: > 0 }, Head(sp), epoch, max_chars, sp, out trunc, cutRows: cut);
+                ? JsonWire.RenderTree(winRows, max_chars, epoch, Env(sp), treeCounts, sp, out trunc, LeverNames.Records, cuts)
+                : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Count: > 0 }, Head(sp), epoch, max_chars, sp, out trunc, cuts: cuts);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
