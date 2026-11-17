@@ -17,8 +17,9 @@ from the files, or decided only in the running game; the rows are the yes record
   records, KID's every winner of the line's type section. A types= naming none of those types is refused; an off-order
   source= is refused. The records no reach term says no to become the scan's identity set, so an empty one answers 0
   matches; the scan's other terms run over them, the yes ones are the rows and the open ones are only counted. A
-  group_by='type' count table takes a reach term as its bound. Field terms are parsed before the reach pass, so a
-  malformed one is refused before any line is judged.
+  group_by='type' count table takes a reach term as its bound. Field terms are parsed, and a types= naming none of the
+  lines' types (read off the lines unjudged), a stale artifact, an unknown type and a wrong field path are refused,
+  before the reach pass, so none waits on a line being judged.
 - **One read per format.** The line is parsed by the layer's own split (`SpidLines.Parse`, `KidLines.Parse`) and read with
   every line of the format's files in one `ReadAll`, in one replay context over the scan's own view, so the EditorID
   table walks every type once. A line the format skips, a Linked line and an ExclusiveGroup line are refused naming why;

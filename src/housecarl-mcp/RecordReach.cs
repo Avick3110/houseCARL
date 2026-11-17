@@ -8,9 +8,9 @@ namespace HousecarlMcp;
 // own view, and judged over every record of its type by the format's own rules. Read-only; nothing is kept between calls.
 internal sealed partial class RecordReads
 {
-    /// <summary>What the reach terms select: each term's answer, the record types they read, and the files that could
-    /// not be read; or the refusal naming the line a format cannot read.</summary>
-    internal sealed record ReachSelection(IReadOnlyList<ReachResult> Results, IReadOnlyList<string> Types, string Unread, string? Refusal)
+    /// <summary>What the reach terms select: each term's answer and the files that could not be read; or the refusal
+    /// naming the line a format cannot read.</summary>
+    internal sealed record ReachSelection(IReadOnlyList<ReachResult> Results, string Unread, string? Refusal)
     {
         /// <summary>The records no term says no to, in the first term's order: the yes records and the open ones.</summary>
         public IReadOnlyList<FormKey> Candidates
@@ -38,6 +38,20 @@ internal sealed partial class RecordReads
 
         /// <summary>One note per term, then the unread files.</summary>
         public string Note() => string.Join(" ", Results.Select(r => r.Sentence())) + Unread;
+    }
+
+    /// <summary>The record types the reach terms select, read off their lines without judging them; a line that does not
+    /// parse is left to the reach pass to refuse.</summary>
+    internal static IReadOnlyList<string> ReachTypes(IReadOnlyList<ReachTerm> terms)
+    {
+        var types = new List<string>();
+        var kid = RuntimeFormats.Kid;
+        foreach (var t in terms)
+        {
+            if (t.Format == "spid") types.Add("Npc");
+            else if (KidLines.Parse(t.Line, kid) is [{ Skipped: null, IsGroup: false, Type: { } k }] && kid.KidLines!.Type(k) is { } kt) types.Add(kt.Record);
+        }
+        return types.Distinct().ToList();
     }
 
     /// <summary>Judge every reach term over <paramref name="view"/>, the layer read once per format in one replay context.</summary>
@@ -98,11 +112,11 @@ internal sealed partial class RecordReads
         }
         // Several terms are ANDed like every where= term: the rows are the records every one says yes to.
         var ordered = terms.Select(t => results.First(r => ReferenceEquals(r.Term, t))).ToList();
-        return new ReachSelection(ordered, ordered.Select(r => r.RecordType).Distinct().ToList(),
+        return new ReachSelection(ordered,
                                   unread.Count == 0 ? "" : $" {unread.Distinct().Count()} file(s) could not be read, so their lines were not replayed: {string.Join("; ", unread.Distinct())}.", null);
 
         static ReachSelection Refuse(ReachTerm t, string why) =>
-            new(Array.Empty<ReachResult>(), Array.Empty<string>(), "", $"where= term '{t.Text}': the line {why}.");
+            new(Array.Empty<ReachResult>(), "",$"where= term '{t.Text}': the line {why}.");
     }
 
     /// <summary>The keywords KID's Race lines may give each race, judged by the KID reach over the races: SPID reads a
