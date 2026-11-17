@@ -462,6 +462,21 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void ALayerLineSpacedOrCasedOtherwiseIsTheSameLine()
+    {
+        using var w = new ReachWorld(spid: "Spell = HcSpell|HcGuard\r\nSpell = HcSpell|*Guard\r\n",
+                                     kid: "Keyword = HcTag|Weapon|HcIronSword\r\nKeyword = HcTag|Weapon|*Sword\r\n");
+        string Note(string term) { var r = RecordsTools.Records(w.Svc, where: new[] { term }, counts_only: true); if (!r.Contains("reach:")) Assert.Fail(r); return r[r.IndexOf("reach:")..].Split('\'')[2]; }
+        Assert.Equal(Note("spid reaches Spell = HcSpell|*Guard"), Note("spid reaches Spell =  HCSPELL | *GUARD"));
+        Assert.Equal(Note("kid reaches Keyword = HcTag|Weapon|*Sword"), Note("kid reaches Keyword  =  HCTAG|Weapon|*SWORD"));
+        Assert.Contains("yes 1,", Note("spid reaches Spell =  HCSPELL | *GUARD"));
+        // A line the layer does not hold still runs every same-form line first: both reach one of its two NPCs.
+        var off = Note("spid reaches Spell = HcSpell|*Guard,-HcNobody");
+        Assert.Contains("yes 0,", off);
+        Assert.Contains("2 already get it from an earlier line", off);
+    }
+
+    [Fact]
     public void AScopedCallCountsTheHeldRecordsWithinItsScope()
     {
         // :4 gives HcSpell to every human NPC first; HcReachMore.esp's human NPC is held too, outside plugins=.

@@ -174,11 +174,11 @@ public static class SpidReach
     /// when the asked line is not in the layer), compiled.</summary>
     static List<Line> Earlier(IReadOnlyList<(SpidLines.Line Line, SpidLines.LineRead? Read)> layer, SpidLines.Line asked, Line line, SpidLines.Context ctx)
     {
-        var raw = asked.Raw.Trim();
+        var self = Parsed(asked, ctx.G);
         var lines = new List<Line>();
         foreach (var (l, r) in layer)
         {
-            if (l.Raw.Trim() == raw) break;
+            if (Parsed(l, ctx.G) == self) break;
             if (l.Skipped is not null || l.Kind != asked.Kind || l.Type != asked.Type || r is not { Dropped: null }) continue;
             var c = Compile(l, r, ctx);
             bool same = line.ValueKeyword is { } k ? k.Equals(c.ValueKeyword, StringComparison.OrdinalIgnoreCase) : line.Value is { } fk && c.Value == fk;
@@ -186,6 +186,12 @@ public static class SpidReach
         }
         return lines;
     }
+
+    /// <summary>A line as SPID parses it, in one case, so a copy spaced or cased otherwise is the same line.</summary>
+    static string Parsed(SpidLines.Line l, SpidGrammar g)
+        => string.Join("|", new[] { l.Kind.ToString(), l.Type ?? "" }
+               .Concat(l.Tokens.Select(t => $"{t.Field}:{t.List}:{t.Raw.Trim()}"))
+               .Concat(Sections(l, g).Select(s => $"{s.Field}:{s.Section}"))).ToLowerInvariant();
 
     /// <summary>The feeders whose keyword the asked line can read, directly or through another feeder it reads: a
     /// keyword no string of the line names, and no ExclusiveGroup sibling is, changes none of its verdicts.</summary>
