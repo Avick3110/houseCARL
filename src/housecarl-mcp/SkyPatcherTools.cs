@@ -131,7 +131,9 @@ public static class SkyPatcherTools
             "Data\\FLM (that folder's own order is not claimed), the winning copy of each; the unnamed section, keys in any case. filter= expands a " +
             "file's lines with what FLM does with each, in its order (file by file its Filter then its Collection lines first, then file by file its Alias and " +
             "Group lines, then the rest, each file key by key): a key it does not know or a wrong field count, a filter it finds true, false (the line " +
-            "filtered out) or invalid with the condition that decides it (each alternative's first failing condition, or the alternative that holds) (a plugin a filter names gates the line and touches nothing), a name " +
+            "filtered out) or invalid with what decides it (inline, the alternative that holds or else each alternative's first failing condition, " +
+            "invalid at a condition not led by '+' or '-'; a '#name', its Filter line's value, invalid when no Filter line defines it by then (for a Collection " +
+            "line's, in its own file or an earlier one); a plugin a filter names gates the line and touches nothing), a name " +
             "defined twice (the first wins; aliases and groups count from their own file on), a list, alias or collection keyword naming nothing " +
             "(the line or collection dropped), an item naming nothing (skipped, the rest added), a FormID with load index 02 or 04 rewritten to " +
             "Dawnguard's or Dragonborn's, a Remove line that does nothing and a FormsPair line FLM always counts invalid, and what each kept line " +
