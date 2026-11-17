@@ -21,12 +21,15 @@ sealed class ReachWorld : IDisposable
     public const uint HumanoidKw = 0x801, HumanRace = 0x810, BeastRace = 0x811, Faction = 0x812, Spell = 0x813, Lvln = 0x814,
         Boots = 0x815, Outfit = 0x816, Ench = 0x817, Mgef = 0x818,
         Guard = 0x820, Bodyguard = 0x821, Beast = 0x822, TemplateBase = 0x823, Templated = 0x824, LeveledTemplated = 0x825, Mult = 0x826,
-        IronSword = 0x830, FireSword = 0x831, WoodSword = 0x832, Journal = 0x840, Tome = 0x841, ReachSpell = 0x850;
+        IronSword = 0x830, FireSword = 0x831, WoodSword = 0x832, Journal = 0x840, Tome = 0x841, ReachSpell = 0x850,
+        SpellA = 0x851, SpellB = 0x852, KidA = 0x853, KidB = 0x854;
 
     public const string Spid =
         "Keyword = HcGivenKw|HcKwHumanoid\r\n"                         // :1 gives HcGivenKw to every NPC whose race carries HcKwHumanoid
-        + "Keyword = HcChanceKw|HcGuard|NONE|NONE|NONE|NONE|50\r\n";   // :2 gives HcChanceKw to HcGuard, at chance 50
-    public const string Kid = "Keyword = HcBookTypeJournal|Book|*journal\r\n";   // :1 the BOOBIES shape: a keyword KID creates, by part of a name
+        + "Keyword = HcChanceKw|HcGuard|NONE|NONE|NONE|NONE|50\r\n"    // :2 gives HcChanceKw to HcGuard, at chance 50
+        + "ExclusiveGroup = HcPair|HcSpellA,HcSpellB\r\n";             // :3 HcBodyguard already holds HcSpellB
+    public const string Kid = "Keyword = HcBookTypeJournal|Book|*journal\r\n"   // :1 the BOOBIES shape: a keyword KID creates, by part of a name
+        + "ExclusiveGroup = HcKidPair|HcKidA,HcKidB\r\n";                            // :2 HcIronSword already holds HcKidB
 
     public ReachWorld()
     {
@@ -51,6 +54,11 @@ sealed class ReachWorld : IDisposable
         mod.Races.Add(new Race(K(BeastRace), SkyrimRelease.SkyrimSE) { EditorID = "HcBeastRace" });
         mod.Factions.Add(new Faction(K(Faction), SkyrimRelease.SkyrimSE) { EditorID = "HcFaction" });
         mod.Spells.Add(new Spell(K(Spell), SkyrimRelease.SkyrimSE) { EditorID = "HcSpell" });
+        mod.Spells.Add(new Spell(K(SpellA), SkyrimRelease.SkyrimSE) { EditorID = "HcSpellA" });
+        mod.Spells.Add(new Spell(K(SpellB), SkyrimRelease.SkyrimSE) { EditorID = "HcSpellB" });
+        mod.Keywords.Add(new Keyword(K(KidA), SkyrimRelease.SkyrimSE) { EditorID = "HcKidA" });
+        var kidB = new Keyword(K(KidB), SkyrimRelease.SkyrimSE) { EditorID = "HcKidB" };
+        mod.Keywords.Add(kidB);
         mod.LeveledNpcs.Add(new LeveledNpc(K(Lvln), SkyrimRelease.SkyrimSE) { EditorID = "HcLvln" });
         var boots = new Armor(K(Boots), SkyrimRelease.SkyrimSE) { EditorID = "HcBoots" };
         mod.Armors.Add(boots);
@@ -71,7 +79,7 @@ sealed class ReachWorld : IDisposable
         var guard = N(Guard, "HcGuard", HumanRace, 10, female: true);
         guard.Factions.Add(new RankPlacement { Faction = new FormLink<IFactionGetter>(K(Faction)), Rank = 0 });
         guard.DefaultOutfit.SetTo(K(Outfit));
-        N(Bodyguard, "HcBodyguard", HumanRace, 20);
+        N(Bodyguard, "HcBodyguard", HumanRace, 20).ActorEffect = new ExtendedList<IFormLinkGetter<ISpellRecordGetter>> { new FormLink<ISpellRecordGetter>(K(SpellB)) };
         N(Beast, "HcBeast", BeastRace, 5);
         N(TemplateBase, "HcTemplateBase", HumanRace, 8);
         // Its own race is the beast's; the Traits category it inherits says human.
@@ -86,7 +94,7 @@ sealed class ReachWorld : IDisposable
         mult.Configuration.CalcMinLevel = 1; mult.Configuration.CalcMaxLevel = 50;
 
         Weapon W(uint id, string eid) { var w = new Weapon(K(id), SkyrimRelease.SkyrimSE) { EditorID = eid, Name = eid }; mod.Weapons.Add(w); return w; }
-        W(IronSword, "HcIronSword");
+        W(IronSword, "HcIronSword").Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { kidB.ToLink() };
         W(FireSword, "HcFireSword").ObjectEffect.SetTo(K(Ench));
         W(WoodSword, "HcWoodSword");
         mod.Books.Add(new Book(K(Journal), SkyrimRelease.SkyrimSE) { EditorID = "HcJournal", Name = "Old journal" });
@@ -217,7 +225,7 @@ public sealed class RecordReachTests : IDisposable
     {
         // Q4 (a): HcReachSpell's one effect is hostile, but KID's H on a spell stays not decidable.
         var r = Records("kid reaches Keyword = HcAbsorb|Spell|NONE|-H", countsOnly: true);
-        Assert.Contains("yes 0, not decidable 2 (trait H on a spell", r);
+        Assert.Contains("yes 0, not decidable 4 (trait H on a spell", r);
     }
 
     [Fact]
@@ -236,6 +244,35 @@ public sealed class RecordReachTests : IDisposable
         Assert.Equal(KidReach.Roll("OCF_WeapTypeSword1H", 0x00012EB7), KidReach.Roll("OCF_WeapTypeSword1H", 0x00012EB7));
         Assert.NotEqual(KidReach.Roll("OCF_WeapTypeSword1H", 0x00012EB7), KidReach.Roll("OCF_WeapMelee", 0x00012EB7));
         Assert.InRange(KidReach.Roll("OCF_WeapMelee", 0x00012EB7), 0.0, 1.0);
+    }
+
+    [Fact]
+    public void KidsChanceIsRolledPerItemOffTheFiles()
+    {
+        // KID's chance is a fixed function of the keyword's EditorID and the item's runtime FormID, so it is decided here.
+        var r = Records("kid reaches Keyword = HcTag|Weapon|NONE|NONE|50", countsOnly: true);
+        int expected = new uint[] { ReachWorld.IronSword, ReachWorld.FireSword, ReachWorld.WoodSword }.Count(id => KidReach.Roll("HcTag", id) <= 0.5f);
+        Assert.Contains($"scan: {expected} match", r);
+        Assert.Contains("needs the running game 0", r);
+        Assert.NotEqual(3, expected);   // the fixture's draws leave at least one sword out, so a skipped roll would show
+    }
+
+    [Fact]
+    public void AnExclusiveGroupSiblingKeepsTheLineOff()
+    {
+        // SPID: HcBodyguard holds HcSpellB, HcSpellA's group sibling. KID: HcIronSword holds HcKidB, HcKidA's.
+        Assert.Contains("scan: 1 match", Records("spid reaches Spell = HcSpellA|*Guard", countsOnly: true));
+        var kid = Records("kid reaches Keyword = HcKidA|Weapon|*Sword");
+        Assert.Contains("scan: 2 matches", kid);
+        Assert.DoesNotContain(F(ReachWorld.IronSword) + "  ", kid);
+    }
+
+    [Fact]
+    public void AnItemThatHoldsTheKeywordIsSkipped()
+    {
+        var r = Records("kid reaches Keyword = HcKidB|Weapon|*Sword", countsOnly: true);
+        Assert.Contains("yes 2,", r);
+        Assert.Contains("1 already hold the keyword, which KID skips", r);
     }
 
     [Fact]
