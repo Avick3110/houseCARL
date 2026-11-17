@@ -1167,6 +1167,9 @@ public static partial class RecordsTools
         KeyValuePair<string, int>[] CutCount(int n) =>
             n > 0 ? new[] { KvI("records_cut", n) } : Array.Empty<KeyValuePair<string, int>>();
 
+        /// <summary>The same count on a text census line.</summary>
+        static string CutCensus(int n) => n > 0 ? $" records_cut={n}" : "";
+
         /// <summary>The counts a windowed comparison carries, with `selected` beside them so `count` is never read as the whole selection.</summary>
         KeyValuePair<string, int>[] CmpCounts(params KeyValuePair<string, int>[] counts) =>
             cmpWindowNote is null ? counts : counts.Concat(new[] { KvI("selected", cmpSelected) }).ToArray();
@@ -1197,7 +1200,7 @@ public static partial class RecordsTools
             if (counts_only)
                 return ToolAnswer.Served(json
                     ? JsonWire.RenderNamedCounts(Env(null), deltaCounts, epoch, max_chars)
-                    : Census($"{Head(null)}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + (notCompared > 0 ? $" not_compared={notCompared}" : "") + Wire.EpochLine(epoch)));
+                    : Census($"{Head(null)}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + (notCompared > 0 ? $" not_compared={notCompared}" : "") + CutCensus(cut) + Wire.EpochLine(epoch)));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -1235,10 +1238,11 @@ public static partial class RecordsTools
             StateOverlayWarnings();
             int contested = rows.Count(x => x.Error is null && x.Touchers.Count > 1);
             int errs = rows.Count(x => x.Error is not null);
+            int cut = rows.Count(x => x.CutAt is not null);
             if (counts_only)
                 return ToolAnswer.Served(json
-                    ? JsonWire.RenderNamedCounts(Env(null), new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch, max_chars)
-                    : Census($"{Head(null)}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch)));
+                    ? JsonWire.RenderNamedCounts(Env(null), new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }.Concat(CutCount(cut)).ToArray(), epoch, max_chars)
+                    : Census($"{Head(null)}\ncount={rows.Count} contested={contested} errors={errs}" + CutCensus(cut) + Wire.EpochLine(epoch)));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -1247,7 +1251,6 @@ public static partial class RecordsTools
                 if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
-            int cut = rows.Count(x => x.CutAt is not null);
             var treeCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }.Concat(CutCount(cut)).ToArray());
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderTree(winRows, max_chars, epoch, Env(sp), treeCounts, sp, out trunc, LeverNames.Records)
