@@ -609,12 +609,14 @@ static partial class Wire
                              (lv.HasFieldSelector ? $"; narrow with {lv.Fields}, lower " : "; lower ") +
                              lv.Depth + ", or raise max_chars]\n";
         int room = cap.Budget - reserve - Cut(r.Fields.Count).Length;
+        int shown = 0;   // the field lines rendered, which a fold's leading cut line is not
         for (int i = 0; i < r.Fields.Count; i++)
         {
             int mark = sb.Length;                                          // depth= can produce many lines — cap them
             var f = r.Fields[i];
             AppendFieldLine(sb, "  ", f);
-            if (sb.Length > room) { sb.Length = mark; sb.Append(Cut(i)); break; }
+            if (sb.Length > room) { sb.Length = mark; sb.Append(Cut(shown)); break; }
+            if (!r.IsCutLine(f)) shown++;
             // The clause is earned HERE, by a line that reached the caller.
             if (notes is not null && o.OwnedChildFields is { } ann && ann.TryGetValue(f.Path, out var u))
                 notes.Emitted(f.Path, u is not null);

@@ -170,6 +170,25 @@ public sealed class RecordsCutReportTests : RecordsTestBase
         Assert.Contains($" of {InlineBudget} field lines", r);   // the '…' line is not counted as a field line
     }
 
+    /// <summary>The max_chars notice's "showing k" counts the field lines rendered, never the cut line, whether a fold
+    /// put that line first or the read left it last.</summary>
+    [Theory]
+    [InlineData("Items[*]", null)]
+    [InlineData("Items", 2)]
+    public void TheMaxCharsNoticeCountsTheFieldLinesItShowed(string field, int? depth)
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) },
+                                     project: Deep(field: field, depth: depth), max_chars: 20_000);
+        var lines = r.Split('\n');
+        int from = Array.FindIndex(lines, l => l.StartsWith("fields (from ", StringComparison.Ordinal));
+        int at = Array.FindIndex(lines, l => l.StartsWith("  ... [truncated: showing ", StringComparison.Ordinal));
+        Assert.True(from >= 0 && at > from, r);
+        int rendered = lines[(from + 1)..at].Count(l => l.StartsWith("  ", StringComparison.Ordinal) && !l.StartsWith("  … ", StringComparison.Ordinal));
+        var m = System.Text.RegularExpressions.Regex.Match(lines[at], @"showing (\d+) of (\d+) field lines");
+        Assert.Equal(rendered, int.Parse(m.Groups[1].Value));
+        if (field.EndsWith("[*]")) Assert.Contains(lines[(from + 1)..at], l => l.StartsWith("  … ", StringComparison.Ordinal));   // the fold's cut line rendered first
+    }
+
     [Fact]
     public void AnInlineDenseAnswerKeepsItsReadNote()
     {
