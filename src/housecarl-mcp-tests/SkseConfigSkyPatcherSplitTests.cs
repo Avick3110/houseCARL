@@ -120,6 +120,19 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
                         "  - " + PackedKeep + "  [← Dummy.bsa]\n\naccounted for:", txt, StringComparison.OrdinalIgnoreCase);
     }
 
+    const string LeftToLayer = @"(SkyPatcher's INIs, a name holding .ini under SKSE\Plugins\SkyPatcher\ and SkyPatcher.ini, " +
+                               "are left out of this audit: housecarl_layer reads them.)";
+
+    [Fact]
+    public void TheWholeAuditAndAFilterMatchingNothingSayTheLayerToolReadsSkyPatchersInis()
+    {
+        Assert.Contains("\n" + LeftToLayer + "\n", SkseConfigAuditWire.Render(_audit, null, 40_000));
+        var none = SkseConfigAuditWire.Render(_audit, "NoSuchConfigAnywhere", 40_000);
+        Assert.Contains("nothing under SKSE\\Plugins matched.", none);
+        Assert.Contains("\n" + LeftToLayer, none);
+        Assert.DoesNotContain(LeftToLayer, SkseConfigAuditWire.Render(_audit, "keep.ini", 40_000));   // a match lists files only
+    }
+
     [Fact]
     public void TheJsonRowOfABsaOnlyConfigCarriesTheNoteAndNoOtherRowDoes()
     {
