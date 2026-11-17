@@ -391,6 +391,17 @@ public sealed class FlmLinesTests
         Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load", Notes(invalid));
     }
 
+    // Manipulator.hpp:980-987, :1036-1041: a name counts as defined only once a collection registers it, so a second
+    // line after a filtered-out first one is read (its keywords appending in FLM is a Known limit); no dev or ARR line.
+    [Fact]
+    public void ACollectionAfterAFilteredOutOneOfTheSameNameIsRead()
+    {
+        var reads = new World().Reads("Collection = C|Misc|HcKw|-HcFlm.esp\nCollection = C|Misc|HcKw\nCollection = C|Misc|HcKw");
+        Assert.Null(reads[1]!.Dropped);
+        Assert.Contains("its members (", Notes(reads[1]!));
+        Assert.StartsWith("names collection 'C', which Hc_FLM.ini:2 defines first", reads[2]!.Dropped);
+    }
+
     // Manipulator.hpp:925, :1036-1041, :1135, :1446: a '#name' naming a collection whose own filter is false or invalid
     // finds it at pass 2 only if its stored keywords gathered a form at load; no dev or ARR collection has a filter.
     [Fact]
