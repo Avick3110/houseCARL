@@ -305,6 +305,17 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AMalformedFieldTermIsRefusedBeforeTheReachPass()
+    {
+        // The reach line is one SPID skips, so a reach pass run first would refuse with its sentence instead.
+        var r = RecordsTools.Records(_w.Svc, where: new[] { "spid reaches Spell = HcSpell|a|b|c|d|e|f|g|h", "editorid" });
+        var parse = RecordsTools.Records(_w.Svc, types: new[] { "NPC_" }, where: new[] { "editorid" });
+        Assert.DoesNotContain("SPID skips it", r);
+        Assert.DoesNotContain("scan:", parse);
+        Assert.Equal(parse, r);
+    }
+
+    [Fact]
     public void AReachTermComposesWithAFieldTerm()
     {
         var r = RecordsTools.Records(_w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard", "editorid = HcBodyguard" });
