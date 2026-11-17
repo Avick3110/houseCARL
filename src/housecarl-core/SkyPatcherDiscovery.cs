@@ -210,13 +210,13 @@ public static class SkyPatcherDiscovery
            || (switches.Keys.TryGetValue(subfolder, out var on) ? on
                : (format ?? Format).RunsWithoutKey(subfolder));
 
-    /// <summary>Whether a Data-relative path is one of SkyPatcher's INIs, which the layer reads: an .ini under its root, either spelling, or its switches file.</summary>
-    public static bool IsSkyPatcherIni(string relPath)
+    /// <summary>Whether a Data-relative path is one of SkyPatcher's INIs, which the layer reads: a name the scan takes under its root, either spelling, or its switches file.</summary>
+    public static bool IsSkyPatcherIni(string relPath, SkyPatcherFormat? format = null)
     {
+        var f = format ?? Format;
         var p = AssetResolver.Normalize(relPath);
-        return p.EndsWith(".ini", StringComparison.OrdinalIgnoreCase)
-            && (p.StartsWith(Format.Root + "\\", StringComparison.OrdinalIgnoreCase)
-                || p.Equals(Format.SwitchesFile, StringComparison.OrdinalIgnoreCase));
+        return p.Equals(f.SwitchesFile, StringComparison.OrdinalIgnoreCase)
+            || (p.StartsWith(f.Root + "\\", StringComparison.OrdinalIgnoreCase) && HasIniName(Path.GetFileName(p), f));
     }
 
     /// <summary>The switches file's name as the answers spell it ('SkyPatcher.ini').</summary>

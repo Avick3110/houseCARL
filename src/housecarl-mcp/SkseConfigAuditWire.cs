@@ -127,35 +127,10 @@ static class SkseConfigAuditWire
             h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally)) missed++;
         if (!AppendHits(sb, "UNPARSEABLE — shape-matched tokens that can't be normalized (flagged, never guessed)", unparseable, budget,
             h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally)) missed++;
-        string ReadErrCut(int shown) => "  ... [" + shown + " of " + readErrors.Count + "; raise max_chars]\n";
-        int readErrCut = readErrors.Count == 0 ? 0 : ReadErrCut(readErrors.Count).Length;
-        if (readErrors.Count > 0 && !SkseRenderParts.Head(sb, budget - readErrCut, "\nread errors — configs that could not be read/decoded (NOT counted as clean) (" + readErrors.Count + "):\n")) missed++;
-        else if (readErrors.Count > 0)
-        {
-            int rows3 = budget - readErrCut;
-            int shown = 0;
-            foreach (var f in readErrors)
-            {
-                var row = "  - " + f.RelPath + ": " + f.ReadError + Prov(f) + "\n";
-                if (sb.Length + row.Length > rows3) { sb.Append(ReadErrCut(shown)); break; }
-                sb.Append(row); shown++; tally.Mark(f.RelPath);
-            }
-        }
-        var archiveOnly = rows.Where(f => f.ArchiveOnly).ToList();
-        string ArchiveCut(int shown) => "  ... [" + shown + " of " + archiveOnly.Count + "; raise max_chars]\n";
-        int archiveCut = archiveOnly.Count == 0 ? 0 : ArchiveCut(archiveOnly.Count).Length;
-        if (archiveOnly.Count > 0 && !SkseRenderParts.Head(sb, budget - archiveCut, "\nconfigs " + ArchiveOnlyNote + " (" + archiveOnly.Count + "):\n")) missed++;
-        else if (archiveOnly.Count > 0)
-        {
-            int rows5 = budget - archiveCut;
-            int shown = 0;
-            foreach (var f in archiveOnly)
-            {
-                var row = "  - " + f.RelPath + Prov(f) + "\n";
-                if (sb.Length + row.Length > rows5) { sb.Append(ArchiveCut(shown)); break; }
-                sb.Append(row); shown++; tally.Mark(f.RelPath);
-            }
-        }
+        if (!AppendFiles(sb, "read errors — configs that could not be read/decoded (NOT counted as clean)", readErrors, budget,
+            f => "  - " + f.RelPath + ": " + f.ReadError + Prov(f), tally)) missed++;
+        if (!AppendFiles(sb, "configs " + ArchiveOnlyNote, rows.Where(f => f.ArchiveOnly).ToList(), budget,
+            f => "  - " + f.RelPath + Prov(f), tally)) missed++;
 
         // ── Accounted-for remainder: everything that is not a diagnostic, so nothing is dropped. ──
         var healthyFiles = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
@@ -321,6 +296,24 @@ static class SkseConfigAuditWire
             var row = line(h) + "\n";
             if (sb.Length + row.Length > room) { sb.Append(SkseRenderParts.Showing(shown, items.Count, hint: SkseRenderParts.NarrowHint)); break; }
             sb.Append(row); shown++; tally?.Mark(h.File.RelPath);
+        }
+        return true;
+    }
+
+    // A list of whole files under one heading, cut at the budget with its own notice; false when not even the heading fits.
+    static bool AppendFiles(StringBuilder sb, string label, IReadOnlyList<SkseConfigFileAudit> files, int cap,
+                            Func<SkseConfigFileAudit, string> line, RowTally tally)
+    {
+        if (files.Count == 0) return true;
+        string Cut(int shown) => "  ... [" + shown + " of " + files.Count + "; raise max_chars]\n";
+        int room = cap - Cut(files.Count).Length;
+        if (!SkseRenderParts.Head(sb, room, "\n" + label + " (" + files.Count + "):\n")) return false;
+        int n = 0;
+        foreach (var f in files)
+        {
+            var row = line(f) + "\n";
+            if (sb.Length + row.Length > room) { sb.Append(Cut(n)); break; }
+            sb.Append(row); n++; tally.Mark(f.RelPath);
         }
         return true;
     }
