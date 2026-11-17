@@ -35,6 +35,11 @@ internal static class RenderBudget
     /// row on, so an answer with no cut row renders as before.</summary>
     internal const int CutReserve = 600;
 
+    /// <summary>The chars a render holds back for the cut statement before rendering <paramref name="o"/>:
+    /// <see cref="CutReserve"/> once any row, this one included, was cut by its read, else 0.</summary>
+    internal static int CutHold(RecordCuts cuts, ReadOutcome o) =>
+        cuts.Count > 0 || (o.Error is null && o.Record?.CutAt is not null) ? CutReserve : 0;
+
     internal static string AccountingLine(int rows, long ms) =>
         $"rendered {rows}{(rows == 1 ? " row in " : " rows in ")}{ms} ms\n";
 

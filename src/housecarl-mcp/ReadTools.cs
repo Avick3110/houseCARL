@@ -147,7 +147,7 @@ static partial class Wire
         {
             if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
             var o = outcomes[i];
-            budget = CutBudget(budget, cuts, o);
+            if (cuts.Count == 0) budget -= RenderBudget.CutHold(cuts, o);   // held once, from the first cut row on
             int mark = sb.Length;
             var noteMark = notes.Mark();
             sb.Append('\n');
@@ -175,10 +175,6 @@ static partial class Wire
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
-
-    /// <summary>The row budget once any row, <paramref name="o"/> included, was cut by its read: less the room the cut statement needs.</summary>
-    static int CutBudget(int budget, RecordCuts cuts, ReadOutcome o) =>
-        cuts.Count == 0 && o.Error is null && o.Record?.CutAt is not null ? budget - RenderBudget.CutReserve : budget;
 
     /// <summary>State the rows the reads cut under the header line, at <paramref name="at"/>; nothing when none was.</summary>
     static void InsertCuts(StringBuilder sb, int at, RecordCuts cuts)
@@ -263,7 +259,7 @@ static partial class Wire
             {
                 // winner_fields= reads the load-order winner's body whatever the scan scope; otherwise the body the scan filtered, pinned to the scan's own build.
                 var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
-                budget = CutBudget(budget, cuts, o);
+                if (cuts.Count == 0) budget -= RenderBudget.CutHold(cuts, o);   // held once, from the first cut row on
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
