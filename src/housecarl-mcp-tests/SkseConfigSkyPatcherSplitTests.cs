@@ -134,6 +134,20 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
     }
 
     [Fact]
+    public void TheJsonTotalsCountTheBsaOnlyConfigsOverTheWholeAnswerNotItsWindow()
+    {
+        int Count(string? filter, RowWindow window = default)
+        {
+            using var doc = JsonDocument.Parse(SkseConfigAuditWire.RenderJson(_audit, filter, 1_000_000, window));
+            return doc.RootElement.GetProperty("totals").GetProperty("archive_only").GetInt32();
+        }
+        Assert.Equal(1, Count(null));
+        Assert.Equal(1, Count(null, new RowWindow(0, 1)));   // the window's one row is not the BSA-only one
+        Assert.Equal(1, Count("packed.json"));
+        Assert.Equal(0, Count("keep.ini"));
+    }
+
+    [Fact]
     public void TheJsonRowOfABsaOnlyConfigCarriesTheNoteAndNoOtherRowDoes()
     {
         using var doc = JsonDocument.Parse(SkseConfigAuditWire.RenderJson(_audit, null, 1_000_000));
