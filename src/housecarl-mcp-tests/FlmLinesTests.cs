@@ -215,6 +215,17 @@ public sealed class FlmLinesTests
         Assert.NotNull(Labelled(r, SkyPatcherOverlay.FormPlace.Value, "items", Coin));
     }
 
+    // Manipulator.hpp:754-756: an invalid filter stops the line before its list and items too, so it logs no miss for
+    // them and is invalid for its filter alone (ARR's 1 invalid filtered line).
+    [Fact]
+    public void AFilterInvalidLineLooksNothingUp()
+    {
+        var r = new World().Read("FormList = HcNoList|HcNoSuch|#nosuch");
+        Assert.StartsWith("its filter '#nosuch' is invalid (no Filter line defines 'nosuch')", r.Dropped);
+        Assert.DoesNotContain("Unable to find", Notes(r));
+        Assert.Empty(r.Adds);
+    }
+
     // Manipulator.hpp:1396-1432: '#' names a Filter line's verdict, the name lowercased; ARR BAC_FL-OCF_LIGH_FLM.ini:87
     // ends '|#', an empty name, which is invalid.
     [Fact]
