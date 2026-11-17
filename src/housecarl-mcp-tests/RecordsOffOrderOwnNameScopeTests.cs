@@ -216,7 +216,7 @@ public sealed class RecordsOffOrderOwnNameDisabledModTests : RecordsTestBase
     {
         var r = RecordsTools.Records(Svc, plugins: Scope(W.OldName), source: Plugin(W.OldName), counts_only: true);
         Assert.DoesNotContain("names nothing the load order carries", r);
-        Assert.Contains("scan: 2 matches", r);
+        Assert.Contains("scan: 3 matches", r);
     }
 
     [Fact]
@@ -225,7 +225,7 @@ public sealed class RecordsOffOrderOwnNameDisabledModTests : RecordsTestBase
         var r = RecordsTools.Records(Svc, plugins: Scope(W.OldName, RecordsOffOrderOwnNameScopeTests.NotInstalled),
                                      source: Plugin(W.OldName), counts_only: true);
         Assert.DoesNotContain("names nothing the load order carries", r);
-        Assert.Contains("scan: 2 matches", r);
+        Assert.Contains("scan: 3 matches", r);
         Assert.Contains($"name nothing the load order carries: '{RecordsOffOrderOwnNameScopeTests.NotInstalled}'", r);
         Assert.DoesNotContain($"'{W.OldName}'.", r.Split("carries:")[^1]);
     }
