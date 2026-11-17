@@ -72,8 +72,15 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         var cols = new IReadOnlyList<FieldValue>[Paths.Length];
         for (int i = 0; i < Paths.Length; i++)
         {
-            if (Folds[i] is not { } fold) { cols[i] = Lines(fields, Paths[i], CallerDepth); continue; }
+            // Every read path leaves a line, so a path with none was past the record's cut.
+            if (Folds[i] is not { } fold)
+            {
+                var lines = Lines(fields, Paths[i], CallerDepth);
+                cols[i] = lines.Count == 0 && rec.CutAt is { } b ? new[] { NotRead(Paths[i], b) } : lines;
+                continue;
+            }
             var head = fields.FirstOrDefault(f => f.Path == fold.Root);
+            if (head is null && rec.CutAt is { } budget) { cols[i] = new[] { NotRead(fold.Requested, budget) }; continue; }
             // An absent or unreadable list is the READ's answer, not a misuse of the token.
             if (head is null || !head.Present || !head.Readable)
             {
@@ -185,6 +192,10 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         int close = path.IndexOf(']', root.Length + 1);
         return close > 0 ? path[(root.Length + 1)..close] : null;
     }
+
+    /// <summary>A requested path the record's read never reached, having been cut at <paramref name="budget"/> lines first.</summary>
+    static FieldValue NotRead(string path, int budget)
+        => new(path, false, null, ReadEngine.CutLead(budget) + " the read stopped before this path, so it was NOT read: read it in a call of its own)");
 
     static string NoElement(FieldFold fold, int count)
         => $"(no element of '{fold.Root}' carries '{string.Join(".", fold.Tail)}' — the list holds {count})";

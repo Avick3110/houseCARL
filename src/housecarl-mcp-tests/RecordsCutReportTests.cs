@@ -211,6 +211,51 @@ public sealed class RecordsCutReportTests : RecordsTestBase
         Assert.True(seen);   // some max_chars in the sweep showed every field line and only the cut line was dropped
     }
 
+    /// <summary>A fold column the cut read never reached says it was not read, not "(absent)"; the dev shape is
+    /// MQ101 <c>Aliases[*]</c>, <c>Stages[*]</c>, <c>Objectives[*count]</c>. The same lines uncut answer as before.</summary>
+    [Fact]
+    public void AFoldColumnPastTheCutSaysItWasNotRead()
+    {
+        var (plan, err) = FieldFolds.Parse(new[] { "Aliases[*]", "Stages[*]", "Objectives[*count]", "EditorID" });
+        Assert.Null(err);
+        var read = new List<FieldValue>
+        {
+            new("Aliases", false, null, "(2 elements)", Count: 2),
+            new("Aliases[0]", true, "A", null),
+            new("Aliases[1]", true, "B", null),
+        };
+        var cut = new RecordFields("Quest", "000800:Hc.esm", "HcQuest",
+                                   read.Append(new FieldValue(ReadEngine.CutPath, false, null, ReadEngine.CutNote(InlineBudget))).ToList(),
+                                   CutAt: InlineBudget);
+        var (cols, _, cerr) = plan!.Columns(cut);
+        Assert.Null(cerr);
+        foreach (var (col, path) in new[] { (cols![1], "Stages[*]"), (cols[2], "Objectives[*count]"), (cols[3], "EditorID") })
+        {
+            var only = Assert.Single(col);
+            Assert.Equal(path, only.Path);
+            Assert.StartsWith($"(expansion truncated at {InlineBudget} lines —", only.Note);
+            Assert.Contains("NOT read", only.Note);
+        }
+        Assert.Equal(2, cols[0].Count);   // the column the read reached keeps its elements
+
+        var (whole, _, _) = plan.Columns(new RecordFields("Quest", "000800:Hc.esm", "HcQuest", read));
+        Assert.Equal(ReadEngine.AbsentNote, Assert.Single(whole![1]).Note);
+        Assert.Equal(ReadEngine.AbsentNote, Assert.Single(whole[2]).Note);
+        Assert.Empty(whole[3]);
+    }
+
+    /// <summary>The same through the tool: a plain column after a fold that ran the budget out.</summary>
+    [Fact]
+    public void AColumnPastTheCutSaysItWasNotReadInEveryForm()
+    {
+        var p = Fields("Items[*]", "EditorID");
+        var text = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: p, max_chars: 400_000);
+        Served(text, "EditorID = (expansion truncated at 2000 lines — the read stopped before this path, so it was NOT read");
+        var dense = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, types: new[] { "FLST" }, format: "dense",
+                                            project: p, max_chars: 400_000));
+        Assert.Contains(dense.GetProperty("rows").EnumerateArray(), row => row[4].GetString()?.Contains("NOT read") == true);
+    }
+
     [Fact]
     public void AnInlineDenseAnswerKeepsItsReadNote()
     {
