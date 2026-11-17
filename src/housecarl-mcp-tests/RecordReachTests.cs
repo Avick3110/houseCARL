@@ -510,6 +510,28 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AChainReachingALeveledListPastAnNpcTemplateIsOpen()
+    {
+        // The ARR DragonsWeatherNG shape: HcHop -> HcHopMid (an NPC) -> HcLvln.
+        using var w = new ReachWorld(extra: mod =>
+        {
+            Npc N(uint id, string eid, uint template)
+            {
+                var n = new Npc(new FormKey(mod.ModKey, id), SkyrimRelease.SkyrimSE) { EditorID = eid };
+                n.Race.SetTo(new FormKey(mod.ModKey, ReachWorld.BeastRace));
+                n.Template.SetTo(new FormKey(mod.ModKey, template));
+                mod.Npcs.Add(n);
+                return n;
+            }
+            N(0x870, "HcHopMid", ReachWorld.Lvln);
+            N(0x871, "HcHop", 0x870);
+        });
+        var r = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell||HcGuard" }, counts_only: true);
+        Assert.Contains("yes 1, not decidable 3 (", r);
+        Assert.Contains("its template chain reaches a leveled list past an NPC template, whose pick SPID may match too: 1", r);
+    }
+
+    [Fact]
     public void ALeveledPickLeavesOpenOnlyAStringThatIsAnNpcEditorId()
     {
         // HcPick lacks HcKwHumanoid; a pick adds only NPC EditorIDs, so SPID decides no for a keyword string.
