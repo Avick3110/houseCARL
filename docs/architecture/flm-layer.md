@@ -27,7 +27,7 @@ the running game, which forms a collection gathers, or what a mod event adds (sp
   `,`, leading zeros after `0x`, then a FormID written with index 02 or 04 rewritten to Dawnguard's or Dragonborn's,
   in any case and whatever plugin follows, noted as a load index is, DECISIONS 2026-11-13 (12)(ii)); a Filter line is
   then lowercased. Fields split on `|` and items on `,`, an empty field kept (CLibUtil's split), none for empty text.
-- **FLM's order** (`FlmLines.Visits`): pass 1 reads every file's Filter lines, then its Collection lines; pass 2, file
+- **FLM's order** (`FlmLines.Visits`): pass 1 reads, file by file, its Filter lines, then its Collection lines; pass 2, file
   by file, its Alias and Group lines, then the rest; each pass visits a file key by key (A to Z, any case) and each
   key's lines in file order. So filters and collections count from every file; an alias or group counts from its own
   file on, and a line of an earlier file naming it finds nothing. A name defined twice keeps the first (filter names
