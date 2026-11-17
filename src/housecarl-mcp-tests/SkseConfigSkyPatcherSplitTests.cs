@@ -16,6 +16,7 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
     const string Switches = @"SKSE\Plugins\skypatcher.ini";   // not the source's spelling, so its match is case-blind
     const string PackedSp = @"skse\plugins\skypatcher\npc\packed.ini";
     const string NotIni = @"SKSE\Plugins\SkyPatcher\notes.json";
+    const string IniInName = @"SKSE\Plugins\SkyPatcher\weapon\named.ini.json";   // '.ini' in the name, not at its end
     const string LookAlike = @"SKSE\Plugins\SkyPatcherExtra\keep.ini";
     const string LooseKeep = @"SKSE\Plugins\Foo\keep.ini";
     const string PackedKeep = @"skse\plugins\inventoryinjector\packed.json";
@@ -28,7 +29,7 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
 
     public SkseConfigSkyPatcherSplitTests()
     {
-        foreach (var rel in new[] { Upper, Switches, NotIni, LookAlike, LooseKeep, BothKeep })
+        foreach (var rel in new[] { Upper, Switches, NotIni, IniInName, LookAlike, LooseKeep, BothKeep })
             PlaceInstance.Loose(_p.Mod("Other"), rel, Token);
         PlaceInstance.Loose(_p.Mod("Lower"), Lower, Token);
         var folders = new[] { PackedSp, PackedKeep, BothKeep }
@@ -61,6 +62,9 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
 
     [Fact]
     public void ANonIniUnderTheSkyPatcherFolderStays() => Assert.True(Audited(NotIni));
+
+    [Fact]
+    public void ANameHoldingIniAnywhereUnderTheSkyPatcherFolderLeaves() => Assert.False(Audited(IniInName));
 
     [Fact]
     public void AFolderOnlyNamedLikeSkyPatchersStays() => Assert.True(Audited(LookAlike));
