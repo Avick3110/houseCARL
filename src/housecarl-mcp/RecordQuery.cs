@@ -156,19 +156,31 @@ internal sealed partial class RecordReads
             predicate = set;
         }
 
-        // The reach terms are judged next, over this scan's view; the records they say yes to become the identity set.
-        string? reachNote = null;
+        // The reach terms are judged next, over this scan's view. The records no term says no to become the identity
+        // set; the scan's other terms run over them, the yes ones are the rows, and the open ones are only counted.
+        ReachSelection? reach = null;
         if (reachTerms.Count > 0)
         {
-            var reach = Reach(reachTerms, view, ct);
+            reach = Reach(reachTerms, view, ct);
             if (reach.Refusal is not null) return CrossQueryOutcome.Fail(reach.Refusal) with { Stamp = view.Stamp };
             if (hasType && ReachTypesRefusal(typeSet!, reach.Types) is { } terr) return CrossQueryOutcome.Fail(terr) with { Stamp = view.Stamp };
-            reachNote = reach.Note;
-            var keep = new HashSet<FormKey>(reach.Yes);
-            var kept = hasFormidSet ? formidSet!.Where(keep.Contains).ToList() : reach.Yes.ToList();
+            // Any other term narrows the scan, so the note counts the buckets within it.
+            if (reachTerms.Count > 1 || hasType || hasPlugins || hasFormidSet || hasWhere || conflictsOnly || hasReferences
+                || refNone is not null || !string.IsNullOrEmpty(editoridContains))
+                reach.Scope();
+            var candidates = reach.Candidates;
+            var keep = new HashSet<FormKey>(candidates);
+            var kept = hasFormidSet ? formidSet!.Where(keep.Contains).ToList() : candidates.ToList();
             // An empty selection is still the bound: the identity set is the universe, so the scan answers 0, not every record.
             formidSet = kept;
             hasFormidSet = true;
+        }
+        // A record the scan keeps is counted into the reach tallies; true when it is not a row (some term left it open).
+        bool ReachOpen(FormKey fk)
+        {
+            if (reach is null) return false;
+            reach.Tally(fk);
+            return !reach.IsYes(fk);
         }
 
         // Artifact re-entry: checked HERE against the view this scan will answer from, not at the tool layer,
@@ -296,7 +308,7 @@ internal sealed partial class RecordReads
                                 bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
                                                              out var hitTargets, out var lenientNote);
                                 judged[i] = new SetVerdict(SetKind.Judged, keep, lenientNote, body.GetType(), null);
-                                if (!keep || rows.Count >= cap && (cap == 0 || i > rows.Keys[^1])) continue;
+                                if (!keep || reach is not null && !reach.IsYes(fk) || rows.Count >= cap && (cap == 0 || i > rows.Keys[^1])) continue;
                                 RecordSummary? summary = null; Exception? fault = null;
                                 try
                                 {
@@ -347,6 +359,7 @@ internal sealed partial class RecordReads
                 // Count one kept row: bump its group_by key, or land it on the page if its summary builds.
                 void LandRow(FormKey fk, string winner, Type bodyType, Func<(List<FormKey>? Hit, RecordSummary Summary)> land)
                 {
+                    if (ReachOpen(fk)) return;
                     total++;
                     if (groups is not null)
                     {
@@ -588,6 +601,7 @@ internal sealed partial class RecordReads
                             if (predicate.FatalError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
                             return true;
                         }
+                        if (ReachOpen(fk)) return true;
                         total++;
                         if (groups is not null)                                   // group_by=: aggregate over all matches, no keys or prefill, no limit cap
                         {
@@ -685,7 +699,7 @@ internal sealed partial class RecordReads
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
                { Stamp = view.Stamp, Pin = pin,
-                 ReachNote = reachNote,
+                 ReachNote = reach?.Note(),
                  ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList(),
                  Unmatched = predicate?.Unmatched ?? Array.Empty<string>(),

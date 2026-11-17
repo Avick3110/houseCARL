@@ -8,9 +8,26 @@ namespace HousecarlMcp;
 // own view, and judged over every record of its type by the format's own rules. Read-only; nothing is kept between calls.
 internal sealed partial class RecordReads
 {
-    /// <summary>What the reach terms select: the records every term says yes to, the record types they read, and one
-    /// note per term; or the refusal naming the line a format cannot read.</summary>
-    internal sealed record ReachSelection(IReadOnlyList<FormKey> Yes, IReadOnlyList<string> Types, string Note, string? Refusal);
+    /// <summary>What the reach terms select: each term's answer, the record types they read, and the files that could
+    /// not be read; or the refusal naming the line a format cannot read.</summary>
+    internal sealed record ReachSelection(IReadOnlyList<ReachResult> Results, IReadOnlyList<string> Types, string Unread, string? Refusal)
+    {
+        /// <summary>The records no term says no to, in the first term's order: the yes records and the open ones.</summary>
+        public IReadOnlyList<FormKey> Candidates
+            => Results.Count == 0 ? [] : Results[0].Kept.Keys.Where(fk => Results.All(r => r.Of(fk).V != HousecarlCore.Reach.No)).ToList();
+
+        /// <summary>Whether every term says yes to the record, so it is a row.</summary>
+        public bool IsYes(FormKey fk) => Results.All(r => r.Yes.Contains(fk));
+
+        /// <summary>Count the records the call's other terms keep into each term's scoped tally.</summary>
+        public void Scope() { foreach (var r in Results) r.Scoped = new(); }
+
+        /// <summary>A record the scan kept, counted into each term's scoped tally when the call is scoped.</summary>
+        public void Tally(FormKey fk) { foreach (var r in Results) r.Scoped?.Add(fk, r.Of(fk)); }
+
+        /// <summary>One note per term, then the unread files.</summary>
+        public string Note() => string.Join(" ", Results.Select(r => r.Sentence())) + Unread;
+    }
 
     /// <summary>Judge every reach term over <paramref name="view"/>, the layer read once per format in one replay context.</summary>
     internal ReachSelection Reach(IReadOnlyList<ReachTerm> terms, LoadOrderResolver.IndexView view, CancellationToken ct)
@@ -69,13 +86,11 @@ internal sealed partial class RecordReads
         }
         // Several terms are ANDed like every where= term: the rows are the records every one says yes to.
         var ordered = terms.Select(t => results.First(r => ReferenceEquals(r.Term, t))).ToList();
-        IEnumerable<FormKey> yes = ordered[0].Yes;
-        foreach (var r in ordered.Skip(1)) yes = yes.Where(r.Yes.Contains);
-        return new ReachSelection(yes.ToList(), ordered.Select(r => r.RecordType).Distinct().ToList(),
-                                  string.Join(" ", ordered.Select(r => r.Sentence())) + (unread.Count == 0 ? "" : $" {unread.Count} file(s) could not be read, so their lines were not replayed: {string.Join("; ", unread)}."), null);
+        return new ReachSelection(ordered, ordered.Select(r => r.RecordType).Distinct().ToList(),
+                                  unread.Count == 0 ? "" : $" {unread.Count} file(s) could not be read, so their lines were not replayed: {string.Join("; ", unread)}.", null);
 
         static ReachSelection Refuse(ReachTerm t, string why) =>
-            new(Array.Empty<FormKey>(), Array.Empty<string>(), "", $"where= term '{t.Text}': the line {why}.");
+            new(Array.Empty<ReachResult>(), Array.Empty<string>(), "", $"where= term '{t.Text}': the line {why}.");
     }
 
     /// <summary>Every line of the format's files as it finds them, in file order; a file it does not apply gives none, and one it cannot read is named in <paramref name="unread"/>.</summary>

@@ -31,7 +31,12 @@ sealed class ReachWorld : IDisposable
     public const string Kid = "Keyword = HcBookTypeJournal|Book|*journal\r\n"   // :1 the BOOBIES shape: a keyword KID creates, by part of a name
         + "ExclusiveGroup = HcKidPair|HcKidA,HcKidB\r\n";                            // :2 HcIronSword already holds HcKidB
 
-    public ReachWorld()
+    /// <summary>A second plugin, loaded after the first, holding one NPC of each bucket for a scoped call.</summary>
+    public const string More = "HcReachMore.esp";
+    public static string MoreFk(uint id) => $"{id:X6}:{More}";
+    public const uint MoreHuman = 0x800, MoreLeveled = 0x801;
+
+    public ReachWorld(bool more = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-reach-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
@@ -103,12 +108,26 @@ sealed class ReachWorld : IDisposable
         spell.Effects.Add(new Effect { BaseEffect = new FormLinkNullable<IMagicEffectGetter>(K(Mgef)), Data = new EffectData() });
         mod.Spells.Add(spell);
         mod.BeginWrite.ToPath(Path.Combine(mods, "HcReachPlugins", Plugin)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        if (more)
+        {
+            var add = new SkyrimMod(ModKey.FromFileName(More), SkyrimRelease.SkyrimSE);
+            var human = new Npc(new FormKey(add.ModKey, MoreHuman), SkyrimRelease.SkyrimSE) { EditorID = "HcMoreHuman" };
+            human.Race.SetTo(K(HumanRace));
+            add.Npcs.Add(human);
+            var lv = new Npc(new FormKey(add.ModKey, MoreLeveled), SkyrimRelease.SkyrimSE) { EditorID = "HcMoreLeveled" };
+            lv.Race.SetTo(K(BeastRace));
+            lv.Template.SetTo(K(Lvln));
+            lv.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Traits;
+            add.Npcs.Add(lv);
+            add.BeginWrite.ToPath(Path.Combine(mods, "HcReachPlugins", More)).WithLoadOrder(new ISkyrimModGetter[] { mod }).Write();
+        }
+        var order = more ? Plugin + "\r\n" + More + "\r\n" : Plugin + "\r\n";
 
         File.WriteAllText(Path.Combine(iniMod, "HcReach_DISTR.ini"), Spid);
         File.WriteAllText(Path.Combine(iniMod, "HcReach_KID.ini"), Kid);
         File.WriteAllText(Path.Combine(profileDir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + Plugin + "\r\n");
-        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), "*" + Plugin + "\r\n");
+        File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + order);
+        File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), "*" + order.Replace("\r\n" + More, "\r\n*" + More));
         File.WriteAllText(Path.Combine(profileDir, "modlist.txt"), "# header\r\n+HcReachIni\r\n+HcReachPlugins\r\n");
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
@@ -302,6 +321,22 @@ public sealed class RecordReachTests : IDisposable
         Assert.Contains("SPID drops the line", r);
         // Under types= too the empty selection answers 0, never every NPC of the type.
         Assert.Contains("scan: 0 matches", Records("spid reaches Spell = HcNoSuchSpell", types: new[] { "NPC_" }, countsOnly: true));
+    }
+
+    [Fact]
+    public void AScopedCallCountsTheBucketsWithinItsScope()
+    {
+        // HcReachMore.esp adds a human NPC (yes) and one templated on a leveled actor (not decidable).
+        using var w = new ReachWorld(more: true);
+        var r = RecordsTools.Records(w.Svc, plugins: new RecordsTools.RecordsScope { names = new[] { ReachWorld.Plugin } },
+                                     where: new[] { "spid reaches Spell = HcSpell||HcHumanRace" }, counts_only: true);
+        Assert.Contains("scan: 4 matches", r);
+        Assert.Contains("over 9 NPC record(s): within the call's other terms yes 4, not decidable 1 (its template chain ends at a leveled actor: 1; e.g. "
+                        + F(ReachWorld.LeveledTemplated) + "), needs the running game 0; over all 9, yes 5, not decidable 2, needs the running game 0.", r);
+        Assert.DoesNotContain(ReachWorld.MoreFk(ReachWorld.MoreLeveled), r);
+        // Unscoped, the note counts every NPC once, as before.
+        var all = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell||HcHumanRace" }, counts_only: true);
+        Assert.Contains("over 9 NPC record(s): yes 5, not decidable 2 (its template chain ends at a leveled actor: 2;", all);
     }
 
     [Fact]
