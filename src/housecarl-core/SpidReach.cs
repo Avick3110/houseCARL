@@ -123,9 +123,9 @@ public static class SpidReach
             if (c.ValueKeyword is null || (line.ValueKeyword is { } own && own.Equals(c.ValueKeyword, StringComparison.OrdinalIgnoreCase))) continue;
             feeders.Add(c);
         }
-        var groups = Groups(layer, line, ctx);
+        var groups = Groups(layer, line, ctx, kwEid);
         int layerFeeders = feeders.Count;
-        feeders = Readable(feeders, line, groups, kwEid);
+        feeders = Readable(feeders, line, groups);
         if (feeders.Count > 0)
             result.Notes.Add($"SPID's {feeders.Count:N0} Keyword line(s) of the layer were replayed first, so a keyword they give counts; the other {layerFeeders - feeders.Count:N0} give none it reads.");
         else if (layerFeeders > 0)
@@ -144,7 +144,7 @@ public static class SpidReach
             var v = Eval(line, e, races, classes, lists, world);
             if (asked.Kind == SpidLineKind.Death && v.V != Reach.No) v = Verdict.And(v, Verdict.Game("a Death line"));
             // An ExclusiveGroup sibling the NPC already holds keeps the line's form off it (LookupNPC.cpp:202-214).
-            if (v.V != Reach.No && groups.Count > 0) v = Verdict.And(v, Verdict.Any(groups, s => Sibling(s, e, kwEid, races, lists, world)).Not());
+            if (v.V != Reach.No && groups.Count > 0) v = Verdict.And(v, Verdict.Any(groups, s => Sibling(s, e, races, lists, world)).Not());
             result.Add(n.Key, v);
         }
         return result;
@@ -152,13 +152,13 @@ public static class SpidReach
 
     /// <summary>The feeders whose keyword the asked line can read, directly or through another feeder it reads: a
     /// keyword no string of the line names, and no ExclusiveGroup sibling is, changes none of its verdicts.</summary>
-    static List<Line> Readable(List<Line> feeders, Line asked, List<FormKey> groups, Dictionary<FormKey, string> kwEid)
+    static List<Line> Readable(List<Line> feeders, Line asked, List<Sib> groups)
     {
         var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var part = new List<string>();
         void Reads(Line l) { exact.UnionWith(l.SAll); exact.UnionWith(l.SNot); exact.UnionWith(l.SMatch); part.AddRange(l.SAny); }
         Reads(asked);
-        foreach (var g in groups) if (kwEid.TryGetValue(g, out var k)) exact.Add(k);
+        foreach (var g in groups) if (g.Keyword is { } k) exact.Add(k);
         var kept = new List<Line>();
         var left = new List<Line>(feeders);
         for (bool grew = true; grew;)
@@ -539,27 +539,40 @@ public static class SpidReach
     static ushort UShort(string s) => ushort.TryParse(s.Trim(), out var v) ? v : (ushort)0;
     static byte Byte(string s) => byte.TryParse(s.Trim(), out var v) ? v : (byte)0;
 
+    /// <summary>One ExclusiveGroup member: a keyword by its EditorID in lower case (one SPID creates included), any other form by its key.</summary>
+    sealed record Sib(FormKey? Form, string? Keyword);
+
     /// <summary>The ExclusiveGroup siblings of the asked line's value: every other member of a group that holds it.</summary>
-    static List<FormKey> Groups(IReadOnlyList<(SpidLines.Line Line, SpidLines.LineRead? Read)> layer, Line asked, SpidLines.Context ctx)
+    static List<Sib> Groups(IReadOnlyList<(SpidLines.Line Line, SpidLines.LineRead? Read)> layer, Line asked, SpidLines.Context ctx,
+                            Dictionary<FormKey, string> kwEid)
     {
-        var sibs = new List<FormKey>();
-        if (asked.Value is not { } value) return sibs;
+        var sibs = new List<Sib>();
+        var own = asked.ValueKeyword?.ToLowerInvariant();
+        if (asked.Value is null && own is null) return sibs;
         foreach (var (l, r) in layer)
         {
             if (l.Kind != SpidLineKind.ExclusiveGroup || l.Skipped is not null || r is null) continue;
             var members = l.Tokens.Where(t => t.Field == SpidField.Members && t.List == SpidLines.ListKind.Plain)
-                .Select(t => DistributorLines.Resolve(t.Raw, ctx.Resolver, ctx.S, "SPID").Form).OfType<FormKey>().ToList();
-            if (members.Contains(value)) sibs.AddRange(members.Where(m => m != value));
+                .Select(t => Member(t.Raw, ctx, kwEid)).OfType<Sib>().ToList();
+            bool Mine(Sib m) => m.Keyword is { } k ? k == own : m.Form == asked.Value;
+            if (members.Any(Mine)) sibs.AddRange(members.Where(m => !Mine(m)));
         }
         return sibs.Distinct().ToList();
     }
 
-    /// <summary>Whether the NPC holds a group sibling: a keyword by its EditorID (one SPID gave included), any other form as SPID's has_form.</summary>
-    static Verdict Sibling(FormKey sib, Eff e, Dictionary<FormKey, string> kwEid, Dictionary<FormKey, RaceFact> races,
-                           Dictionary<FormKey, IReadOnlyList<FormKey>?> lists, IReachWorld world)
+    /// <summary>A group member as SPID resolves it after it creates its keywords: an EditorID no record holds is a created keyword.</summary>
+    static Sib? Member(string raw, SpidLines.Context ctx, Dictionary<FormKey, string> kwEid)
     {
-        var cls = world.ClassOf(sib);
-        if (cls is not null && Is<IKeywordGetter>(cls)) return kwEid.TryGetValue(sib, out var k) ? Str(k, e) : Verdict.No;
-        return Has(sib, cls, e, races, lists, world, 0);
+        var r = DistributorLines.Resolve(raw, ctx.Resolver, ctx.S, "SPID");
+        if (r.Form is { } fk)
+            return ctx.ClassOf(fk) is { } cls && Is<IKeywordGetter>(cls)
+                ? kwEid.TryGetValue(fk, out var k) ? new Sib(null, k) : null
+                : new Sib(fk, null);
+        return r.ByEditorId ? new Sib(null, raw.Trim().ToLowerInvariant()) : null;
     }
+
+    /// <summary>Whether the NPC holds a group sibling: a keyword by its EditorID (one SPID gave included), any other form as SPID's has_form.</summary>
+    static Verdict Sibling(Sib sib, Eff e, Dictionary<FormKey, RaceFact> races,
+                           Dictionary<FormKey, IReadOnlyList<FormKey>?> lists, IReachWorld world)
+        => sib.Keyword is { } k ? Str(k, e) : Has(sib.Form!.Value, world.ClassOf(sib.Form.Value), e, races, lists, world, 0);
 }
