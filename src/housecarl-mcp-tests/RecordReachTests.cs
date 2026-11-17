@@ -20,7 +20,7 @@ sealed class ReachWorld : IDisposable
     public static string Fk(uint id) => $"{id:X6}:{Plugin}";
     public const uint HumanoidKw = 0x801, HumanRace = 0x810, BeastRace = 0x811, Faction = 0x812, Spell = 0x813, Lvln = 0x814,
         Boots = 0x815, Outfit = 0x816, Ench = 0x817, Mgef = 0x818,
-        Guard = 0x820, Bodyguard = 0x821, Beast = 0x822, TemplateBase = 0x823, Templated = 0x824, LeveledTemplated = 0x825, Mult = 0x826,
+        Guard = 0x820, Bodyguard = 0x821, Beast = 0x822, TemplateBase = 0x823, Templated = 0x824, LeveledTemplated = 0x825, Mult = 0x826, Pick = 0x827,
         IronSword = 0x830, FireSword = 0x831, WoodSword = 0x832, Journal = 0x840, Tome = 0x841, ReachSpell = 0x850,
         SpellA = 0x851, SpellB = 0x852, KidA = 0x853, KidB = 0x854;
 
@@ -36,7 +36,7 @@ sealed class ReachWorld : IDisposable
     public static string MoreFk(uint id) => $"{id:X6}:{More}";
     public const uint MoreHuman = 0x800, MoreLeveled = 0x801;
 
-    public ReachWorld(bool more = false, string spid = "", string kid = "")
+    public ReachWorld(bool more = false, string spid = "", string kid = "", bool pick = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-reach-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
@@ -97,6 +97,8 @@ sealed class ReachWorld : IDisposable
         var mult = N(Mult, "HcMult", BeastRace, 1);
         mult.Configuration.Level = new PcLevelMult { LevelMult = 1 };
         mult.Configuration.CalcMinLevel = 1; mult.Configuration.CalcMaxLevel = 50;
+        // Templated on a leveled list with no category inherited: its own data decides, but SPID matches its pick too.
+        if (pick) N(Pick, "HcPick", BeastRace, 3).Template.SetTo(K(Lvln));
 
         Weapon W(uint id, string eid) { var w = new Weapon(K(id), SkyrimRelease.SkyrimSE) { EditorID = eid, Name = eid }; mod.Weapons.Add(w); return w; }
         W(IronSword, "HcIronSword").Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { kidB.ToLink() };
@@ -379,5 +381,18 @@ public sealed class RecordReachTests : IDisposable
         var r = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Keyword = HcMadeB|*Hc" }, counts_only: true);
         // Only HcBeast and HcMult (beast race) lack HcMadeA; HcLeveledTemplated's race is its leveled template's.
         Assert.Contains("yes 2, not decidable 1", r);
+    }
+
+    [Fact]
+    public void AnNpcTemplatedOnALeveledListIsOpenToAStringOrNpcFilter()
+    {
+        // SPID's ID set holds the NPC a leveled template picks, so a filter naming another NPC may match it in game.
+        using var w = new ReachWorld(pick: true);
+        var form = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell||HcGuard" }, counts_only: true);
+        Assert.Contains("yes 1, not decidable 2 (its template is a leveled list, and SPID matches the NPC it picks too: 2;", form);
+        var str = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|HcGuard" }, counts_only: true);
+        Assert.Contains("its template is a leveled list, and SPID matches the NPC it picks too: 1;", str);
+        var part = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard" }, counts_only: true);
+        Assert.Contains("its template is a leveled list, and SPID matches the NPC it picks too: 1;", part);
     }
 }
