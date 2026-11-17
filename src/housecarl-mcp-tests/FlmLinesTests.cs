@@ -503,15 +503,16 @@ public sealed class FlmLinesTests
 
     // ---- FLM's order -------------------------------------------------------------------------
 
-    // Answer 4 (:413-433, :493-523): pass 1 every file's Filter, then Collection lines; pass 2 file by file, Alias and
-    // Group lines first, then the rest; each file key by key, any case (research-topup F1; ARR 5 files differ from file order).
+    // Answer 4 (:391-433, :493-523): pass 1 file by file, its Filter then its Collection lines; pass 2 file by file, Alias
+    // and Group lines first, then the rest; each file key by key, any case (research-topup F1; ARR 5 files differ from
+    // file order). A's Collection comes before B's Filter.
     [Fact]
     public void FlmVisitsFiltersCollectionsThenFileByFileAliasesGroupsThenTheRest()
     {
-        var lines = new[] { ("A_FLM.ini", "Plant = HcSeed|HcBush\nGroup = G|HcCoin\nFormList = HcList|HcCoin\nformlist = HcList|HcGem\nFilter = f|+HcFlm.esp"),
-                            ("B_FLM.ini", "Collection = C|Misc|HcKw\nAlias = A|HcList") }
+        var lines = new[] { ("A_FLM.ini", "Plant = HcSeed|HcBush\nGroup = G|HcCoin\nFormList = HcList|HcCoin\nformlist = HcList|HcGem\nFilter = f|+HcFlm.esp\nCollection = D|Misc|HcKw"),
+                            ("B_FLM.ini", "Collection = C|Misc|HcKw\nAlias = A|HcList\nFilter = g|+HcFlm.esp") }
             .SelectMany(f => FlmLines.Parse(f.Item2, Flm, f.Item1)).ToList();
-        Assert.Equal(new[] { 4, 5, 1, 2, 3, 0, 6 }, FlmLines.Visits(lines));
+        Assert.Equal(new[] { 4, 5, 8, 6, 1, 2, 3, 0, 7 }, FlmLines.Visits(lines));
     }
 
     // Utility.hpp:188-196: a form already in the list (its record's own, or an earlier add) is skipped, each line saying
