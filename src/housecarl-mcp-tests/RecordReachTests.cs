@@ -477,6 +477,19 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AKeywordAnEarlierLineReadsIsReplayedThoughTheAskedLineReadsNone()
+    {
+        // The dev SpellAbsorptionRework_B_KID.ini:75 shape: the earlier line reads '-HcBookTypeJournal', which :1 gives
+        // HcJournal; SPID's :1 likewise gives HcGivenKw to the human NPCs.
+        using var w = new ReachWorld(spid: "Spell = HcSpell|-HcGivenKw\r\n", kid: "Keyword = HcTag|Book|-HcBookTypeJournal\r\n");
+        var kid = RecordsTools.Records(w.Svc, where: new[] { "kid reaches Keyword = HcTag|Book" }, counts_only: true);
+        Assert.Contains("yes 1,", kid);   // HcJournal: the earlier line does not tag it
+        Assert.Contains("1 already hold the keyword", kid);   // HcTome
+        var spid = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell" }, counts_only: true);
+        Assert.Contains("yes 4,", spid);   // the four human NPCs
+    }
+
+    [Fact]
     public void AScopedCallCountsTheHeldRecordsWithinItsScope()
     {
         // :4 gives HcSpell to every human NPC first; HcReachMore.esp's human NPC is held too, outside plugins=.

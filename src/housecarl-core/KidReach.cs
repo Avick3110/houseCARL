@@ -86,7 +86,7 @@ public static class KidReach
             result.Notes.Add($"{earlier.Count:N0} earlier {asked.Type} line(s) of the same keyword were run first; an item they tag already holds it.");
         var siblings = Siblings(layer, line.KeywordId, ctx, created);
         int layerFeeders = feeders.Count;
-        feeders = Readable(feeders, line, siblings, w);
+        feeders = Readable(feeders, line, siblings, earlier, w);
         if (feeders.Count > 0)
             result.Notes.Add($"KID's {feeders.Count:N0} other {asked.Type} line(s) of the layer were replayed first, in KID's order, so a keyword they give counts; the other {layerFeeders - feeders.Count:N0} give none it reads.");
         else if (layerFeeders > 0)
@@ -127,10 +127,10 @@ public static class KidReach
         return result;
     }
 
-    /// <summary>The feeders whose keyword the asked line can read, directly or through another feeder it reads: a
+    /// <summary>The feeders whose keyword the asked line or an earlier line of its form can read, directly or through another feeder it reads: a
     /// keyword no keyword term, partial string or group sibling of the line names changes none of its verdicts. A line
     /// reading a form list keeps every feeder, since a list may hold a keyword.</summary>
-    static List<Line> Readable(List<Line> feeders, Line asked, List<string> siblings, World w)
+    static List<Line> Readable(List<Line> feeders, Line asked, List<string> siblings, List<Line> earlier, World w)
     {
         var ids = new HashSet<string>(siblings, StringComparer.Ordinal);
         var part = new List<string>();
@@ -146,6 +146,7 @@ public static class KidReach
             }
         }
         Reads(asked);
+        foreach (var l in earlier) Reads(l);
         var kept = new HashSet<Line>();
         for (bool grew = true; grew && !all;)
         {
