@@ -120,8 +120,8 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
                         "  - " + PackedKeep + "  [← Dummy.bsa]\n\naccounted for:", txt, StringComparison.OrdinalIgnoreCase);
     }
 
-    const string LeftToLayer = @"(SkyPatcher's INIs, a name holding .ini under SKSE\Plugins\SkyPatcher\ and SkyPatcher.ini, " +
-                               "are left out of this audit: housecarl_layer reads them.)";
+    const string LeftToLayer = @"(SkyPatcher's INIs are left out of this audit, as housecarl_layer reads them: " +
+                               @"any name holding .ini under SKSE\Plugins\SkyPatcher\, and the file SKSE\Plugins\SkyPatcher.ini.)";
 
     [Fact]
     public void TheWholeAuditAndAFilterMatchingNothingSayTheLayerToolReadsSkyPatchersInis()

@@ -23,10 +23,10 @@ static class SkseConfigAuditWire
     const string ArchiveOnlyWhere = "only inside a BSA";
     const string LooseOnly = "most SKSE plugins read loose files only, so ";
 
-    /// <summary>The line naming what the audit leaves to the layer tool: SkyPatcher's INIs.</summary>
+    /// <summary>The line naming what the audit leaves to the layer tool: IsSkyPatcherIni's two arms, root and switches file.</summary>
     internal static readonly string LeftToLayer =
-        "(SkyPatcher's INIs, a name holding .ini under " + HousecarlCore.SkyPatcherDiscovery.Root + "\\ and " +
-        HousecarlCore.SkyPatcherDiscovery.SwitchesName() + ", are left out of this audit: " + HousecarlCore.ToolNames.Layer + " reads them.)";
+        "(SkyPatcher's INIs are left out of this audit, as " + HousecarlCore.ToolNames.Layer + " reads them: any name holding .ini under " +
+        HousecarlCore.SkyPatcherDiscovery.Root + "\\, and the file " + HousecarlCore.RuntimeFormats.SkyPatcher.SwitchesFile + ".)";
 
     public static string Render(SkseConfigAuditData d, string? filter, int cap, RowWindow window = default, int trailer = 0)
     {
