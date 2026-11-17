@@ -427,6 +427,26 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AScopedCallCountsTheHeldRecordsWithinItsScope()
+    {
+        // :4 gives HcSpell to every human NPC first; HcReachMore.esp's human NPC is held too, outside plugins=.
+        using var w = new ReachWorld(more: true, spid: "Spell = HcSpell|HcKwHumanoid\r\n",
+                                     kid: "Keyword = HcTag|Weapon|HcIronSword,HcFireSword\r\n");
+        var spid = RecordsTools.Records(w.Svc, plugins: new RecordsTools.RecordsScope { names = new[] { ReachWorld.Plugin } },
+                                        where: new[] { "spid reaches Spell = HcSpell||HcHumanRace" }, counts_only: true);
+        Assert.Contains("scan: 0 matches", spid);
+        Assert.Contains("Within the call's other terms 4 already get it from an earlier line of the same form, which SPID skips, so the line does not reach them (5 over all).", spid);
+        // KID's earlier-line count (HcIronSword in scope, HcFireSword out) and its own-held count (HcIronSword holds HcKidB).
+        var earlier = RecordsTools.Records(w.Svc, formids: new[] { F(ReachWorld.IronSword), F(ReachWorld.WoodSword) },
+                                           where: new[] { "kid reaches Keyword = HcTag|Weapon|*Sword" }, counts_only: true);
+        Assert.Contains("scan: 1 match", earlier);
+        Assert.Contains("Within the call's other terms 1 already hold the keyword, which KID skips, so the line does not reach them (2 over all).", earlier);
+        var own = RecordsTools.Records(w.Svc, formids: new[] { F(ReachWorld.WoodSword) },
+                                       where: new[] { "kid reaches Keyword = HcKidB|Weapon|*Sword" }, counts_only: true);
+        Assert.Contains("Within the call's other terms 0 already hold the keyword, which KID skips, so the line does not reach them (1 over all).", own);
+    }
+
+    [Fact]
     public void AnNpcTemplatedOnALeveledListIsOpenToAStringOrNpcFilter()
     {
         // SPID's ID set holds the NPC a leveled template picks, so a filter naming another NPC may match it in game.

@@ -108,13 +108,13 @@ public static class KidReach
             {
                 var item = Open(body, type.Record, edidGap, w);
                 Replay(feeders, item, w);
-                if (item.Own.Contains(line.KeywordId)) { result.AlreadyHeld++; result.Universe++; continue; }
+                if (item.Own.Contains(line.KeywordId)) { result.AddHeld(body.FormKey); continue; }
                 v = Verdict.Any(siblings, s => Holds(item, s)).Not();
                 if (v.V != Reach.No) v = Verdict.And(v, Eval(line, item, w));
                 if (v.V != Reach.No && earlier.Count > 0)
                 {
                     var prior = Verdict.Any(earlier, f => Eval(f, item, w));
-                    if (prior.V == Reach.Yes) { result.AlreadyHeld++; result.Universe++; continue; }
+                    if (prior.V == Reach.Yes) { result.AddHeld(body.FormKey); continue; }
                     if (prior.V != Reach.No) v = Verdict.And(v, new Verdict(prior.V, $"an earlier line of the same keyword may tag it first ({prior.Why})"));
                 }
             }
