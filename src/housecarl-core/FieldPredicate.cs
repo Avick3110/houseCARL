@@ -258,6 +258,7 @@ public sealed class FieldPredicateSet
     public const int UnmatchedShown = 20;
 
     IReadOnlyList<string>? _unmatched;
+    bool _mark = true;   // whether the record Matches is judging marks the identity members it carries
 
     /// <summary>The members of the identity 'in' lists that matched no record this set judged, in list order, each once as typed; built on the first read, after the scan.</summary>
     public IReadOnlyList<string> Unmatched => _unmatched ??= BuildUnmatched();
@@ -694,11 +695,15 @@ public sealed class FieldPredicateSet
     // EVALUATE — test one in-hand body against ALL predicates (ANDed).
 
     /// <summary>Test one candidate body against every predicate (ANDed), updating the per-predicate accounting; every predicate is read for its accounting even after the AND is lost.</summary>
-    public bool Matches(IMajorRecordGetter body)
+    public bool Matches(IMajorRecordGetter body) => Matches(body, true);
+
+    /// <summary>As <see cref="Matches(IMajorRecordGetter)"/>; with <paramref name="noteMembers"/> false the identity members the body carries stay unmarked.</summary>
+    public bool Matches(IMajorRecordGetter body, bool noteMembers)
     {
         if (_fatal is not null) return false;
+        _mark = noteMembers;
         // A record whose type cannot carry a path is no match, and was said once for its type.
-        if (_walk is not null && !CanMatch(body.GetType())) { NoteMembers(body); return false; }
+        if (_walk is not null && !CanMatch(body.GetType())) { if (noteMembers) NoteMembers(body); return false; }
         _scanned++;
         bool all = true;
         for (int k = 0; k < _predicates.Count; k++)
@@ -789,7 +794,7 @@ public sealed class FieldPredicateSet
             };
             // A leading 'not' flips the string op's verdict, putting a record with no EditorID on the matching side.
             if (p.Negate) ok = !ok;
-            if (ok && _eidHits[_evalIndex] is { } eidHits) eidHits[at] = true;
+            if (ok && _mark && _eidHits[_evalIndex] is { } eidHits) eidHits[at] = true;
             return (ok, EvalKind.Definite);
         }
 
@@ -797,7 +802,7 @@ public sealed class FieldPredicateSet
         if (p.Pseudo == PseudoPath.FormId)
         {
             bool member = p.FormIds!.Contains(body.FormKey);
-            if (member && _fkHits[_evalIndex] is { } fkHits) fkHits.Add(body.FormKey);
+            if (member && _mark && _fkHits[_evalIndex] is { } fkHits) fkHits.Add(body.FormKey);
             return (p.Op == Op.In ? member : !member, EvalKind.Definite);
         }
 

@@ -200,6 +200,8 @@ internal sealed partial class RecordReads
             reach.Tally(fk);
             return !reach.IsYes(fk);
         }
+        // Whether a record can be a row: an identity in-list member only a reach term leaves open is not marked matched.
+        bool ReachRow(FormKey fk) => reach is null || reach.IsYes(fk);
 
         var keys = new List<FormKey>();
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
@@ -406,7 +408,7 @@ internal sealed partial class RecordReads
                                 { NoteMissing(fk, w.Value.WinnerPlugin, faults.GetValueOrDefault(w.Value.WinnerPlugin)); continue; }
                                 var pre = BeforeWhere(body, touching: true);
                                 // A deleted record only another where= term drops still counts toward the 'in' list members.
-                                if (pre == PreWhere.NoLiveBody && refSet is null) predicate!.NoteMembers(body);
+                                if (pre == PreWhere.NoLiveBody && refSet is null && ReachRow(fk)) predicate!.NoteMembers(body);
                                 if (pre != PreWhere.Pass) continue;
                                 // The same one-read verdict the scoped lane makes, so the formids-as-universe lane —
                                 // where an unbounded references= also lands — answers identically.
@@ -414,7 +416,7 @@ internal sealed partial class RecordReads
                                                              out var hitTargets, out var lenientNote);
                                 NoteLenient(fk, lenientNote);
                                 if (!keep) continue;
-                                if (predicate is not null && !predicate.Matches(body))
+                                if (predicate is not null && !predicate.Matches(body, ReachRow(fk)))
                                 {
                                     if (predicate.FatalError is not null) { go = false; break; }
                                     continue;
@@ -593,14 +595,14 @@ internal sealed partial class RecordReads
                         // A deleted record only another where= term drops still counts toward the 'in' list members.
                         if (DeletedRecordRule.HasNoLiveBody(filterBody)
                             && (refSet is not null || predicate is { NeedsLiveBody: true }))
-                        { if (refSet is null) predicate!.NoteMembers(filterBody); return true; }
+                        { if (refSet is null && ReachRow(fk)) predicate!.NoteMembers(filterBody); return true; }
                         // references= is a list with OR semantics, and BOTH arms come off one link read, so a record
                         // cannot be judged twice on two walks.
                         if (!ReferenceVerdict(filterBody, refSet, refNone, references, multiTarget && groups is null,
                                               out var hitTargets, out var lenientNote))
                         { NoteLenient(fk, lenientNote); return true; }
                         NoteLenient(fk, lenientNote);
-                        if (predicate is not null && !predicate.Matches(filterBody))    // value filter on the same in-hand body, no extra fetch
+                        if (predicate is not null && !predicate.Matches(filterBody, ReachRow(fk)))    // value filter on the same in-hand body, no extra fetch
                         {
                             if (predicate.FatalError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
                             return true;
