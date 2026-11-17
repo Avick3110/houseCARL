@@ -508,6 +508,19 @@ public sealed class RecordReachTests : IDisposable
         var part = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard" }, counts_only: true);
         Assert.Contains("its template is a leveled list, and SPID matches the NPC it picks too: 1;", part);
     }
+
+    [Fact]
+    public void ALeveledPickLeavesOpenOnlyAStringThatIsAnNpcEditorId()
+    {
+        // HcPick lacks HcKwHumanoid; a pick adds only NPC EditorIDs, so SPID decides no for a keyword string.
+        using var w = new ReachWorld(pick: true);
+        var exact = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|HcKwHumanoid" }, counts_only: true);
+        Assert.Contains("yes 4, not decidable 1 (", exact);
+        Assert.DoesNotContain("SPID matches the NPC it picks too", exact);
+        var part = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Humanoid" }, counts_only: true);
+        Assert.Contains("yes 4, not decidable 1 (", part);
+        Assert.DoesNotContain("SPID matches the NPC it picks too", part);
+    }
 }
 
 /// <summary>The reach term's arms one test each, every one failing on a mutation of its line (review round 1).</summary>

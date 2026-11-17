@@ -42,6 +42,7 @@ public static class SpidReach
         public readonly string?[] Why = new string?[Readers.Length];
         public FormKey? TemplateKey;
         public bool Pick, PickEids;                 // its template is a leveled list; and SPID sees NPC EditorIDs
+        public NpcNames Names = null!;              // every NPC's EditorID, which a pick can add
         public HashSet<string> Strings = null!;     // every exact string channel, lower case
         public string? StringsWhy;                  // a channel the files cannot read
         public Dictionary<string, Verdict> Added = new(StringComparer.OrdinalIgnoreCase);   // keywords SPID's Keyword lines give
@@ -61,6 +62,19 @@ public static class SpidReach
     }
 
     sealed record Term(FormKey? Form, Type? Cls, string? Plugin);
+
+    /// <summary>Every NPC EditorID, lower case: the only strings a leveled list's pick adds (LookupNPC.cpp:54-61).</summary>
+    sealed class NpcNames(IEnumerable<string> eids)
+    {
+        readonly HashSet<string> _all = new(eids, StringComparer.Ordinal);
+        readonly Dictionary<string, bool> _part = new(StringComparer.Ordinal);
+        public bool Is(string s) => _all.Contains(s);
+        public bool HasPart(string s)
+        {
+            if (!_part.TryGetValue(s, out var b)) _part[s] = b = _all.Any(x => x.Contains(s, StringComparison.Ordinal));
+            return b;
+        }
+    }
 
     // ---- the answer ---------------------------------------------------------------------------
 
@@ -146,10 +160,12 @@ public static class SpidReach
             result.Notes.Add("A Death line hands its form out when the NPC dies, in the running game.");
 
         var lists = new Dictionary<FormKey, IReadOnlyList<FormKey>?>();
+        var names = new NpcNames(npcs.Values.Select(x => x.Eid).OfType<string>());
         foreach (var n in npcs.Values)
         {
             world.Ct.ThrowIfCancellationRequested();
             var e = Resolve(n, npcs, world, fields, races, lvlnEid, npcEids);
+            e.Names = names;
             // A keyword a KID Race line may give the NPC's race is open: KID tags races before SPID reads them.
             if (raceTags.Count > 0 && P(e, R.Race) is { } rn && raceTags.TryGetValue(rn.Race, out var tags))
                 foreach (var k in tags)
@@ -353,7 +369,7 @@ public static class SpidReach
     static Verdict Str(string s, Eff e, bool pick = true)
     {
         if (e.Strings.Contains(s)) return Verdict.Yes;
-        var v = e.StringsWhy is { } w ? Verdict.Undecided(w) : pick ? Picked(e, e.PickEids) : Verdict.No;
+        var v = e.StringsWhy is { } w ? Verdict.Undecided(w) : pick ? Picked(e, e.PickEids && e.Names.Is(s)) : Verdict.No;
         return e.Added.TryGetValue(s, out var a) ? Verdict.Or(v, a) : v;
     }
 
@@ -365,7 +381,7 @@ public static class SpidReach
     static Verdict Part(string s, Eff e)
     {
         foreach (var x in e.Strings) if (x.Contains(s, StringComparison.Ordinal)) return Verdict.Yes;
-        var v = e.StringsWhy is { } w ? Verdict.Undecided(w) : Picked(e, e.PickEids);
+        var v = e.StringsWhy is { } w ? Verdict.Undecided(w) : Picked(e, e.PickEids && e.Names.HasPart(s));
         foreach (var (k, a) in e.Added) if (k.Contains(s, StringComparison.OrdinalIgnoreCase)) { v = Verdict.Or(v, a); if (v.V == Reach.Yes) break; }
         return v;
     }
