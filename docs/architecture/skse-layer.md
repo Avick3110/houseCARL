@@ -276,9 +276,12 @@ number describes a wider set than the rows beside it.
   object: its verdicts and paths, the id-0 skip, the raw of a non-number id, the line beside the path, and the break;
   `SkseConfigEngineImplicitTests` pins PlayerRef as OK while another absent Skyrim.esm form stays DANGLING.
 - *Config references*, the SkyPatcher split and the BSA-only sentence: `SkseConfigSkyPatcherSplitTests` — both folder
-  spellings, `SkyPatcher.ini` and a packed SkyPatcher INI leave; a non-INI under the root, a look-alike folder and
-  every other config stay with their references; a config only in a BSA carries the sentence in both renders and json,
-  and one with a loose copy does not.
+  spellings, `SkyPatcher.ini` in another case and one only in a BSA, a packed SkyPatcher INI, one in the root and a
+  name holding `.ini` mid-name leave; a non-INI under the root, a look-alike folder and every other config stay with
+  their references; a config only in a BSA carries the sentence in both renders and json and is counted in the json
+  totals, and one with a loose copy does not; the whole audit and a filter matching nothing name `housecarl_layer`.
+  `SkseConfigFileSectionTests` pins the read-errors and BSA-only sections: heading, rows, cut notice, a heading that
+  does not fit, and the window.
 - *Transport*: `SkseTransportTests.EachFamilysTextRenderFilledPastItsCapAnswersInsideIt` and
   `TheJsonTailIsPaidForInsideMaxCharsRatherThanAppendedPastIt` — the tail is charged before a row is laid, and a row
   that crossed is taken back out; `ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently` — the one arm that
