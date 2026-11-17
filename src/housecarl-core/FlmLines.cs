@@ -421,7 +421,7 @@ public static class FlmLines
             if (!registered && dropped is null)
                 notes.Add($"FLM has stored its keywords before it reads the filter, so collection '{name}' may still be filled at load (members are not read here)");
             names.Collections[name] = (At, keywords, registered);
-            if (registered) notes.Add($"its members (every {type} with the keywords listed and none of the '{g.Not}' ones) are not read here");
+            if (registered) notes.Add($"its members (every form with the keywords listed and none of the '{g.Not}' ones, of every type a kept collection names, not only this one's: FLM fills each collection from every type it walks, and walks armors for 'magiceffect') are not read here");
         }
 
         void Alias()
