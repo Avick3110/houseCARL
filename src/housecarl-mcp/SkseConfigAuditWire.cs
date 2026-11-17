@@ -370,6 +370,7 @@ static class SkseConfigAuditWire
             w.WriteNumber("broken", Verdicts(SkseRefVerdict.Dangling) + Verdicts(SkseRefVerdict.Unparseable));
             w.WriteNumber("inert", Verdicts(SkseRefVerdict.PluginMissing));
             w.WriteNumber("read_errors", allFiles.Count(x => x.ReadError is not null));
+            w.WriteNumber("archive_only", allFiles.Count(x => x.ArchiveOnly));
             w.WriteEndObject();
 
             w.WriteStartArray("files");

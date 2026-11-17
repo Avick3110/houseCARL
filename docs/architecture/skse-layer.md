@@ -155,7 +155,8 @@ for every framework: most SKSE plugins read loose files only, so it may never be
 as for a loose one. The sentence does not name the framework's own read, because two (Inventory Injector, Dynamic
 Armor Variants) open their config through the game's archive stream and most are not sourced (DECISIONS 2026-11-17
 (1), Q5 (c)). The text render says it on the file's block under `filter=` and in its own section of the whole audit;
-the json row carries it as `note`, which no other row has.
+the json row carries it as `note`, which no other row has, and the json totals count those files as `archive_only`
+over the answer's whole population, not its window, as `read_errors` does.
 
 `SkseConfigReferenceExtractor` is catalog-free and framework-agnostic: it finds the three things checkable against the
 load order without knowing what any framework MEANS. A form token is a hex FormID paired with a plugin filename by `|`
