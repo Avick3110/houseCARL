@@ -144,7 +144,7 @@ public static class SpidReach
         var earlier = Earlier(layer, asked, line, ctx);
         if (earlier.Count > 0)
             result.Notes.Add($"{earlier.Count:N0} earlier line(s) of the layer handing out the same form were run first; an NPC they reach already has it.");
-        result.HeldWhy = "already get it from an earlier line of the same form, which SPID skips";
+        result.HeldWhy = "already have it, on their record or from an earlier line of the same form, which SPID skips";
         if (raceTags.Count > 0)
             result.Notes.Add($"KID's Race lines may tag {raceTags.Count:N0} race(s) with a keyword; they are not replayed, so a keyword they give is not decidable for NPCs of those races.");
         var groups = Groups(layer, line, ctx, kwEid);
@@ -175,6 +175,11 @@ public static class SpidReach
             if (asked.Kind == SpidLineKind.Death && v.V != Reach.No) v = Verdict.And(v, Verdict.Game("a Death line"));
             // An ExclusiveGroup sibling the NPC already holds keeps the line's form off it (LookupNPC.cpp:202-214).
             if (v.V != Reach.No && groups.Count > 0) v = Verdict.And(v, Verdict.Any(groups, s => Sibling(s, e, races, lists, world)).Not());
+            if (v.V != Reach.No && Owns(asked.Type, line, e, races) is { V: not Reach.No } own)
+            {
+                if (own.V == Reach.Yes) { result.AddHeld(n.Key); continue; }
+                v = Verdict.And(v, new Verdict(own.V, $"it may already hold the form ({own.Why})"));
+            }
             if (v.V != Reach.No && earlier.Count > 0)
             {
                 var prior = Verdict.Any(earlier, f => Eval(f, e, races, classes, lists, world));
@@ -201,6 +206,23 @@ public static class SpidReach
             if (same) lines.Add(c);
         }
         return lines;
+    }
+
+    /// <summary>Whether the NPC already holds the line's form on its record, which SPID skips (Distribute.h has_form,
+    /// InsertKeyword): a spell, shout or leveled spell, a perk, a faction, a keyword its own or its race's.</summary>
+    static Verdict Owns(string? type, Line l, Eff e, Dictionary<FormKey, RaceFact> races)
+    {
+        Verdict On(R r, Func<Npc, bool> test) => P(e, r) is { } n ? Verdict.Of(test(n)) : Unknown(e, r);
+        if (type == "Keyword" && l.ValueKeyword?.ToLowerInvariant() is { } k)
+            return Verdict.Or(On(R.Keywords, n => n.Kw.Contains(k)), On(R.Race, n => races.TryGetValue(n.Race, out var rf) && rf.Kw.Contains(k)));
+        if (l.Value is not { } f) return Verdict.No;
+        return type switch
+        {
+            "Spell" or "LevSpell" or "Shout" => On(R.Spells, n => n.Spells.Contains(f)),
+            "Perk" => On(R.Perks, n => n.Perks.Contains(f)),
+            "Faction" => On(R.Factions, n => n.Factions.Any(x => x.F == f)),
+            _ => Verdict.No,
+        };
     }
 
     /// <summary>A line as SPID parses it, in one case, so a copy spaced or cased otherwise is the same line.</summary>
