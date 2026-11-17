@@ -97,6 +97,17 @@ public sealed class FlmLinesTests
     static FormKey? Labelled(FlmLines.LineRead r, SkyPatcherOverlay.FormPlace place, string where, FormKey fk)
         => r.Forms.Any(n => n.Place == place && n.Where == where && n.Form == fk) ? fk : null;
 
+    // ---- the row --------------------------------------------------------------------------------
+
+    // FlmGrammar.FlmLinesBlock: a lines-block value the code has no rule for fails the load, naming the field.
+    [Theory]
+    [InlineData("\"filtersCollectionsThenAliasesGroupsThenRest\"", "\"rest\"", "passes")]
+    [InlineData("\"kind\": \"pair\"", "\"kind\": \"pear\"", "kind")]
+    [InlineData("\"flPlanterPlantableItem\",", "", "lists")]
+    [InlineData("\"kind\": \"list\"", "\"kind\": \"remove\"", "addOrder")]
+    public void ABadLinesBlockFailsTheLoad(string from, string to, string field)
+        => Assert.Contains(field, Assert.Throws<InvalidOperationException>(() => ShippedRows.Distributor("flm", (from, to))).Message);
+
     // ---- the split ---------------------------------------------------------------------------
 
     // T5 (1.8.1 FindEntry): ';' and '#' lead a comment at a line's start, after any space; ARR holds 1,639 ';' lines.
