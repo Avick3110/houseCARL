@@ -419,6 +419,16 @@ public sealed class FlmLinesTests
         Assert.Contains("seed 'HcBoots' is a Armor, not Ingredient, Ingestible or Activator; FLM logs a warning and keeps it", Notes(w.Read("Plant = HcBoots|HcBush")));
     }
 
+    // Manipulator.hpp 1.7.0 :1361-1370: FLM returns for a missing half before it checks either half's type, so a
+    // dropped pair carries no type warning; no dev or ARR Plant line has an odd type.
+    [Fact]
+    public void APairDroppedForAMissingHalfHasNoTypeWarning()
+    {
+        var r = new World().Read("Plant = HcBoots|HcNoBush");
+        Assert.StartsWith("its plant 'HcNoBush' finds no record", r.Dropped);
+        Assert.DoesNotContain("FLM logs a warning", Notes(r));
+    }
+
     // T2 (4): DragonbornSpiderCrafting is read and never added in 1.8.1.
     [Fact]
     public void SpiderCraftingIsReadAndNeverAdded()

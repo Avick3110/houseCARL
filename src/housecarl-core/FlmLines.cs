@@ -610,12 +610,17 @@ public static class FlmLines
                 {
                     forms.Add(new Named(Place.Value, spec.Names[h], F[h], fk, of(F[h]).R.ByEditorId));
                     halves[h] = fk;
-                    var types = h == 0 ? g.SeedTypes : g.PlantTypes;
-                    if (spec.Key == "Plant" && ctx.ClassOf(fk) is { } cls && !SpidGrammar.IsOneOf(cls, types))
-                        notes.Add($"{spec.Names[h]} '{F[h]}' is a {RecordNaming.StripOverlay(cls.Name)}, not {Prose(types.ToList(), "or")}; FLM logs a warning and keeps it");
                 }
                 else Drop($"its {spec.Names[h]} '{F[h]}' {Why(F[h], "")}, so FLM logs 'Unable to find {Cap(spec.Names[h])}: {F[h]}.' and counts the line invalid");
             }
+            // FLM checks the halves' types only once both are found (Manipulator.hpp 1.7.0 :1361-1370).
+            if (spec.Key == "Plant" && halves[0] is { } s && halves[1] is { } p)
+                for (int h = 0; h < 2; h++)
+                {
+                    var types = h == 0 ? g.SeedTypes : g.PlantTypes;
+                    if (ctx.ClassOf(h == 0 ? s : p) is { } cls && !SpidGrammar.IsOneOf(cls, types))
+                        notes.Add($"{spec.Names[h]} '{F[h]}' is a {RecordNaming.StripOverlay(cls.Name)}, not {Prose(types.ToList(), "or")}; FLM logs a warning and keeps it");
+                }
             var l0 = Implied(spec.Lists[0]);
             var l1 = Implied(spec.Lists[1]);
             if (!g.Adds(spec))
