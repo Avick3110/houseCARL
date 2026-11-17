@@ -136,7 +136,8 @@ INIs live under `Data/SKSE/Plugins/SkyPatcher/<type>/`. The first path component
 the record type; deeper nesting is organisation only. An INI sitting directly in the root is listed
 with a note and applied to nothing — the DLL reads type subfolders only. An unrecognized subfolder
 name is listed but not interpreted, never guessed. These INIs and `SkyPatcher.ini` are this layer's
-alone: the SKSE config audit leaves them out ([`skse-layer.md`](skse-layer.md), Config references).
+to read: the SKSE config audit leaves them out ([`skse-layer.md`](skse-layer.md), Config references),
+though `housecarl_skse`'s inventory still lists them among the configs.
 
 Within a type folder, files apply breadth-first: the folder's own files, then each depth of
 subfolders, A to Z case-insensitive by path component within a level (8.0.1's General Information
