@@ -173,8 +173,8 @@ public static class SkseTools
             "declaration copy of a framework you don't have, never called broken). It answers whether a pairing is " +
             "plausible and healthy, never whether the DLL registers exactly these functions. " +
             "'config': whether the form references in SKSE configs resolve. It reads the winning copy of every " +
-            ".ini/.toml/.json/.yaml/.yml at any depth under Data\\SKSE\\Plugins, but SkyPatcher's INIs, which " +
-            ToolNames.Layer + " reads, and extracts every form-shaped " +
+            ".ini/.toml/.json/.yaml/.yml at any depth under Data\\SKSE\\Plugins except SkyPatcher's INIs (" +
+            ToolNames.Layer + " reads those). From each it extracts every form-shaped " +
             "reference: a hex FormID beside a plugin filename in either order (0xFORM|Plugin.esp as DSD, CDF and " +
             "po3 write it, Plugin.esp|0xFORM, the ~ form), IED's {\"id\",\"plugin\"} " +
             "objects and plugin-named folder gates (DynamicStringDistributor\\Plugin.esp\\...). Each resolves against the active order as OK, " +
