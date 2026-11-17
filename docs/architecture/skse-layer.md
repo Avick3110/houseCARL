@@ -137,22 +137,24 @@ residual edges, all of them false-flag or missed-flag modes of the audit:
 
 ### Config references
 
-The audit reads every config under `SKSE\Plugins` but SkyPatcher's INIs: a name holding `.ini` under its root (the layer scan's own name rule), either spelling,
-and its switches file `SKSE\Plugins\SkyPatcher.ini`, both taken from SkyPatcher's row of the runtime-format source
+The audit reads every config under `SKSE\Plugins` but SkyPatcher's INIs: a name holding `.ini` under its root (the
+layer scan's own name rule), the root matched in any letter case (`SkyPatcher\` or `skypatcher\`), and its switches
+file `SKSE\Plugins\SkyPatcher.ini`, both taken from SkyPatcher's row of the runtime-format source
 (`SkyPatcherDiscovery.IsSkyPatcherIni`). They are `housecarl_layer`'s, which parses line by line only the loose
 winner of an INI in a type subfolder: it lists a packed one as not applied and one sitting directly in the root as
 applied to nothing, and reads from `SkyPatcher.ini` only its `[Patcher]` section's `iEnable…Patching` switches. The
 audit leaves every one of them out all the same, loose or packed, in the root or not (spec R44, top-up T2), so a form
 reference in a packed or root-level INI, or in another value of `SkyPatcher.ini`, is checked by no tool. Any other
-file under that root, and a folder whose name only starts with `SkyPatcher`, stays. The layer's overview has no count of SkyPatcher targets naming nothing, so the audit's
-headline counted them and no one call does now; `layer filter=` shows each on its line.
+file under that root, and a folder whose name only starts with `SkyPatcher`, stays. The layer's overview has no count
+of SkyPatcher targets naming nothing, so the audit's headline counted them and no one call does now; `layer filter=`
+shows each on its line.
 
-A config whose winner is a BSA (a loose copy always outranks one) is said to be only inside a BSA, with one sentence for every framework: most
-SKSE plugins read loose files only, so it may never be read. Its references are verdicted as for a loose one. The
-sentence does not name the framework's own read, because two (Inventory Injector, Dynamic Armor Variants) open their
-config through the game's archive stream and most are not sourced (DECISIONS 2026-11-17 (1), Q5 (c)). The text render
-says it on the file's block under `filter=` and in its own section of the whole audit; the json row carries it as
-`note`, which no other row has.
+A config whose winner is a BSA (a loose copy always outranks one) is said to be only inside a BSA, with one sentence
+for every framework: most SKSE plugins read loose files only, so it may never be read. Its references are verdicted
+as for a loose one. The sentence does not name the framework's own read, because two (Inventory Injector, Dynamic
+Armor Variants) open their config through the game's archive stream and most are not sourced (DECISIONS 2026-11-17
+(1), Q5 (c)). The text render says it on the file's block under `filter=` and in its own section of the whole audit;
+the json row carries it as `note`, which no other row has.
 
 `SkseConfigReferenceExtractor` is catalog-free and framework-agnostic: it finds the three things checkable against the
 load order without knowing what any framework MEANS. A form token is a hex FormID paired with a plugin filename by `|`
