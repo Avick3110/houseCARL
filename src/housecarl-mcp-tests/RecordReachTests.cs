@@ -452,7 +452,7 @@ public sealed class RecordReachTests : IDisposable
                                      kid: "Keyword = HcTag|Weapon|HcIronSword\r\nKeyword = HcTag|Weapon|*Sword\r\n");
         var second = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard" }, counts_only: true);
         Assert.Contains("yes 1,", second);
-        Assert.Contains("1 already get it from an earlier line of the same form, which SPID skips", second);
+        Assert.Contains("1 already have it, on their record or from an earlier line of the same form, which SPID skips", second);
         var first = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|HcGuard" }, counts_only: true);
         Assert.Contains("yes 1,", first);
         Assert.DoesNotContain("earlier line", first);
@@ -473,7 +473,7 @@ public sealed class RecordReachTests : IDisposable
         // A line the layer does not hold still runs every same-form line first: both reach one of its two NPCs.
         var off = Note("spid reaches Spell = HcSpell|*Guard,-HcNobody");
         Assert.Contains("yes 0,", off);
-        Assert.Contains("2 already get it from an earlier line", off);
+        Assert.Contains("2 already have it, on their record or from an earlier line", off);
     }
 
     [Fact]
@@ -490,6 +490,25 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AnNpcHoldingTheFormOnItsRecordIsAlreadyHeld()
+    {
+        // The dev Adamant_DISTR.ini:15 shape: HcBodyguard's spell list holds HcSpellB; HcGuard is in HcFaction; the
+        // human NPCs' race carries HcKwHumanoid.
+        var spell = Records("spid reaches Spell = HcSpellB|*Guard", countsOnly: true);
+        Assert.Contains("yes 1,", spell);
+        Assert.Contains("1 already have it, on their record or from an earlier line", spell);
+        var faction = Records("spid reaches Faction = HcFaction|*Guard", countsOnly: true);
+        Assert.Contains("yes 1,", faction);
+        Assert.Contains("1 already have it", faction);
+        var keyword = Records("spid reaches Keyword = HcKwHumanoid|*Guard", countsOnly: true);
+        Assert.Contains("yes 0,", keyword);
+        Assert.Contains("2 already have it", keyword);
+        // HcLeveledTemplated's race comes off its leveled template, so whether it holds the keyword is open.
+        var open = Records("spid reaches Keyword = HcKwHumanoid|HcLeveledTemplated", countsOnly: true);
+        Assert.Contains("it may already hold the form (its template chain ends at a leveled actor): 1", open);
+    }
+
+    [Fact]
     public void AScopedCallCountsTheHeldRecordsWithinItsScope()
     {
         // :4 gives HcSpell to every human NPC first; HcReachMore.esp's human NPC is held too, outside plugins=.
@@ -498,7 +517,7 @@ public sealed class RecordReachTests : IDisposable
         var spid = RecordsTools.Records(w.Svc, plugins: new RecordsTools.RecordsScope { names = new[] { ReachWorld.Plugin } },
                                         where: new[] { "spid reaches Spell = HcSpell||HcHumanRace" }, counts_only: true);
         Assert.Contains("scan: 0 matches", spid);
-        Assert.Contains("Within the call's other terms 4 already get it from an earlier line of the same form, which SPID skips, so the line does not reach them (5 over all).", spid);
+        Assert.Contains("Within the call's other terms 4 already have it, on their record or from an earlier line of the same form, which SPID skips, so the line does not reach them (5 over all).", spid);
         // KID's earlier-line count (HcIronSword in scope, HcFireSword out) and its own-held count (HcIronSword holds HcKidB).
         var earlier = RecordsTools.Records(w.Svc, formids: new[] { F(ReachWorld.IronSword), F(ReachWorld.WoodSword) },
                                            where: new[] { "kid reaches Keyword = HcTag|Weapon|*Sword" }, counts_only: true);

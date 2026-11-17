@@ -35,7 +35,9 @@ from the files, or decided only in the running game; the rows are the yes record
   keyword member is matched by its EditorID, so a keyword SPID creates counts. An NPC whose template is a leveled
   list, directly or past NPC templates, is not decidable for a string or NPC form filter it does not otherwise meet, since SPID also matches the NPC
   the list picks (a string only when it is, or for a partial one is part of, some NPC's EditorID, the only string a
-  pick adds, and only where SPID sees NPC EditorIDs). The layer's earlier lines of the same kind, type and
+  pick adds, and only where SPID sees NPC EditorIDs). An NPC already holding the line's form on its record (a spell, shout or
+  leveled spell in its spell list, a perk, a faction, a keyword its own or its race's; `has_form`, `InsertKeyword`) is
+  counted as already holding it, which SPID skips, and is open when that field is not decidable. The layer's earlier lines of the same kind, type and
   form run first: an NPC they reach is counted as already holding it, which SPID skips. Every line of the layer when
   the asked line is not in it; the asked line is found in the layer by its parse, in any case (KID's too). A keyword a KID Race line may give the NPC's race (judged by the KID reach over the
   races) is not decidable, since KID tags races before SPID reads them and the SPID reach does not replay KID.
@@ -88,6 +90,8 @@ from the files, or decided only in the running game; the rows are the yes record
 - A RACE or CLAS record that will not read is skipped, so the NPCs using it are judged as if it held nothing, a
   confident yes or no (KID: an MGEF, LCTN, ENCH or SPEL that will not read, likewise).
 - A feeder is replayed without its own ExclusiveGroup: it gives even where the record holds one of its siblings.
+- A SPID Package line's NPC that already runs the package is not counted already held (SPID skips it); NPC packages
+  are not read.
 - A SPID chance of 0 puts every selected NPC in the running-game bucket instead of no.
 - A KID `R()` actor value is compared by Mutagen's enum index, so a game value of 53 or more, or -1, never matches.
 - The note does not carry the replay's coverage caveats (an unread asset root, a BSA-only file, an EditorID-table
