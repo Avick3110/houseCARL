@@ -545,16 +545,24 @@ public static class KidReach
     static List<Line> Earlier(IReadOnlyList<(KidLines.Line Line, KidLines.LineRead? Read)> layer, KidLines.Line asked, string keywordId,
                               KidLines.Context ctx, HashSet<string> created, World w)
     {
-        var raw = asked.Raw.Trim();
+        var self = Parsed(asked, ctx.G);
         var lines = new List<Line>();
         foreach (var (l, r) in layer)
         {
-            if (l.Raw.Trim() == raw) break;
+            if (Parsed(l, ctx.G) == self) break;
             if (l.Skipped is not null || l.IsGroup || l.Type != asked.Type || r is not { Dropped: null }) continue;
             var c = Compile(l, ctx, created, w);
             if (c.KeywordId == keywordId) lines.Add(c);
         }
         return lines;
+    }
+
+    /// <summary>A line as KID parses it, in one case, so a copy spaced or cased otherwise is the same line.</summary>
+    static string Parsed(KidLines.Line l, KidGrammar g)
+    {
+        var secs = l.Raw[(l.Raw.IndexOf(g.Assign) + 1)..].Split(g.Sections).Skip(3).Select(s => string.Concat(s.Where(c => !char.IsWhiteSpace(c))));
+        return string.Join("|", new[] { l.IsGroup.ToString(), l.Type ?? "", l.Keyword.Trim() }
+            .Concat(l.Tokens.Select(t => $"{t.Field}:{t.Not}:{t.Partial}:{t.Group}:{t.Raw.Trim()}")).Concat(secs)).ToLowerInvariant();
     }
 
     static Line Compile(KidLines.Line src, KidLines.Context ctx, HashSet<string> created, World w)
