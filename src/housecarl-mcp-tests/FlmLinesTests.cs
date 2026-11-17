@@ -361,14 +361,17 @@ public sealed class FlmLinesTests
         Assert.StartsWith("has type 'Shout', which is not one of FLM's collection types", w.Read("Collection = C|Shout|HcKw").Dropped);
     }
 
-    // Manipulator.hpp:1001-1043: a collection's own filter is read after its keywords are stored, so a false one still
-    // leaves the name to be filled at load (said, not shown); no ARR collection has a filter.
+    // Manipulator.hpp:1001-1043, :1105-1136: a collection's own filter is read after its keywords are stored, so a false
+    // or invalid one still leaves the name to be filled at load (said, not shown); no ARR collection has a filter.
     [Fact]
     public void AFilteredOutCollectionMayStillBeFilled()
     {
         var r = new World().Read("Collection = C|Misc|HcKw|-HcFlm.esp");
         Assert.True(r.FilteredOut);
         Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load", Notes(r));
+        var invalid = new World().Read("Collection = C|Misc|HcKw|#nosuch");
+        Assert.StartsWith("its filter '#nosuch' is invalid", invalid.Dropped);
+        Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load", Notes(invalid));
     }
 
     // Manipulator.hpp:925, :1036-1041, :1135, :1446: a '#name' naming a collection whose own filter is false or invalid
