@@ -139,7 +139,7 @@ internal sealed partial class RecordReads
             groupBy = groupBy.Trim().ToLowerInvariant();
             if (groupBy is not ("winner" or "type" or "defined_in"))
                 return CrossQueryOutcome.Fail($"group_by='{groupBy}' is not a known aggregation key — use 'winner', 'type', or 'defined_in'.");
-            if (groupBy == "type" && !hasType && !hasPlugins && !hasFormidSet)
+            if (groupBy == "type" && !hasType && !hasPlugins && !hasFormidSet && reachTerms.Count == 0)
                 return CrossQueryOutcome.Fail("group_by=type needs each match's type, which requires a body-bearing scope — add type= or plugins= (winner/defined_in group without a body).");
         }
         var refSet = hasReferences ? new HashSet<FormKey>(references!) : null;
