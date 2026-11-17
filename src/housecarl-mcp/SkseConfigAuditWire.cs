@@ -23,6 +23,11 @@ static class SkseConfigAuditWire
     const string ArchiveOnlyWhere = "only inside a BSA";
     const string LooseOnly = "most SKSE plugins read loose files only, so ";
 
+    /// <summary>The line naming what the audit leaves to the layer tool: SkyPatcher's INIs.</summary>
+    internal static readonly string LeftToLayer =
+        "(SkyPatcher's INIs, a name holding .ini under " + HousecarlCore.SkyPatcherDiscovery.Root + "\\ and " +
+        HousecarlCore.SkyPatcherDiscovery.SwitchesName() + ", are left out of this audit: " + HousecarlCore.ToolNames.Layer + " reads them.)";
+
     public static string Render(SkseConfigAuditData d, string? filter, int cap, RowWindow window = default, int trailer = 0)
     {
         if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window, trailer);
@@ -35,7 +40,7 @@ static class SkseConfigAuditWire
         var tail = "\n(scope: form-shaped references only — a hex FormID + plugin filename, or a plugin-named folder gate. Bare " +
                    "EditorID/name strings are not validated (Wave 2). Extraction is heuristic over token shapes: a token in a comment " +
                    "or disabled block still counts — 'references this file declares', not 'the DLL will use'. A folder that SHOULD carry " +
-                   "references but shows none may use a reference shape not yet recognized.)\n" + Caveats(d, cap) +
+                   "references but shows none may use a reference shape not yet recognized.)\n" + LeftToLayer + "\n" + Caveats(d, cap) +
                    "\n→ filter='<folder/mod/filename/plugin>' to audit one group and see every reference (OKs included).";
         var healthyFiles0 = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
         var noRefFiles0 = d.Files.Where(f => f.ReadError is null && f.Refs.Count == 0).ToList();
@@ -202,7 +207,8 @@ static class SkseConfigAuditWire
                 .Concat(d.Files.Select(f => f.WinningProvider).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
                 .Concat(d.Files.SelectMany(f => f.Refs.Select(r => r.Ref.Plugin)));
             sb.Append("\nnothing under SKSE\\Plugins matched. ")
-              .Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter, suggestPool));
+              .Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter, suggestPool))
+              .Append('\n').Append(LeftToLayer).Append('\n');
             sb.Append(tail);   // a "no match" over an incompletely-read build must carry the caveat (Q3)
             return sb.ToString().TrimEnd('\n') + Accounting();
         }

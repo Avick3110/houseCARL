@@ -147,7 +147,8 @@ audit leaves every one of them out all the same, loose or packed, in the root or
 reference in a packed or root-level INI, or in another value of `SkyPatcher.ini`, is checked by no tool. Any other
 file under that root, and a folder whose name only starts with `SkyPatcher`, stays. The layer's overview has no count
 of SkyPatcher targets naming nothing, so the audit's headline counted them and no one call does now; `layer filter=`
-shows each on its line.
+shows each on its line. The text render says the INIs are left out, in one line naming `housecarl_layer`, after the
+whole audit's scope note and in a `filter=` answer that matches nothing; the json does not.
 
 A config whose winner is a BSA (a loose copy always outranks one) is said to be only inside a BSA, with one sentence
 for every framework: most SKSE plugins read loose files only, so it may never be read. Its references are verdicted
