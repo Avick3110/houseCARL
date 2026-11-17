@@ -156,6 +156,24 @@ internal sealed partial class RecordReads
             predicate = set;
         }
 
+        // The refusals that need no reach pass come before it: types= naming none of the reach lines' types, a stale
+        // artifact, an unknown type, a path no scanned type carries.
+        if (reachTerms.Count > 0 && hasType && ReachTypes(reachTerms) is { Count: > 0 } rtypes && ReachTypesRefusal(typeSet!, rtypes) is { } terr)
+            return CrossQueryOutcome.Fail(terr) with { Stamp = view.Stamp };
+        // Artifact re-entry: checked HERE against the view this scan will answer from, not at the tool layer,
+        // where a freshness rebuild between check and scan would let a stale artifact through.
+        foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
+                     predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
+            if (demand.Epoch != view.Epoch)
+                return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
+
+        IReadOnlyList<Type>? types;
+        try { types = _host.Types.ResolveSet(hasType ? typeSet : null); }
+        catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
+
+        if (predicate is not null && SchemaPlanRefusal(hasType ? typeSet : null, predicate) is { } qerr)
+            return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
+
         // The reach terms are judged next, over this scan's view. The records no term says no to become the identity
         // set; the scan's other terms run over them, the yes ones are the rows, and the open ones are only counted.
         ReachSelection? reach = null;
@@ -163,7 +181,6 @@ internal sealed partial class RecordReads
         {
             reach = Reach(reachTerms, view, ct);
             if (reach.Refusal is not null) return CrossQueryOutcome.Fail(reach.Refusal) with { Stamp = view.Stamp };
-            if (hasType && ReachTypesRefusal(typeSet!, reach.Types) is { } terr) return CrossQueryOutcome.Fail(terr) with { Stamp = view.Stamp };
             // Any other term narrows the scan, so the note counts the buckets within it.
             bool scoped = reachTerms.Count > 1 || hasType || hasPlugins || hasFormidSet || hasWhere || conflictsOnly || hasReferences
                 || refNone is not null || !string.IsNullOrEmpty(editoridContains);
@@ -183,20 +200,6 @@ internal sealed partial class RecordReads
             reach.Tally(fk);
             return !reach.IsYes(fk);
         }
-
-        // Artifact re-entry: checked HERE against the view this scan will answer from, not at the tool layer,
-        // where a freshness rebuild between check and scan would let a stale artifact through.
-        foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
-                     predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
-            if (demand.Epoch != view.Epoch)
-                return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
-
-        IReadOnlyList<Type>? types;
-        try { types = _host.Types.ResolveSet(hasType ? typeSet : null); }
-        catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
-
-        if (predicate is not null && SchemaPlanRefusal(hasType ? typeSet : null, predicate) is { } qerr)
-            return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
         var keys = new List<FormKey>();
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered

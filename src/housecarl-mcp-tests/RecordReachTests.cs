@@ -381,6 +381,41 @@ public sealed class RecordReachTests : IDisposable
         Assert.Equal(parse, r);
     }
 
+    // The reach line below is one SPID skips, so a reach pass run before the other refusals would answer with its sentence.
+    const string Skipped = "spid reaches Spell = HcSpell|a|b|c|d|e|f|g|h";
+
+    [Fact]
+    public void ATypesNamingNoneOfTheLinesTypesIsRefusedBeforeTheReachPass()
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "WEAP" }, where: new[] { Skipped });
+        Assert.DoesNotContain("SPID skips it", r);
+        Assert.Contains("names no Npc record", r);
+    }
+
+    [Fact]
+    public void AnUnknownTypeIsRefusedBeforeTheReachPass()
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "Nppc" }, where: new[] { Skipped });
+        Assert.DoesNotContain("SPID skips it", r);
+        Assert.Contains("Nppc", r);
+    }
+
+    [Fact]
+    public void AWrongFieldPathIsRefusedBeforeTheReachPass()
+    {
+        var r = RecordsTools.Records(_w.Svc, where: new[] { Skipped, "Bogus.Path = 1" });
+        Assert.DoesNotContain("SPID skips it", r);
+        Assert.Contains("Bogus", r);
+    }
+
+    [Fact]
+    public void AStaleArtifactIsRefusedBeforeTheReachPass()
+    {
+        var q = _w.Svc.CrossQuery(null, null, null, false, null, new[] { Skipped }, 10,
+                                  artifactDemands: new[] { new ArtifactDemand("stale.json", "deadbeef") });
+        Assert.Contains("artifact 'stale.json' was captured at epoch=deadbeef", q.Error);
+    }
+
     [Fact]
     public void AReachTermComposesWithAFieldTerm()
     {
