@@ -459,6 +459,7 @@ public static class FlmLines
                     var c = m[1..];
                     if (names.Collections.TryGetValue(c, out var coll))
                     {
+                        if (!coll.Registered) notes.Add(Unkept("group member", m, c, coll.At, "Unknown Collection"));
                         Through(coll.Keywords, "group members through collection", m);
                         colls.Add(c);
                     }
@@ -501,6 +502,11 @@ public static class FlmLines
             return got;
         }
 
+        /// <summary>A '#name' naming a collection whose own filter kept it out: FLM holds it at pass 2 only if its stored
+        /// keywords gathered a form at load (Manipulator.hpp:1036-1041, :1135).</summary>
+        static string Unkept(string what, string token, string name, string at, string log)
+            => $"{what} '{token}' names collection '{name}', whose own filter at {at} is not true, so FLM holds it only if its stored keywords gathered a form at load (not read here); if none, FLM logs '{log}: {name}.' and skips it";
+
         void Through(IReadOnlyList<Named> keywords, string where, string token)
             => forms.AddRange(keywords.Select(k => new Named(Place.Filter, where, token, k.Form, false)));
 
@@ -530,6 +536,7 @@ public static class FlmLines
                     if (names.Collections.TryGetValue(n, out var coll))
                     {
                         known = true;
+                        if (!coll.Registered && !names.Groups.ContainsKey(n)) notes.Add(Unkept("item", item, n, coll.At, "Unknown Group/Collection"));
                         Through(coll.Keywords, "items through collection", item);
                         colls.Add(n);
                     }

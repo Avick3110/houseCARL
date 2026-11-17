@@ -371,6 +371,18 @@ public sealed class FlmLinesTests
         Assert.Contains("FLM has stored its keywords before it reads the filter, so collection 'C' may still be filled at load", Notes(r));
     }
 
+    // Manipulator.hpp:925, :1036-1041, :1135, :1446: a '#name' naming a collection whose own filter is false or invalid
+    // finds it at pass 2 only if its stored keywords gathered a form at load; no dev or ARR collection has a filter.
+    [Fact]
+    public void ANameOfACollectionItsFilterKeptOutIsKnownOnlyIfFilled()
+    {
+        var reads = new World().Reads("Collection = C|Misc|HcKw|-HcFlm.esp\nCollection = D|Misc|HcKw|#nosuch\nFormList = HcList|#C\nGroup = G|#D");
+        Assert.Contains("item '#C' names collection 'C', whose own filter at Hc_FLM.ini:1 is not true, so FLM holds it only if its stored keywords gathered a form at load (not read here); if none, FLM logs 'Unknown Group/Collection: C.' and skips it", Notes(reads[2]!));
+        Assert.Contains("group member '#D' names collection 'D', whose own filter at Hc_FLM.ini:2 is not true", Notes(reads[3]!));
+        Assert.Contains("if none, FLM logs 'Unknown Collection: D.' and skips it", Notes(reads[3]!));
+        Assert.DoesNotContain("names collection", Notes(new World().Reads("Collection = C|Misc|HcKw|+HcFlm.esp\nFormList = HcList|#C")[1]!));
+    }
+
     // Manipulator.hpp:921-934: a group member '#collection' brings the collection's forms, so a group holding only
     // one is kept only if the collection fills, which is not read.
     [Fact]
