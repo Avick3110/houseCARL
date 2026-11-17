@@ -85,7 +85,7 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
     public void TheFilteredAuditSaysABsaOnlyConfigMayNeverBeReadAndListsItsReferences()
     {
         var txt = SkseConfigAuditWire.Render(_audit, "packed.json", 40_000);
-        Assert.Contains("[!] " + SkseConfigAuditWire.ArchiveOnlyNote, txt);
+        Assert.Contains("\n  [!] only inside a BSA: most SKSE plugins read loose files only, so it may never be read\n", txt);
         Assert.Contains("[OK] 'Dummy.esp|800'", txt);
         Assert.DoesNotContain(SkseConfigAuditWire.ArchiveOnlyNote, SkseConfigAuditWire.Render(_audit, "keep.ini", 40_000));
     }
@@ -94,7 +94,7 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
     public void TheWholeAuditNamesEachBsaOnlyConfig()
     {
         var txt = SkseConfigAuditWire.Render(_audit, null, 40_000);
-        Assert.Contains("configs " + SkseConfigAuditWire.ArchiveOnlyNote + " (1):\n  - ", txt);
+        Assert.Contains("\nconfigs only inside a BSA (1): most SKSE plugins read loose files only, so they may never be read:\n  - ", txt);
         Assert.Contains("packed.json  [← Dummy.bsa]", txt);
     }
 
@@ -107,6 +107,6 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
             .Select(r => (Path: r.GetProperty("rel_path").GetString(), Note: r.GetProperty("note").GetString())).ToList();
         var only = Assert.Single(notes);
         Assert.Equal(PackedKeep, only.Path, StringComparer.OrdinalIgnoreCase);
-        Assert.Equal(SkseConfigAuditWire.ArchiveOnlyNote, only.Note);
+        Assert.Equal("only inside a BSA: most SKSE plugins read loose files only, so it may never be read", only.Note);
     }
 }
