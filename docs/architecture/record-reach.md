@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-17
+updated: 2026-11-18
 covers: [src/housecarl-core/ReachTerm.cs, src/housecarl-core/ReachFields.cs, src/housecarl-core/reach-fields.json, src/housecarl-core/SpidReach.cs, src/housecarl-core/KidReach.cs, src/housecarl-mcp/RecordReach.cs]
 ---
 # The reach term
@@ -100,6 +100,13 @@ from the files, or decided only in the running game; the rows are the yes record
 - The note does not carry the replay's coverage caveats (an unread asset root, a BSA-only file, an EditorID-table
   gap), which the layer answer states.
 - A plugin with a mid-file parse fault fails the whole reach call instead of being skipped and named.
+- An earlier SPID line of the same kind and form counts as giving it first for every kind, though SPID adds Item
+  counts per line, so a second Item line of the same item reaches NPCs this calls already held.
+- KID's Magic Effect pass runs only when the asked line or a feeder reads keywords, not when only an earlier line does.
+- An NPC whose name or EditorID equals a KID Race line's keyword reads as holding it, so its race tag is not left open.
+- KID's Race lines are judged with only the Race lines as their layer, so a keyword another KID type creates is not seen.
+- A SPID ExclusiveGroup member EditorID that no record holds is taken as a keyword SPID creates, whether or not a
+  Keyword line gives it.
 - SkyPatcher's NPC and item keyword or faction adds are not replayed before the reach, and a record they touch is not
   marked open: SkyPatcher's replay works one record at a time, by copying it, so knowing which records its lines touch
   would mean replaying every NPC or item.
