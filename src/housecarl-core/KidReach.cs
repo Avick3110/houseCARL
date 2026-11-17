@@ -79,6 +79,10 @@ public static class KidReach
             StringComparer.OrdinalIgnoreCase);
         var line = Compile(asked, ctx, created, w);
         var feeders = Feeders(layer, asked.Type!, line.KeywordId, ctx, created, w);
+        // The type's earlier lines of the same keyword: KID gives it by the first line that passes, so an item they tag already holds it.
+        var earlier = Earlier(layer, asked, line.KeywordId, ctx, created, w);
+        if (earlier.Count > 0)
+            result.Notes.Add($"{earlier.Count:N0} earlier {asked.Type} line(s) of the same keyword were run first; an item they tag already holds it.");
         var siblings = Siblings(layer, line.KeywordId, ctx, created);
         int layerFeeders = feeders.Count;
         feeders = Readable(feeders, line, siblings, w);
@@ -106,6 +110,12 @@ public static class KidReach
                 if (item.Own.Contains(line.KeywordId)) { result.AlreadyHeld++; result.Universe++; continue; }
                 v = Verdict.Any(siblings, s => Holds(item, s)).Not();
                 if (v.V != Reach.No) v = Verdict.And(v, Eval(line, item, w));
+                if (v.V != Reach.No && earlier.Count > 0)
+                {
+                    var prior = Verdict.Any(earlier, f => Eval(f, item, w));
+                    if (prior.V == Reach.Yes) { result.AlreadyHeld++; result.Universe++; continue; }
+                    if (prior.V != Reach.No) v = Verdict.And(v, new Verdict(prior.V, $"an earlier line of the same keyword may tag it first ({prior.Why})"));
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -527,6 +537,23 @@ public static class KidReach
             if (l.Skipped is not null || l.IsGroup || l.Type != type || r is not { Dropped: null }) continue;
             var c = Compile(l, ctx, created, w);
             if (c.KeywordId != except) lines.Add(c);
+        }
+        return lines;
+    }
+
+    /// <summary>The type's kept lines of the asked keyword before the asked line in the layer (every one when it is not in
+    /// the layer), compiled.</summary>
+    static List<Line> Earlier(IReadOnlyList<(KidLines.Line Line, KidLines.LineRead? Read)> layer, KidLines.Line asked, string keywordId,
+                              KidLines.Context ctx, HashSet<string> created, World w)
+    {
+        var raw = asked.Raw.Trim();
+        var lines = new List<Line>();
+        foreach (var (l, r) in layer)
+        {
+            if (l.Raw.Trim() == raw) break;
+            if (l.Skipped is not null || l.IsGroup || l.Type != asked.Type || r is not { Dropped: null }) continue;
+            var c = Compile(l, ctx, created, w);
+            if (c.KeywordId == keywordId) lines.Add(c);
         }
         return lines;
     }

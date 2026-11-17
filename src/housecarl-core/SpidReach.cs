@@ -124,6 +124,11 @@ public static class SpidReach
             if (c.ValueKeyword is null || (line.ValueKeyword is { } own && own.Equals(c.ValueKeyword, StringComparison.OrdinalIgnoreCase))) continue;
             feeders.Add(c);
         }
+        // The layer's earlier lines handing out the same form: an NPC they reach already has it, which SPID skips.
+        var earlier = Earlier(layer, asked, line, ctx);
+        if (earlier.Count > 0)
+            result.Notes.Add($"{earlier.Count:N0} earlier line(s) of the layer handing out the same form were run first; an NPC they reach already has it.");
+        result.HeldWhy = "already get it from an earlier line of the same form, which SPID skips";
         var groups = Groups(layer, line, ctx, kwEid);
         int layerFeeders = feeders.Count;
         feeders = Readable(feeders, line, groups);
@@ -146,9 +151,32 @@ public static class SpidReach
             if (asked.Kind == SpidLineKind.Death && v.V != Reach.No) v = Verdict.And(v, Verdict.Game("a Death line"));
             // An ExclusiveGroup sibling the NPC already holds keeps the line's form off it (LookupNPC.cpp:202-214).
             if (v.V != Reach.No && groups.Count > 0) v = Verdict.And(v, Verdict.Any(groups, s => Sibling(s, e, races, lists, world)).Not());
+            if (v.V != Reach.No && earlier.Count > 0)
+            {
+                var prior = Verdict.Any(earlier, f => Eval(f, e, races, classes, lists, world));
+                if (prior.V == Reach.Yes) { result.AlreadyHeld++; result.Universe++; continue; }
+                if (prior.V != Reach.No) v = Verdict.And(v, new Verdict(prior.V, $"an earlier line of the same form may reach it first ({prior.Why})"));
+            }
             result.Add(n.Key, v);
         }
         return result;
+    }
+
+    /// <summary>The kept lines of the asked line's kind and type handing out its form, before it in the layer (every one
+    /// when the asked line is not in the layer), compiled.</summary>
+    static List<Line> Earlier(IReadOnlyList<(SpidLines.Line Line, SpidLines.LineRead? Read)> layer, SpidLines.Line asked, Line line, SpidLines.Context ctx)
+    {
+        var raw = asked.Raw.Trim();
+        var lines = new List<Line>();
+        foreach (var (l, r) in layer)
+        {
+            if (l.Raw.Trim() == raw) break;
+            if (l.Skipped is not null || l.Kind != asked.Kind || l.Type != asked.Type || r is not { Dropped: null }) continue;
+            var c = Compile(l, r, ctx);
+            bool same = line.ValueKeyword is { } k ? k.Equals(c.ValueKeyword, StringComparison.OrdinalIgnoreCase) : line.Value is { } fk && c.Value == fk;
+            if (same) lines.Add(c);
+        }
+        return lines;
     }
 
     /// <summary>The feeders whose keyword the asked line can read, directly or through another feeder it reads: a

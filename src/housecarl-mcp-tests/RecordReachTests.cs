@@ -384,6 +384,23 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AnEarlierLineOfTheSameFormIsRunFirst()
+    {
+        // The ARR Bestiary shape (:32 = :154): HcGuard gets HcSpell from :4, so :5 does not reach her.
+        using var w = new ReachWorld(spid: "Spell = HcSpell|HcGuard\r\nSpell = HcSpell|*Guard\r\n",
+                                     kid: "Keyword = HcTag|Weapon|HcIronSword\r\nKeyword = HcTag|Weapon|*Sword\r\n");
+        var second = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard" }, counts_only: true);
+        Assert.Contains("yes 1,", second);
+        Assert.Contains("1 already get it from an earlier line of the same form, which SPID skips", second);
+        var first = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|HcGuard" }, counts_only: true);
+        Assert.Contains("yes 1,", first);
+        Assert.DoesNotContain("earlier line", first);
+        var kid = RecordsTools.Records(w.Svc, where: new[] { "kid reaches Keyword = HcTag|Weapon|*Sword" }, counts_only: true);
+        Assert.Contains("yes 2,", kid);
+        Assert.Contains("1 already hold the keyword, which KID skips", kid);
+    }
+
+    [Fact]
     public void AnNpcTemplatedOnALeveledListIsOpenToAStringOrNpcFilter()
     {
         // SPID's ID set holds the NPC a leveled template picks, so a filter naming another NPC may match it in game.
