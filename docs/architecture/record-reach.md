@@ -66,7 +66,8 @@ from the files, or decided only in the running game; the rows are the yes record
   the yes records only, and the owed sentences (replay, earlier lines, chance, base records not actors, deleted
   records left out, a drop). When the call has any other term (types=, plugins=, formids=, a field term, another
   reach term, conflicts_only=, references=), the counts and examples are those within it, and the whole universe's
-  counts follow.
+  counts follow; the already-held count too, the scan running its other terms over the held records without making
+  them rows.
 
 ## Known limitations
 - Only SPID's Keyword lines are replayed; a faction or perk an earlier SPID pass hands out does not count.

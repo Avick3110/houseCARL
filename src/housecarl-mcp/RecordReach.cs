@@ -22,8 +22,19 @@ internal sealed partial class RecordReads
         /// <summary>Count the records the call's other terms keep into each term's scoped tally.</summary>
         public void Scope() { foreach (var r in Results) r.Scoped = new(); }
 
-        /// <summary>A record the scan kept, counted into each term's scoped tally when the call is scoped.</summary>
-        public void Tally(FormKey fk) { foreach (var r in Results) r.Scoped?.Add(fk, r.Of(fk)); }
+        /// <summary>The records some term counts already held and no term says no to, which a scoped scan also runs its
+        /// other terms over, to count them; never rows.</summary>
+        public IEnumerable<FormKey> Held
+            => Results.SelectMany(r => r.Held).Distinct()
+                .Where(fk => Results.All(r => r.Held.Contains(fk) || r.Of(fk).V != HousecarlCore.Reach.No));
+
+        /// <summary>A record the scan kept, counted into each term's scoped tally when the call is scoped: as held by the
+        /// terms that hold it, else by its verdict.</summary>
+        public void Tally(FormKey fk)
+        {
+            if (Results.Any(r => r.Held.Contains(fk))) { foreach (var r in Results) if (r.Held.Contains(fk)) r.Scoped?.AddHeld(); return; }
+            foreach (var r in Results) r.Scoped?.Add(fk, r.Of(fk));
+        }
 
         /// <summary>One note per term, then the unread files.</summary>
         public string Note() => string.Join(" ", Results.Select(r => r.Sentence())) + Unread;

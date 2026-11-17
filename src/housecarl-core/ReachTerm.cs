@@ -142,7 +142,9 @@ public sealed class ReachResult
     public Dictionary<Reach, Bucket> Open { get; } = new() { [Reach.NotDecidable] = new(), [Reach.Game] = new() };
     /// <summary>Records the format skips because they already hold what the line hands out: an item holding the keyword
     /// (counted before any filter runs), or a record an earlier line of the same form or keyword reaches.</summary>
-    public int AlreadyHeld { get; set; }
+    public int AlreadyHeld => Held.Count;
+    /// <summary>The already-held records, each also judged.</summary>
+    public HashSet<FormKey> Held { get; } = new();
     /// <summary>What the already-held records hold and who skips them, as the note says it.</summary>
     public string HeldWhy { get; set; } = "already hold the keyword, which KID skips";
     /// <summary>Sentences the answer owes, in order.</summary>
@@ -164,6 +166,9 @@ public sealed class ReachResult
         else Open[v.V].Add(fk, v.Why ?? "unstated");
     }
 
+    /// <summary>Record one judged record the format skips because it already holds what the line hands out.</summary>
+    public void AddHeld(FormKey fk) { Universe++; Held.Add(fk); }
+
     /// <summary>The verdict judged for a record; no for one not judged.</summary>
     public Verdict Of(FormKey fk) => Kept.TryGetValue(fk, out var v) ? v : Verdict.No;
 
@@ -171,7 +176,9 @@ public sealed class ReachResult
     public sealed class Tally
     {
         public int Yes { get; private set; }
+        public int Held { get; private set; }
         public Dictionary<Reach, Bucket> Open { get; } = new() { [Reach.NotDecidable] = new(), [Reach.Game] = new() };
+        public void AddHeld() => Held++;
         public void Add(FormKey fk, Verdict v)
         {
             if (v.V == Reach.Yes) Yes++;
@@ -212,7 +219,10 @@ public sealed class ReachResult
                     ? $"within the call's other terms {Counts(sc.Yes, sc.Open, true)}; over all {Universe:N0}, {Counts(Yes.Count, Open, false)}. "
                     : $"{Counts(Yes.Count, Open, true)}. ") +
                 "The rows are the yes records only; the other two are counted apart and never an exact set.";
-        if (AlreadyHeld > 0) s += $" {AlreadyHeld:N0} {HeldWhy}, so the line does not reach them.";
+        if (AlreadyHeld > 0)
+            s += Scoped is { } sh
+                ? $" Within the call's other terms {sh.Held:N0} {HeldWhy}, so the line does not reach them ({AlreadyHeld:N0} over all)."
+                : $" {AlreadyHeld:N0} {HeldWhy}, so the line does not reach them.";
         return Notes.Count == 0 ? s : s + " " + string.Join(" ", Notes);
     }
 

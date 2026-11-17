@@ -162,7 +162,7 @@ public static class SpidReach
             if (v.V != Reach.No && earlier.Count > 0)
             {
                 var prior = Verdict.Any(earlier, f => Eval(f, e, races, classes, lists, world));
-                if (prior.V == Reach.Yes) { result.AlreadyHeld++; result.Universe++; continue; }
+                if (prior.V == Reach.Yes) { result.AddHeld(n.Key); continue; }
                 if (prior.V != Reach.No) v = Verdict.And(v, new Verdict(prior.V, $"an earlier line of the same form may reach it first ({prior.Why})"));
             }
             result.Add(n.Key, v);

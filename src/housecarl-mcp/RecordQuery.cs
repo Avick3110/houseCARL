@@ -165,10 +165,11 @@ internal sealed partial class RecordReads
             if (reach.Refusal is not null) return CrossQueryOutcome.Fail(reach.Refusal) with { Stamp = view.Stamp };
             if (hasType && ReachTypesRefusal(typeSet!, reach.Types) is { } terr) return CrossQueryOutcome.Fail(terr) with { Stamp = view.Stamp };
             // Any other term narrows the scan, so the note counts the buckets within it.
-            if (reachTerms.Count > 1 || hasType || hasPlugins || hasFormidSet || hasWhere || conflictsOnly || hasReferences
-                || refNone is not null || !string.IsNullOrEmpty(editoridContains))
-                reach.Scope();
-            var candidates = reach.Candidates;
+            bool scoped = reachTerms.Count > 1 || hasType || hasPlugins || hasFormidSet || hasWhere || conflictsOnly || hasReferences
+                || refNone is not null || !string.IsNullOrEmpty(editoridContains);
+            if (scoped) reach.Scope();
+            // A scoped scan also runs over the already-held records, so the note counts those within it.
+            var candidates = scoped ? reach.Candidates.Concat(reach.Held).ToList() : reach.Candidates;
             var keep = new HashSet<FormKey>(candidates);
             var kept = hasFormidSet ? formidSet!.Where(keep.Contains).ToList() : candidates.ToList();
             // An empty selection is still the bound: the identity set is the universe, so the scan answers 0, not every record.
