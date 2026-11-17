@@ -142,6 +142,8 @@ public sealed class ReachResult
     public Dictionary<Reach, Bucket> Open { get; } = new() { [Reach.NotDecidable] = new(), [Reach.Game] = new() };
     /// <summary>Records the line's filters select that already hold what it hands out, which the format skips.</summary>
     public int AlreadyHeld { get; set; }
+    /// <summary>What the already-held records hold and who skips them, as the note says it.</summary>
+    public string HeldWhy { get; set; } = "already hold the keyword, which KID skips";
     /// <summary>Sentences the answer owes, in order.</summary>
     public List<string> Notes { get; } = new();
     /// <summary>The format drops the line, so nothing was judged.</summary>
@@ -209,7 +211,7 @@ public sealed class ReachResult
                     ? $"within the call's other terms {Counts(sc.Yes, sc.Open, true)}; over all {Universe:N0}, {Counts(Yes.Count, Open, false)}. "
                     : $"{Counts(Yes.Count, Open, true)}. ") +
                 "The rows are the yes records only; the other two are counted apart and never an exact set.";
-        if (AlreadyHeld > 0) s += $" {AlreadyHeld:N0} already hold the keyword, which KID skips, so the line does not reach them.";
+        if (AlreadyHeld > 0) s += $" {AlreadyHeld:N0} {HeldWhy}, so the line does not reach them.";
         return Notes.Count == 0 ? s : s + " " + string.Join(" ", Notes);
     }
 
