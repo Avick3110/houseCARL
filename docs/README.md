@@ -54,6 +54,10 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | [`architecture/assets.md`](architecture/assets.md) | Which copy of a file the game uses: loose beats BSA-packed, the overwrite-then-mods-then-Data walk, and the archive tie-break. |
 | [`architecture/skse-layer.md`](architecture/skse-layer.md) | What an SKSE DLL declares and the static-load rule: everything in the layer is what a file declares, never what a DLL does. |
 | [`architecture/skypatcher-layer.md`](architecture/skypatcher-layer.md) | SkyPatcher edits records from INI files at load, so a plugin read alone does not say what the game sees; houseCARL reads that layer in four tiers. |
+| [`architecture/spid-layer.md`](architecture/spid-layer.md) | SPID's `_DISTR.ini` lines read as SPID reads them: what each line hands to which NPCs, its filters, and what the layer answer says of it. |
+| [`architecture/kid-layer.md`](architecture/kid-layer.md) | KID's `_KID.ini` lines read as KID reads them: which keyword each line adds to which item records, and its filters. |
+| [`architecture/bos-layer.md`](architecture/bos-layer.md) | BOS's `_SWAP.ini` lines read as BOS reads them: which base each line swaps at its placed references, its conditions and transforms. |
+| [`architecture/flm-layer.md`](architecture/flm-layer.md) | FLM's `_FLM.ini` lines read as FLM 1.8.1 reads them: its passes and names, each line's filter verdict, and what each kept line adds to which form list. |
 | [`architecture/runtime-formats.md`](architecture/runtime-formats.md) | One data file holds each runtime-layer format's discovery, order, conflict, grammar and target-spelling rules; the server reads it, and the generator's `skill-text` mode, run by hand, prints the skill paragraphs from it. |
 | [`architecture/nif.md`](architecture/nif.md) | Reading mesh values and the two write gates: `NifService` is pure format logic, and the service layer resolves the winning bytes. |
 
