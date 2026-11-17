@@ -445,6 +445,22 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AKidRaceLineIsNotedOnlyForALineReadingItsKeyword()
+    {
+        // ARR's ABB_KW-OCF_NPC_DISTR.ini:10 shape: a line reading no string, beside a KID Race line.
+        using var w = new ReachWorld(kid: "Keyword = HcRaceTag|Race|HcBeastRace\r\nKeyword = HcOtherTag|Race|HcHumanRace\r\n");
+        var none = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell||HcBeastRace" }, counts_only: true);
+        Assert.DoesNotContain("KID's Race lines", none);
+        Assert.Contains("yes 2,", none);
+        var other = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|HcKwHumanoid" }, counts_only: true);
+        Assert.DoesNotContain("KID's Race lines", other);
+        // A partial string reading one tag notes it, and only the races that tag is given to.
+        var part = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|*RaceT" }, counts_only: true);
+        Assert.Contains("KID's Race lines may tag 1 race(s) with a keyword it reads", part);
+        Assert.Contains("a KID Race line may tag its race, which is not replayed: 2", part);
+    }
+
+    [Fact]
     public void AnEarlierLineOfTheSameFormIsRunFirst()
     {
         // The ARR Bestiary shape (:32 = :154): HcGuard gets HcSpell from :4, so :5 does not reach her.
