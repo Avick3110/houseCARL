@@ -521,13 +521,13 @@ public static class ReadEngine
 
     /// <summary>The response-level statement over the records a deep read cut: how many, which (the first
     /// <paramref name="names"/>), at what budget, and how to read one whole.</summary>
-    /// <param name="compared">The rows are comparisons, whose sides' reads were cut, not reads ending in a <c>…</c> entry.</param>
+    /// <param name="compared">The rows are comparisons, whose sides' reads were cut, not the reads themselves.</param>
     public static string CutSentence(int count, int budget, IReadOnlyList<string> names, bool compared = false) =>
         (compared
             ? $"{count} record{(count == 1 ? " was" : "s were")} compared on a read cut at {budget} field lines, so " +
               $"{(count == 1 ? "its comparison is" : "their comparisons are")} INCOMPLETE: "
-            : $"{count} record{(count == 1 ? " was" : "s were")} cut at {budget} field lines, so {(count == 1 ? "its row ends" : "each row ends")} " +
-              "with a '…' entry and the lines past it are missing: ") +
+            : $"{count} record{(count == 1 ? " was" : "s were")} cut at {budget} field lines, so {(count == 1 ? "its row is" : "each row is")} " +
+              "missing the lines past the cut: ") +
         string.Join(", ", names) +
         (count > names.Count ? $" and {count - names.Count} more" : "") +
         (compared
