@@ -95,7 +95,8 @@ public sealed class ConflictTreeContentDiffTests : IClassFixture<ConflictTreeCon
 
     static RecordFields Fields(params (string path, string? token, string? note)[] lines) =>
         new("Faction", "000000:hcDiffGuard.esp", "hcDiffCase",
-            lines.Select(l => new FieldValue(l.path, l.token is not null, l.token, l.note)).ToList());
+            lines.Select(l => new FieldValue(l.path, l.token is not null, l.token, l.note)).ToList(),
+            CutAt: lines.Any(l => l.path == ReadEngine.CutPath) ? ReadEngine.MaxExpandNodes : null);
 
     const string Truncated = "(expansion truncated at 2000 lines — narrow with a field path or a lower depth)";
 

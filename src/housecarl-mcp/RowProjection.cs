@@ -23,7 +23,7 @@ static class RowProjection
             if (o.Record is null) { folded.Add(o); continue; }
             var bad = NotAList(o.Record, roots);
             folded.Add(bad is null
-                ? o with { Record = o.Record with { Fields = Fold(o.Record.Fields, order, depth) } }
+                ? o with { Record = o.Record with { Fields = Fold(o.Record.Fields, order, depth, o.Record.CutAt) } }
                 : o with { Record = null, Error = bad });
         }
         return folded;
@@ -47,7 +47,8 @@ static class RowProjection
 
     /// <summary>The fold itself, over the emitted lines in their emission order. A row is keyed by its PATH rather
     /// than by contiguity, and a cell by its path too, so overlapping roots give one row and one of each cell.</summary>
-    internal static IReadOnlyList<FieldValue> Fold(IReadOnlyList<FieldValue> fields, IReadOnlyList<string> roots, int depth)
+    /// <param name="cutAt">The record's own <see cref="RecordFields.CutAt"/>: its cut line's remedy is restated for this form.</param>
+    internal static IReadOnlyList<FieldValue> Fold(IReadOnlyList<FieldValue> fields, IReadOnlyList<string> roots, int depth, int? cutAt = null)
     {
         var outp = new List<FieldValue>(fields.Count);
         var slotOf = new Dictionary<string, int>(StringComparer.Ordinal);       // row path → its place in the output
@@ -57,7 +58,7 @@ static class RowProjection
         foreach (var f in fields)
         {
             var key = RowKey(f.Path, roots);
-            if (key is null) { outp.Add(Passthrough(f, depth)); continue; }
+            if (key is null) { outp.Add(Passthrough(f, depth, cutAt)); continue; }
             if (!slotOf.TryGetValue(key, out int slot))
             {
                 slot = outp.Count; slotOf[key] = slot; cells[key] = new List<FieldValue>();
@@ -87,13 +88,11 @@ static class RowProjection
 
     /// <summary>A line the fold does not own, as it should leave the form. The engine's expansion-truncation remedy
     /// is written for the fields form, so on this form the remedy — and only the remedy — is restated.</summary>
-    static FieldValue Passthrough(FieldValue f, int depth)
+    static FieldValue Passthrough(FieldValue f, int depth, int? cutAt)
     {
-        if (f.Note is not { } n || !n.StartsWith("(expansion truncated", StringComparison.Ordinal)) return f;
-        int dash = n.IndexOf('—');
-        if (dash < 0) return f;
+        if (cutAt is not { } budget || f.Path != ReadEngine.CutPath) return f;
         var lower = depth > 3 ? ", or lower depth to 3 (depth 2 leaves every element a bare type)" : "";
-        return f with { Note = n[..(dash + 1)] + " the fold runs AFTER the read, so the elements past the cut are " +
+        return f with { Note = $"(expansion truncated at {budget} lines — the fold runs AFTER the read, so the elements past the cut are " +
                                "missing from the rows: name one element to fold it alone (e.g. \"Conditions[0]\")" +
                                lower + ")" };
     }

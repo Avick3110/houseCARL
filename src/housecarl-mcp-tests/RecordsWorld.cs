@@ -70,6 +70,7 @@ public sealed class RecordsWorld : IDisposable
     public FormKey SpellB { get; }
     public FormKey SpellC { get; }
     public FormKey BigList { get; }
+    public FormKey HugeList { get; }
     public FormKey Package { get; }
     public FormKey NpcParent { get; }
     public FormKey NpcChild { get; }
@@ -199,6 +200,11 @@ public sealed class RecordsWorld : IDisposable
         var dropped = master.Armors.AddNew(); dropped.EditorID = DroppedEidArmorOldEid; DroppedEidArmor = dropped.FormKey;
         // Added after the pair so no earlier FormID shifts.
         var keyword = master.Keywords.AddNew(); keyword.EditorID = "HcRecKeyword"; Keyword = keyword.FormKey;
+        // One element past the to_file= line budget, added last so no earlier FormID shifts: the record a file
+        // read still cuts. Its entries are null links, so it adds no reference to any count or walk.
+        var hugeList = master.FormLists.AddNew(); hugeList.EditorID = "HcRecHugeList"; HugeList = hugeList.FormKey;
+        for (int i = 0; i < RecordsTools.ToFileLineBudget + 1; i++)
+            hugeList.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(FormKey.Null));
 
         var ovMod = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
         WriteEngine.GenericGetOrAddAsOverride(ovMod, bigList);   // identical copy — no field changed

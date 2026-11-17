@@ -18,10 +18,12 @@ public static class FieldsDiff
     /// line left besides those (every other path could not be read on that side): not complete, never "identical", and
     /// also a no-verdict when other paths were read. A one-side read fault or a both-sides no-field path leaves a line, so
     /// that row is a plain no-verdict; an absent, unresolved or present-null path is a compared state.</param>
+    /// <param name="CutAt">The line budget a side's read was cut at, when one was (<see cref="Capped"/>).</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
         int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount, int NoFieldCount = 0, bool Capped = false,
         int MatchedListCount = 0, int MatchedItemCount = 0, int BothAbsentCount = 0, int UnresolvedStringCount = 0,
-        int PresentNullLinkCount = 0, IReadOnlyList<string>? NotOnType = null, bool NothingCompared = false)
+        int PresentNullLinkCount = 0, IReadOnlyList<string>? NotOnType = null, bool NothingCompared = false,
+        int? CutAt = null)
     {
         /// <summary>Why the comparison is incomplete, in words; empty when it is complete.</summary>
         public string Why => IncompleteWhy(NoVerdictCount - NoFieldCount, NoFieldCount, Capped);
@@ -202,7 +204,8 @@ public static class FieldsDiff
         // On a CAPPED comparison the agreed set would be a where-the-cap-fell artifact; an unreadable leaf does not touch it.
         if (capped) { agreedCount = 0; agreedSample.Clear(); bothAbsent = 0; unresolved = 0; presentNull = 0; matchedLists = 0; matchedItems = 0; }
         return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count, noField.Count, capped,
-                          matchedLists, matchedItems, bothAbsent, unresolved, presentNull, notOn, nothingCompared);
+                          matchedLists, matchedItems, bothAbsent, unresolved, presentNull, notOn, nothingCompared,
+                          theirs.CutAt ?? winner.CutAt);
     }
 
     /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set.</summary>
@@ -223,10 +226,10 @@ public static class FieldsDiff
         HashSet<string> valueLeaves, Dictionary<string, string> unreadable, HashSet<string> empty, List<string>? notOn)
     {
         var lines = new List<(string, string)>(rf.Fields.Count);
-        bool capped = false;
+        bool capped = rf.CutAt is not null;
         foreach (var f in rf.Fields)
         {
-            if (f.Path == "…") { capped = true; continue; }            // ReadEngine's expansion-cap sentinel
+            if (rf.IsCutLine(f)) continue;                               // the read's own cut line, not a field
             if (PlannedFields.IsNotOnNote(f.Note)) { notOn?.Add($"{f.Path} {f.Note}"); continue; }
             if (!f.Readable && !ReadEngine.IsNoSuchFieldNote(f.Note)) { unreadable[f.Path] = f.Note ?? ""; continue; }
             if (f.HasValue) valueLeaves.Add(f.Path);

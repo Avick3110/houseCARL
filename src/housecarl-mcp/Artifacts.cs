@@ -13,8 +13,8 @@ internal sealed record SpillInfo(string Path, ResultArtifact.Manifest Manifest, 
     /// <summary>Rows exist that <see cref="ResultArtifact.Manifest.Total"/> cannot count (a seed the call never tried); the manifest's notes say which.</summary>
     public bool Partial { get; init; }
 
-    /// <summary>The file holds every row there is.</summary>
-    public bool Complete => !Partial && Manifest.Total == Manifest.RowCount;
+    /// <summary>The file holds every row there is, each one whole.</summary>
+    public bool Complete => !Partial && Manifest.Total == Manifest.RowCount && Manifest.RecordsCut == 0;
 
     /// <summary>What writing this artifact's DETAIL rows cost, in milliseconds; null when its rows read no body, so a render states a cost only where one was incurred (#582).</summary>
     public long? RenderMs { get; init; }
@@ -52,20 +52,26 @@ internal static class Artifacts
         // "complete result" is claimed only when the file holds every match; the sentence names the WINDOW, since
         // offset= alone makes one too and there the missing matches are the ones before it.
         bool whole = s.Complete, counted = m.Total == m.RowCount;
+        // Every row is in the file but some are cut: neither a complete result nor a window.
+        bool cutOnly = !whole && counted && !s.Partial;
         sb.Append('\n')
-          .Append(whole ? "spilled: complete result (" : "spilled: the returned WINDOW (")
+          .Append(whole ? "spilled: complete result (" : cutOnly ? "spilled: every row, NOT every row whole (" : "spilled: the returned WINDOW (")
           .Append(m.RowCount).Append(m.RowCount == 1 ? " row" : " rows")
           .Append(counted ? "" : $" of {m.Total} total matches")
+          .Append(m.RecordsCut > 0 ? $", {m.RecordsCut} cut" : "")
           .Append(") -> ").Append(s.Path).Append('\n')
           .Append(s.ToFile
               ? "  written at your request (to_file=): only this manifest is rendered inline.\n"
               : whole
                   ? "  the inline render hit max_chars, so the COMPLETE result was auto-spilled (nothing is lost; the rows above are a prefix).\n"
-                  : $"  the inline render hit max_chars; the spilled WINDOW is complete in the file, but the {m.Total - m.RowCount} matches outside the returned window are in NO file — widen the window with limit= and offset=, or use to_file= for the full result.\n")
+                  : cutOnly
+                      ? "  the inline render hit max_chars, so every row was auto-spilled (the rows above are a prefix); the cut rows are cut in the file too.\n"
+                      : $"  the inline render hit max_chars; the spilled WINDOW is complete in the file, but the {m.Total - m.RowCount} matches outside the returned window are in NO file — widen the window with limit= and offset=, or use to_file= for the full result.\n")
           .Append("  manifest: rows=").Append(m.RowCount)
           .Append(counted ? "" : $" of total={m.Total}")
           .Append("  identity=").Append(m.Identity ?? "<none>")
           .Append("  epoch=").Append(m.Epoch.Length > 0 ? m.Epoch : "<none>").Append('\n');
+        if (m.CutNote is { } cut) sb.Append("  cut: ").Append(cut).Append('\n');
         // The stamp's caveats beside it, not only inside the file: this block is all a to_file= caller sees (§2.1.1).
         if (s.EpochUnavailable is { Length: > 0 } why)
             sb.Append("  epoch: NONE — the load order could not be read for a fingerprint right now. ").Append(why)
@@ -107,6 +113,12 @@ internal static class Artifacts
         w.WriteNumber("total", m.Total);
         // Stated, not left derivable: false means the file is a window and the matches beyond it are in no file.
         w.WriteBoolean("complete", s.Complete);
+        if (m.RecordsCut > 0)
+        {
+            w.WriteNumber("records_cut", m.RecordsCut);
+            if (m.CutBudget is { } b) w.WriteNumber("cut_budget", b);
+            if (m.CutNote is { } cut) w.WriteString("cut_note", cut);
+        }
         if (m.Identity is null) w.WriteNull("identity"); else w.WriteString("identity", m.Identity);
         w.WriteStartArray("row_schema");
         foreach (var c in m.RowSchema) w.WriteStringValue(c);
@@ -150,7 +162,7 @@ internal static class Artifacts
         bool resolveNames, bool winnerFields, int depth,
         ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
         LeverNames? levers = null, int rowCap = int.MaxValue, FoldPlan? fold = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, int? lineBudget = null)
     {
         using var writer = new ResultArtifact.Writer();
         string[] schema;
@@ -176,7 +188,8 @@ internal static class Artifacts
             var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
             // The same reader the inline renders use; a cancel throws before Save, so no half artifact reaches disk.
             using var reader = new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
-                                                    (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct, wholePass: true);
+                                                    (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct, wholePass: true,
+                                                    lineBudget: lineBudget);
             for (int i = 0; i < q.Keys.Count; i++)
             {
                 var fk = q.Keys[i];
@@ -196,7 +209,7 @@ internal static class Artifacts
                     });
                 else
                     // The row writer's own truncation note needs the caller's vocabulary, never a parameter that tool lacks.
-                    writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, matches, levers: levers), o.Record!.Type);
+                    writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, matches, levers: levers), o.Record!.Type, o.Record);
             }
         }
         else                                                                  // summary rows
@@ -278,7 +291,7 @@ internal static class Artifacts
                     w.WriteEndObject();
                 });
             else
-                writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, hit, levers: levers), o.Record!.Type);
+                writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, hit, levers: levers), o.Record!.Type, o.Record);
         }
         // The batch's one build; a batch of pure parse failures carries "", which refuses re-entry against any build.
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
@@ -298,8 +311,11 @@ internal static class Artifacts
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
+        {
             writer.WriteRow((w, ms) => JsonWire.WriteDeltaRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Subject?.RecordType : null);
+            if (row.CutAt is { } at) writer.Cuts.AddCompared(row.Formid, row.Subject?.EditorId, at);
+        }
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           WithWinner(new[] { "formid", "type", "editorid", "editorid_note?", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "no_verdict_count", "not_on_type?", "nothing_compared?", "agreed_count", "matched_list_count", "matched_item_count", "both_absent_count", "present_null_link_count", "unresolved_string_count" },
                                                      "stack_above?", rows.Any(r => r.StackWinner is not null)),
@@ -314,8 +330,11 @@ internal static class Artifacts
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
+        {
             writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary
+            if (row.CutAt is { } at) writer.Cuts.AddCompared(row.Formid, row.EditorId, at);
+        }
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           WithWinner(new[] { "formid", "type", "editorid", "editorid_note?", "reference", "touchers", "child_declarers?", "nodes" },
                                                      "touchers", rows.Any(r => r.WinnerAt >= 0 && r.WinnerAt != r.Touchers.Count - 1)),

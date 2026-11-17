@@ -17,6 +17,7 @@ internal sealed class ScanDetailReader : IDisposable
     readonly string? _containerHint;
     readonly IReadOnlyList<(int Depth, string[]? Tail)>? _depths;
     readonly CancellationToken _ct;
+    readonly int? _lineBudget;   // null: the read's own default
     readonly RecordReads.LinkMemo? _linkMemo;
     readonly LoadOrderResolver.IndexView? _view;
     readonly LoadOrderResolver.OverlaySession? _session;
@@ -27,11 +28,12 @@ internal sealed class ScanDetailReader : IDisposable
 
     internal ScanDetailReader(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int depth,
                               bool resolveNames, bool winnerFields, string? containerHint,
-                              IReadOnlyList<(int Depth, string[]? Tail)>? depths, CancellationToken ct, bool wholePass = false)
+                              IReadOnlyList<(int Depth, string[]? Tail)>? depths, CancellationToken ct, bool wholePass = false,
+                              int? lineBudget = null)
     {
         _svc = svc; _q = q; _fields = fields; _depth = depth;
         _resolveNames = resolveNames; _winnerFields = winnerFields;
-        _containerHint = containerHint; _depths = depths; _ct = ct; _wholePass = wholePass;
+        _containerHint = containerHint; _depths = depths; _ct = ct; _wholePass = wholePass; _lineBudget = lineBudget;
         _linkMemo = resolveNames ? new RecordReads.LinkMemo() : null;
         // Only a pinned outcome can be read this way; an unpinned one falls through to the plain per-row path.
         _view = q.Pin?.View;
@@ -52,7 +54,7 @@ internal sealed class ScanDetailReader : IDisposable
         var body = _chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
         Interlocked.Increment(ref _svc.Counters.ScanRowReads);
         return _svc.ResolveReadOn(_q, fk, plugin, _fields, false, _depth, _resolveNames, _linkMemo,
-                                  _containerHint, _depths, _session, body, heldParent: _chunk is null ? null : _chunk.Parent);
+                                  _containerHint, _depths, _session, body, heldParent: _chunk is null ? null : _chunk.Parent, lineBudget: _lineBudget);
     }
 
     /// <summary>The plugin whose body this row displays: the scan's own per-match source, or the winner when the
@@ -83,7 +85,7 @@ internal sealed class ScanDetailReader : IDisposable
             _ct.ThrowIfCancellationRequested();
             Interlocked.Increment(ref _svc.Counters.ScanRowReads);
             rows.Add(_svc.ResolveReadOn(_q, _q.Keys[r], SourceAt(r), _fields, false, _depth, false, null,
-                                        _containerHint, _depths, _session, _chunk!.Body(_q.Keys[r]), heldParent: _chunk.Parent));
+                                        _containerHint, _depths, _session, _chunk!.Body(_q.Keys[r]), heldParent: _chunk.Parent, lineBudget: _lineBudget));
         }
         RecordReads.NameLinks(rows, _view!.Value, _session!, _linkMemo!, _ct);
         return rows;

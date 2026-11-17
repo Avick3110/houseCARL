@@ -14,6 +14,11 @@ public static partial class RecordsTools
     /// count TABLE read an unset limit the same way (#810).</summary>
     internal const int DefaultLimit = 500;
 
+    /// <summary>The field lines one record's deep read may generate when the call writes a to_file= artifact: the
+    /// file is not bounded by max_chars, so a sweep reads its records whole up to this; every inline read keeps the
+    /// engine's own budget.</summary>
+    internal const int ToFileLineBudget = 30_000;
+
     /// <summary>A caller's limit= turned into a count TABLE's row cap, reading an unset limit exactly as every ROW
     /// lane on this tool reads it — <c>limit &lt;= 0</c> is the 500 default, which is what the parameter description
     /// promises the table too. The asset tool's <c>RowLimit</c> maps the same input to "uncapped" because its own
@@ -164,7 +169,7 @@ public static partial class RecordsTools
             int max_chars = 0,
         [Description("TRANSPORT: return the accounting block and counts only, no rows: a census of the whole selection.")]
             bool counts_only = false,
-        [Description("TRANSPORT: write the complete result to this absolute .jsonl path (line 1 = manifest) and render only the manifest inline. Re-enter it via formids=[\"@<path>\"] or where=[\"formid in @<path>\"], epoch-checked. It reads every selected row's body, so it is held to the same bound as a render (see limit=). Read back the manifest, not the chat summary: it carries the query echo, identity, row_schema, sort, row_count, total, type_counts where the rows carried types, epoch, created, and notes when the result owes a clause. The file holds the complete result only when row_count equals total, and windows joined across differing epochs are not one result.")]
+        [Description("TRANSPORT: write the complete result to this absolute .jsonl path (line 1 = manifest) and render only the manifest inline. Re-enter it via formids=[\"@<path>\"] or where=[\"formid in @<path>\"], epoch-checked. It reads every selected row's body, so it is held to the same bound as a render (see limit=). Read back the manifest, not the chat summary: it carries the query echo, identity, row_schema, sort, row_count, total, type_counts where the rows carried types, epoch, created, and notes when the result owes a clause. A deep read (depth 2 or more, a [*] fold, the rows or everything form) reads each record up to 30,000 field lines into the file, against 2,000 inline; a record still cut there ends its row with a '…' entry and is counted in records_cut, listed in cut_records and named in notes. The file holds the complete result only when row_count equals total and records_cut is absent, and windows joined across differing epochs are not one result.")]
             string? to_file = null,
         CancellationToken ct = default) => Guard.Tool(ToolNames.Records, call =>
     {
@@ -474,6 +479,8 @@ public static partial class RecordsTools
             return ToolAnswer.Refusal(json, "error: " + ReadSentences.NoOffsetOnCountTable("counts_only=", hasTable: false));
         var toFile = to_file?.Trim();
         bool wantFile = !string.IsNullOrEmpty(toFile);
+        // The per-record line budget of the reads a to_file= call writes; null leaves the read's own (inline) default.
+        int? lineBudget = wantFile ? ToFileLineBudget : null;
         if (wantFile)
         {
             if (Artifacts.ValidateToFile(toFile!, svc.ResultsDir) is { } verr) return ToolAnswer.Refusal(json, verr);
@@ -707,7 +714,7 @@ public static partial class RecordsTools
             RecordReads.PoleInfo? pole = null;
             bool windowRead = false;
             IReadOnlyList<ReadOutcome> ReadWinners(string[] which, out string? refusal, out OrderStamp? refusalEpoch)
-                => svc.ResolveBatch(which, readFields, false, depth, resolveNames, null, demand, out refusal, out refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary");
+                => svc.ResolveBatch(which, readFields, false, depth, resolveNames, null, demand, out refusal, out refusalEpoch, containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary", lineBudget: lineBudget);
             // Clocked like the scan's body lane, over the BODIES READ; docs/architecture/records-tool-front.md.
             var listClock = System.Diagnostics.Stopwatch.StartNew();
             if (srcSpec.ReplaysOverlay)
@@ -716,7 +723,7 @@ public static partial class RecordsTools
                 // caller's own depth.
                 outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _,
                                                 containerHint, readFieldDepths, ct,
-                                                draft: srcSpec.Draft, overlayWarnings: overlayWarnings, summary: form == "summary");
+                                                draft: srcSpec.Draft, overlayWarnings: overlayWarnings, summary: form == "summary", lineBudget: lineBudget);
                 if (ovRefusal is not null)
                     return ToolAnswer.Refusal(json, Wire.RefusalPrefix + ovRefusal, ovEpoch, epochLine: true);
                 Arm(srcSpec.OverlayStatement!);
@@ -738,7 +745,7 @@ public static partial class RecordsTools
             {
                 outcomes = svc.ResolveBatchFromPole(ids, srcName, srcMod, readFields, depth, resolveNames, demand,
                                                     out pole, out var refusal, out var refusalEpoch,
-                                                    containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary");
+                                                    containerHint, readFieldDepths, ct, countFields: readFieldCounts, summary: form == "summary", lineBudget: lineBudget);
                 if (refusal is not null)
                     return ToolAnswer.Refusal(json, Wire.RefusalPrefix + refusal, refusalEpoch, epochLine: true);
                 Arm($"{pole!.Plugin} — {pole.Where}");
@@ -1156,6 +1163,10 @@ public static partial class RecordsTools
             }
         }
 
+        /// <summary>The `records_cut` count, carried only when a row is cut, so a whole answer's counts read as before.</summary>
+        KeyValuePair<string, int>[] CutCount(int n) =>
+            n > 0 ? new[] { KvI("records_cut", n) } : Array.Empty<KeyValuePair<string, int>>();
+
         /// <summary>The counts a windowed comparison carries, with `selected` beside them so `count` is never read as the whole selection.</summary>
         KeyValuePair<string, int>[] CmpCounts(params KeyValuePair<string, int>[] counts) =>
             cmpWindowNote is null ? counts : counts.Concat(new[] { KvI("selected", cmpSelected) }).ToArray();
@@ -1179,7 +1190,10 @@ public static partial class RecordsTools
             // A planned path its type lacks and no line left on either side; also in no_verdict when other paths could not be read on both. Named only when there are any.
             int notCompared = rows.Count(x => x.Error is null && x.Diff!.NothingCompared);
             var notComparedCount = notCompared > 0 ? new[] { KvI("not_compared", notCompared) } : Array.Empty<KeyValuePair<string, int>>();
-            var deltaCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }.Concat(notComparedCount).ToArray());
+            // A row a deep read cut at its line budget, which no count above holds when it found no delta.
+            int cut = rows.Count(x => x.CutAt is not null);
+            var deltaCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }
+                                        .Concat(notComparedCount).Concat(CutCount(cut)).ToArray());
             if (counts_only)
                 return ToolAnswer.Served(json
                     ? JsonWire.RenderNamedCounts(Env(null), deltaCounts, epoch, max_chars)
@@ -1194,7 +1208,7 @@ public static partial class RecordsTools
             }
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderDelta(winRows, max_chars, epoch, Env(sp), deltaCounts, sp, out trunc)
-                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, Head(sp), epoch, max_chars, sp, out trunc, noField: noField, notCompared: notCompared);
+                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, Head(sp), epoch, max_chars, sp, out trunc, noField: noField, notCompared: notCompared, cutRows: cut);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
@@ -1233,10 +1247,11 @@ public static partial class RecordsTools
                 if (aerr is not null) return ToolAnswer.Refusal(json, Wire.RefusalPrefix + aerr, epoch);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
-            var treeCounts = CmpCounts(KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs));
+            int cut = rows.Count(x => x.CutAt is not null);
+            var treeCounts = CmpCounts(new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }.Concat(CutCount(cut)).ToArray());
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderTree(winRows, max_chars, epoch, Env(sp), treeCounts, sp, out trunc, LeverNames.Records)
-                : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Count: > 0 }, Head(sp), epoch, max_chars, sp, out trunc);
+                : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Count: > 0 }, Head(sp), epoch, max_chars, sp, out trunc, cutRows: cut);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
@@ -1630,7 +1645,7 @@ public static partial class RecordsTools
                     // Only the window is replayed, through one replay context for the call.
                     bodies = svc.OverlayPostBatch(keys, bodyRead, depth, resolveNames, null, out var oref, out var orefEpoch, out _,
                                                   containerHint, readDepths, ct,
-                                                  draft: srcSpec.Draft, overlayWarnings: overlayWarnings, summary: summaryRows);
+                                                  draft: srcSpec.Draft, overlayWarnings: overlayWarnings, summary: summaryRows, lineBudget: lineBudget);
                     if (oref is not null)
                         return ToolAnswer.Refusal(json, Wire.RefusalPrefix + oref, orefEpoch, epochLine: true);
                     OverlayPostNotes();
@@ -1639,7 +1654,7 @@ public static partial class RecordsTools
                 {
                     bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyRead, depth, resolveNames, null,
                                                       out _, out var bref, out var brefEpoch, containerHint, readDepths,
-                                                      ct, countFields, summary: summaryRows);
+                                                      ct, countFields, summary: summaryRows, lineBudget: lineBudget);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is honest.
                     if (bref is not null)
                         return ToolAnswer.Refusal(json, Wire.RefusalPrefix + bref, brefEpoch, epochLine: true);
@@ -1651,7 +1666,7 @@ public static partial class RecordsTools
                     // fields_source="winner" retargeting display to the winner.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, bodyRead, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, countFields: countFields);
+                        bodies = svc.ResolveBatch(keys, bodyRead, false, depth, resolveNames, null, null, out _, out _, containerHint, readDepths, ct, countFields, lineBudget: lineBudget);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1666,12 +1681,12 @@ public static partial class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, containerHint: containerHint, depths: readDepths, ct: ct, countFields: countFields);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, null, null, out _, out _, containerHint, readDepths, ct, countFields, lineBudget: lineBudget);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, kv.Key, containerHint, readDepths, ct, countFields);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyRead, false, depth, resolveNames, kv.Key, null, out _, out _, containerHint, readDepths, ct, countFields, lineBudget: lineBudget);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
@@ -1741,7 +1756,7 @@ public static partial class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, ArtifactTarget.Named(toFile!), "to_file", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, ArtifactTarget.Named(toFile!), "to_file", Echo(), LeverNames.Records, fold: foldPlan, ct: ct, lineBudget: lineBudget);
                 if (aerr is not null)
                     return ToolAnswer.Refusal(fmt is not Wire.QueryFormat.Text, Wire.RefusalPrefix + aerr, outcome.Stamp);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
@@ -1918,7 +1933,7 @@ public static partial class RecordsTools
                 var offClock = System.Diagnostics.Stopwatch.StartNew();
                 var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? readPaths : null,
                                                       depth, resolveNames, null, out _, out var bref, out var brefEpoch,
-                                                      containerHint, readDepths, ct, countFields: countFields);
+                                                      containerHint, readDepths, ct, countFields: countFields, lineBudget: lineBudget);
                 offClock.Stop();
                 var unfoldedOff = bodies;   // dense folds as it writes each row
                 bodies = FoldRows(bodies);

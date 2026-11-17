@@ -181,7 +181,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     [Fact]
     public void Compare_ACappedReadCountsNoBothAbsentField()
     {
-        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f);
+        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f, CutAt: f.Any(x => x.Path == ReadEngine.CutPath) ? ReadEngine.MaxExpandNodes : null);
         var absent = new FieldValue("AlternateBlockMaterial", false, null, ReadEngine.AbsentNote, Present: false);
         var cap = new FieldValue("…", false, null, "[cap]");
         var d = FieldsDiff.Compare(Read(absent, cap), Read(absent));
@@ -194,7 +194,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     [Fact]
     public void Compare_ACappedReadCountsNoUnresolvedStringOrNullLink()
     {
-        static RecordFields Read(params FieldValue[] f) => new("INFO", "000800:X.esm", null, f);
+        static RecordFields Read(params FieldValue[] f) => new("INFO", "000800:X.esm", null, f, CutAt: f.Any(x => x.Path == ReadEngine.CutPath) ? ReadEngine.MaxExpandNodes : null);
         var unresolved = new FieldValue("Name", false, null, ReadEngine.UnresolvedStringNote);
         var nullLink = new FieldValue("PreviousDialog", false, null, ReadEngine.PresentNullLinkNote, Present: false);
         var cap = new FieldValue("…", false, null, "[cap]");
@@ -210,7 +210,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     [Fact]
     public void Compare_EmptyOnBothSidesIsReadFromTheElementCount()
     {
-        static RecordFields Read(params FieldValue[] f) => new("NPC_", "000800:X.esm", null, f);
+        static RecordFields Read(params FieldValue[] f) => new("NPC_", "000800:X.esm", null, f, CutAt: f.Any(x => x.Path == ReadEngine.CutPath) ? ReadEngine.MaxExpandNodes : null);
         var emptyList = new FieldValue("Packages", false, null, "[list: 0 item(s)]", Count: 0);
         var emptyDict = new FieldValue("BipedObjectNames", false, null, "[dict: 0 pair(s)]", Count: 0);
         var cap = new FieldValue("…", false, null, "[cap]");
@@ -225,7 +225,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     [Fact]
     public void Json_ADeltaRowWithAnUnresolvedPairCountsIt()
     {
-        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f);
+        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f, CutAt: f.Any(x => x.Path == ReadEngine.CutPath) ? ReadEngine.MaxExpandNodes : null);
         var unresolved = new FieldValue("Name", false, null, ReadEngine.UnresolvedStringNote);
         var row = new RecordReads.DeltaRow("000800:A.esm",
             new RecordReads.DiffPole("B.esp", "active", true, "Armor", "HcArmo"),
@@ -240,7 +240,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     [Fact]
     public void Compare_AnUnresolvedStringIsCountedApartFromAbsence()
     {
-        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f);
+        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f, CutAt: f.Any(x => x.Path == ReadEngine.CutPath) ? ReadEngine.MaxExpandNodes : null);
         var unresolved = new FieldValue("Name", false, null, ReadEngine.UnresolvedStringNote);
         var absent = new FieldValue("Name", false, null, ReadEngine.AbsentNote, Present: false);
         foreach (var d in new[] { FieldsDiff.Compare(Read(unresolved), Read(unresolved)), FieldsDiff.Compare(Read(unresolved), Read(absent)) })
@@ -270,7 +270,7 @@ public sealed class RecordsOutputAgreementTests : IClassFixture<OutputAgreementW
     [Fact]
     public void Compare_SeveralOfEachKindReadAsOnePhrase()
     {
-        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f);
+        static RecordFields Read(params FieldValue[] f) => new("ARMO", "000800:X.esm", null, f, CutAt: f.Any(x => x.Path == ReadEngine.CutPath) ? ReadEngine.MaxExpandNodes : null);
         FieldValue[] lines =
         {
             new("Value", true, "5", null),
