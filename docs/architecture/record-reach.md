@@ -34,7 +34,9 @@ from the files, or decided only in the running game; the rows are the yes record
 - **SPID's Keyword pass (Q3 b).** Every kept regular Keyword line of the layer but those giving the asked line's own
   keyword is run over the NPC before the asked line, repeated until nothing is added (the dependency order where one
   exists); a keyword it gives counts for later lines. A give the files cannot settle stays open with its reason, so a
-  line reading it is not decidable or the running game's, the worse of the two.
+  line reading it is not decidable or the running game's, the worse of the two. Only the lines whose keyword the asked
+  line can read (a string it names or holds part of, a group sibling, through each other) are run; the rest change
+  none of its verdicts, and the note counts both.
 - **KID** (BaseFilters.cpp, ItemData.cpp, Traits.h): chance first, as KID's fixed roll (`KidReach.Roll`: Xoshiro256**
   seeded with szudzik_pair(fnv1a_32(keyword EditorID), runtime FormID)), then traits per type, then filters: one `+`
   group whole, the plain list's exact and partial terms, `-` excluding. A filter form is the item itself, a keyword
@@ -46,7 +48,8 @@ from the files, or decided only in the running game; the rows are the yes record
 - **KID's pass order.** The type's other keywords are run over the item first, each keyword's lines in file order, the
   first passing one giving it, repeated until nothing is added; Magic Effect lines run over every magic effect first
   when a line reads keywords, so a costliest-effect test sees what they give. An ExclusiveGroup sibling held or given
-  keeps the line off the item.
+  keeps the line off the item. As for SPID, only the lines whose keyword the asked line can read are run (all of them
+  when it reads a form list).
 - **The note.** One `reach:` note per term leads the scan's notes: the universe, the yes, not-decidable and
   running-game counts, the top reasons with counts and the first three records of each open bucket, that the rows are
   the yes records only, and the owed sentences (replay, chance, base records not actors, a drop).
