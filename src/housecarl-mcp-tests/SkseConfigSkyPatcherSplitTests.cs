@@ -13,7 +13,7 @@ public sealed class SkseConfigSkyPatcherSplitTests : IDisposable
 {
     const string Upper = @"SKSE\Plugins\SkyPatcher\weapon\upper.ini";
     const string Lower = @"SKSE\Plugins\skypatcher\armor\lower.ini";
-    const string Switches = @"SKSE\Plugins\SkyPatcher.ini";
+    const string Switches = @"SKSE\Plugins\skypatcher.ini";   // not the source's spelling, so its match is case-blind
     const string PackedSp = @"skse\plugins\skypatcher\npc\packed.ini";
     const string NotIni = @"SKSE\Plugins\SkyPatcher\notes.json";
     const string LookAlike = @"SKSE\Plugins\SkyPatcherExtra\keep.ini";
