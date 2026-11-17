@@ -384,6 +384,16 @@ public sealed class RecordReachTests : IDisposable
     }
 
     [Fact]
+    public void AKeywordAKidRaceLineGivesIsNotDecidable()
+    {
+        // ARR's ABA_KW-OCF_RACE_KID.ini:25 shape: KID tags a race, and a SPID string filter reads the tag.
+        using var w = new ReachWorld(kid: "Keyword = HcRaceTag|Race|HcBeastRace\r\n");
+        var r = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Spell = HcSpell|HcRaceTag" }, counts_only: true);
+        Assert.Contains("yes 0, not decidable 3 (a KID Race line may tag its race, which is not replayed: 2;", r);   // HcBeast, HcMult
+        Assert.Contains("KID's Race lines may tag 1 race(s) with a keyword", r);
+    }
+
+    [Fact]
     public void AnEarlierLineOfTheSameFormIsRunFirst()
     {
         // The ARR Bestiary shape (:32 = :154): HcGuard gets HcSpell from :4, so :5 does not reach her.

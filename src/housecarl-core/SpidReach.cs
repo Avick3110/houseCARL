@@ -68,8 +68,10 @@ public static class SpidReach
     /// SPID's order, so a keyword they give counts. <paramref name="layer"/> is every line of the layer, read.</summary>
     public static ReachResult Evaluate(ReachTerm term, SpidLines.Line asked, SpidLines.LineRead read,
                                        IReadOnlyList<(SpidLines.Line Line, SpidLines.LineRead? Read)> layer,
-                                       SpidLines.Context ctx, IReachWorld world, ReachFields fields)
+                                       SpidLines.Context ctx, IReachWorld world, ReachFields fields,
+                                       IReadOnlyDictionary<FormKey, List<string>>? raceTags = null)
     {
+        raceTags ??= new Dictionary<FormKey, List<string>>();
         var result = new ReachResult(term, "Npc");
         if (read.Dropped is { } dropped)
         {
@@ -129,6 +131,8 @@ public static class SpidReach
         if (earlier.Count > 0)
             result.Notes.Add($"{earlier.Count:N0} earlier line(s) of the layer handing out the same form were run first; an NPC they reach already has it.");
         result.HeldWhy = "already get it from an earlier line of the same form, which SPID skips";
+        if (raceTags.Count > 0)
+            result.Notes.Add($"KID's Race lines may tag {raceTags.Count:N0} race(s) with a keyword; they are not replayed, so a keyword they give is not decidable for NPCs of those races.");
         var groups = Groups(layer, line, ctx, kwEid);
         int layerFeeders = feeders.Count;
         feeders = Readable(feeders, line, groups);
@@ -146,6 +150,10 @@ public static class SpidReach
         {
             world.Ct.ThrowIfCancellationRequested();
             var e = Resolve(n, npcs, world, fields, races, lvlnEid, npcEids);
+            // A keyword a KID Race line may give the NPC's race is open: KID tags races before SPID reads them.
+            if (raceTags.Count > 0 && P(e, R.Race) is { } rn && raceTags.TryGetValue(rn.Race, out var tags))
+                foreach (var k in tags)
+                    if (!e.Strings.Contains(k.ToLowerInvariant())) e.Added.TryAdd(k, Verdict.Undecided("a KID Race line may tag its race, which is not replayed"));
             Replay(feeders, e, races, classes, lists, world);
             var v = Eval(line, e, races, classes, lists, world);
             if (asked.Kind == SpidLineKind.Death && v.V != Reach.No) v = Verdict.And(v, Verdict.Game("a Death line"));
