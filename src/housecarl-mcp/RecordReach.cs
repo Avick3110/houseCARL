@@ -97,12 +97,10 @@ internal sealed partial class RecordReads
     static List<TLine> Layer<TLine>(DistributorFormat format, AssetLayers.SkyPatcherReplay replay, List<string> unread, Func<string, string, IReadOnlyList<TLine>> parse, CancellationToken ct)
     {
         var lines = new List<TLine>();
-        foreach (var f in DistributorDiscovery.Scan(replay.Assets, format))
+        foreach (var (f, read, error) in AssetLayers.DistributorFiles(format, replay, parse, ct))
         {
-            ct.ThrowIfCancellationRequested();
-            if (f.NotApplied is not null || f.LooseFilePath is null) continue;
-            try { lines.AddRange(parse(File.ReadAllText(f.LooseFilePath), f.RelPath)); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { unread.Add($"{format.Key} file '{f.RelPath}' ({ex.Message})"); }
+            if (error is not null) unread.Add($"{format.Key} file '{f.RelPath}' ({error})");
+            lines.AddRange(read);
         }
         return lines;
     }
