@@ -26,4 +26,39 @@ public sealed class SkseConfigFileSectionTests
         Assert.Contains("\nread errors — configs that could not be read/decoded (NOT counted as clean) (1):\n" +
                         "  - SKSE\\Plugins\\Foo\\bad.ini: boom  [← ModA]\n", txt);
     }
+
+    static SkseConfigAuditData Packed(int n)
+        => Data(Enumerable.Range(0, n).Select(i => File($@"SKSE\Plugins\Packed\cfg{i:00}.json", archiveOnly: true)).ToArray());
+
+    [Fact]
+    public void ACutBsaOnlyListSaysHowManyOfItsFilesItShowed()
+    {
+        var d = Packed(20);
+        int cuts = 0;
+        for (int cap = 800; cap <= 6_000; cap += 25)
+        {
+            var txt = SkseConfigAuditWire.Render(d, null, cap);
+            var m = System.Text.RegularExpressions.Regex.Match(txt, @"\n  \.\.\. \[(\d+) of 20; raise max_chars\]\n");
+            if (!m.Success) continue;
+            cuts++;
+            int rows = txt.Split('\n').Count(l => l.StartsWith(@"  - SKSE\Plugins\Packed\", StringComparison.Ordinal));
+            Assert.Equal(rows, int.Parse(m.Groups[1].Value));
+        }
+        Assert.True(cuts > 0, "no cap in the sweep cut the list");
+    }
+
+    [Fact]
+    public void ABsaOnlyHeadingThatDoesNotFitIsCountedAsAnOmittedSection()
+    {
+        var d = Packed(20);
+        int omitted = 0;
+        for (int cap = 200; cap <= 2_000; cap += 25)
+        {
+            var txt = SkseConfigAuditWire.Render(d, null, cap);
+            if (txt.Contains("configs only inside a BSA (", StringComparison.Ordinal)) continue;
+            omitted++;
+            Assert.Contains("  ... [1 section(s) omitted at max_chars=" + cap + ";", txt);
+        }
+        Assert.True(omitted > 0, "no cap in the sweep left the heading out");
+    }
 }
