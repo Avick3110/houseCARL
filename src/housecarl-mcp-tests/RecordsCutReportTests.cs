@@ -153,6 +153,8 @@ public sealed class RecordsCutReportTests : RecordsTestBase
         Assert.Equal(0, doc.TryGetProperty("records_cut", out var none) ? none.GetInt32() : 0);   // depth 1 reads no element
         var deep = RecordsTools.Records(Svc, types: new[] { "FLST" }, project: Deep(), max_chars: 4_000_000);
         Served(deep, "cut: 2 records were cut at 2000 field lines", "HcRecBigList", "HcRecHugeList");
+        var deepJson = Je(RecordsTools.Records(Svc, types: new[] { "FLST" }, project: Deep(), format: "json", max_chars: 4_000_000));
+        Assert.Equal(2, deepJson.GetProperty("records_cut").GetInt32());
     }
 
     /// <summary>The <c>x1</c> shape: the default max_chars drops the '…' line, so only the header says the read was cut.</summary>
