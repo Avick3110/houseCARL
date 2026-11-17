@@ -36,7 +36,7 @@ sealed class ReachWorld : IDisposable
     public static string MoreFk(uint id) => $"{id:X6}:{More}";
     public const uint MoreHuman = 0x800, MoreLeveled = 0x801;
 
-    public ReachWorld(bool more = false)
+    public ReachWorld(bool more = false, string spid = "", string kid = "")
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-reach-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
@@ -123,8 +123,8 @@ sealed class ReachWorld : IDisposable
         }
         var order = more ? Plugin + "\r\n" + More + "\r\n" : Plugin + "\r\n";
 
-        File.WriteAllText(Path.Combine(iniMod, "HcReach_DISTR.ini"), Spid);
-        File.WriteAllText(Path.Combine(iniMod, "HcReach_KID.ini"), Kid);
+        File.WriteAllText(Path.Combine(iniMod, "HcReach_DISTR.ini"), Spid + spid);
+        File.WriteAllText(Path.Combine(iniMod, "HcReach_KID.ini"), Kid + kid);
         File.WriteAllText(Path.Combine(profileDir, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
         File.WriteAllText(Path.Combine(profileDir, "loadorder.txt"), "# header\r\n" + order);
         File.WriteAllText(Path.Combine(profileDir, "plugins.txt"), "*" + order.Replace("\r\n" + More, "\r\n*" + More));
@@ -369,5 +369,15 @@ public sealed class RecordReachTests : IDisposable
         var r = RecordsTools.Records(_w.Svc, where: new[] { "spid reaches Spell = HcSpell|*Guard", "editorid = HcBodyguard" });
         Assert.Contains("scan: 1 match", r);
         Assert.Contains(Row(ReachWorld.Bodyguard), r);
+    }
+
+    [Fact]
+    public void AGroupOfCreatedKeywordsKeepsTheSiblingLineOff()
+    {
+        // ARR's OCF and Bestiary shape: SPID creates both keywords, and :4 gives HcMadeA to every human NPC first.
+        using var w = new ReachWorld(spid: "Keyword = HcMadeA|HcKwHumanoid\r\nExclusiveGroup = HcMadePair|HcMadeA,HcMadeB\r\n");
+        var r = RecordsTools.Records(w.Svc, where: new[] { "spid reaches Keyword = HcMadeB|*Hc" }, counts_only: true);
+        // Only HcBeast and HcMult (beast race) lack HcMadeA; HcLeveledTemplated's race is its leveled template's.
+        Assert.Contains("yes 2, not decidable 1", r);
     }
 }
