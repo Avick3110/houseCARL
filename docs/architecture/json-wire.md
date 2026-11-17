@@ -24,6 +24,12 @@ A json document is never a silently degraded mode. Truncation drops trailing ROW
 alongside `rendered`); it is never a cut of the serialized string at a byte budget, which would emit malformed JSON.
 The accounting and the notes ride inside the document rather than beside it.
 
+A row that is all here but not whole says so at the top too. When a record's deep read was cut at its line budget,
+the document carries `records_cut`, `cut_budget` and `cut_note` (the statement naming the first three cut records,
+the budget and the remedy), written by `JsonWire.WriteCuts` only when a rendered row was cut; an uncut document
+carries none of them. The delta and tree forms keep `records_cut` among their counts, so a `counts_only` census
+counts the cut rows without naming them.
+
 ### One leaf shape
 
 Every entry of a record's `fields` array, inline and in a `to_file` row, is `{path, value}` or `{path, note}`,
