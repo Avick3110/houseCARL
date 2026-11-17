@@ -203,10 +203,11 @@ static class JsonWire
     }
 
     /// <summary>The answer's count of rows its reads cut, beside the row counts, and the statement naming them; nothing when none was.</summary>
-    internal static void WriteCuts(Utf8JsonWriter w, RecordCuts cuts)
+    /// <param name="counted">The caller's counts already carry <c>records_cut</c>.</param>
+    internal static void WriteCuts(Utf8JsonWriter w, RecordCuts? cuts, bool counted = false)
     {
-        if (cuts.Sentence() is not { } cut) return;
-        w.WriteNumber("records_cut", cuts.Count);
+        if (cuts?.Sentence() is not { } cut) return;
+        if (!counted) w.WriteNumber("records_cut", cuts.Count);
         w.WriteNumber("cut_budget", cuts.Budget);
         w.WriteString("cut_note", cut);
     }
@@ -638,7 +639,7 @@ static class JsonWire
     public static string RenderDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int maxChars, OrderStamp? epoch,
                                      IReadOnlyList<EnvelopePair> envelope,
                                      IReadOnlyList<KeyValuePair<string, int>> counts,
-                                     SpillState? spill, out bool truncated)
+                                     SpillState? spill, out bool truncated, RecordCuts? cuts = null)
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
@@ -650,6 +651,7 @@ static class JsonWire
             WriteEnvelope(w, envelope);
             // The census covers the COMPLETE list: rows may be a WINDOW, so the caller hands the counters in.
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);
+            WriteCuts(w, cuts, counted: true);
             WriteEpoch(w, epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false;
@@ -764,7 +766,7 @@ static class JsonWire
     public static string RenderTree(IReadOnlyList<RecordReads.TreeRow> rows, int maxChars, OrderStamp? epoch,
                                     IReadOnlyList<EnvelopePair> envelope,
                                     IReadOnlyList<KeyValuePair<string, int>> counts,
-                                    SpillState? spill, out bool truncated, LeverNames? levers = null)
+                                    SpillState? spill, out bool truncated, LeverNames? levers = null, RecordCuts? cuts = null)
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
@@ -775,6 +777,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             foreach (var (k, v) in counts.Select(c => (c.Key, c.Value))) w.WriteNumber(k, v);   // the counters cover the complete list, not this window
+            WriteCuts(w, cuts, counted: true);
             WriteEpoch(w, epoch);
             w.WriteStartArray("rows");
             int rendered = 0; bool rowsTruncated = false; bool anyDeclarers = false;

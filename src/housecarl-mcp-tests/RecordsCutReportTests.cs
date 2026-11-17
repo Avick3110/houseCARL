@@ -212,6 +212,31 @@ public sealed class RecordsCutReportTests : RecordsTestBase
         }
     }
 
+    /// <summary>An inline delta or tree names its cut row at the top, with the budget and the remedy; an uncut one says nothing.</summary>
+    [Fact]
+    public void ADeltaAndATreeNameTheirCutRowAtTheTop()
+    {
+        foreach (var form in new[] { "delta", "tree" })
+        {
+            JsonElement? versus = form == "delta" ? Plugin(W.MasterName) : null;
+            var p = new RecordsTools.RecordsProject { form = form, fields = new[] { "Items" } };
+            var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, versus: versus, project: p, format: "json"));
+            Assert.Equal(InlineBudget, doc.GetProperty("cut_budget").GetInt32());
+            Assert.Contains("HcRecBigList", doc.GetProperty("cut_note").GetString());
+            Assert.Contains("narrower field path", doc.GetProperty("cut_note").GetString());
+            var text = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, versus: versus, project: p);
+            Served(text, "(each such row says TRUNCATED or INCOMPLETE)",
+                   $"cut: 1 record was compared on a read cut at {InlineBudget} field lines", "HcRecBigList", "narrower field path");
+            if (form == "delta") Assert.Contains("TRUNCATED at the cap", text);   // the word the header names for a no-delta row
+
+            var whole = new RecordsTools.RecordsProject { form = form, fields = new[] { "EditorID" } };
+            var wdoc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, versus: versus, project: whole, format: "json"));
+            Assert.False(wdoc.TryGetProperty("cut_note", out _));
+            Assert.False(wdoc.TryGetProperty("cut_budget", out _));
+            Assert.DoesNotContain("cut: ", RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, versus: versus, project: whole));
+        }
+    }
+
     /// <summary>A census over a cut comparison counts the cut row, and one over an uncut comparison carries no such count.</summary>
     [Fact]
     public void ADeltaAndATreeCensusCountTheirCutRows()

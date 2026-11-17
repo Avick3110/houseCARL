@@ -7,21 +7,27 @@ namespace HousecarlMcp;
 static partial class RecordsTools
 {
     /// <summary>The header count of rows a deep read cut at its line budget, which no other count holds alone.</summary>
-    const string CutRowsCount = " cut by the deep read's line budget (each such row says INCOMPLETE), ";
+    const string CutRowsCount = " cut by the deep read's line budget (each such row says TRUNCATED or INCOMPLETE), ";
+
+    /// <summary>The statement naming the cut rows, under the header counts; nothing when none was cut.</summary>
+    static void AppendCuts(StringBuilder sb, RecordCuts? cuts)
+    {
+        if (cuts?.Sentence() is { } cut) sb.Append("cut: ").Append(cut).Append('\n');
+    }
 
     /// <summary>The delta form's text render: header counts, then per record the two pole lines, the stack-above fact stated neutrally, and the delta-line grammar, where a truncated deep read is never 'identical'; max_chars is a CEILING, per docs/architecture/render-budget.md.</summary>
     /// <remarks>Internal so a test can drive a row shape no fixture produces — an incomplete deep read with enough delta lines to be cut.</remarks>
     internal static string RenderRecordsDelta(IReadOnlyList<RecordReads.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
                                      string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
-                                     bool unreserved = false, int noField = 0, int notCompared = 0, int cutRows = 0)
+                                     bool unreserved = false, int noField = 0, int notCompared = 0, RecordCuts? cuts = null)
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
         if (!unreserved)
         {
             var whole = RenderRecordsDelta(rows, total, differing, identical, noVerdict, errors, headerLine, epoch,
-                                           maxChars, spill, out _, unreserved: true, noField: noField, notCompared: notCompared, cutRows: cutRows);
+                                           maxChars, spill, out _, unreserved: true, noField: noField, notCompared: notCompared, cuts: cuts);
             if (whole.Length <= cap) return whole;
         }
         bool manifestOnly = spill?.ManifestOnly ?? false;
@@ -33,10 +39,11 @@ static partial class RecordsTools
         if (noVerdict - noField > 0) sb.Append(noVerdict - noField).Append(" with a field that could not be read, ");
         if (noField > 0) sb.Append(noField).Append(" with a path that names no field, ");
         if (notCompared > 0) sb.Append(notCompared).Append(" with no path read on its type (nothing compared), ");
-        if (cutRows > 0) sb.Append(cutRows).Append(CutRowsCount);
+        if (cuts is { Count: > 0 }) sb.Append(cuts.Count).Append(CutRowsCount);
         sb.Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
+        AppendCuts(sb, cuts);
         int rendered = 0;
         string Notice(int r) =>
             "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
@@ -161,24 +168,25 @@ static partial class RecordsTools
     /// <remarks>Internal so a test can drive a node shape no fixture produces — an incomplete comparison on a record only one in-order plugin touches.</remarks>
     internal static string RenderRecordsTree(IReadOnlyList<RecordReads.TreeRow> rows, int total, int contested, int errors,
                                     bool fieldsNarrow, string headerLine, OrderStamp? epoch, int maxChars,
-                                    SpillState? spill, out bool truncated, bool unreserved = false, int cutRows = 0)
+                                    SpillState? spill, out bool truncated, bool unreserved = false, RecordCuts? cuts = null)
     {
         truncated = false;
         int cap = Wire.Cap(maxChars);
         if (!unreserved)
         {
             var whole = RenderRecordsTree(rows, total, contested, errors, fieldsNarrow, headerLine, epoch, maxChars,
-                                          spill, out _, unreserved: true, cutRows: cutRows);
+                                          spill, out _, unreserved: true, cuts: cuts);
             if (whole.Length <= cap) return whole;
         }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
         sb.Append(total).Append(" record(s): ").Append(contested).Append(" contested, ");
-        if (cutRows > 0) sb.Append(cutRows).Append(CutRowsCount);
+        if (cuts is { Count: > 0 }) sb.Append(cuts.Count).Append(CutRowsCount);
         sb.Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
+        AppendCuts(sb, cuts);
         int rendered = 0;
         bool declarersLeadWritten = false;
         string Notice(int r) =>
