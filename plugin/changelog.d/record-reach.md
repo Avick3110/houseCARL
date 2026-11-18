@@ -1,1 +1,0 @@
-- **`records where=["spid reaches <line>"]` returns the NPC records a SPID line reaches; `["kid reaches <line>"]`, the records of the KID line's type.** Check: `records where=["spid reaches Spell = <spell>|<keyword>"] counts_only=true` prints `scan: N matches`, then `reach: spid line '…' over N NPC record(s): yes N, …`.

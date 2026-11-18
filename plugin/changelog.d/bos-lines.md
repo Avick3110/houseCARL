@@ -1,1 +1,0 @@
-- **`housecarl_layer` now reads Base Object Swapper's `_SWAP.ini`: a bare call adds a BOS summary line after KID's, `distributor=["bos"]` lists them, `formids=` / `plugins=` find lines naming a record, and `filter=` shows what BOS does with each.** Check: `housecarl_layer distributor=["bos"] filter="<mod>"`.

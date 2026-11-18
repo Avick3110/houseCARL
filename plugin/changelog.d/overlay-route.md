@@ -1,1 +1,0 @@
-- **A delta, tree, walk or `to_file=` refused for the SkyPatcher overlay on a scan now names the list-lane calls that serve it.** Ask for a delta over `types=` with `source={"overlay": "skypatcher"}` and `versus="winner"` to see it.

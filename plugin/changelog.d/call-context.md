@@ -1,1 +1,0 @@
-- **A `records` call that reads no files no longer refuses when the MO2 profile changes mid-call: it answers from the records its first read saw.** Check: switch profile during a long plain-field `records` query; it answers where it used to refuse.
