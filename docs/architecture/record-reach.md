@@ -112,6 +112,8 @@ from the files, or decided only in the running game; the rows are the yes record
 - A SPID line and a `Final` copy of it are one line to the earlier-line walk.
 - A trait letter's case is ignored when finding the asked line in the layer.
 - Whitespace KID keeps in a keyword, traits or chance section is ignored when finding the asked line in the layer.
+- An NPC listed in a SPID Faction line's faction at rank -1 counts as already holding it.
+- A keyword a KID Race line gives the NPC's race is not counted held for a SPID Keyword line handing it out.
 - SkyPatcher's NPC and item keyword or faction adds are not replayed before the reach, and a record they touch is not
   marked open: SkyPatcher's replay works one record at a time, by copying it, so knowing which records its lines touch
   would mean replaying every NPC or item.
