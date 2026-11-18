@@ -1,1 +1,0 @@
-- **Explicit-paths mode reads `HouseCarl__OverwriteDir` as MO2's overwrite layer, whose files beat every enabled mod and the game's Data folder; a non-folder value refuses every load-order call.** Check: `load_order_status` names the folder, and `filter=<a plugin in it>` says "served from: overwrite".

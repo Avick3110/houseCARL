@@ -1,1 +1,0 @@
-- **Example lines in `/housecarl:spid-authoring` now copy as written: each comment sits on its own line above its example.** Check: no example line in the skill's references has text after its value.

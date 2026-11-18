@@ -1,1 +1,0 @@
-- **`housecarl_skypatcher_layer` is now `housecarl_layer` (old name refused); `formids=` / `plugins=` list the lines naming those records, marked target, filter, value or unknown key; `distributor=` names the format; a zero answer drops the no-op notes.** Check: `housecarl_layer plugins={"names": ["X.esp"]}` lists X's lines.

@@ -1,1 +1,0 @@
-- **FaceGen tools name the pair an NPC's face is drawn from: a templated NPC's root's, each leveled member's, or a reason; place refuses several roots or no pair.** Check: `asset_status formids=` on a templated follower names its root's pair.

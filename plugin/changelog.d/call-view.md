@@ -1,1 +1,0 @@
-- **A write finishes on the load order it took when it started writing, so a mod or profile switched mid-write no longer drops faces, voice or `.seq`, or refuses after writing.**

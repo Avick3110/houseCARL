@@ -1,1 +1,0 @@
-- **`asset_status walk=true` now pages with `limit=`/`offset=` (a negative one refused), writes `to_file=`, counts with `counts_only=`, refuses `links=`, and notes an unreadable script parent; `from_source=`/`source_provider=` without `walk=true` is a note.** Check: a `limit=5` walk lists five nodes and an `[accounting]` line.

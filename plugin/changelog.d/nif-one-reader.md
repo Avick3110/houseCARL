@@ -1,1 +1,0 @@
-- **`housecarl_nif_inspect sections=paths` now lists a mesh's texture slots, effect-shader textures and root HDT-SMP/BODYTRI strings with each winner, as `asset_status links=true` does; with `provider=`, links= names the winning copy read.** Check: a cape's SMP config shows `smp —` in both.
