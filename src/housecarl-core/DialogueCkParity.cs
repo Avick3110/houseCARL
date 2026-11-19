@@ -330,4 +330,29 @@ public static class DialogueCkParity
 
         return gaps;
     }
+
+    /// <summary>MESG INAM default — four zero bytes, the unused icon FormID every CK-authored Message carries.</summary>
+    public const string MessageInamHex = "00000000";
+
+    /// <summary>MESG CK-parity default — INAM. It is a NON-NULLABLE byte field, so Mutagen writes an empty INAM rather
+    /// than omitting it; "unset" is the empty array, and an author-passed value always wins.</summary>
+    public static IReadOnlyList<CkParityFill> ApplyMessageDefaults(IMessage message)
+    {
+        var fills = new List<CkParityFill>(1);
+
+        if (!HasIcon(message))
+        {
+            message.INAM = Convert.FromHexString(MessageInamHex);
+            fills.Add(new CkParityFill(
+                $"INAM subrecord auto-set to {MessageInamHex}",
+                $"0x{MessageInamHex} — every CK-authored Message carries INAM as a 4-byte null icon FormID (all of "
+                + "vanilla's MESG records do); Mutagen otherwise writes it 0 bytes long, which Wrye Bash refuses to "
+                + "load ('unpack requires a buffer of 4 bytes'). CK-parity default-populate."));
+        }
+
+        return fills;
+    }
+
+    // --- MESG presence predicate: INAM is never null, so a zero-length one is the unset reading. ---
+    static bool HasIcon(IMessageGetter message) => message.INAM.Length != 0;   // INAM
 }

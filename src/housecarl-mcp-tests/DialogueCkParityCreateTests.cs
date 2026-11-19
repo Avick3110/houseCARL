@@ -7,7 +7,7 @@ using static HousecarlMcpTests.DialogueCkParityWorld;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The create path's CK-parity fills across DIAL/INFO/DLVW/DLBR/QUST, read back off the written patch, and the BNAM
+/// The create path's CK-parity fills across DIAL/INFO/DLVW/DLBR/QUST/MESG, read back off the written patch, and the BNAM
 /// lint, moved from the retired <c>dialogue-ckparity-guard</c> probe. A fill is reported as an op; a value the
 /// author passed wins and produces no fill op. Each <c>*-WINS</c> arm is one test with the arm name in it.
 /// The DLBR no-Flags refusal (DLBR-FLAGS-REFUSED) is <see cref="DialogBranchFlagsRefusalTests"/>'s.
@@ -169,6 +169,30 @@ public sealed class DialogueCkParityCreateTests
 
         Assert.Equal(0u, ReadQuestNextAliasId(o.OutputPath, q.FormKey));
         Assert.True(FillReported(q, "NextAliasID (ANAM"));
+    }
+
+    // MESG-INAM-AUTOFILL: a bare Message -> INAM=00000000 on disk (not 0 bytes long), reported.
+    [Fact]
+    public void MesgInamAutofill_BareMessageGetsFourZeroBytes_Reported()
+    {
+        using var w = new DialogueCkParityWorld();
+        var o = w.Create("Message", "HcCkpMsg", Set("Description", "Hello there."));
+        var msg = Created(o, "HcCkpMsg");
+
+        Assert.Equal("00000000", ReadMessageInam(o.OutputPath, msg.FormKey));
+        Assert.True(FillReported(msg, "INAM"));
+    }
+
+    // MESG-INAM-WINS: an explicit INAM=01020304 is kept, not overridden to 00000000.
+    [Fact]
+    public void MesgInamWins_ExplicitInamIsKept()
+    {
+        using var w = new DialogueCkParityWorld();
+        var o = w.Create("Message", "HcCkpMsgInam", Set("INAM", "01020304"));
+        var msg = Created(o, "HcCkpMsgInam");
+
+        Assert.Equal("01020304", ReadMessageInam(o.OutputPath, msg.FormKey));
+        Assert.False(FillReported(msg, "INAM"));
     }
 
     // BNAM-LINT: a Custom topic with no Branch -> a Warning naming Branch (BNAM) and the Dialogue Views editor.
