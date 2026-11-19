@@ -4,7 +4,7 @@ houseCARL is an MCP server that gives Claude direct, data-layer access to a Skyr
 
 It is one C# process built on Mutagen. Users start at [README.md](README.md). This file is for whoever is changing the code.
 
-> `dev/` is a private working corpus (product PRFAQ, tool-surface spec, backlog, decisions). It is gitignored, so links into it do not resolve in a clone. A session opened as the advisor boots from `dev/advisor.md` before anything else in `dev/`.
+> `dev/` is a private working corpus (product PRFAQ, tool-surface spec, rules, backlog, the log of rulings). It is gitignored, so links into it do not resolve in a clone. A session opened as the advisor boots from `dev/advisor.md` before anything else in `dev/`.
 
 ## Design
 
@@ -52,8 +52,9 @@ Code comments call the first two of these the cornerstones. A design question th
 | `docs/` | Architecture notes and design decisions |
 | `standards/` | Testing and naming |
 | `dev/projects/tool-surface-2.0/` | The tool-surface charter and spec (private) |
-| `dev/BACKLOG.md` | What is next, in order (private) |
-| `dev/DECISIONS.md` | Aaron's rulings, one line each (private) |
+| `dev/RULES.md` | Aaron's current rules, each stated once (private) |
+| `dev/BACKLOG.md` | What is next (private) |
+| `dev/DECISIONS.md` | The log of Aaron's rulings; search it by id, do not read it whole (private) |
 
 MCP tools are named `housecarl_<snake_case>`; namespaces, classes, and files are named for what they do, not for the brand. Everything else: [standards/NAMING.md](standards/NAMING.md).
 
