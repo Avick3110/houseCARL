@@ -66,4 +66,3 @@ MCP tools are named `housecarl_<snake_case>`; namespaces, classes, and files are
 - Don't work around a block silently. Say what blocks you.
 - Don't add a new domain to any of the `LoadOrderService` partials. A new subsystem gets its own file.
 - Don't edit `dev/PRFAQ/` or `Housecarl [Legacy]/`. Both are frozen reference.
-- Don't spawn a Fable agent. Every session, reviewer, or helper you spawn runs on Opus or lower.
