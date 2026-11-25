@@ -133,7 +133,7 @@ public static class HostConfig
         Did did = servers.ContainsKey(name) ? Did.Replaced : Did.Registered;
         List<string> kept = new();
         bool same = false;
-        if (servers[name] is JsonObject entry && RunsHouseCarl(StringOf(entry["command"])))
+        if (EntryIn(servers, name) is { } entry && RunsHouseCarl(StringOf(entry["command"])))
         {
             did = Did.Registered;
             kept = entry.Where(p => !IsSetupsClaudeKey(p.Key, p.Value)).Select(p => p.Key).ToList();
@@ -150,6 +150,19 @@ public static class HostConfig
     internal static JsonObject ServersIn(string text, (int start, int end) b)
         => JsonNode.Parse(text.Substring(b.start, b.end - b.start + 1)) as JsonObject
             ?? throw new InvalidDataException("mcpServers is not a JSON object.");
+
+    /// <summary>The entry as an object, or null when it is not one or holds a key twice, which JsonObject does not
+    /// read.</summary>
+    private static JsonObject? EntryIn(JsonObject servers, string name)
+    {
+        JsonObject? entry = servers[name] as JsonObject;
+        try
+        {
+            _ = entry?.Count; // the keys are read on first use
+            return entry;
+        }
+        catch (ArgumentException) { return null; }
+    }
 
     /// <summary>The file with the mcpServers object at these bounds written as <paramref name="servers"/>.</summary>
     internal static string WithServers(string text, (int start, int end) b, JsonObject servers)

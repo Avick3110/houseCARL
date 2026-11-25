@@ -117,6 +117,40 @@ public sealed class SetupSettingsTests
         Assert.True(before == File.ReadAllText(ClaudeJson(box) + ".houseCARL.bak"), label);
     }
 
+    // Claude Code reads such an entry; setup must not stop at it half done.
+    [Theory]
+    [InlineData(null, "\"env\":{\"A\":\"1\"},\"env\":{\"B\":\"2\"}")]
+    [InlineData(OldExe, "\"env\":{\"A\":\"1\"},\"env\":{\"B\":\"2\"}")]
+    [InlineData(null, "\"args\":[],\"args\":[]")]
+    [InlineData(OldExe, "\"args\":[],\"args\":[]")]
+    [InlineData("cmd", "\"env\":{},\"env\":{}")]
+    public void AClaudeEntryThatHoldsAKeyTwiceIsReplaced(string? was, string twice)
+    {
+        using var box = Box();
+        string before = ClaudeWith("[E]").Replace("\"[E]\"",
+            "{\"type\":\"stdio\",\"command\":" + Escaped(was ?? ClaudeExe(box)) + "," + twice + ",\"timeout\":5}");
+        SetupInstallerSandbox.WriteFile(ClaudeJson(box), before);
+
+        Install(box, SetupProgram.Target.Claude);
+
+        AssertClaude(box, new JsonObject { ["type"] = "stdio", ["command"] = ClaudeExe(box), ["args"] = new JsonArray() });
+        Assert.Equal(before, File.ReadAllText(ClaudeJson(box) + ".houseCARL.bak"));
+    }
+
+    // Pins unchanged behaviour: a repeated key inside a setting, or on another server's entry, is not setup's to read.
+    [Fact]
+    public void AKeyHeldTwiceElsewhereInMcpServersDoesNotReplaceTheEntry()
+    {
+        using var box = Box();
+        string Text(string exe) => "{\"mcpServers\":{\"other\":{\"a\":1,\"a\":2},\"housecarl\":{\"type\":\"stdio\",\"command\":"
+            + Escaped(exe) + ",\"env\":{\"A\":\"1\",\"A\":\"2\"},\"timeout\":5}}}";
+        SetupInstallerSandbox.WriteFile(ClaudeJson(box), Text(OldExe));
+
+        Install(box, SetupProgram.Target.Claude);
+
+        Assert.Equal(Text(ClaudeExe(box)), string.Concat(File.ReadAllText(ClaudeJson(box)).Where(c => !char.IsWhiteSpace(c))));
+    }
+
     [Theory]
     [InlineData("{\"mcpServers\":{\"housecarl\":{\"timeout\":5,\"command\":\"<exe>\",\"type\":\"stdio\"}}}")]
     [InlineData("{\r\n\t\"mcpServers\": {\r\n\t\t\"housecarl\": { \"type\": \"stdio\", \"command\": \"<exe>\", \"args\": [] }\r\n\t}\r\n}\r\n")]
