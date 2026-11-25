@@ -11,9 +11,10 @@ through `HostConfig`, which finds the entry, sets only setup's keys on it, and w
 ## Contracts
 - Setup's keys are `type` and `command` on the Claude entry and `command` in the Codex table; `args: []` goes only into
   an entry setup creates. Every other key is the user's or the host's and stays. No list of those keys is kept.
-- An entry is setup's when its command's file name is `housecarl-mcp.exe`, wherever the file sits. Any other entry (a
-  wrapper, a `url`, a `command` that is not one single-line string, a Claude entry that holds a key twice) is replaced
-  whole and the run says so.
+- An entry is setup's when the command setup reads on it has the file name `housecarl-mcp.exe`, wherever the file sits.
+  Any other entry is replaced by a fresh one and the run says so: a wrapper, a `url`, a Claude entry that holds a key
+  twice, a Codex `command` in a spelling setup does not read (over lines, `'''...'''` or `"""..."""`, or with an escape
+  JSON does not have, such as `\U`, `\e` or `\x`).
 - In `config.toml` only the bytes of the `command` value change. The table is found however its header is spelled; a line
   inside a multi-line value is never a header or a key, unless the file leaves a bracket or triple quote open.
 - In `~/.claude.json` only the `mcpServers` object is rewritten, and only when setup's keys on the entry change.
@@ -27,13 +28,15 @@ through `HostConfig`, which finds the entry, sets only setup's keys on it, and w
 - A removal takes the whole entry, its settings with it.
 
 ## Known limits
-- The settings of an entry that is replaced whole are not kept; the copy holds them.
+- The settings of a replaced entry are not kept and not named, `enabled = false` among them; the copy holds them. On
+  Codex the table and the subtables right after it are replaced. A subtable before the table or after another server's,
+  an array of tables, and a subtable after that array stay as they were; the run names them.
 - A kept `enabled_tools` or `disabled_tools` that names 1.x tools is kept as it is.
 - A Codex entry with no `[mcp_servers.housecarl]` header (an inline or dotted table) is not found, so a second one is
   added (#1449).
 
 ## Pinned by
-- `SetupSettingsTests` — the kept keys, the bytes that change, the entries replaced whole, and the copies.
+- `SetupSettingsTests` — the kept keys, the bytes that change, the entries that are replaced, and the copies.
 - `SetupRunTextTests` — what the built exe says in the plan and the summary.
 - `SetupUninstallTests` — what a removal takes and leaves.
 

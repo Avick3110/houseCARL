@@ -88,8 +88,8 @@ public static class Plan
         List<Line> lines = [new(path, (r.Did, wrote) switch
         {
             (HostConfig.Did.Unchanged, _)    => "the server is already registered, so this file is not written to",
-            (HostConfig.Did.Replaced, false) => "replaces the whole houseCARL entry, because its command is not " + Program.ServerExeName,
-            (HostConfig.Did.Replaced, true)  => "replaced the whole houseCARL entry, because its command was not " + Program.ServerExeName,
+            (HostConfig.Did.Replaced, false) => "replaces the houseCARL entry, because setup does not recognise it as running " + Program.ServerExeName,
+            (HostConfig.Did.Replaced, true)  => "replaced the houseCARL entry, because setup did not recognise it as running " + Program.ServerExeName,
             (_, false)                       => "registers the server",
             (_, true)                        => "registered the server",
         })];
