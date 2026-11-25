@@ -102,6 +102,12 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | [`architecture/records-tool-front.md`](architecture/records-tool-front.md) | The `housecarl_records` tool front: form scoping, the refusal shape, the one FormID door and one source statement, the per-form vocabulary, `limit`/`offset` per lane, the accounting, the epoch seams, the reverse-walk routing, the owned-child clause and the `info_order` fold. |
 | [`architecture/walk-and-reverse.md`](architecture/walk-and-reverse.md) | How a selection is followed: the closure walk and its ordered source universe, and the whole-order reverse index behind an unbounded `references=`. |
 
+### The installer
+
+| Note | What it covers |
+|---|---|
+| [`architecture/setup-host-config.md`](architecture/setup-host-config.md) | How houseCARL-Setup edits a host's config: the keys that are its own, when it writes nothing, the copies it keeps, and what it replaces whole. |
+
 ### Tests and fixtures
 
 | Note | What it covers |

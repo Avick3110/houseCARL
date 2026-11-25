@@ -68,7 +68,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
 
 Flags, for an unattended run: `--claude` / `--codex` / `--both` pick the host, `--yes` skips the confirm at the plan, and `--uninstall` removes instead of installing. A run whose input is redirected has nobody to answer a question, so it stops and names the flag that answers it rather than assuming one.
 
-Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so. Setup overwrites only the files in the package, so the saved MO2 instance and tool paths in `houseCARL.user.json` survive a re-run.
+Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so. Setup overwrites only the files in the package, so the saved MO2 instance and tool paths in `houseCARL.user.json` survive a re-run. The settings on houseCARL's entry in `~/.claude.json` and `~/.codex/config.toml` survive too: an `env`, a timeout, the tools turned on, off or always allowed, and houseCARL turned off in Codex. Setup sets only the path to the server on that entry, and a config that already has it is not written to; one it changes is copied to a `.houseCARL.bak` beside it first, numbered when an earlier copy is there. An entry whose command is not `housecarl-mcp.exe` is replaced whole.
 
 ### By hand
 
@@ -90,7 +90,7 @@ The package is plain enough to install without the setup utility, which is the w
 
 `~/.claude.json` is Claude Code's file — the terminal CLI and the desktop app's Code tab. The desktop app's plain chat is a separate surface with its own file, `%APPDATA%\Claude\claude_desktop_config.json`, which takes the same `mcpServers` entry; put houseCARL there as well if that is where you want it. Neither surface reads `~/.claude/claude_mcp_config.json`, so editing that file changes nothing and leaves the host spawning whatever server it had registered before.
 
-Uninstalling: `[4] Uninstall`, or `--uninstall` with a host flag. It removes the skill folders it recorded installing, the server, the rest of the files a houseCARL package ships, and the `housecarl` entry in `~/.claude.json` and `~/.codex/config.toml` — each config copied to a `.houseCARL.uninstall.bak` beside it first, and every other byte in it left as it was. Anything under those locations that houseCARL did not install stays where it is, and the run names it. `houseCARL.user.json` sits beside the server and goes with it; the patches houseCARL wrote live in the MO2 mods folder and are left alone.
+Uninstalling: `[4] Uninstall`, or `--uninstall` with a host flag. It removes the skill folders it recorded installing, the server, the rest of the files a houseCARL package ships, and the `housecarl` entry in `~/.claude.json` and `~/.codex/config.toml` — each config copied to a `.houseCARL.uninstall.bak` beside it first (numbered when an earlier copy is there), and every other byte in it left as it was. Anything under those locations that houseCARL did not install stays where it is, and the run names it. `houseCARL.user.json` sits beside the server and goes with it; the patches houseCARL wrote live in the MO2 mods folder and are left alone.
 
 ### From source
 

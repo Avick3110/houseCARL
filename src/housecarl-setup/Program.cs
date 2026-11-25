@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace HousecarlSetup;
 
@@ -35,6 +33,7 @@ public static class Program
 {
     private const string PluginFolderName = "housecarl"; // plugin dir shipped beside this exe
     private const string McpServerName    = "housecarl"; // server key under mcpServers / [mcp_servers.*]
+    internal const string ServerExeName   = "housecarl-mcp.exe";
 
     public enum Target { Claude, Codex, Both }
 
@@ -57,6 +56,9 @@ public static class Program
         /// <summary>True only when a <see cref="InstallOutcome.ServerInUse"/> refusal happened at PRE-FLIGHT,
         /// before any file was copied (so nothing was changed). False for the mid-copy defense-in-depth catch.</summary>
         public bool RefusedBeforeAnyCopy { get; init; }
+
+        /// <summary>What the run did to houseCARL's entry in each host config.</summary>
+        internal IReadOnlyList<HostConfig.Registration> Registrations { get; init; } = [];
     }
 
     private static int Main(string[] args)
@@ -90,7 +92,7 @@ public static class Program
             string pkgDir      = AppContext.BaseDirectory;
             string pluginSrc   = Path.Combine(pkgDir, PluginFolderName);
             string srcManifest = Path.Combine(pluginSrc, ".claude-plugin", "plugin.json");
-            string srcExe      = Path.Combine(pluginSrc, "server", "housecarl-mcp.exe");
+            string srcExe      = Path.Combine(pluginSrc, "server", ServerExeName);
             // The skills folder is checked with the manifest and the exe: a package always ships one, and a
             // package missing it is a broken unzip, not a version that dropped every skill.
             string srcSkills   = Path.Combine(pluginSrc, "skills");
@@ -178,7 +180,7 @@ public static class Program
                 return Finish(1);
             }
 
-            Plan.PrintSummary(plans, version);
+            Plan.PrintSummary(Plan.For(target, home, homeOverride, claude, codex, result.Registrations), version);
             return Finish(0);
         }
         catch (Exception ex)
@@ -318,11 +320,14 @@ public static class Program
         // Leftover skill folders the prune could not delete. Cleanup never fails an otherwise good install, so
         // the failures are collected and said at the end instead of thrown.
         List<string> keptBack = new();
+        List<HostConfig.Registration> registrations = new();
 
         try
         {
-            if (target is Target.Claude or Target.Both) InstallForClaude(pluginSrc, home, keptBack);
-            if (target is Target.Codex  or Target.Both) InstallForCodex(pluginSrc, home, homeOverride, keptBack);
+            if (target is Target.Claude or Target.Both)
+                registrations.Add(InstallForClaude(pluginSrc, home, keptBack));
+            if (target is Target.Codex or Target.Both)
+                registrations.Add(InstallForCodex(pluginSrc, home, homeOverride, keptBack));
         }
         catch (IOException ex) when (IsSharingViolation(ex))
         {
@@ -333,7 +338,7 @@ public static class Program
         }
 
         ReportKeptBack(keptBack);
-        return new InstallResult(InstallOutcome.Installed, null);
+        return new InstallResult(InstallOutcome.Installed, null) { Registrations = registrations };
     }
 
     // ---- destination paths (one source of truth for pre-flight, plan and installer) ----
@@ -348,7 +353,7 @@ public static class Program
 
     /// <summary>The Claude install's server exe path. Single source of truth so pre-flight == installer.</summary>
     internal static string ClaudeDestExe(string home)
-        => Path.Combine(ClaudeSkillsDest(home), "server", "housecarl-mcp.exe");
+        => Path.Combine(ClaudeSkillsDest(home), "server", ServerExeName);
 
     /// <summary>The plugin manifest the Claude install copies, which carries the installed version.</summary>
     internal static string ClaudeDestManifest(string home)
@@ -388,7 +393,7 @@ public static class Program
 
     /// <summary>The Codex install's server exe path. Single source of truth so pre-flight == installer.</summary>
     internal static string CodexDestExe(string home, string? homeOverride)
-        => Path.Combine(CodexServerDir(home, homeOverride), "housecarl-mcp.exe");
+        => Path.Combine(CodexServerDir(home, homeOverride), ServerExeName);
 
     /// <summary>Where the Codex install records the skill folders it put in the shared ~/.agents/skills, so a
     /// later upgrade can take back exactly those and nothing else. It sits in houseCARL's own data dir, beside
@@ -396,6 +401,14 @@ public static class Program
     /// writes outside the three roots the other lines cover.</summary>
     internal static string CodexSkillRecord(string home, string? homeOverride)
         => Path.Combine(Path.GetDirectoryName(CodexServerDir(home, homeOverride))!, "installed-skills.txt");
+
+    /// <summary>What an install does to houseCARL's entry in ~/.claude.json: the plan says it, the install does it.</summary>
+    internal static HostConfig.Registration ClaudeRegistration(string home)
+        => HostConfig.ForClaude(ClaudeJson(home), McpServerName, ClaudeDestExe(home));
+
+    /// <summary>The same for the table in ~/.codex/config.toml.</summary>
+    internal static HostConfig.Registration CodexRegistration(string home, string? homeOverride)
+        => HostConfig.ForCodex(CodexConfigToml(home), McpServerName, CodexDestExe(home, homeOverride));
 
     /// <summary>
     /// True if <paramref name="destExe"/> already exists AND can't be opened for writing — i.e. a live
@@ -600,10 +613,9 @@ public static class Program
 
     // ---- Claude Code install (unchanged from the proven desktop install) ---
 
-    private static void InstallForClaude(string pluginSrc, string home, List<string> keptBack)
+    private static HostConfig.Registration InstallForClaude(string pluginSrc, string home, List<string> keptBack)
     {
         string skillsDest = ClaudeSkillsDest(home);
-        string destExe    = ClaudeDestExe(home);
         string claudeJson = ClaudeJson(home);
 
         Ui.Step("Claude Code", "installing skills + server", skillsDest);
@@ -636,19 +648,20 @@ public static class Program
         }
 
         Ui.Step("Claude Code", "registering the MCP server", claudeJson);
-        RegisterClaudeMcpServer(claudeJson, McpServerName, destExe);
+        HostConfig.Registration registered = HostConfig.Apply(ClaudeRegistration(home));
         Console.WriteLine();
+        return registered;
     }
 
     // ---- Codex install -----------------------------------------------------
 
-    private static void InstallForCodex(string pluginSrc, string home, string? homeOverride, List<string> keptBack)
+    private static HostConfig.Registration InstallForCodex(
+        string pluginSrc, string home, string? homeOverride, List<string> keptBack)
     {
         // Server + corpus go to a neutral per-user dir, NOT the skills dir: Codex scans ~/.agents/skills
         // for skill FOLDERS, and the server is not a skill. Under a test home (HOUSECARL_SETUP_HOME) the
         // data dir hangs off that home so tests never touch the real LOCALAPPDATA.
         string serverDest = CodexServerDir(home, homeOverride);
-        string destExe    = CodexDestExe(home, homeOverride);
 
         // Skills go FLAT under ~/.agents/skills/ (the cross-agent, user-scope skills dir).
         string skillsRoot = CodexSkillsRoot(home);
@@ -690,8 +703,9 @@ public static class Program
         }
 
         Ui.Step("Codex", "registering the MCP server", configToml);
-        RegisterCodexMcpServer(configToml, McpServerName, destExe);
+        HostConfig.Registration registered = HostConfig.Apply(CodexRegistration(home, homeOverride));
         Console.WriteLine();
+        return registered;
     }
 
     /// <summary>The held-file refusal, shared by the install and the removal: the caller's sentence, the path the
@@ -820,211 +834,5 @@ public static class Program
             Directory.CreateDirectory(Path.Combine(destDir, Path.GetRelativePath(sourceDir, dir)));
         foreach (string file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
             File.Copy(file, Path.Combine(destDir, Path.GetRelativePath(sourceDir, file)), overwrite: true);
-    }
-
-    // ---- ~/.claude.json registration (JSON splice) ------------------------
-
-    internal static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
-
-    /// <summary>
-    /// Insert/replace mcpServers.<paramref name="name"/> WITHOUT reparsing the whole file. ~/.claude.json
-    /// can hold keys that differ only by case (Windows path history), which case-insensitive parsers
-    /// reject; we parse ONLY the small, duplicate-free mcpServers object and splice it back, leaving the
-    /// rest of the file byte-for-byte intact. Backs the file up first.
-    /// </summary>
-    private static void RegisterClaudeMcpServer(string claudeJsonPath, string name, string command)
-    {
-        JsonObject entry = new()
-        {
-            ["type"]    = "stdio",
-            ["command"] = command,
-            ["args"]    = new JsonArray(),
-        };
-
-        if (!File.Exists(claudeJsonPath))
-        {
-            JsonObject newRoot = new() { ["mcpServers"] = new JsonObject { [name] = entry } };
-            File.WriteAllText(claudeJsonPath, newRoot.ToJsonString(Indented));
-            return;
-        }
-
-        string text = File.ReadAllText(claudeJsonPath);
-        File.Copy(claudeJsonPath, claudeJsonPath + ".houseCARL.bak", overwrite: true);
-
-        (int start, int end)? bounds = FindRootMemberObject(text, "mcpServers");
-        string updated;
-        if (bounds is { } b)
-        {
-            string objText = text.Substring(b.start, b.end - b.start + 1);
-            JsonObject servers = JsonNode.Parse(objText) as JsonObject
-                ?? throw new InvalidDataException("mcpServers is not a JSON object.");
-            servers[name] = entry; // insert or replace (idempotent on re-run)
-            string newObj = Reindent(servers.ToJsonString(Indented), LeadingIndentOfLineAt(text, b.start));
-            updated = string.Concat(text.AsSpan(0, b.start), newObj, text.AsSpan(b.end + 1));
-        }
-        else
-        {
-            int rootBrace = text.IndexOf('{');
-            if (rootBrace < 0) throw new InvalidDataException("~/.claude.json is not a JSON object.");
-            JsonObject servers = new() { [name] = entry };
-            string block = "\n  \"mcpServers\": " + Reindent(servers.ToJsonString(Indented), "  ") + ",";
-            updated = string.Concat(text.AsSpan(0, rootBrace + 1), block, text.AsSpan(rootBrace + 1));
-        }
-
-        File.WriteAllText(claudeJsonPath, updated);
-    }
-
-    /// <summary>Finds the `{ ... }` value of a DEPTH-1 (root-level) member named <paramref name="key"/>. String-aware.</summary>
-    internal static (int start, int end)? FindRootMemberObject(string text, string key)
-    {
-        string token = "\"" + key + "\"";
-        int depth = 0;
-        bool inString = false, escape = false;
-        for (int i = 0; i < text.Length; i++)
-        {
-            char c = text[i];
-            if (inString)
-            {
-                if (escape) escape = false;
-                else if (c == '\\') escape = true;
-                else if (c == '"') inString = false;
-                continue;
-            }
-            if (c == '"')
-            {
-                if (depth == 1 && i + token.Length <= text.Length
-                    && string.CompareOrdinal(text, i, token, 0, token.Length) == 0)
-                {
-                    int j = i + token.Length;
-                    while (j < text.Length && char.IsWhiteSpace(text[j])) j++;
-                    if (j < text.Length && text[j] == ':')
-                    {
-                        j++;
-                        while (j < text.Length && char.IsWhiteSpace(text[j])) j++;
-                        if (j < text.Length && text[j] == '{')
-                            return MatchBraces(text, j);
-                        throw new InvalidDataException("mcpServers exists but its value is not an object.");
-                    }
-                }
-                inString = true;
-            }
-            else if (c == '{') depth++;
-            else if (c == '}') depth--;
-        }
-        return null;
-    }
-
-    private static (int start, int end)? MatchBraces(string text, int openIndex)
-    {
-        int depth = 0;
-        bool inString = false, escape = false;
-        for (int i = openIndex; i < text.Length; i++)
-        {
-            char c = text[i];
-            if (inString)
-            {
-                if (escape) escape = false;
-                else if (c == '\\') escape = true;
-                else if (c == '"') inString = false;
-            }
-            else if (c == '"') inString = true;
-            else if (c == '{') depth++;
-            else if (c == '}') { if (--depth == 0) return (openIndex, i); }
-        }
-        return null;
-    }
-
-    internal static string LeadingIndentOfLineAt(string text, int index)
-    {
-        int lineStart = text.LastIndexOf('\n', index) + 1;
-        int j = lineStart;
-        while (j < text.Length && (text[j] == ' ' || text[j] == '\t')) j++;
-        return text.Substring(lineStart, j - lineStart);
-    }
-
-    internal static string Reindent(string json, string indent)
-    {
-        if (indent.Length == 0) return json;
-        string[] lines = json.Split('\n');
-        for (int i = 1; i < lines.Length; i++) lines[i] = indent + lines[i];
-        return string.Join('\n', lines);
-    }
-
-    // ---- ~/.codex/config.toml registration (TOML splice) ------------------
-
-    /// <summary>The line written above a [mcp_servers.housecarl] table setup created the file for. The removal
-    /// splice takes it back with the table, so the two spellings are one const.</summary>
-    internal const string TomlComment = "# houseCARL MCP server (added by houseCARL-Setup)";
-
-    /// <summary>
-    /// Insert/replace [mcp_servers.<paramref name="name"/>] in a TOML config.toml, leaving everything
-    /// else intact. The command path is written as a LITERAL TOML string (single quotes) so Windows
-    /// backslashes pass through verbatim - a basic "double-quoted" string would treat them as escapes.
-    /// Backs the file up first; idempotent on re-run.
-    /// </summary>
-    private static void RegisterCodexMcpServer(string configTomlPath, string name, string command)
-    {
-        string? dir = Path.GetDirectoryName(configTomlPath);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-
-        if (!File.Exists(configTomlPath))
-        {
-            string fresh = TomlComment + "\n"
-                         + "[mcp_servers." + name + "]\n"
-                         + "command = '" + command + "'\n";
-            File.WriteAllText(configTomlPath, fresh);
-            return;
-        }
-
-        string text = File.ReadAllText(configTomlPath);
-        File.Copy(configTomlPath, configTomlPath + ".houseCARL.bak", overwrite: true);
-        File.WriteAllText(configTomlPath, SpliceTomlTable(text, name, command));
-    }
-
-    /// <summary>
-    /// Replace the [mcp_servers.&lt;name&gt;] table (and any of its subtables) with a fresh one, or append
-    /// it if absent. Line-based so it never reformats the rest of the file; preserves the file's newline
-    /// style. A TOML table body runs from its header to the next table header (or EOF).
-    /// </summary>
-    private static string SpliceTomlTable(string text, string name, string command)
-    {
-        string nl   = text.Contains("\r\n") ? "\r\n" : "\n";
-        string head = "[mcp_servers." + name + "]";
-        string sub  = "[mcp_servers." + name + ".";
-        string[] body = { head, "command = '" + command + "'" };
-
-        string[] lines = text.Replace("\r\n", "\n").Split('\n');
-        List<string> outLines = new();
-        bool replaced = false;
-        for (int i = 0; i < lines.Length; i++)
-        {
-            if (!replaced && lines[i].Trim() == head)
-            {
-                // skip our existing table body + any [mcp_servers.<name>.*] subtables
-                int j = i + 1;
-                while (j < lines.Length)
-                {
-                    string t = lines[j].Trim();
-                    if (t.StartsWith("[") && t != head && !t.StartsWith(sub)) break;
-                    j++;
-                }
-                outLines.AddRange(body);
-                i = j - 1;          // resume after the skipped block
-                replaced = true;
-                continue;
-            }
-            outLines.Add(lines[i]);
-        }
-
-        if (!replaced)
-        {
-            string trimmed = string.Join(nl, outLines).TrimEnd('\r', '\n');
-            return trimmed.Length == 0
-                ? TomlComment + nl + string.Join(nl, body) + nl
-                : trimmed + nl + nl + string.Join(nl, body) + nl;
-        }
-
-        string result = string.Join(nl, outLines);
-        return result.EndsWith(nl) ? result : result + nl;
     }
 }

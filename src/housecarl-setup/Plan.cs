@@ -7,16 +7,19 @@ namespace HousecarlSetup;
 /// </summary>
 public static class Plan
 {
-    /// <summary>One destination the install touches, and what it puts there.</summary>
+    /// <summary>One destination the install touches, and what it puts there. An empty path says more about the
+    /// line above.</summary>
     public sealed record Line(string Path, string What);
 
     /// <summary>One host's share of the plan.</summary>
     public sealed record HostPlan(Detect.HostState Host, IReadOnlyList<Line> Lines);
 
-    /// <summary>The plan for a target, host by host, in install order.</summary>
-    public static List<HostPlan> For(
+    /// <summary>The plan for a target, host by host, in install order. With <paramref name="done"/>, what each
+    /// host-config line says is what the run did instead of what it is about to do.</summary>
+    internal static List<HostPlan> For(
         Program.Target target, string home, string? homeOverride,
-        Detect.HostState claude, Detect.HostState codex)
+        Detect.HostState claude, Detect.HostState codex,
+        IReadOnlyList<HostConfig.Registration>? done = null)
     {
         List<HostPlan> plans = new();
 
@@ -24,8 +27,8 @@ public static class Plan
             plans.Add(new HostPlan(claude, new List<Line>
             {
                 new(Program.ClaudeSkillsDest(home), "skills + server"),
-                new(Program.ClaudeJson(home),       BacksUpFirst),
-            }));
+            }
+            .Concat(ConfigLines(Program.ClaudeJson(home), done, () => Program.ClaudeRegistration(home))).ToList()));
 
         if (target is Program.Target.Codex or Program.Target.Both)
             plans.Add(new HostPlan(codex, new List<Line>
@@ -33,8 +36,9 @@ public static class Plan
                 new(Program.CodexServerDir(home, homeOverride),    "server"),
                 new(Program.CodexSkillsRoot(home),                 "skills"),
                 new(Program.CodexSkillRecord(home, homeOverride),  "records which skills were installed"),
-                new(Program.CodexConfigToml(home),                 BacksUpFirst),
-            }));
+            }
+            .Concat(ConfigLines(Program.CodexConfigToml(home), done,
+                () => Program.CodexRegistration(home, homeOverride))).ToList()));
 
         return plans;
     }
@@ -66,12 +70,42 @@ public static class Plan
         return plans;
     }
 
-    /// <summary>What a host-config line puts there. The install copies the file to a ".houseCARL.bak"
-    /// beside it before editing it, and that copy is a file the plan would otherwise not name.</summary>
-    private const string BacksUpFirst = "registers the server  (a .houseCARL.bak copy is made first)";
+    /// <summary>The lines for one host config: what happens to houseCARL's entry, the settings on it that stay
+    /// (by name only: an env can hold a token), and the copy of the file, which the plan would otherwise not name.
+    /// A config that cannot be read yet gets the plain line; the run itself reports what is wrong with it.</summary>
+    private static List<Line> ConfigLines(
+        string path, IReadOnlyList<HostConfig.Registration>? done, Func<HostConfig.Registration> planned)
+    {
+        bool wrote = done is not null;
+        HostConfig.Registration r;
+        if (done is not null) r = done.Single(d => d.Path == path);
+        else
+        {
+            try { r = planned(); }
+            catch (Exception) { return [new(path, "registers the server" + KeepsCopy)]; }
+        }
 
-    /// <summary>The removal's version of the line above: the same file, the same backup, the entry taken out.</summary>
-    private const string RemovesEntry = "removes the server entry  (a " + Uninstall.BackupSuffix + " copy is made first)";
+        List<Line> lines = [new(path, (r.Did, wrote) switch
+        {
+            (HostConfig.Did.Unchanged, _)    => "the server is already registered, so this file is not written to",
+            (HostConfig.Did.Replaced, false) => "replaces the whole houseCARL entry, because its command is not " + Program.ServerExeName,
+            (HostConfig.Did.Replaced, true)  => "replaced the whole houseCARL entry, because its command was not " + Program.ServerExeName,
+            (_, false)                       => "registers the server",
+            (_, true)                        => "registered the server",
+        })];
+        if (r.Kept.Count > 0)
+            lines.Add(new("", (wrote ? "kept" : "keeps") + " your settings on it: " + string.Join(", ", r.Kept)));
+        if (r.Copy is not null)
+            lines.Add(new("", "the file as it " + (wrote ? "was" : "is now") + " is kept in " + Path.GetFileName(r.Copy)));
+        if (r.TurnedOff)
+            lines.Add(new("", "houseCARL is still turned off in Codex"));
+        return lines;
+    }
+
+    private const string KeepsCopy = "  (a copy of the file is kept beside it)";
+
+    /// <summary>The removal's version of the line above: the same file, a copy, the entry taken out.</summary>
+    private const string RemovesEntry = "removes the server entry" + KeepsCopy;
 
     /// <summary>Print the plan: a heading per host saying install, upgrade or removal, then one line per
     /// destination.</summary>
@@ -116,18 +150,18 @@ public static class Plan
     }
 
     /// <summary>
-    /// The block that closes a finished install: what went where, taken from the same plan the confirm was
-    /// given for, and then what the person does next. An install writes every line of its plan, so the plan is
-    /// what it did.
+    /// The block that closes a finished install: what went where, and then what the person does next. The paths
+    /// are the plan's; each host-config line says what the run did there, because a config that already had the
+    /// entry is not written to.
     /// </summary>
-    public static void PrintSummary(List<HostPlan> plans, string version)
+    internal static void PrintSummary(List<HostPlan> plans, string version)
     {
         List<string> hosts = plans.Select(p => p.Host.Name).ToList();
 
         Console.WriteLine();
         Ui.Rule();
         Ui.Done("houseCARL " + version + " is installed for " + string.Join(" and ", hosts) + ".");
-        PrintBlock("Written", plans.Select(p => (p.Host.Name, (IReadOnlyList<Line>)p.Lines)).ToList());
+        PrintBlock("Installed", plans.Select(p => (p.Host.Name, (IReadOnlyList<Line>)p.Lines)).ToList());
 
         Ui.Heading("Next");
         foreach (string host in hosts) Ui.Bullet(host + ": fully quit and reopen it.");

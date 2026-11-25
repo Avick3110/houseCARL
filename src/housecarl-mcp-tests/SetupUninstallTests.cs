@@ -174,6 +174,12 @@ public sealed class SetupUninstallTests
         { "our own subtables go with the table",
           "[mcp_servers.housecarl]\ncommand = 'x'\n[mcp_servers.housecarl.env]\nA = 'b'\n\n[other]\nk = 1\n",
           "\n[other]\nk = 1\n" },
+        { "a line like a header inside one of our values is not the next table",
+          "[mcp_servers.housecarl]\ncommand = 'x'\nx = [\n[\"a\"],\n]\n\n[other]\nk = 1\n",
+          "\n[other]\nk = 1\n" },
+        { "a line like a comment inside one of our values goes with it",
+          "[mcp_servers.housecarl]\nx = '''\n# a'''\n\n[other]\nk = 1\n",
+          "\n[other]\nk = 1\n" },
         { "the quoted spelling of the key is ours",
           "[other]\nkey = 1\n\n[mcp_servers.\"housecarl\"]\ncommand = 'x'\n",
           "[other]\nkey = 1\n" },
@@ -203,7 +209,7 @@ public sealed class SetupUninstallTests
         string path = Path.Combine(box.Root, "bom-config.toml");
         SetupInstallerSandbox.WriteFile(path, bom.Concat(Encoding.UTF8.GetBytes("[other]\nkey = 1\n\n[mcp_servers.housecarl]\ncommand = 'x'\n")).ToArray());
 
-        Assert.Equal(SetupUninstall.ConfigEdit.Removed, SetupUninstall.UnregisterCodexMcpServer(path, "housecarl"));
+        Assert.Equal(SetupUninstall.ConfigEdit.Removed, SetupUninstall.UnregisterCodexMcpServer(path, "housecarl").Edit);
         Assert.Equal(bom.Concat(Encoding.UTF8.GetBytes("[other]\nkey = 1\n")).ToArray(), File.ReadAllBytes(path));
     }
 
@@ -216,7 +222,7 @@ public sealed class SetupUninstallTests
         string path = Path.Combine(box.Root, "stranger-config.toml");
         SetupInstallerSandbox.WriteFile(path, sibling);
 
-        Assert.Equal(SetupUninstall.ConfigEdit.NotFound, SetupUninstall.UnregisterCodexMcpServer(path, "housecarl"));
+        Assert.Equal(SetupUninstall.ConfigEdit.NotFound, SetupUninstall.UnregisterCodexMcpServer(path, "housecarl").Edit);
         Assert.Equal(sibling, File.ReadAllText(path));
         Assert.False(File.Exists(path + SetupUninstall.BackupSuffix));
     }
@@ -229,7 +235,7 @@ public sealed class SetupUninstallTests
         string path = Path.Combine(box.Root, "stranger.claude.json");
         SetupInstallerSandbox.WriteFile(path, ExistingClaudeJson());
 
-        Assert.Equal(SetupUninstall.ConfigEdit.NotFound, SetupUninstall.UnregisterClaudeMcpServer(path, "housecarl"));
+        Assert.Equal(SetupUninstall.ConfigEdit.NotFound, SetupUninstall.UnregisterClaudeMcpServer(path, "housecarl").Edit);
         Assert.Equal(ExistingClaudeJson(), File.ReadAllText(path));
     }
 
