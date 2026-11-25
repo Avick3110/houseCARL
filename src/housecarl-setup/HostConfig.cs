@@ -22,7 +22,8 @@ public static class HostConfig
         Registered,
         /// <summary>The file would come out the same, so it is not written to.</summary>
         Unchanged,
-        /// <summary>The entry does not run houseCARL's server exe, so it is replaced whole.</summary>
+        /// <summary>The entry is not one setup recognises as running houseCARL's server exe, so a fresh one takes its
+        /// place.</summary>
         Replaced,
     }
 

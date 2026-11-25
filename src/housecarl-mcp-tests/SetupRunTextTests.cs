@@ -195,8 +195,11 @@ public sealed class SetupRunTextTests
 
         Ran ran = Setup(box, "--both");
 
-        Assert.Equal(2, ran.Plan.Split("replaces the whole houseCARL entry").Length - 1);
-        Assert.Equal(2, ran.Summary.Split("replaced the whole houseCARL entry").Length - 1);
+        foreach (string path in new[] { ClaudeJson(box), Toml(box) })
+        {
+            Assert.Contains("replaces", ConfigLine(ran.Plan, path));
+            Assert.Contains("replaced", ConfigLine(ran.Summary, path));
+        }
         Assert.Contains("is kept in .claude.json.houseCARL.bak", ran.Summary);
         Assert.Contains("is kept in config.toml.houseCARL.bak", ran.Summary);
         Assert.DoesNotContain("your settings", ran.Out);
@@ -231,6 +234,27 @@ public sealed class SetupRunTextTests
         SetupInstallerSandbox.WriteFile(Toml(box), "[mcp_servers.housecarl.tools.a]\nx = 1\n[mcp_servers.housecarl.tools.b]\nx = 1\n");
 
         Assert.Contains("kept your settings on it: tools" + Environment.NewLine, Setup(box, "--codex").Summary);
+    }
+
+    // An entry whose command is there but unread, one with none, and one a subtable of stays: no false reason, and
+    // not the whole of it.
+    [Theory]
+    [InlineData("[mcp_servers.housecarl]\ncommand = '''C:\\x\\housecarl-mcp.exe'''\n")]
+    [InlineData("[mcp_servers.housecarl]\nenabled = false\n")]
+    [InlineData("[mcp_servers.housecarl]\nurl = 'u'\n\n[mcp_servers.other]\ncommand = 'x'\n\n[mcp_servers.housecarl.env]\nA = '1'\n")]
+    public void AReplacedEntryIsNotGivenAFalseReason(string toml)
+    {
+        using var box = Box();
+        SetupInstallerSandbox.WriteFile(Toml(box), toml);
+
+        Ran ran = Setup(box, "--codex");
+
+        foreach (string said in new[] { ConfigLine(ran.Plan, Toml(box)), ConfigLine(ran.Summary, Toml(box)) })
+        {
+            Assert.Contains("replace", said);
+            Assert.DoesNotContain("its command", said);
+            Assert.DoesNotContain("whole", said);
+        }
     }
 
     [Fact]
