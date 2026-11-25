@@ -21,7 +21,8 @@ through `HostConfig`, which finds the entry, sets only setup's keys on it, and w
   (`.houseCARL.bak`, `.houseCARL.2.bak`, ...); one holding other bytes is never written over. A removal does the same
   under `.houseCARL.uninstall.bak`.
 - The plan and the summary print the registration's own answer: registered, already registered, or replaced; the kept
-  settings by key name, never a value; the copy's real name; and, for a kept `enabled = false`, that houseCARL is
+  settings by key name, never a value, and none by name in a `config.toml` that leaves a bracket or triple quote open;
+  the copy's real name; and, for a kept `enabled = false`, that houseCARL is
   still turned off in Codex.
 - A removal takes the whole entry, its settings with it.
 
