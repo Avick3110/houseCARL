@@ -213,6 +213,18 @@ public sealed class SetupUninstallTests
         Assert.Equal(bom.Concat(Encoding.UTF8.GetBytes("[other]\nkey = 1\n")).ToArray(), File.ReadAllBytes(path));
     }
 
+    // T9: the same for a ~/.claude.json.
+    [Fact]
+    public void ABomClaudeJsonKeepsItsBomOnRemoval()
+    {
+        using var box = new SetupInstallerSandbox();
+        string path = Path.Combine(box.Root, "bom.claude.json");
+        SetupInstallerSandbox.WriteFile(path, Encoding.UTF8.GetBytes("\uFEFF{\"mcpServers\":{\"housecarl\":{\"command\":\"x\"}}}"));
+
+        Assert.Equal(SetupUninstall.ConfigEdit.Removed, SetupUninstall.UnregisterClaudeMcpServer(path, "housecarl").Edit);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF, (byte)'{' }, File.ReadAllBytes(path)[..4]);
+    }
+
     // T10: a config.toml with only a same-prefix sibling table is NotFound, untouched, and not backed up.
     [Fact]
     public void ACodexConfigWithNoEntryOfOursIsNotFoundAndUntouched()

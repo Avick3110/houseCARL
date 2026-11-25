@@ -187,6 +187,27 @@ public sealed class SetupRunTextTests
     }
 
     [Fact]
+    public void ThePlanOfARunThatChangesNothingNamesTheSettingsAndThatHouseCarlIsOff()
+    {
+        using var box = Box();
+        WriteToml(box, SetupProgram.CodexDestExe(box.Home, box.Home), KeptOff);
+
+        Ran ran = Setup(box, "--codex");
+
+        Assert.Contains("enabled, tool_timeout_sec, env" + Environment.NewLine, ran.Plan);
+        Assert.Contains("still turned off in Codex", ran.Plan);
+    }
+
+    [Fact]
+    public void ThePlanNamesTheCopyOfAReplacedEntry()
+    {
+        using var box = Box();
+        WriteToml(box, @"C:\x\wrapper.exe", "");
+
+        Assert.Contains("config.toml.houseCARL.bak", Setup(box, "--codex").Plan);
+    }
+
+    [Fact]
     public void AReRunThatChangesNothingDoesNotSayItWritesOrRegisters()
     {
         using var box = Box();
@@ -331,6 +352,21 @@ public sealed class SetupRunTextTests
         Assert.Contains("is kept in config.toml.houseCARL.uninstall.2.bak", ran.Summary);
         Assert.Contains("is kept in .claude.json.houseCARL.uninstall.2.bak", ran.Summary);
         Assert.DoesNotContain(".houseCARL.uninstall.bak", ran.Plan);
+    }
+
+    // Like the held config below it is not a stop at the plan; and no copy is taken, so none is promised.
+    [Fact]
+    public void AConfigThatDoesNotParseIsReportedByTheRunNotThePlan()
+    {
+        using var box = Box();
+        SetupInstallerSandbox.WriteFile(ClaudeJson(box), "{\"mcpServers\":{\"a\":{},}}");
+
+        Ran ran = Setup(box, "--claude");
+
+        Assert.Equal(1, ran.ExitCode);
+        Assert.Contains("registers", ConfigLine(ran.Out, ClaudeJson(box)));
+        Assert.DoesNotContain("copy", ConfigLine(ran.Out, ClaudeJson(box)));
+        Assert.Empty(Directory.GetFiles(box.Home, "*.bak"));
     }
 
     // Pins unchanged behaviour: a config another program holds open is the "fully quit" refusal, not a stop at the plan.
