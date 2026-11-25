@@ -23,8 +23,9 @@ through `HostConfig`, which finds the entry, sets only setup's keys on it, and w
   under `.houseCARL.uninstall.bak`.
 - The plan and the summary print the registration's own answer: registered, already registered, or replaced; the kept
   settings by key name, never a value, and none by name in a `config.toml` that leaves a bracket or triple quote open;
-  the copy's real name; and, for a kept `enabled = false`, that houseCARL is
-  still turned off in Codex.
+  the copy's real name; and, for a kept `enabled = false`, that houseCARL is still turned off in Codex. A config the plan
+  cannot read gets a line without that answer; the run stops at it, before any copy, if it still cannot be read.
+- The removal's plan reads no config, so it says what happens if the entry is there; its summary says what was done.
 - A removal takes the whole entry, its settings with it.
 
 ## Known limits
