@@ -93,6 +93,46 @@ public sealed class SetupSettingsTests
         AssertClaude(box, new JsonObject { ["command"] = ClaudeExe(box), ["timeout"] = 5, ["type"] = "stdio" });
     }
 
+    [Fact]
+    public void AClaudeEntryOfAnotherTypeBecomesStdio()
+    {
+        using var box = Box();
+        SetupInstallerSandbox.WriteFile(ClaudeJson(box), ClaudeWith(new JsonObject { ["type"] = "http", ["command"] = ClaudeExe(box) }));
+
+        Install(box, SetupProgram.Target.Claude);
+
+        AssertClaude(box, new JsonObject { ["type"] = "stdio", ["command"] = ClaudeExe(box) });
+    }
+
+    [Fact]
+    public void SetupsOwnClaudeEntryOnlyGetsTheNewPath()
+    {
+        using var box = Box();
+        JsonObject Entry(string exe) => new() { ["type"] = "stdio", ["command"] = exe, ["args"] = new JsonArray() };
+        SetupInstallerSandbox.WriteFile(ClaudeJson(box), ClaudeWith(Entry(OldExe)));
+
+        Install(box, SetupProgram.Target.Claude);
+
+        AssertClaude(box, Entry(ClaudeExe(box)));
+    }
+
+    // Pins unchanged behaviour: a project's own mcpServers, first in the file here, and every byte outside the root one.
+    [Fact]
+    public void EveryByteOutsideTheRootMcpServersStays()
+    {
+        using var box = Box();
+        const string above = "{\"projects\":{\"C:/p\":{\"mcpServers\":{\"housecarl\":{\"command\":\"y\"}}}},\r\n\t\"a\" :1,\"mcpServers\":";
+        const string below = " , \"tail\" :[1,  2]}";
+        SetupInstallerSandbox.WriteFile(ClaudeJson(box), above + "{\"housecarl\":{\"command\":" + Escaped(OldExe) + "}}" + below);
+
+        Install(box, SetupProgram.Target.Claude);
+
+        string after = File.ReadAllText(ClaudeJson(box));
+        Assert.StartsWith(above + "{", after, StringComparison.Ordinal);
+        Assert.EndsWith("}" + below, after, StringComparison.Ordinal);
+        Assert.Contains(Escaped(ClaudeExe(box)), after);
+    }
+
     public static TheoryData<string, string> ClaudeEntriesNotSetups => new()
     {
         { "wrapper", """{"type":"stdio","command":"cmd","args":["/c","C:/x/housecarl-mcp.exe"],"env":{"A":"1"}}""" },
@@ -204,6 +244,7 @@ public sealed class SetupSettingsTests
                 { "an unclosed string above", "x = 'it\n" + decoy + table + "\n" + other },
                 { "an array left open", head + "enabled_tools = [\ncommand = [C]\n\n" + other },
                 { "a triple quote left open", head + "x = '''\ncommand = [C]\n\n" + other },
+                { "a bracket closed once too often", "x = [1]]\n" + table + "enabled = false\n\n" + other },
                 { "a multi-line value in a file left open", "x = [\n" + table + "cert = '''\nc2VjcmV0dG9rZW4=\n'''\n" },
                 { "args of the user's", table + "args = [\"--HouseCarl:MaxPlugins=5\"]\n\n" + other },
                 { "comments in and after the table", head + "# why the timeout\ntool_timeout_sec = 600\ncommand = [C] # mine\n# last\n\n# next\n" + other },
@@ -254,6 +295,31 @@ public sealed class SetupSettingsTests
             Assert.Equal(then, File.GetLastWriteTimeUtc(Toml(box)));
             Assert.Empty(Copies(Toml(box)));
         }
+    }
+
+    [Fact]
+    public void ACodexCommandWithAUnicodeEscapeIsRead()
+    {
+        using var box = Box();
+        SetupInstallerSandbox.WriteFile(Toml(box),
+            "[mcp_servers.housecarl]\ncommand = \"C:\\\\old\\\\\\u0068ousecarl-mcp.exe\"\nenabled = false\n");
+
+        Install(box, SetupProgram.Target.Codex);
+
+        Assert.Equal("[mcp_servers.housecarl]\ncommand = " + Literal(CodexExe(box)) + "\nenabled = false\n", File.ReadAllText(Toml(box)));
+    }
+
+    // Pins unchanged behaviour: the lines of the fresh table end as the file's do.
+    [Fact]
+    public void AReplacedTableInACrlfFileIsCrlf()
+    {
+        using var box = Box();
+        SetupInstallerSandbox.WriteFile(Toml(box), "[mcp_servers.housecarl]\r\nurl = 'u'\r\n\r\n[other]\r\nkey = 1\r\n");
+
+        Install(box, SetupProgram.Target.Codex);
+
+        Assert.Equal("[mcp_servers.housecarl]\r\ncommand = " + Literal(CodexExe(box)) + "\r\n\r\n[other]\r\nkey = 1\r\n",
+            File.ReadAllText(Toml(box)));
     }
 
     /// <summary>The keys of a table that is not setup's, as they are written under its header.</summary>
@@ -414,6 +480,32 @@ public sealed class SetupSettingsTests
         Assert.Equal([".houseCARL.bak"], Copies(Toml(box)));
     }
 
+    [Fact]
+    public void ANumberedCopyWithTheSameBytesIsNotTakenAgain()
+    {
+        using var box = Box();
+        foreach (string toml in new[] { "a = 1\n", "a = 2\n", "a = 2\n" })
+        {
+            SetupInstallerSandbox.WriteFile(Toml(box), toml);
+            Install(box, SetupProgram.Target.Codex);
+        }
+
+        Assert.Equal([".houseCARL.2.bak", ".houseCARL.bak"], Copies(Toml(box)));
+    }
+
+    // Pins unchanged behaviour: the copy is the file's bytes, a mark and a byte that is not UTF-8 among them.
+    [Fact]
+    public void ACopyIsTheFileByteForByte()
+    {
+        using var box = Box();
+        byte[] before = [0xEF, 0xBB, 0xBF, (byte)'#', 0xE9, (byte)'\n'];
+        SetupInstallerSandbox.WriteFile(Toml(box), before);
+
+        Install(box, SetupProgram.Target.Codex);
+
+        Assert.Equal(before, File.ReadAllBytes(Toml(box) + ".houseCARL.bak"));
+    }
+
     [Theory]
     [InlineData(SetupProgram.Target.Claude, "{}")]
     [InlineData(SetupProgram.Target.Codex, "[mcp_servers.\"housecarl\"]\ncommand = \"x\"\n")]
@@ -481,6 +573,18 @@ public sealed class SetupSettingsTests
         Assert.Equal(other, File.ReadAllText(Toml(box)));
         var servers = JsonNode.Parse(File.ReadAllText(ClaudeJson(box)))!["mcpServers"]!.AsObject();
         Assert.Equal(["other"], servers.Select(s => s.Key));
+    }
+
+    [Fact]
+    public void AUtf16ConfigStaysUtf16()
+    {
+        using var box = Box();
+        byte[] Utf16(string text) => [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(text)];
+        SetupInstallerSandbox.WriteFile(Toml(box), Utf16("[mcp_servers.housecarl]\ncommand = " + Literal(OldExe) + "\n"));
+
+        Install(box, SetupProgram.Target.Codex);
+
+        Assert.Equal(Utf16("[mcp_servers.housecarl]\ncommand = " + Literal(CodexExe(box)) + "\n"), File.ReadAllBytes(Toml(box)));
     }
 
     [Fact]
