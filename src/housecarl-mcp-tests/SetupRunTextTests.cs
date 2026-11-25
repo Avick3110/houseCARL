@@ -126,6 +126,34 @@ public sealed class SetupRunTextTests
     }
 
     [Theory]
+    [InlineData("x = [\n[mcp_servers.housecarl]\ncommand = '" + OldExe + "'\ncert = '''\nc2VjcmV0dG9rZW4=\n'''\n")]
+    [InlineData("x = 1]\n[mcp_servers.housecarl]\ncommand = '" + OldExe + "'\ncert = '''\nc2VjcmV0dG9rZW4=\n'''\n")]
+    [InlineData("x = '''\n[mcp_servers.housecarl]\ncommand = '" + OldExe + "'\ncert = '''\nc2VjcmV0dG9rZW4=\n'''\n")]
+    [InlineData("x = [\n[mcp_servers.housecarl]\nurl = 'u'\n[mcp_servers.other]\ncommand = 'x'\n[mcp_servers.housecarl.c2VjcmV0dG9rZW4]\n")]
+    [InlineData("x = [\n[mcp_servers.housecarl.c2VjcmV0dG9rZW4]\n")]
+    public void NoSettingIsNamedInAConfigLeftOpen(string toml)
+    {
+        using var box = Box();
+        SetupInstallerSandbox.WriteFile(Toml(box), toml);
+
+        Ran ran = Setup(box, "--codex");
+
+        Assert.Equal(0, ran.ExitCode);
+        Assert.DoesNotContain("c2VjcmV0dG9rZW4", ran.Out);
+        Assert.DoesNotContain("your settings", ran.Out);
+    }
+
+    // Pins unchanged behaviour: no name is printed, but that houseCARL is off still is.
+    [Fact]
+    public void AConfigLeftOpenStillSaysHouseCarlIsOff()
+    {
+        using var box = Box();
+        WriteToml(box, OldExe, "enabled = false\nx = [\n");
+
+        Assert.Contains("still turned off in Codex", Setup(box, "--codex").Summary);
+    }
+
+    [Theory]
     [InlineData("enabled = false # for now\n", true)]
     [InlineData("enabled = true\n", false)]
     [InlineData("\n[mcp_servers.housecarl.tools]\nenabled = false\n", false)]

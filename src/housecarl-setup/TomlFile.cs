@@ -11,13 +11,18 @@ internal sealed class TomlFile
     /// <summary>The file's lines, each with its terminator.</summary>
     internal List<string> Lines { get; }
 
+    /// <summary>True when the brackets or triple quotes in the file do not close, so what counts as a key in it is a
+    /// guess that can land inside a value.</summary>
+    internal bool LeftOpen { get; }
+
     // For each line, whether a statement starts on it rather than inside a value that runs over lines.
     private readonly bool[] starts;
 
     internal TomlFile(string text)
     {
         Lines  = SplitKeepingNewlines(text);
-        starts = StatementStarts(Lines);
+        starts = StatementStarts(Lines, out bool leftOpen);
+        LeftOpen = leftOpen;
     }
 
     /// <summary>One table and the subtables right after it, as line numbers.</summary>
@@ -82,7 +87,7 @@ internal sealed class TomlFile
     /// or a triple quote open does not load, so every line of it is taken as a statement: one slip must not make
     /// the rest of the file part of our table.
     /// </summary>
-    private static bool[] StatementStarts(List<string> lines)
+    private static bool[] StatementStarts(List<string> lines, out bool leftOpen)
     {
         bool[] starts = new bool[lines.Count];
         int depth = 0;
@@ -115,7 +120,8 @@ internal sealed class TomlFile
             if (quote is { Length: 1 }) quote = null; // a single-line string ends with its line
         }
 
-        if (depth != 0 || quote is not null) Array.Fill(starts, true);
+        leftOpen = depth != 0 || quote is not null;
+        if (leftOpen) Array.Fill(starts, true);
         return starts;
     }
 

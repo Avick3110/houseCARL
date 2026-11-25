@@ -280,11 +280,15 @@ public static class HostConfig
         string nl = text.Contains("\r\n") ? "\r\n" : "\n";
         TomlFile toml = new(text);
 
+        // In a file left open a line of a value can read as a key, so no name in it is printed.
+        Registration Decided(string after, Did did, IReadOnlyList<string> kept, bool off = false)
+            => Decide(path, text, after, encoding, did, toml.LeftOpen ? [] : kept, off);
+
         if (toml.FindTable(name) is not { } table)
         {
             string trimmed = text.TrimEnd('\r', '\n');
             string above = trimmed.Length == 0 ? TomlComment + nl : trimmed + nl + nl;
-            return Decide(path, text, above + head + nl + set + nl, encoding, Did.Registered, toml.SubtableNames(name));
+            return Decided(above + head + nl + set + nl, Did.Registered, toml.SubtableNames(name));
         }
 
         List<string> lines = toml.Lines;
@@ -300,13 +304,13 @@ public static class HostConfig
             string line = lines[key.Line];
             if (was.Value != command)
                 lines[key.Line] = string.Concat(line.AsSpan(0, key.ValueStart), value, line.AsSpan(was.End));
-            return Decide(path, text, string.Concat(lines), encoding, Did.Registered, kept, off);
+            return Decided(string.Concat(lines), Did.Registered, kept, off);
         }
 
         lines.RemoveRange(table.Head, table.Last - table.Head + 1);
         lines.InsertRange(table.Head, [head + nl, set + nl]);
         string replaced = string.Concat(lines);
         // A subtable of ours that is not right after the table is not part of what was cut.
-        return Decide(path, text, replaced, encoding, Did.Replaced, new TomlFile(replaced).SubtableNames(name));
+        return Decided(replaced, Did.Replaced, new TomlFile(replaced).SubtableNames(name));
     }
 }

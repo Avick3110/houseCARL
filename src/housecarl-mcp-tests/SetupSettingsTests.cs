@@ -204,6 +204,7 @@ public sealed class SetupSettingsTests
                 { "an unclosed string above", "x = 'it\n" + decoy + table + "\n" + other },
                 { "an array left open", head + "enabled_tools = [\ncommand = [C]\n\n" + other },
                 { "a triple quote left open", head + "x = '''\ncommand = [C]\n\n" + other },
+                { "a multi-line value in a file left open", "x = [\n" + table + "cert = '''\nc2VjcmV0dG9rZW4=\n'''\n" },
                 { "args of the user's", table + "args = [\"--HouseCarl:MaxPlugins=5\"]\n\n" + other },
                 { "comments in and after the table", head + "# why the timeout\ntool_timeout_sec = 600\ncommand = [C] # mine\n# last\n\n# next\n" + other },
                 { "array of tables", table + "\n[[mcp_servers.housecarl.env_vars]]\nname = \"A\"\n\n" + other },
