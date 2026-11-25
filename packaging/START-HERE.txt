@@ -14,11 +14,11 @@ INSTALL  (about 30 seconds, no command line)
 
   1.  Double-click   houseCARL-Setup.exe   in this folder.
       It says what it found on your machine, asks which agent to
-      install for, then prints every path it is about to write and
-      waits: press Enter to go ahead, or q to quit. Nothing is
-      written before that keypress -- and it does not touch your
-      game or your mods. At the end it lists what it wrote and what
-      to do next.
+      install for, then prints every path it installs to, with what
+      it will do there, and waits: press Enter to go ahead, or q to
+      quit. Nothing is written before that keypress -- and it does
+      not touch your game or your mods. At the end it lists what it
+      did at each path and what to do next.
 
   2.  FULLY restart Claude.
       Close and reopen the Claude desktop app, or restart the `claude`
@@ -46,7 +46,11 @@ UPDATING  (installing a newer houseCARL over an older one)
   setup can't replace the houseCARL server while a session is running
   it; if one is, it stops and tells you to quit and re-run. Settings
   you put on the houseCARL entry in Claude's or Codex's config file
-  are kept.
+  are kept, unless setup does not recognise the entry as running
+  housecarl-mcp.exe: that entry is replaced, and its settings are then
+  in the copy. A config it changes is first copied beside it to a
+  .houseCARL.bak , numbered ( .houseCARL.2.bak ) when that name already
+  holds an earlier, different copy.
 
 
 REMOVING HOUSECARL
@@ -57,12 +61,14 @@ REMOVING HOUSECARL
 
   It removes the skills it recorded installing, the server, the rest of
   the files a houseCARL package ships, and the houseCARL entry in
-  Claude's and Codex's config files -- each config is copied to a
-  .houseCARL.uninstall.bak  beside it first, and nothing else in either
-  file is changed. Anything you put in those folders yourself stays, and
-  the run names it. The MO2 folder you set is stored beside the server,
-  so it goes too. The patches houseCARL wrote live in your MO2 mods
-  folder and are left alone.
+  Claude's and Codex's config files -- a config that holds the entry is
+  copied beside it first, to a  .houseCARL.uninstall.bak , numbered
+  ( .houseCARL.uninstall.2.bak ) when that name already holds an
+  earlier, different copy, and nothing else in either file is changed.
+  Anything you put in those folders yourself stays, and the run names
+  it. The MO2 folder you set is stored beside the server, so it goes
+  too. The patches houseCARL wrote live in your MO2 mods folder and are
+  left alone.
 
 
 COMMAND-LINE FLAGS  (you don't need these to install)

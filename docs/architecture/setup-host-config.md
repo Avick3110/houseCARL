@@ -12,11 +12,14 @@ through `HostConfig`, which finds the entry, sets only setup's keys on it, and w
 - Setup's keys are `type` and `command` on the Claude entry and `command` in the Codex table; `args: []` goes only into
   an entry setup creates. Every other key is the user's or the host's and stays. No list of those keys is kept.
 - An entry is setup's when the command setup reads on it has the file name `housecarl-mcp.exe`, wherever the file sits.
-  Any other entry is replaced by a fresh one and the run says so: a wrapper, a `url`, a Claude entry that holds a key
-  twice, a Codex `command` in a spelling setup does not read (over lines, `'''...'''` or `"""..."""`, or with an escape
-  JSON does not have, such as `\U`, `\e` or `\x`).
-- In `config.toml` only the bytes of the `command` value change. The table is found however its header is spelled; a line
-  inside a multi-line value is never a header or a key, unless the file leaves a bracket or triple quote open.
+  Any other entry is replaced by a fresh one and the run says so: a wrapper, a `url` with no command, a Claude entry that
+  holds a key twice, a Codex `command` in a spelling setup does not read (over lines, `'''...'''` or `"""..."""`, or
+  with an escape JSON does not have, such as `\U`, `\e` or `\x`).
+- In a Codex table that is setup's only the bytes of the `command` value change, and no other byte of the file. That
+  holds for a file that is valid in the encoding its byte order mark names, UTF-8 with no mark. Adding a table trims
+  the newlines at the end of the file and puts a blank line above the table; a replaced table is cut and written
+  again. The table is found however its header is spelled; a line inside a multi-line value is never a header or a key,
+  unless the file leaves a bracket or triple quote open.
 - In `~/.claude.json` only the `mcpServers` object is rewritten, and only when setup's keys on the entry change.
 - A copy is taken only before a change. The first name that is free or already holds the same bytes is the copy
   (`.houseCARL.bak`, `.houseCARL.2.bak`, ...); one holding other bytes is never written over. A removal does the same
@@ -26,13 +29,16 @@ through `HostConfig`, which finds the entry, sets only setup's keys on it, and w
   the copy's real name; and, for a kept `enabled = false`, that houseCARL is still turned off in Codex. A config the plan
   cannot read gets a line without that answer; the run stops at it, before any copy, if it still cannot be read.
 - The removal's plan reads no config, so it says what happens if the entry is there; its summary says what was done.
-- A removal takes the whole entry, its settings with it.
+- A removal takes the entry, its settings with it: on Codex the table and the subtables right after it.
 
 ## Known limits
 - The settings of a replaced entry are not kept and not named, `enabled = false` among them; the copy holds them. On
   Codex the table and the subtables right after it are replaced. A subtable before the table or after another server's,
   an array of tables, and a subtable after that array stay as they were; the run names them.
 - A kept `enabled_tools` or `disabled_tools` that names 1.x tools is kept as it is.
+- A removal leaves a Codex subtable that is before the table or after another server's, and an array of tables
+  (`[[mcp_servers.housecarl.x]]`) with the subtables after it (#1449).
+- A Codex table with both houseCARL's exe and a `url`, which Codex refuses, keeps the `url`.
 - A Codex entry with no `[mcp_servers.housecarl]` header (an inline or dotted table) is not found, so a second one is
   added (#1449).
 
