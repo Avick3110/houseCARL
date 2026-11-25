@@ -82,7 +82,7 @@ public static class Plan
         else
         {
             try { r = planned(); }
-            catch (Exception) { return [new(path, "registers the server" + KeepsCopy)]; }
+            catch (Exception) { return [new(path, "registers the server, or stops at this file if it still cannot be read")]; }
         }
 
         List<Line> lines = [new(path, (r.Did, wrote) switch
@@ -102,10 +102,8 @@ public static class Plan
         return lines;
     }
 
-    private const string KeepsCopy = "  (a copy of the file is kept beside it)";
-
-    /// <summary>The removal's version of the line above: the same file, a copy, the entry taken out.</summary>
-    private const string RemovesEntry = "removes the server entry" + KeepsCopy;
+    /// <summary>The removal plan's line for a host config. That plan reads no config.</summary>
+    private const string RemovesEntry = "if the server entry is in it, removes it and keeps a copy of the file beside it";
 
     /// <summary>Print the plan: a heading per host saying install, upgrade or removal, then one line per
     /// destination.</summary>
@@ -113,7 +111,7 @@ public static class Plan
     {
         bool anyHostInstalled = plans.Any(p => p.Host.Installed);
         bool everyHostUpgrading = plans.Count > 0 && plans.All(p => p.Host.Installed);
-        Ui.Heading(removing ? "This will remove:" : everyHostUpgrading ? "This will replace:" : "This will write:");
+        Ui.Heading(removing ? "This will remove:" : everyHostUpgrading ? "This will install over the present houseCARL:" : "This will install:");
 
         // One path column across every host, so the "what" side reads as a column rather than a ragged edge.
         int pathWidth = plans.SelectMany(p => p.Lines).Select(l => l.Path.Length).DefaultIfEmpty(0).Max();

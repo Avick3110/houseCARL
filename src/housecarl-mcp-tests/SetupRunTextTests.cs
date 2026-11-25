@@ -187,6 +187,43 @@ public sealed class SetupRunTextTests
     }
 
     [Fact]
+    public void AReRunThatChangesNothingDoesNotSayItWritesOrRegisters()
+    {
+        using var box = Box();
+        Setup(box, "--both");
+
+        Ran ran = Setup(box, "--both");
+
+        Assert.DoesNotContain("This will replace", ran.Plan);
+        Assert.DoesNotContain("This will write", ran.Plan);
+        Assert.DoesNotContain("registering", ran.Plan);
+    }
+
+    [Fact]
+    public void AFirstInstallOverAnEntryThatIsThereDoesNotSayItWrites()
+    {
+        using var box = Box();
+        WriteToml(box, SetupProgram.CodexDestExe(box.Home, box.Home), "");
+
+        Assert.DoesNotContain("This will write", Setup(box, "--codex").Plan);
+    }
+
+    [Fact]
+    public void ARemovalPlanDoesNotSayAnEntryIsThere()
+    {
+        using var box = Box();
+        Setup(box, "--both");
+        File.Delete(ClaudeJson(box));
+        SetupInstallerSandbox.WriteFile(Toml(box), "model = \"m\"\n");
+
+        Ran ran = Setup(box, "--uninstall", "--both");
+
+        foreach (string path in new[] { ClaudeJson(box), Toml(box) })
+            Assert.StartsWith("if ", ConfigLine(ran.Plan, path));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(Toml(box))!, "*.bak"));
+    }
+
+    [Fact]
     public void AReplacedEntryIsSaidWithItsCopy()
     {
         using var box = Box();
@@ -309,6 +346,7 @@ public sealed class SetupRunTextTests
 
         Assert.Equal(1, ran.ExitCode);
         Assert.Contains("fully quit", ran.Err);
-        Assert.Contains("registers the server", ran.Out);
+        Assert.Contains("registers", ConfigLine(ran.Out, Toml(box)));
+        Assert.DoesNotContain("copy", ConfigLine(ran.Out, Toml(box)));
     }
 }

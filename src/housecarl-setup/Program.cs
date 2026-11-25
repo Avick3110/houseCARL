@@ -647,7 +647,7 @@ public static class Program
             File.WriteAllLines(ClaudeSkillRecord(home), shipped);
         }
 
-        Ui.Step("Claude Code", "registering the MCP server", claudeJson);
+        Ui.Step("Claude Code", "making sure the MCP server is registered", claudeJson);
         HostConfig.Registration registered = HostConfig.Apply(ClaudeRegistration(home));
         Console.WriteLine();
         return registered;
@@ -702,7 +702,7 @@ public static class Program
             File.WriteAllLines(recordPath, shippedSkills.Concat(prune.Failed));
         }
 
-        Ui.Step("Codex", "registering the MCP server", configToml);
+        Ui.Step("Codex", "making sure the MCP server is registered", configToml);
         HostConfig.Registration registered = HostConfig.Apply(CodexRegistration(home, homeOverride));
         Console.WriteLine();
         return registered;
