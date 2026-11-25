@@ -82,7 +82,7 @@ public static class Plan
         else
         {
             try { r = planned(); }
-            catch (Exception) { return [new(path, "registers the server, or stops at this file if it still cannot be read")]; }
+            catch (Exception) { return [new(path, "registers the server, or stops at this file if setup cannot read it or edit what is in it")]; }
         }
 
         List<Line> lines = [new(path, (r.Did, wrote) switch
