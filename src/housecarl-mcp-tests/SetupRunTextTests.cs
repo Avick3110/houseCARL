@@ -59,6 +59,11 @@ public sealed class SetupRunTextTests
         => SetupInstallerSandbox.WriteFile(ClaudeJson(box),
             new JsonObject { ["mcpServers"] = new JsonObject { ["housecarl"] = entry } }.ToJsonString());
 
+    /// <summary>What the plan or the summary says beside a config's path.</summary>
+    static string ConfigLine(string part, string path)
+        => part.Split(Environment.NewLine).Select(l => l.Trim())
+            .Single(l => l.StartsWith(path + " ", StringComparison.Ordinal))[path.Length..].Trim();
+
     [Fact]
     public void AFirstInstallSaysRegisteredAndNamesTheCopy()
     {
@@ -168,6 +173,27 @@ public sealed class SetupRunTextTests
         Assert.Contains("is kept in config.toml.houseCARL.bak", ran.Summary);
         Assert.DoesNotContain("your settings", ran.Out);
         Assert.DoesNotContain("still turned off", ran.Out);
+    }
+
+    [Theory]
+    [InlineData("\"env\":{\"A\":\"1\"},\"env\":{\"B\":\"2\"}")]
+    [InlineData("\"args\":[],\"args\":[]")]
+    public void AClaudeEntryThatHoldsAKeyTwiceIsSaidReplacedWithItsCopy(string twice)
+    {
+        using var box = Box();
+        SetupInstallerSandbox.WriteFile(ClaudeJson(box),
+            "{\"mcpServers\":{\"housecarl\":{\"type\":\"stdio\",\"command\":\"C:/old/housecarl-mcp.exe\"," + twice + "}}}");
+
+        Ran ran = Setup(box, "--claude");
+
+        Assert.Equal(0, ran.ExitCode);
+        Assert.Contains("replaces", ConfigLine(ran.Plan, ClaudeJson(box)));
+        Assert.Contains("replaced", ConfigLine(ran.Summary, ClaudeJson(box)));
+        foreach (string part in new[] { ran.Plan, ran.Summary })
+        {
+            Assert.Contains(".claude.json.houseCARL.bak", part);
+            Assert.DoesNotContain("your settings", part);
+        }
     }
 
     [Fact]

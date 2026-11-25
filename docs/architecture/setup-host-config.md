@@ -12,7 +12,8 @@ through `HostConfig`, which finds the entry, sets only setup's keys on it, and w
 - Setup's keys are `type` and `command` on the Claude entry and `command` in the Codex table; `args: []` goes only into
   an entry setup creates. Every other key is the user's or the host's and stays. No list of those keys is kept.
 - An entry is setup's when its command's file name is `housecarl-mcp.exe`, wherever the file sits. Any other entry (a
-  wrapper, a `url`, a `command` that is not one single-line string) is replaced whole and the run says so.
+  wrapper, a `url`, a `command` that is not one single-line string, a Claude entry that holds a key twice) is replaced
+  whole and the run says so.
 - In `config.toml` only the bytes of the `command` value change. The table is found however its header is spelled; a line
   inside a multi-line value is never a header or a key, unless the file leaves a bracket or triple quote open.
 - In `~/.claude.json` only the `mcpServers` object is rewritten, and only when setup's keys on the entry change.
