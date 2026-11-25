@@ -262,10 +262,10 @@ public static class HostConfig
     internal const string TomlComment = "# houseCARL MCP server (added by houseCARL-Setup)";
 
     /// <summary>
-    /// The registration of [mcp_servers.<paramref name="name"/>] in a TOML config.toml. On a table that runs
-    /// houseCARL's exe only the value of <c>command</c> changes; every other byte of the file stays. The command
-    /// path is written as a LITERAL TOML string (single quotes) so Windows backslashes pass through verbatim - a
-    /// basic "double-quoted" string would treat them as escapes.
+    /// The registration of [mcp_servers.<paramref name="name"/>] in a TOML config.toml. On a table that is setup's
+    /// only the value of <c>command</c> changes (docs/architecture/setup-host-config.md). The command path is written
+    /// as a LITERAL TOML string (single quotes) so Windows backslashes pass through verbatim - a basic
+    /// "double-quoted" string would treat them as escapes.
     /// </summary>
     internal static Registration ForCodex(string path, string name, string command)
     {
