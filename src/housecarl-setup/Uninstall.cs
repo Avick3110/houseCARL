@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json.Nodes;
 
 namespace HousecarlSetup;
@@ -19,10 +18,10 @@ namespace HousecarlSetup;
 ///                 names and no other, the record itself, and the [mcp_servers.housecarl] table in
 ///                 ~/.codex/config.toml.
 ///
-/// Both config edits are removal splices beside the insert splices on <see cref="Program"/>: the file is copied
-/// to a ".houseCARL.uninstall.bak" first (a name of its own, so the copy the INSTALL took is still there), the
-/// entry is taken out, and every other byte in the file - its BOM, each line's own newline, its trailing state -
-/// is left as it was. An entry that is not in the file is reported as not found; nothing is written and nothing
+/// Both config edits are removal splices beside the registrations on <see cref="HostConfig"/>: the file is copied
+/// to a ".houseCARL.uninstall.bak" first (a name of its own, so the copy the INSTALL took is still there; a copy
+/// already there with other bytes is kept and the new one numbered), the entry is taken out, and every other byte
+/// in the file - its BOM, each line's own newline, its trailing state - is left as it was. An entry that is not in the file is reported as not found; nothing is written and nothing
 /// claims a removal that did not happen.
 ///
 /// ~/.agents/skills is shared with every other agent's skills, so a folder the record does not list is never
@@ -179,7 +178,7 @@ public static class Uninstall
                     dest);
         }
 
-        ConfigEdit json = ConfigEdit.FileMissing;
+        Removal json = new(ConfigEdit.FileMissing);
         if (File.Exists(claudeJson))
         {
             Ui.Step("Claude Code", "removing the MCP server entry", claudeJson);
@@ -188,8 +187,8 @@ public static class Uninstall
         steps.Add(new Step(claudeJson, ConfigDid(json)));
         // Said only when there WAS a houseCARL here: on a host that never had one, a config with no entry is
         // the expected state, not something to point at.
-        if (json == ConfigEdit.NotFound && removedSomething) ReportEntryNotFound(claudeJson);
-        removedSomething |= json == ConfigEdit.Removed;
+        if (json.Edit == ConfigEdit.NotFound && removedSomething) ReportEntryNotFound(claudeJson);
+        removedSomething |= json.Edit == ConfigEdit.Removed;
 
         Console.WriteLine();
         return new HostResult("Claude Code", steps, removedSomething);
@@ -256,15 +255,15 @@ public static class Uninstall
         if (Directory.Exists(dataDir) && !Directory.EnumerateFileSystemEntries(dataDir).Any())
             DeleteEntry(dataDir, keptBack);
 
-        ConfigEdit toml = ConfigEdit.FileMissing;
+        Removal toml = new(ConfigEdit.FileMissing);
         if (File.Exists(configToml))
         {
             Ui.Step("Codex", "removing the MCP server entry", configToml);
             toml = UnregisterCodexMcpServer(configToml, McpServerName);
         }
         steps.Add(new Step(configToml, ConfigDid(toml)));
-        if (toml == ConfigEdit.NotFound && removedSomething) ReportEntryNotFound(configToml);
-        removedSomething |= toml == ConfigEdit.Removed;
+        if (toml.Edit == ConfigEdit.NotFound && removedSomething) ReportEntryNotFound(configToml);
+        removedSomething |= toml.Edit == ConfigEdit.Removed;
 
         Console.WriteLine();
         return new HostResult("Codex", steps, removedSomething);
@@ -272,9 +271,9 @@ public static class Uninstall
 
     private const string McpServerName = "housecarl";
 
-    /// <summary>The suffix of the copy a REMOVAL takes before it edits a config. It is not the install's
-    /// ".houseCARL.bak", so an uninstall never writes over the copy the install took of the file as it was
-    /// before houseCARL was ever in it.</summary>
+    /// <summary>The suffix of the copy a REMOVAL takes before it edits a config, a name of its own so the copies
+    /// the install took and the ones a removal took stay apart. <see cref="HostConfig.CopyName"/> numbers it when
+    /// a copy holding other bytes is already there.</summary>
     internal const string BackupSuffix = ".houseCARL.uninstall.bak";
 
     /// <summary>What a config splice found and did.</summary>
@@ -288,12 +287,16 @@ public static class Uninstall
         Removed,
     }
 
+    /// <summary>What a config splice did, and the copy of the file as it was when it changed one.</summary>
+    internal readonly record struct Removal(ConfigEdit Edit, string? Copy = null);
+
     /// <summary>"1 item" / "3 items" — a count said as a sentence rather than as "item(s)".</summary>
     private static string Count(int n, string noun) => n + " " + noun + (n == 1 ? "" : "s");
 
-    private static string ConfigDid(ConfigEdit edit) => edit switch
+    private static string ConfigDid(Removal removal) => removal.Edit switch
     {
-        ConfigEdit.Removed     => "the server entry removed  (a " + BackupSuffix + " copy was made first)",
+        ConfigEdit.Removed     => "the server entry removed  (the file as it was is kept in "
+                                + Path.GetFileName(removal.Copy) + ")",
         ConfigEdit.NotFound    => "no houseCARL entry was in it, so it was not written to",
         _                      => "the file is not on this machine",
     };
@@ -340,42 +343,11 @@ public static class Uninstall
             detail.ToArray());
     }
 
-    // ---- reading and writing a config without changing what is not ours ----
-
-    /// <summary>Read a config as text, saying whether it carried a UTF-8 BOM. <c>File.ReadAllText</c> eats a BOM
-    /// and <c>File.WriteAllText</c> does not put one back, so a file that had one would lose it on the round
-    /// trip; this pair carries it across.</summary>
-    private static (string Text, bool Bom) ReadTextKeepingBom(string path)
-    {
-        byte[] bytes = File.ReadAllBytes(path);
-        bool bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
-        return (Encoding.UTF8.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0)), bom);
-    }
-
-    /// <summary>Write a config back, with the BOM it had and no other.</summary>
-    private static void WriteTextKeepingBom(string path, string text, bool bom)
-        => File.WriteAllText(path, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: bom));
-
-    /// <summary>Cut text into lines that each KEEP their own terminator, so joining them back gives the original
-    /// bytes: a file mixing CRLF and LF keeps both, and one that ends without a newline still does.</summary>
-    internal static List<string> SplitKeepingNewlines(string text)
-    {
-        List<string> lines = new();
-        int start = 0;
-        for (int i = 0; i < text.Length; i++)
-            if (text[i] == '\n') { lines.Add(text.Substring(start, i - start + 1)); start = i + 1; }
-        if (start < text.Length) lines.Add(text.Substring(start));
-        return lines;
-    }
-
-    /// <summary>One line without its terminator.</summary>
-    private static string LineBody(string line) => line.TrimEnd('\n').TrimEnd('\r');
-
     // ---- ~/.claude.json removal (JSON splice) ------------------------------
 
     /// <summary>
     /// Take mcpServers.<paramref name="name"/> out WITHOUT reparsing the whole file, the mirror of
-    /// <c>RegisterClaudeMcpServer</c>: only the small mcpServers object is parsed and spliced back, so every
+    /// <see cref="HostConfig.ForClaude"/>: only the small mcpServers object is parsed and spliced back, so every
     /// other byte - including the case-differing keys a whole-file parser rejects - is left as it was. Backs the
     /// file up first, and writes nothing at all when there is no entry of ours to take.
     ///
@@ -383,38 +355,28 @@ public static class Uninstall
     /// in a file that never had one, and an empty object left behind is a key the user never wrote. An empty
     /// mcpServers and no mcpServers mean the same thing to the host, so nothing of theirs is lost either way.
     /// </summary>
-    internal static ConfigEdit UnregisterClaudeMcpServer(string claudeJsonPath, string name)
+    internal static Removal UnregisterClaudeMcpServer(string claudeJsonPath, string name)
     {
-        if (!File.Exists(claudeJsonPath)) return ConfigEdit.FileMissing;
+        if (!File.Exists(claudeJsonPath)) return new Removal(ConfigEdit.FileMissing);
 
-        var (text, bom) = ReadTextKeepingBom(claudeJsonPath);
-        if (Program.FindRootMemberObject(text, "mcpServers") is not { } b) return ConfigEdit.NotFound;
+        var (text, encoding) = HostConfig.Read(claudeJsonPath);
+        if (HostConfig.FindRootMemberObject(text, "mcpServers") is not { } b) return new Removal(ConfigEdit.NotFound);
 
-        string objText = text.Substring(b.start, b.end - b.start + 1);
-        JsonObject servers = JsonNode.Parse(objText) as JsonObject
-            ?? throw new InvalidDataException("mcpServers is not a JSON object.");
-        if (!servers.Remove(name)) return ConfigEdit.NotFound; // nothing of ours registered: the file is not touched
+        JsonObject servers = HostConfig.ServersIn(text, b);
+        if (!servers.Remove(name)) return new Removal(ConfigEdit.NotFound); // nothing of ours registered: the file is not touched
 
-        File.Copy(claudeJsonPath, claudeJsonPath + BackupSuffix, overwrite: true);
-        string updated;
-        if (servers.Count == 0)
-        {
-            updated = RemoveRootMember(text, "mcpServers", b);
-        }
-        else
-        {
-            string newObj = Program.Reindent(servers.ToJsonString(Program.Indented),
-                                             Program.LeadingIndentOfLineAt(text, b.start));
-            updated = string.Concat(text.AsSpan(0, b.start), newObj, text.AsSpan(b.end + 1));
-        }
-        WriteTextKeepingBom(claudeJsonPath, updated, bom);
-        return ConfigEdit.Removed;
+        string updated = servers.Count == 0
+            ? RemoveRootMember(text, "mcpServers", b)
+            : HostConfig.WithServers(text, b, servers);
+        string copy = HostConfig.CopyName(claudeJsonPath, BackupSuffix);
+        HostConfig.Write(claudeJsonPath, copy, updated, encoding);
+        return new Removal(ConfigEdit.Removed, copy);
     }
 
     /// <summary>
     /// Cut a root-level <c>"key": { ... }</c> member out of a JSON document, with the line it sits on and the
     /// one comma that separated it from its neighbour - the exact inverse of the block
-    /// <c>RegisterClaudeMcpServer</c> splices in when it creates the member. Nothing else in the file moves.
+    /// <see cref="HostConfig.ForClaude"/> splices in when it creates the member. Nothing else in the file moves.
     /// </summary>
     internal static string RemoveRootMember(string text, string key, (int start, int end) value)
     {
@@ -447,24 +409,21 @@ public static class Uninstall
 
     /// <summary>Take the [mcp_servers.&lt;name&gt;] table out of a TOML config, backing the file up first and
     /// writing nothing when the table is not there.</summary>
-    internal static ConfigEdit UnregisterCodexMcpServer(string configTomlPath, string name)
+    internal static Removal UnregisterCodexMcpServer(string configTomlPath, string name)
     {
-        if (!File.Exists(configTomlPath)) return ConfigEdit.FileMissing;
-        var (text, bom) = ReadTextKeepingBom(configTomlPath);
-        if (RemoveTomlTable(text, name) is not { } updated) return ConfigEdit.NotFound;
-        File.Copy(configTomlPath, configTomlPath + BackupSuffix, overwrite: true);
-        WriteTextKeepingBom(configTomlPath, updated, bom);
-        return ConfigEdit.Removed;
+        if (!File.Exists(configTomlPath)) return new Removal(ConfigEdit.FileMissing);
+        var (text, encoding) = HostConfig.Read(configTomlPath);
+        if (RemoveTomlTable(text, name) is not { } updated) return new Removal(ConfigEdit.NotFound);
+        string copy = HostConfig.CopyName(configTomlPath, BackupSuffix);
+        HostConfig.Write(configTomlPath, copy, updated, encoding);
+        return new Removal(ConfigEdit.Removed, copy);
     }
 
     /// <summary>
     /// Drop the [mcp_servers.&lt;name&gt;] table and any of its subtables, the mirror of
-    /// <c>SpliceTomlTable</c>, or null when the file carries no such table. Line-based, and each line keeps its
-    /// own terminator, so the file's newline style, mixed or not, and its trailing state are what they were.
-    ///
-    /// The table body ends at the LAST line in it that is neither blank nor a comment. TOML attaches a comment
-    /// to the table under it, so blank lines and comments between our last key and the next header are the next
-    /// table's, not ours, and they stay.
+    /// <see cref="HostConfig.ForCodex"/>, or null when the file carries no such table. Line-based, and each line
+    /// keeps its own terminator, so the file's newline style, mixed or not, and its trailing state are what they
+    /// were. Blank lines and comments between our last key and the next header are the next table's, and stay.
     ///
     /// A table the insert APPENDED to the end of the file was written after a blank line, and one it wrote into
     /// a file it created was written under a comment line. Those go with the table when the table is last in the
@@ -473,108 +432,19 @@ public static class Uninstall
     /// </summary>
     internal static string? RemoveTomlTable(string text, string name)
     {
-        List<string> lines = SplitKeepingNewlines(text);
+        TomlFile toml = new(text);
+        if (toml.FindTable(name) is not { } table) return null;
+        List<string> lines = toml.Lines;
 
-        int head = -1;
-        for (int i = 0; i < lines.Count && head < 0; i++)
-            if (HeaderOf(lines[i], name) == HeaderKind.Ours) head = i;
-        if (head < 0) return null;
-
-        int last = head;
-        for (int j = head + 1; j < lines.Count; j++)
-        {
-            string body = LineBody(lines[j]).Trim();
-            if (body.StartsWith("[") && HeaderOf(lines[j], name) is not HeaderKind.Ours and not HeaderKind.OurSub) break;
-            if (body.Length > 0 && !body.StartsWith("#")) last = j;
-        }
-
-        int first = head;
-        bool lastInFile = !lines.Skip(last + 1).Any(l => LineBody(l).Trim().Length > 0);
+        int first = table.Head;
+        bool lastInFile = !lines.Skip(table.Last + 1).Any(l => TomlFile.LineBody(l).Trim().Length > 0);
         if (lastInFile)
         {
-            while (first > 0 && LineBody(lines[first - 1]).Trim().Length == 0) first--;
-            if (first > 0 && LineBody(lines[first - 1]).Trim() == Program.TomlComment) first--;
+            while (first > 0 && TomlFile.LineBody(lines[first - 1]).Trim().Length == 0) first--;
+            if (first > 0 && TomlFile.LineBody(lines[first - 1]).Trim() == HostConfig.TomlComment) first--;
         }
 
-        lines.RemoveRange(first, last - first + 1);
+        lines.RemoveRange(first, table.Last - first + 1);
         return string.Concat(lines);
-    }
-
-    /// <summary>What a line is to the table being removed.</summary>
-    private enum HeaderKind
-    {
-        /// <summary>Not a table header at all.</summary>
-        None,
-        /// <summary>[mcp_servers.&lt;name&gt;], however it is spelled.</summary>
-        Ours,
-        /// <summary>A subtable of ours, which the install's table can carry.</summary>
-        OurSub,
-        /// <summary>Somebody else's table, which ends our body.</summary>
-        Other,
-    }
-
-    /// <summary>
-    /// Read a line as a table header. TOML spells one key several ways - <c>[mcp_servers.housecarl]</c>,
-    /// <c>[mcp_servers."housecarl"]</c>, <c>[mcp_servers . housecarl]</c> - and Codex accepts a config written
-    /// any of them, so a match on the exact string the install writes would leave a hand-written entry in place
-    /// while the run said it was removed.
-    /// </summary>
-    private static HeaderKind HeaderOf(string line, string name)
-    {
-        string t = StripComment(LineBody(line)).Trim();
-        if (t.Length < 2 || t[0] != '[' || t[^1] != ']') return HeaderKind.None;
-        if (t.StartsWith("[[")) return HeaderKind.Other; // an array of tables is never ours
-
-        List<string>? parts = SplitTomlKey(t[1..^1]);
-        if (parts is null || parts.Count < 2) return HeaderKind.Other;
-        if (parts[0] != "mcp_servers" || parts[1] != name) return HeaderKind.Other;
-        return parts.Count == 2 ? HeaderKind.Ours : HeaderKind.OurSub;
-    }
-
-    /// <summary>Cut a trailing <c># comment</c> off a line, leaving a '#' inside a quoted key where it is.</summary>
-    private static string StripComment(string line)
-    {
-        char quote = '\0';
-        for (int i = 0; i < line.Length; i++)
-        {
-            char c = line[i];
-            if (quote != '\0') { if (c == quote) quote = '\0'; }
-            else if (c == '"' || c == '\'') quote = c;
-            else if (c == '#') return line[..i];
-        }
-        return line;
-    }
-
-    /// <summary>Split a dotted TOML key into its parts, bare or quoted, or null when it does not parse as one.</summary>
-    private static List<string>? SplitTomlKey(string inner)
-    {
-        List<string> parts = new();
-        int i = 0;
-        while (true)
-        {
-            while (i < inner.Length && char.IsWhiteSpace(inner[i])) i++;
-            string part;
-            if (i < inner.Length && (inner[i] == '"' || inner[i] == '\''))
-            {
-                char q = inner[i++];
-                int s = i;
-                while (i < inner.Length && inner[i] != q) i++;
-                if (i >= inner.Length) return null; // unterminated quote
-                part = inner[s..i];
-                i++;
-            }
-            else
-            {
-                int s = i;
-                while (i < inner.Length && inner[i] != '.') i++;
-                part = inner[s..i].TrimEnd();
-            }
-            if (part.Length == 0) return null;
-            parts.Add(part);
-            while (i < inner.Length && char.IsWhiteSpace(inner[i])) i++;
-            if (i >= inner.Length) return parts;
-            if (inner[i] != '.') return null;
-            i++;
-        }
     }
 }
