@@ -64,7 +64,10 @@ REMOVING HOUSECARL
   Claude's and Codex's config files -- a config that holds the entry is
   copied beside it first, to a  .houseCARL.uninstall.bak , numbered
   ( .houseCARL.uninstall.2.bak ) when that name already holds an
-  earlier, different copy, and nothing else in either file is changed.
+  earlier, different copy. Nothing else in either file changes, except
+  the  mcpServers  list in Claude's: the servers that stay in it keep
+  the same values but may be spaced or escaped differently, and the
+  list goes too when houseCARL was the only one.
   Anything you put in those folders yourself stays, and the run names
   it. The MO2 folder you set is stored beside the server, so it goes
   too. The patches houseCARL wrote live in your MO2 mods folder and are
