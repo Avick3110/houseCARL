@@ -203,6 +203,7 @@ public static class CopyTools
             }
             sb.Append(WriteSentences.CopyStripConsequence).Append('\n');
         }
+        if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         return sb.ToString().TrimEnd();
     }
 

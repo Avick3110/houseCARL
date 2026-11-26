@@ -21,6 +21,7 @@
     "housecarl_create",
     "housecarl_create_plugin",
     "housecarl_decompile_script",
+    "housecarl_esl_flag",
     "housecarl_forward",
     "housecarl_layer",
     "housecarl_load_order_status",

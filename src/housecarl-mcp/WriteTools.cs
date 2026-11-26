@@ -5,9 +5,10 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>The plugin-level write tools — create a header-only plugin, compact a plugin's FormIDs, merge plugins into
-/// one — each taking a whole plugin FILE as its subject, riding its own core builder rather than the record-edit path,
-/// and writing a NEW plugin except on compact's <c>in_place=</c> lane.
+/// <summary>The plugin-level write tools — create a header-only plugin, set a houseCARL patch's light flag, compact a
+/// plugin's FormIDs, merge plugins into one — each taking a whole plugin FILE as its subject, riding its own core builder
+/// rather than the record-edit path, and writing a NEW plugin except on compact's <c>in_place=</c> lane and the flag,
+/// which rewrites the houseCARL patch it names.
 /// <para>The RENDER helpers every write tool calls are the other half of this class, in WriteTextRender.cs.</para></summary>
 [McpServerToolType]
 public static partial class WriteTools
@@ -38,6 +39,29 @@ public static partial class WriteTools
         return ToolAnswer.Outcome(outcome.Success, RenderCreatePlugin(outcome));
     });
 
+    [McpServerTool(Name = ToolNames.EslFlag, Title = "Flag a houseCARL patch light (ESL), or clear the flag"),
+     Description(
+         "Set the light (ESL) flag on one houseCARL patch when you have finished building it, so it takes no full " +
+         "load-order slot; moves no FormID, so FaceGen, voice, .seq files and plugins that reference it keep working. " +
+         "Refused, with nothing written, when a record the patch defines sits outside the light window (0x800–0xFFF, or " +
+         "0x001–0xFFF for a 1.71 header with a master) or the patch adds a new worldspace; a new interior cell is flagged " +
+         "with a note naming SSE Engine Fixes 7.0.13. Only houseCARL's own patches (the ones into= reaches): for any other " +
+         "plugin, tick ESL in xEdit's file header. esl=false clears the flag, rebuilding the patch as a full plugin with " +
+         "every FormID kept, which is how a light patch keeps growing past 0xFFF.")]
+    public static string EslFlag(
+        LoadOrderService svc,
+        [Description("The houseCARL patch, named the way into= names it (e.g. 'MyPatch.esp', or its mod folder).")]
+            string source,
+        [Description("Default true: set the light flag. false: clear it, so the patch becomes a full plugin with every FormID as it is.")]
+            bool esl = true) => Guard.Tool(ToolNames.EslFlag, call =>
+    {
+        if (svc.ConfigPromptOrNull() is { } prompt) return ToolAnswer.Refusal(prompt);
+        if (string.IsNullOrWhiteSpace(source))
+            return ToolAnswer.Refusal("error: source is empty. Name the houseCARL patch to flag (e.g. 'MyPatch.esp').");
+        var outcome = svc.SetLightFlag(source, esl);
+        return ToolAnswer.Outcome(outcome.Success, RenderEslFlag(outcome));
+    });
+
     [McpServerTool(Name = ToolNames.CompactPlugin, Title = "Compact / ESL-renumber a plugin's FormIDs"),
      Description(
          "Compact a plugin's FormIDs, the data-layer twin of xEdit's \"Compact FormIDs for ESL\". Renumbers every record " +
@@ -47,7 +71,7 @@ public static partial class WriteTools
          "voice files keyed to a renumbered record are carried beside the output, and a .seq is rebuilt from the output when " +
          "the source shipped one; the report says what was carried.\n\n" +
          "References compiled into Papyrus scripts (hardcoded FormIDs, GetFormFromFile) are not remapped: verify scripted " +
-         "records after compacting.")]
+         "records after compacting. To flag a houseCARL patch light without renumbering anything, use " + ToolNames.EslFlag + ".")]
     public static string CompactPlugin(
         LoadOrderService svc,
         [Description("The plugin filename to compact (e.g. 'CoolMod.esp'). It need not be active: a plugin not in the load order (a patch not yet enabled, one in a disabled mod) is found on disk by filename and compacted off-order. Either way its declared masters must be active. The output keeps this exact basename.")]

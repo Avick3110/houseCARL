@@ -583,34 +583,35 @@ public sealed partial class LoadOrderService : IDisposable, IAssetHost, ICheckHo
 
     internal RecordChecks CheckArea => _checks;   // the checks area instance, for tests that set its seams
 
-    // The writes area's tool-facing surface; the bodies are in RecordWrites.cs, RecordCopy.cs, RecordCreates.cs, RecordReshape.cs and WriteMappers.cs.
+    // The writes area's tool-facing surface; the bodies are in RecordWrites.cs, RecordCopy.cs, RecordCreates.cs, RecordReshape.cs, RecordLightFlag.cs and WriteMappers.cs.
     public WritePatchBuilder.PatchOutcome ApplyEdits(IReadOnlyList<BulkOp> ops, string? patchName, string? into,
         bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
         bool dryRun = false, IReadOnlyList<string?>? fromRecords = null, IReadOnlyList<string?>? opOrigins = null)
-        => _writes.ApplyEdits(ops, patchName, into, fullReadback, target, inPlace, acknowledge, dryRun, fromRecords, opOrigins);
+        => RecordWrites.WithLightOffer(_writes.ApplyEdits(ops, patchName, into, fullReadback, target, inPlace, acknowledge, dryRun, fromRecords, opOrigins));
     public WritePatchBuilder.RemovalOutcome RemoveRecords(IReadOnlyList<string> formids, string? patch,
         string? target = null, bool inPlace = false, bool acknowledge = false)
-        => _writes.RemoveRecords(formids, patch, target, inPlace, acknowledge);
+        => RecordWrites.WithLightOffer(_writes.RemoveRecords(formids, patch, target, inPlace, acknowledge));
     public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into,
         bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
         bool dryRun = false)
-        => _writes.ForwardRecords(formids, fromPlugin, patchName, into, fullReadback, target, inPlace, acknowledge, dryRun);
+        => RecordWrites.WithLightOffer(_writes.ForwardRecords(formids, fromPlugin, patchName, into, fullReadback, target, inPlace, acknowledge, dryRun));
     public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
         string? target = null, bool inPlace = false, bool acknowledge = false, bool replace = false)
-        => _writes.CreateRecordsBatch(records, patchName, into, fullReadback, target, inPlace, acknowledge, replace);
+        => RecordWrites.WithLightOffer(_writes.CreateRecordsBatch(records, patchName, into, fullReadback, target, inPlace, acknowledge, replace));
     public WritePatchBuilder.CreatePluginOutcome CreatePlugin(string pluginName, bool esl = false, string? author = null, string? description = null)
         => _writes.CreatePlugin(pluginName, esl, author, description);
     public WritePatchBuilder.CompactOutcome CompactPlugin(
         string pluginName, bool esl = true, bool inPlace = false, bool repointExternals = false,
         bool acknowledge = false, string? patchName = null)
         => _writes.CompactPlugin(pluginName, esl, inPlace, repointExternals, acknowledge, patchName);
+    public LightFlag.SetOutcome SetLightFlag(string source, bool light) => _writes.SetLightFlag(source, light);
     public WritePatchBuilder.MergeOutcome MergePlugins(IReadOnlyList<string>? plugins, string? patch) => _writes.MergePlugins(plugins, patch);
     internal ClosureCopyOutcome CopyClosure(
         FormKey sourceKey, IReadOnlyList<string> sourcePoles,
         IReadOnlyList<string> seedPaths, IReadOnlyList<WalkExclusion> exclusions,
         FormKey? targetKey, string? newEditorid,
         string? patchName, string? into)
-        => _writes.CopyClosure(sourceKey, sourcePoles, seedPaths, exclusions, targetKey, newEditorid, patchName, into);
+        => RecordWrites.WithLightOffer(_writes.CopyClosure(sourceKey, sourcePoles, seedPaths, exclusions, targetKey, newEditorid, patchName, into));
 
     internal RecordWrites WriteArea => _writes;   // the writes area instance, for tests that reach its seams
     internal bool GateHeldByThisThread => Monitor.IsEntered(_gate);   // for a test seam that must know whether it runs inside the hold

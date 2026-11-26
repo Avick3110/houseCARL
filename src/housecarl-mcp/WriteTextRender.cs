@@ -393,6 +393,31 @@ static partial class WriteTools
         return sb.ToString();
     }
 
+    /// <summary>Confirmation for housecarl_esl_flag: the flag as re-read, the records it covers, and the cell note.</summary>
+    static string RenderEslFlag(LightFlag.SetOutcome o)
+    {
+        if (!o.Success) return "error: " + o.Error;
+        var file = Path.GetFileName(o.OutputPath);
+        var fit = o.Fit!;
+        var span = fit.Highest is { } h ? $", the highest at 0x{h:X3}" : "";
+        var sb = new StringBuilder();
+        if (!o.Changed)
+            return o.Light
+                ? $"'{file}' is already light (ESL); nothing was written."
+                : $"'{file}' is already a full plugin (not light); nothing was written.";
+        sb.Append(o.Light ? "flagged " : "rebuilt ").Append(file).Append(o.Light ? " light (ESL)" : " as a full plugin (light flag cleared)")
+          .Append(" in its houseCARL folder (").Append(o.Bytes).Append(" bytes); no FormID moved: its ")
+          .Append(fit.Own).Append(fit.Own == 1 ? " own record keeps its id" : " own records keep their ids").Append(span).Append(".\n");
+        sb.Append("mod folder: ").Append(Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "")).Append('\n');
+        sb.Append(WriteSentences.Masters(o.Masters));
+        sb.Append(o.Light
+            ? "it now takes no full load-order slot; a later write into it that would pass 0x"
+              + fit.High.ToString("X3") + " is refused with the way to rebuild it full."
+            : "it now takes a full load-order slot, and writes into it can go past 0x" + fit.High.ToString("X3") + ".");
+        if (o.Light && LightFlag.InteriorCellNote(fit) is { } cell) sb.Append("\nnote: ").Append(cell);
+        return sb.ToString();
+    }
+
     /// <summary>Confirmation for housecarl_compact_plugin: where it landed, the record accounting, masters, the
     /// external-referencer verdict, the pass coverage, the script reminder; NeedsAcknowledge returns verbatim.</summary>
     internal static string RenderCompact(WritePatchBuilder.CompactOutcome o)   // internal: a test renders a failure outcome to check the SEQ WARN reaches user output

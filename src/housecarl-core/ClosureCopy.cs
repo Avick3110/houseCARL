@@ -582,6 +582,9 @@ public sealed record ClosureCopyOutcome(
     IReadOnlyList<string> Masters, bool SourceAmongMasters, bool NothingBound,
     long Bytes, string? ReadBackWarning)
 {
+    /// <summary>A closing line for a successful copy, such as the light offer; null when there is none.</summary>
+    public string? Note { get; init; }
+
     static readonly IReadOnlyList<CopiedRecord> NoRecords = Array.Empty<CopiedRecord>();
     static readonly IReadOnlyList<StripEntry> NoEntries = Array.Empty<StripEntry>();
     static readonly IReadOnlyList<string> NoStrings = Array.Empty<string>();

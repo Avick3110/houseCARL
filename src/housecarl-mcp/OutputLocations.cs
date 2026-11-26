@@ -699,6 +699,16 @@ internal sealed class OutputLocations
         return null;
     }
 
+    /// <summary>Does <paramref name="into"/> reach no houseCARL-owned folder by any of <see cref="ResolveOwnedPatchFolder"/>'s
+    /// arms? True means the plugin it names is not a houseCARL patch, as opposed to one the resolver found but could not pick.</summary>
+    internal static bool ReachesNoOwnedFolder(Mo2Roots roots, string into)
+    {
+        var stem = PatchStem(into);
+        var canonical = LooseListings.OnDisk(roots.ModsDir, ModFolderName(stem));
+        if (Directory.Exists(canonical) && IsHouseCarlOwned(canonical)) return false;
+        return OwnedFoldersHolding(roots, stem + ".esp").Count == 0 && ResolveOwnedFolderByName(roots, into) is null;
+    }
+
     /// <summary>A mod folder is houseCARL-owned iff its <c>meta.ini</c> carries the marker; fail-safe, so a missing or stripped one reads as NOT owned. Ownership contract in docs/architecture/output-and-artifacts.md.</summary>
     static bool IsHouseCarlOwned(string folder) => HousecarlOwnerMeta.MarksOwned(folder);
 
