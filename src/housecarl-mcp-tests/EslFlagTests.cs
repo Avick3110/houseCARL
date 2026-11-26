@@ -102,6 +102,38 @@ public sealed class EslFlagTests
         Assert.Equal(before, File.ReadAllBytes(w.OverrideFile));
     }
 
+    // a houseCARL folder holding two plugins is houseCARL's: the resolver's own refusal, not "not a houseCARL patch"
+    [Fact]
+    public void AnOwnedFolderWithTwoPluginsKeepsTheResolversRefusal()
+    {
+        using var w = new RecordsWorld();
+        var a = NewPatch(w, "HcLfTwo", Kw("HcLfTwoKw"));
+        File.Copy(a, Path.Combine(Path.GetDirectoryName(a)!, "HcLfTwoB.esp"));
+
+        var r = WriteTools.EslFlag(w.Svc, source: "houseCARL - HcLfTwo");
+
+        Assert.StartsWith("error: cannot extend", r);
+        Assert.DoesNotContain("not a houseCARL patch", r);
+    }
+
+    // two houseCARL folders holding the same plugin: ambiguous, said as such
+    [Fact]
+    public void APluginTwoOwnedFoldersHoldIsAmbiguousNotForeign()
+    {
+        using var w = new RecordsWorld();
+        var a = NewPatch(w, "HcLfDup", Kw("HcLfDupKw"));
+        var other = Path.Combine(w.ModsDir, "HcLfDup Copy");
+        Directory.CreateDirectory(other);
+        File.Copy(a, Path.Combine(other, "HcLfDup.esp"));
+        File.Copy(Path.Combine(Path.GetDirectoryName(a)!, "meta.ini"), Path.Combine(other, "meta.ini"));
+        Directory.Move(Path.GetDirectoryName(a)!, Path.Combine(w.ModsDir, "HcLfDup Renamed"));
+
+        var r = WriteTools.EslFlag(w.Svc, source: "HcLfDup.esp");
+
+        Assert.Contains("ambiguous", r);
+        Assert.DoesNotContain("not a houseCARL patch", r);
+    }
+
     // a new worldspace refuses: its landscape is lost when light; and a write into such a patch makes no offer
     [Fact]
     public void APatchWithANewWorldspaceIsRefusedAndIsNotOffered()
@@ -161,7 +193,7 @@ public sealed class EslFlagTests
         var over = w.Svc.CreateRecordsBatch(new[] { Kw("HcLfOver") }, null, "HcLfGrow.esp");
 
         Assert.False(over.Success);
-        Assert.Contains("holds its own records only at", over.Error);
+        Assert.StartsWith("houseCARL did not write 'HcLfGrow.esp'", over.Error);   // the whole sentence, no serialize lead before it
         Assert.Contains($"{ToolNames.EslFlag} source=\"HcLfGrow.esp\" esl=false", over.Error);
         Assert.Equal(before, File.ReadAllBytes(path));
 

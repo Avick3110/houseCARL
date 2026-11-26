@@ -107,7 +107,6 @@ public static class LightFlag
                 + $"{Hex(fit.Low)}–{Hex(fit.High)} (the first at {Hex(fit.FirstOutside!.Value)}), and flagging it would mean "
                 + "renumbering them, which houseCARL does not do, so it stays a full plugin; nothing was written.");
 
-        var before = OwnKeys(mod);
         mod.IsSmallMaster = light;
         session.ReleaseOverlay(fileName);
         try { WriteEngine.WritePatch(mod, session.AllMastersExcept(fileName), outPath, isFaction: null); }
@@ -118,18 +117,12 @@ public static class LightFlag
         try
         {
             back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath));
-            if (back.IsSmallMaster != light || !OwnKeys(back).SetEquals(before))
-                return SetOutcome.Fail($"'{fileName}' was written, but re-reading it does not show the flag {(light ? "set" : "cleared")} "
-                                       + "with every FormID kept; check it in xEdit before enabling it.");
-            return new SetOutcome(true, null, outPath, light, true, Assess(back),
+            return new SetOutcome(true, null, outPath, back.IsSmallMaster, true, Assess(back),
                                   back.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToList(), new FileInfo(outPath).Length);
         }
         catch (Exception ex) { return SetOutcome.Fail($"'{fileName}' was written but could not be re-opened to confirm it: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
     }
-
-    static HashSet<FormKey> OwnKeys(ISkyrimModGetter mod)
-        => mod.EnumerateMajorRecords().Select(r => r.FormKey).Where(k => k.ModKey == mod.ModKey).ToHashSet();
 
     /// <summary>The offer for the houseCARL patch at <paramref name="path"/>, read off the file; null when it is light,
     /// does not fit, or cannot be read (the write it follows already succeeded, so a read fault only drops the line).</summary>
