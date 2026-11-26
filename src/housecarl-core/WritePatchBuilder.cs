@@ -1594,6 +1594,8 @@ public static class WritePatchBuilder
             if (b is LocalizedTargetUnsupportedException lt) return lt.Message;
             // And the same for a value the target's encoding cannot spell; the exception's message is the whole sentence.
             if (b is UnspellableTextException ut) return ut.Message;
+            // And for a light patch this write would take past its window, whose message carries the rebuild.
+            if (b is LightWindowExceededException lw) return lw.Message;
         }
         var body = lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session);
         if (trailer.Length == 0) return body;

@@ -1277,6 +1277,9 @@ public static class WriteEngine
         // FORMID FLOOR: NoNextFormIDProcessing persists our in-memory counter verbatim instead of re-deriving it by
         // iteration, and EnsureFormIdFloor is what makes that counter conventional. Every product write comes here.
         EnsureFormIdFloor(patchMod);
+        // A light patch this write would take past its window: refused in full here, before anything is staged.
+        if (patchMod.IsSmallMaster && LightFlag.Assess(patchMod) is { Outside: > 0 } over)
+            throw new LightWindowExceededException(LightFlag.GrowthRefusal(expected, over));
         // ATOMIC WRITE: stage into a sibling temp and commit, so the target only ever holds the OLD or the NEW
         // complete file; it does not relax the handle discipline before the serialize.
         // SERIALIZE-BOUNDARY NULL-ARM CATCH: a composed record missing a REQUIRED sub-arm is a bare, field-nameless

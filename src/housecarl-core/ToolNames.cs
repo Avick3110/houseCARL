@@ -17,6 +17,7 @@ public static class ToolNames
     public const string Create = "housecarl_create";
     public const string CreatePlugin = "housecarl_create_plugin";
     public const string DecompileScript = "housecarl_decompile_script";
+    public const string EslFlag = "housecarl_esl_flag";
     public const string Forward = "housecarl_forward";
     public const string Layer = "housecarl_layer";
     public const string LoadOrderStatus = "housecarl_load_order_status";
