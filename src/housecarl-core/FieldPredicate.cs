@@ -1156,7 +1156,7 @@ public sealed class FieldPredicateSet
         switch (p.Op)
         {
             case Op.Has or Op.HasAny or Op.HasNone:
-                return CompareHas(p, token, flags);
+                return CompareHas(p, leaf);
 
             case Op.Gt or Op.Ge or Op.Lt or Op.Le:
                 // A [Flags] enum compares on its underlying numeric value; a non-numeric, non-flags field is the typed FatalError.
@@ -1190,10 +1190,10 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>The bitwise set-test (<c>has</c>): true iff every bit of the operand is set on the field, other bits free.</summary>
-    static (bool satisfied, string? error) CompareHas(Predicate p, string token, ReadEngine.FlagBits? flags)
+    static (bool satisfied, string? error) CompareHas(Predicate p, ReadEngine.LeafRead leaf)
     {
         ulong leafBits, opBits = 0;
-        if (flags is { } fi)
+        if (leaf.Flags is { } fi)
         {
             leafBits = fi.Bits;
             var r = ResolveBits(p.Operand, fi.EnumType, fi.Remainder);
@@ -1203,8 +1203,9 @@ public sealed class FieldPredicateSet
                                                                          : $"is not a bit value or a valid {fi.EnumType.Name} flag name")) + ".");
             opBits = r.Bits;
         }
-        else if (TryBits(token, out leafBits))   // a plain integer leaf — bit-test its numeric value
+        else if (leaf.IntBits is { } ib)   // a plain integer leaf — bit-test its bits, a negative one included
         {
+            leafBits = ib;
             foreach (var value in HasOperandMembers(p.Operand))
             {
                 if (!TryBits(value, out var b))
@@ -1213,7 +1214,7 @@ public sealed class FieldPredicateSet
             }
         }
         else
-            return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' needs a flags/bitmask or integer field, but '{p.PathDisplay}' read '{Trunc(token)}', not a number.");
+            return (false, $"predicate '{p.Text}': '{OpStr(p.Op)}' needs a flags/bitmask or integer field, but '{p.PathDisplay}' is not one: it read '{Trunc(leaf.Token)}'.");
 
         if (opBits == 0)
             return (false, $"predicate '{p.Text}': '{OpStr(p.Op)} {p.Operand}' tests no bits — give a non-zero bit value or a flag name.");

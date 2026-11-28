@@ -24,9 +24,12 @@ path walk, and containment comes off Mutagen's context walk.
 - The operators: `=` and `!=` compare across that whole token vocabulary; `>` `>=` `<` `<=` are
   numeric-only; `contains` and `startswith` are case-insensitive substring and prefix; `has`,
   `has_any` and `has_none` are BITWISE set-tests over a `[Flags]` enum or plain integer leaf — every
-  bit of the operand set, at least one set, none set — which `=` (exact value) and the range ops
-  cannot express, and whose operand is a bit value or a flag name, or several split the way an `in`
-  list splits with the flags decode's `|` as a separator too (`[Body, Hands]` = `Body, Hands` =
+  bit of the operand set, at least one set, none set — on the leaf's bits at its own width, which
+  `ReadEngine.EmitToken` carries beside the token (`LeafRead.IntBits`), so a signed leaf holding a
+  negative value (`MajorRecordFlagsRaw` with bit 31 set reads `-2147482624`) is tested on its bits
+  and an operand bit above the width is never set; a leaf with no integer value (a string, a float)
+  is refused. They express what `=` (exact value) and the range ops cannot, and their operand is
+  a bit value or a flag name, or several split the way an `in` list splits with the flags decode's `|` as a separator too (`[Body, Hands]` = `Body, Hands` =
   `Body | Hands`), and the decode's `slotNN` (biped) or `bitN` token for an unnamed bit; `=` and `!=`
   on a flags leaf resolve the same spellings, once per operand and enum. On `SkyrimMajorRecordFlags`
   of a record type with its own `MajorFlag`, `has`, `=`, `!=`, `in` and `not in` all take the read's
