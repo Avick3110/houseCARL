@@ -1037,7 +1037,7 @@ public static class ReadEngine
         try
         {
             var prim = Convert.ChangeType(val, Enum.GetUnderlyingType(enumType), CultureInfo.InvariantCulture);
-            bits = IntegerBits(prim) ?? Convert.ToUInt64(prim, CultureInfo.InvariantCulture);
+            bits = IntegerBits(prim)!.Value;   // an enum's underlying type is always an integer
             return true;
         }
         catch { return false; }
