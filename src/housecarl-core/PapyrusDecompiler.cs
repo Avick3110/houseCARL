@@ -33,15 +33,15 @@ public sealed class PapyrusDecompiler
     sealed record EBin(string Op, Expr L, Expr R) : Expr;
     sealed record EUn(string Op, Expr E) : Expr;
     sealed record ECast(Expr E, string Type) : Expr;
-    sealed record ECall(Expr? Target, string Name, List<Expr> Args) : Expr;          // Target null => self
-    sealed record EStatic(string Cls, string Name, List<Expr> Args) : Expr;
-    sealed record EParent(string Name, List<Expr> Args) : Expr;
+    // Omitted: the trailing raw-null arguments the call passes beyond Args (#1458).
+    sealed record ECall(Expr? Target, string Name, List<Expr> Args, int Omitted) : Expr;   // Target null => self
+    sealed record EStatic(string Cls, string Name, List<Expr> Args, int Omitted) : Expr;
+    sealed record EParent(string Name, List<Expr> Args, int Omitted) : Expr;
     sealed record EProp(Expr? Obj, string Name) : Expr;                              // Obj null => self
     sealed record EIndex(Expr Arr, Expr Idx) : Expr;
     sealed record ELen(Expr Arr) : Expr;
     sealed record ENew(string ElemType, Expr Size) : Expr;
     sealed record EFind(Expr Arr, Expr Val, Expr Start, bool Reverse) : Expr;
-    sealed record EOmitted(int Count) : Expr;                                        // last call arg: trailing raw nulls not shown
 
     static int Prec(Expr e) => e switch
     {
@@ -67,9 +67,9 @@ public sealed class PapyrusDecompiler
         EUn u => u.Op + Wrap(u.E, 7),
         // `as` binds tighter than a binary operator, so a binop operand keeps its own parens.
         ECast c => $"({(c.E is EBin ? "(" + Render(c.E) + ")" : Render(c.E))} as {c.Type})",
-        ECall c => (c.Target is null ? "" : Postfix(c.Target) + ".") + c.Name + "(" + RenderArgs(c.Args) + ")",
-        EStatic s => $"{s.Cls}.{s.Name}(" + RenderArgs(s.Args) + ")",
-        EParent p => $"Parent.{p.Name}(" + RenderArgs(p.Args) + ")",
+        ECall c => (c.Target is null ? "" : Postfix(c.Target) + ".") + c.Name + "(" + RenderArgs(c.Args, c.Omitted) + ")",
+        EStatic s => $"{s.Cls}.{s.Name}(" + RenderArgs(s.Args, s.Omitted) + ")",
+        EParent p => $"Parent.{p.Name}(" + RenderArgs(p.Args, p.Omitted) + ")",
         // Self-property access keeps the explicit Self. prefix: a bare auto-property name compiles to the backing var.
         EProp p => p.Obj is null ? $"Self.{p.Name}" : $"{Postfix(p.Obj)}.{p.Name}",
         EIndex x => $"{Postfix(x.Arr)}[{Render(x.Idx)}]",
@@ -81,11 +81,11 @@ public sealed class PapyrusDecompiler
     };
 
     /// <summary>The shown arguments, then an inline block comment naming each trailing raw null left out (#1458).</summary>
-    static string RenderArgs(List<Expr> args)
+    static string RenderArgs(List<Expr> args, int omitted)
     {
-        var shown = string.Join(", ", args.Where(x => x is not EOmitted).Select(Render));
-        if (args.LastOrDefault() is not EOmitted o) return shown;
-        var marker = $";/ +{o.Count} omitted: {string.Join(", ", Enumerable.Repeat("None", o.Count))} /;";
+        var shown = string.Join(", ", args.Select(Render));
+        if (omitted == 0) return shown;
+        var marker = $";/ +{omitted} omitted: {string.Join(", ", Enumerable.Repeat("None", omitted))} /;";
         return shown.Length == 0 ? marker : shown + " " + marker;
     }
 
@@ -1025,24 +1025,24 @@ public sealed class PapyrusDecompiler
                     var name = StrName(a[0]);
                     var obj = Resolve(a[1]);
                     var dest = IdName(a[2]);
-                    var args = CallArgs(a, 3);
-                    var call = new ECall(IsSelf(obj) ? null : obj, name, args);
+                    var (args, omitted) = CallArgs(a, 3);
+                    var call = new ECall(IsSelf(obj) ? null : obj, name, args, omitted);
                     return (DestOrDiscard(dest), call);
                 }
                 case InstructionOpcode.CALLPARENT:
                 {
                     var name = StrName(a[0]);
                     var dest = IdName(a[1]);
-                    var args = CallArgs(a, 2);
-                    return (DestOrDiscard(dest), new EParent(name, args));
+                    var (args, omitted) = CallArgs(a, 2);
+                    return (DestOrDiscard(dest), new EParent(name, args, omitted));
                 }
                 case InstructionOpcode.CALLSTATIC:
                 {
                     var cls = StrName(a[0]);
                     var name = StrName(a[1]);
                     var dest = IdName(a[2]);
-                    var args = CallArgs(a, 3);
-                    return (DestOrDiscard(dest), new EStatic(cls, name, args));
+                    var (args, omitted) = CallArgs(a, 3);
+                    return (DestOrDiscard(dest), new EStatic(cls, name, args, omitted));
                 }
 
                 case InstructionOpcode.PROPGET:
@@ -1085,25 +1085,20 @@ public sealed class PapyrusDecompiler
         string? DestOrDiscard(string dest)
             => dest.Equals("::NoneVar", StringComparison.OrdinalIgnoreCase) ? "" : dest;
 
-        List<Expr> CallArgs(IReadOnlyList<IPexObjectVariableDataGetter> a, int argcIdx)
+        (List<Expr> Args, int Omitted) CallArgs(IReadOnlyList<IPexObjectVariableDataGetter> a, int argcIdx)
         {
             if (a[argcIdx].VariableType != VariableType.Integer)
                 throw new StructureException($"call argc not an int at arg {argcIdx}");
             int n = a[argcIdx].IntValue ?? 0;
             if (a.Count != argcIdx + 1 + n)
                 throw new StructureException($"call argc {n} but {a.Count - argcIdx - 1} args present");
-            var list = new List<Expr>(n);
-            for (int k = 0; k < n; k++) list.Add(Resolve(a[argcIdx + 1 + k]));
-            // Trailing RAW-null args are baked defaults the source omitted, so they are re-omitted (#786) and marked
-            // at the call site, since the callee's declared default may not be in this text (#1458).
+            // Trailing RAW-null args are baked defaults the source omitted, so they are re-omitted (#786) and counted
+            // for the call-site marker, since the callee's declared default may not be in this text (#1458).
             int keep = n;
             while (keep > 0 && a[argcIdx + keep].VariableType == VariableType.Null) keep--;
-            if (keep < n)
-            {
-                list.RemoveRange(keep, n - keep);
-                list.Add(new EOmitted(n - keep));
-            }
-            return list;
+            var list = new List<Expr>(keep);
+            for (int k = 0; k < keep; k++) list.Add(Resolve(a[argcIdx + 1 + k]));
+            return (list, n - keep);
         }
 
         Expr Resolve(IPexObjectVariableDataGetter d) => d.VariableType switch
