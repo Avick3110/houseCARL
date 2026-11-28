@@ -483,7 +483,7 @@ public sealed class DecompileSelectionTests : IDisposable
         var text = typeof(DecompileTools).GetMethod(nameof(DecompileTools.DecompileScript))!
             .GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()!.Description;
 
-        Assert.Contains("houseCARL leaves out of a call's text the trailing arguments the .pex passes as a raw None, and " +
+        Assert.Contains("houseCARL drops a call's trailing raw-None arguments from its text and " +
                         "counts them before the close paren, one None per argument (';/ +2 omitted: None, None /;'), so the call passes its " +
                         "shown arguments plus that count.", text);
     }
