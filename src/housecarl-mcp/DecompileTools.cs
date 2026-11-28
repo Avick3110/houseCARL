@@ -24,7 +24,8 @@ public static class DecompileTools
          "for files on disk with out_path=; needs no external tool.\n\n" +
          "Names, types, properties, states, events and docstrings survive; control flow is reconstructed and proven. Losses " +
          "every decompiler shares: .pex has no parameter defaults, so a '= None' default comes back only where a call in the " +
-         "same script omitted that argument, and comments and blank-line layout are gone. A script built by an optimizing " +
+         "same script omitted that argument; a call that leaves out a trailing None argument says so before its close " +
+         "paren, ';/ +N omitted: None /;', and the call passes those N too; and comments and blank-line layout are gone. A script built by an optimizing " +
          "compiler (Caprica) decompiles to correct source that will not recompile byte-identical under the CK compiler; the " +
          "result notes it when it detects optimizer patterns, but a result without the note does not prove the .pex came " +
          "from the CK compiler. A function that cannot be proven is emitted as a failure comment with its raw bytecode, so " +
@@ -246,7 +247,7 @@ public static class DecompileTools
         if (o.OptimizerHints > 0)
             outSb.Append("\nnote: optimizer-compiled patterns detected (Caprica class) — source is correct; byte-identity vs the original .pex under the CK compiler is not expected.");
         outSb.Append(HierarchySentence(hierarchy));
-        outSb.Append("\nknown format losses (every decompiler): a parameter default is not in the .pex, so it survives only where a call in the same script omitted the argument — a parameter with no such call comes back with its default missing; comments/layout are gone (docstrings survive).");
+        outSb.Append('\n').Append(DecompileBatch.Losses);
         // The destination line must match where the .psc went; an out_path= folder is no patch to recompile into.
         outSb.Append(chosenOutput
             ? "\nthe .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile with " + ToolNames.CompileScript + "."

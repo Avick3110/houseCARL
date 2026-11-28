@@ -282,7 +282,7 @@ internal static class DecompileBatch
         internal bool AnyWritten => Rows.Any(d => d.Written.Count > 0);
     }
 
-    const string Losses = "known format losses (every decompiler): a parameter default is not in the .pex, so it survives only where a call in the same script omitted the argument — a parameter with no such call comes back with its default missing; comments/layout are gone (docstrings survive).";
+    internal const string Losses = "known format losses (every decompiler): a parameter default is not in the .pex, so it survives only where a call in the same script omitted the argument — a parameter with no such call comes back with its default missing; a call that leaves out a trailing None argument says so before its close paren, ';/ +N omitted: None /;', and the call passes those N too; comments/layout are gone (docstrings survive).";
     const string OptimizerNote = "optimizer-compiled patterns detected (Caprica class) — source is correct; byte-identity vs the original .pex under the CK compiler is not expected.";
     const string PartialMeaning = "a FAILED function is a loud comment block with its raw bytecode in the .psc, which will NOT compile as-is.";
     const string CutRows = "max_chars cuts only this listing: the counts above include the rows cut, and a cut row counted OK or PARTIAL was written; one not decompiled wrote nothing, or only part of its .psc files.";

@@ -36,7 +36,7 @@ public class DecompileDefaultedParameterTests
 
         Assert.Equal(0, res.FunctionsFailed);
         Assert.Contains("HC_DefProbe f = None", res.Source);
-        Assert.Contains("Defaulted(\"x\")", res.Source);
+        Assert.Contains("Defaulted(\"x\" ;/ +1 omitted: None /;)", res.Source);
     }
 
     [Fact]
@@ -224,6 +224,107 @@ public class DecompileDefaultedParameterTests
         Assert.Equal(0, res.FunctionsFailed);
         Assert.Contains("HC_DefProbe f = None", res.Source);          // the script function keeps its default
         Assert.DoesNotContain("HC_DefProbe value = None", res.Source);   // the handler never borrows it
+    }
+
+    // ---------------------------------------------------------------- the call site (#1458)
+    // A trailing raw null stays out of the shown arguments, so the text matches the author's source, and an inline
+    // block comment says how many the call passes beyond them: the callee's decompiled signature may declare no
+    // default, and a reader comparing the two would otherwise count one argument too few.
+
+    [Fact]
+    public void ACallOnAnotherObjectMarksTheArgumentItLeavesOut()
+    {
+        var caller = Fn(("HC_Other", "other"));
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.CALLMETHOD, Id("Ping"), Id("other"), Id("::NoneVar"), Int(2), Str("x"), Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_DefProbe", ("CallOther", caller)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("other.Ping(\"x\" ;/ +1 omitted: None /;)", res.Source);
+    }
+
+    [Fact]
+    public void AStaticCallToAnotherScriptMarksTheArgumentItLeavesOut()
+    {
+        var caller = Fn();
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.CALLSTATIC, Str("SomeOtherScript"), Str("Ping"), Id("::NoneVar"), Int(2), Str("x"), Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_DefProbe", ("CallStatic", caller)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("SomeOtherScript.Ping(\"x\" ;/ +1 omitted: None /;)", res.Source);
+    }
+
+    [Fact]
+    public void AParentCallMarksTheArgumentItLeavesOut()
+    {
+        var caller = Fn();
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.CALLPARENT, Id("Ping"), Id("::NoneVar"), Int(2), Str("x"), Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_DefProbe", ("CallParent", caller)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("Parent.Ping(\"x\" ;/ +1 omitted: None /;)", res.Source);
+    }
+
+    [Fact]
+    public void TheMarkerCountsEveryTrailingNullTheCallLeavesOut()
+    {
+        // `other.Two("a")` against `Two(string label, Actor f = None, Actor g = None)`: argc 3, one shown.
+        var caller = Fn(("HC_Other", "other"));
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.CALLMETHOD, Id("Two"), Id("other"), Id("::NoneVar"), Int(3), Str("a"), Null(), Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_DefProbe", ("CallTwo", caller)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("other.Two(\"a\" ;/ +2 omitted: None, None /;)", res.Source);
+    }
+
+    [Fact]
+    public void ACallThatShowsNoArgumentStillMarksTheOnesItLeavesOut()
+    {
+        var caller = Fn(("HC_Other", "other"));
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.CALLMETHOD, Id("Clear"), Id("other"), Id("::NoneVar"), Int(1), Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_DefProbe", ("CallClear", caller)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("other.Clear(;/ +1 omitted: None /;)", res.Source);
+    }
+
+    [Fact]
+    public void ACallWithNoTrailingNullHasNoMarker()
+    {
+        // Pins unchanged behaviour: nothing left out, nothing said.
+        var caller = Fn(("HC_Other", "other"));
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.CALLMETHOD, Id("Ping"), Id("other"), Id("::NoneVar"), Int(2), Str("x"), Int(1));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_DefProbe", ("CallPing", caller)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("other.Ping(\"x\", 1)", res.Source);
+        Assert.DoesNotContain(";/", res.Source);
+    }
+
+    [Fact]
+    public void AnArgumentCountThatDisagreesWithTheArgumentsStillFailsLoud()
+    {
+        // Pins unchanged behaviour: argc 3 with two arguments present is refused, not marked.
+        var caller = Fn(("HC_Other", "other"));
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.CALLMETHOD, Id("Ping"), Id("other"), Id("::NoneVar"), Int(3), Str("x"), Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_DefProbe", ("CallPing", caller)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("call argc 3 but 2 args present", res.Source);
+        Assert.DoesNotContain("omitted", res.Source);
     }
 
     // ---------------------------------------------------------------- in-memory pex builders

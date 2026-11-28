@@ -1,0 +1,1 @@
+- **`decompile_script` now marks a call that leaves out trailing `None` arguments, `;/ +N omitted: None /;` before the close paren, so its shown arity matches what the call passes.** Decompile a script calling another script's function with a `None` default it omitted.

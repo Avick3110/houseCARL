@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-11
+updated: 2026-11-28
 covers: [src/housecarl-core/PapyrusDecompiler.cs, src/housecarl-mcp/DecompileTools.cs, src/housecarl-mcp/DecompileBatch.cs, src/housecarl-mcp/ScriptSelection.cs]
 ---
 # Papyrus: decompile
@@ -37,6 +37,13 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   omitted that argument, and the longest run any such call shows is the one declared (#786). A call
   on another script, or from a property handler standing in for a same-named function, is not
   evidence.
+- A call site's trailing run of raw-null arguments is left out, as the source wrote it, and marked
+  inside the parentheses with an inline block comment, `;/ +N omitted: None /;` (#1458): the text
+  then states the call's real argument count, which the callee's decompiled signature may not
+  match when its default came from no same-script call. The comment changes no compiled byte. Only
+  the instruction is read, never the callee's parameters, so a same-script call whose callee now
+  declares `= None` is marked too. A raw null before the last shown argument renders `None`, and a
+  literal argument always renders, since an omitted literal default cannot be told from a written one.
 - A `.pex` object name that is not a plain script name is refused before any `.psc` is written, and
   every name in the file is checked up front so a bad one at the end cannot leave its neighbours on
   disk (#783). Writes go through `FileMode.CreateNew`, so an existing source file is never

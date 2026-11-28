@@ -144,7 +144,8 @@ Then work the checks, in cost order:
 2. **The declaration itself.** Decompiling the winning `.pex` recovers the real declaration —
    names, types, properties, states, events and docstrings all survive. **Parameter defaults do
    not survive a decompile** — they never existed in the `.pex` — so a decompiled declaration
-   answers arity and types and cannot answer a default.
+   answers arity and types and cannot answer a default. A call site's arity is its shown
+   arguments plus the count in a trailing `;/ +N omitted: None /;` comment.
 3. **Compile it** with the enabled mods' own Papyrus sources on the import path — the deterministic
    check above.
 
