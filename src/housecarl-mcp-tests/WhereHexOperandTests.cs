@@ -209,9 +209,14 @@ public sealed class WhereHexOperandTests
     public void AnUnresolvedRuntimeFormIdWhereTheSchemaCannotTellIsRefusedAsOne() =>
         Assert.Contains("RUNTIME FormID", SchemaPlan.Of("Responses[*any].Unknown2[0] = 7F000001", "INFO"));
 
-    /// <summary>A condition target holds a FormID or a numeric index, so a number there is not refused as a bad link.</summary>
+    /// <summary>A condition target holds a FormID or a numeric index, so a number there is not refused as a bad link,
+    /// and the schema cannot tell which it is, so a runtime FormID that does not resolve is still refused as one.</summary>
     [Fact]
-    public void AConditionTargetTakesANumber() => Assert.Null(SchemaPlan.Of("Conditions[*any].Data.Global = 3", "MGEF"));
+    public void AConditionTargetTakesANumberAndRefusesAnUnresolvedRuntimeFormId()
+    {
+        Assert.Null(SchemaPlan.Of("Conditions[*any].Data.Global = 3", "MGEF"));
+        Assert.Contains("RUNTIME FormID", SchemaPlan.Of("Conditions[*any].Data.Global = 7F000001", "MGEF"));
+    }
 
     [Fact]
     public void MixedKindsRefuseOnlyWhenNoLeafReadsTheLiteral()

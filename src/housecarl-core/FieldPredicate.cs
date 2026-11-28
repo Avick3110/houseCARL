@@ -1479,7 +1479,6 @@ public sealed class FieldPredicateSet
         }
         if (p.Op is not (Op.Eq or Op.Ne or Op.In or Op.NotIn)) return null;
         var kinds = count ? new List<LeafKind> { new(Kind.Integer, "count", 32) } : leaves.Select(KindOf).Distinct().ToList();
-        if (kinds.Count == 0) return null;
         if (kinds.All(k => k.Kind == Kind.Enum))
             return EnumLiteralRefusal(p, kinds.Select(k => (k.Enum!, k.Remainder)).ToList(), _typed);
         // An unresolved runtime FormID is refused only where a leaf in scope could be the link it names.
