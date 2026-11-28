@@ -1,4 +1,3 @@
-- **`has`, `has_any` and `has_none` now test a negative integer field by its bits, and refuse a digit string, a
-  whole-number float or an unnamed non-`[Flags]` enum value, which they used to parse.** The refusal reads
-  `needs a flags/bitmask or integer field, but 'X' is not one: it read '…'`; `MajorRecordFlagsRaw has 0x80000000` checks
-  the fix.
+- **`has`, `has_any` and `has_none` now bit-test a negative integer field, and refuse any field that is not a
+  `[Flags]` enum or an integer: `needs a flags/bitmask or integer field, but 'X' is not one: it read '…'`.** On
+  Skyrim.esm REFRs, `MajorRecordFlagsRaw has 0x80000000` matches 162, as `SkyrimMajorRecordFlags has 0x80000000` does.
