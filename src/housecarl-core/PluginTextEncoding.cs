@@ -108,8 +108,7 @@ public static class PluginTextEncoding
         var strings = new StringsReadParameters
         {
             // A plugin's lane is its own bytes'; the provider decodes a plain plugin's own text and a localized one's
-            // tables, which count toward it only in English and only the game language's own, so an English write stays
-            // the bytes it always was.
+            // tables, whose English ones alone count, and only in English, so an English write stays the bytes it always was.
             EncodingProvider = new LanguageProvider(text.Language == Language.English || !IsLocalized(pluginPath, sink) ? sink : null, text.Language),
             NonTranslatedEncodingOverride = new Utf8First(Legacy(text.Language).Decoder, sink),
         };
@@ -284,15 +283,11 @@ public static class PluginTextEncoding
     }
 
     /// <summary>UTF-8 over whatever Mutagen would have chosen for the language — the encoding a LOCALIZED plugin's <c>.STRINGS</c> tables are read with; language selection is untouched.
-    /// Only the game language's tables are recorded: a copy also decodes every other language's, which a patch never writes.</summary>
-    sealed class LanguageProvider : IMutagenEncodingProvider
+    /// Only the game language's tables are recorded: a copy also decodes the others, which a patch never writes (#1457).</summary>
+    sealed class LanguageProvider(LaneSink? sink, Language game) : IMutagenEncodingProvider
     {
-        readonly LaneSink? _sink;
-        readonly Language _game;
-        internal LanguageProvider(LaneSink? sink, Language game) { _sink = sink; _game = game; }
-
         public IMutagenEncoding GetEncoding(GameRelease release, Language language)
-            => new Utf8First(Legacy(language).Decoder, language == _game ? _sink : null);
+            => new Utf8First(Legacy(language).Decoder, language == game ? sink : null);
     }
 
     /// <summary>Decode as UTF-8 when the bytes ARE UTF-8, otherwise as the language's fallback, recording which lane

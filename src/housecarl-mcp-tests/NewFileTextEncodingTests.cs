@@ -131,15 +131,9 @@ public sealed class NewFileTextEncodingTests : IDisposable
         _cell = cell.FormKey;
         Write(cellMod, Path.Combine(ModDir("CellMod"), CellPlugin), Utf8Bundle);
 
-        var loc = new SkyrimMod(ModKey.FromFileName(Localized), SkyrimRelease.SkyrimSE) { UsingLocalization = true };
-        _locWeap = AddWeapon(loc, "HcMuLocWeap", LatinName).FormKey;
-        var locDir = ModDir("LocMod");
-        using (var sw = new StringsWriter(GameRelease.SkyrimSE, loc.ModKey, Path.Combine(locDir, "Strings"),
-                                          new Utf8Tables(), new System.IO.Abstractions.FileSystem()))
-            loc.BeginWrite.ToPath(Path.Combine(locDir, Localized)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithStringsWriter(sw).Write();
-
-        _locFrWeap = WriteFrenchLocalized(LocFr, "LocFrMod", "Iron Sword", new Utf8Tables());
-        WriteFrenchLocalized(Loc1252, "Loc1252Mod", LatinName, new EnglishTables1252());
+        _locWeap = WriteLocalized(Localized, "LocMod", LatinName, new Utf8Tables());
+        _locFrWeap = WriteLocalized(LocFr, "LocFrMod", "Iron Sword", new Utf8Tables(), FrenchName);
+        WriteLocalized(Loc1252, "Loc1252Mod", LatinName, new EnglishTables1252(), FrenchName);
 
         var plugins = new[] { Legacy, Jp, Accent, JpOnly, Over, Back, Owned, Ascii, CellPlugin, Localized, LocFr, Loc1252 };
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
@@ -157,14 +151,15 @@ public sealed class NewFileTextEncodingTests : IDisposable
         return svc;
     }
 
-    /// <summary>A localized plugin holding one weapon named <paramref name="english"/> in English and <see cref="FrenchName"/>
-    /// in French, its tables written by <paramref name="tables"/>.</summary>
-    FormKey WriteFrenchLocalized(string file, string modDir, string english, Mutagen.Bethesda.Strings.DI.IMutagenEncodingProvider tables)
+    /// <summary>A localized plugin holding one keyworded weapon, its tables written by <paramref name="tables"/>.</summary>
+    FormKey WriteLocalized(string file, string modDir, string english,
+                           Mutagen.Bethesda.Strings.DI.IMutagenEncodingProvider tables, string? french = null)
     {
         var mod = new SkyrimMod(ModKey.FromFileName(file), SkyrimRelease.SkyrimSE) { UsingLocalization = true };
-        var w = AddWeapon(mod, Path.GetFileNameWithoutExtension(file) + "Weap", english);
-        w.Name!.Set(Language.French, FrenchName);
-        w.Keywords = new() { mod.Keywords.AddNew(Path.GetFileNameWithoutExtension(file) + "Kw") };   // a link for copy's walk
+        var stem = Path.GetFileNameWithoutExtension(file);
+        var w = AddWeapon(mod, stem + "Weap", english);
+        if (french is not null) w.Name!.Set(Language.French, french);
+        w.Keywords = new() { mod.Keywords.AddNew(stem + "Kw") };   // a link for copy's walk
         var dir = ModDir(modDir);
         using (var sw = new StringsWriter(GameRelease.SkyrimSE, mod.ModKey, Path.Combine(dir, "Strings"), tables, new System.IO.Abstractions.FileSystem()))
             mod.BeginWrite.ToPath(Path.Combine(dir, file)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithStringsWriter(sw).Write();
@@ -188,9 +183,9 @@ public sealed class NewFileTextEncodingTests : IDisposable
         return r;
     }
 
-    static string Damage(LoadOrderService svc, FormKey fk, string patch) => ApplyTools.Apply(svc,
-        ops: Je($@"[{{""formid"":""{Fid(fk)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""20""}}]"),
-        patch: patch);
+    static string DamageOps(FormKey fk) => $@"{{""formid"":""{Fid(fk)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""20""}}";
+
+    static string Damage(LoadOrderService svc, FormKey fk, string patch) => ApplyTools.Apply(svc, ops: Je("[" + DamageOps(fk) + "]"), patch: patch);
 
     // ---- merge and rename ---------------------------------------------------------------------------
 
@@ -448,13 +443,8 @@ public sealed class NewFileTextEncodingTests : IDisposable
     public void AWindows1252PatchExtendedWithAUtf8CopyGoesUtf8()
     {
         var svc = Open("ENGLISH");
-        Assert.DoesNotContain("error:", Damage(svc, _accentWeap, "HcMuLanePatch"));
-        var path = Output("HcMuLanePatch.esp");
-        Assert.True(Holds1252(path, LatinName), "the patch did not start Windows-1252");
-
-        Assert.DoesNotContain("error:", ApplyTools.Apply(svc, ops: Je(
-            $@"[{{""formid"":""{Fid(_legacyWeap)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""20""}}]"),
-            into: "HcMuLanePatch.esp"));
+        var path = Windows1252Patch(svc, "HcMuLanePatch");
+        Assert.DoesNotContain("error:", ApplyTools.Apply(svc, ops: Je("[" + DamageOps(_legacyWeap) + "]"), into: "HcMuLanePatch.esp"));
         Assert.True(HoldsUtf8(path, OverName), "the copied UTF-8 name is not UTF-8");
         Assert.True(HoldsUtf8(path, LatinName), "the patch's own name stayed Windows-1252 in a UTF-8 file");
     }
@@ -511,8 +501,6 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.True(Holds1252(path, LatinName), what + " re-encoded the patch's Windows-1252 name");
         Assert.False(HoldsUtf8(path, LatinName), what + " wrote the patch's name as UTF-8");
     }
-
-    string DamageOps(FormKey fk) => $@"{{""formid"":""{Fid(fk)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""20""}}";
 
     /// <summary>A localized record whose only UTF-8 text is in its French table, edited into a Windows-1252 patch, leaves
     /// the patch Windows-1252, and a later write into it keeps it so.</summary>
