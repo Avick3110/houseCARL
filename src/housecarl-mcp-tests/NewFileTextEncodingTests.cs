@@ -28,7 +28,8 @@ public sealed class NewFileTextEncodingTests : IDisposable
 
     const string Legacy = "HcMuLegacy.esp", Jp = "HcMuJp.esp", Accent = "HcMuAccent.esp", JpOnly = "HcMuJpOnly.esp",
                  Over = "HcMuOver.esp", Back = "HcMuBack.esp", Owned = "HcMuOwned.esp", Ascii = "HcMuAscii.esp",
-                 CellPlugin = "HcMuCell.esp", Localized = "HcMuLoc.esp";
+                 CellPlugin = "HcMuCell.esp", Localized = "HcMuLoc.esp", LocFr = "HcMuLocFr.esp", Loc1252 = "HcMuLoc1252.esp";
+    const string FrenchName = "Épée de fer";
 
     static readonly Encoding Cp1252 = CodePagesEncodingProvider.Instance.GetEncoding(1252)!;
     static readonly Encoding Cp932 = CodePagesEncodingProvider.Instance.GetEncoding(932)!;
@@ -37,7 +38,7 @@ public sealed class NewFileTextEncodingTests : IDisposable
 
     readonly string _root = Path.Combine(Path.GetTempPath(), "hc-newfile-text-" + Guid.NewGuid().ToString("N"));
     readonly List<LoadOrderService> _services = new();
-    FormKey _legacyWeap, _legacyPlain, _jpWeap, _accentWeap, _jpOnlyWeap, _ownedDrop, _asciiWeap, _cell, _locWeap;
+    FormKey _legacyWeap, _legacyPlain, _jpWeap, _accentWeap, _jpOnlyWeap, _ownedDrop, _asciiWeap, _cell, _locWeap, _locFrWeap;
 
     public void Dispose()
     {
@@ -71,7 +72,8 @@ public sealed class NewFileTextEncodingTests : IDisposable
 
     /// <summary>The world, under <paramref name="sLanguage"/>: a Windows-1252 plugin, UTF-8 plugins holding Japanese and
     /// Latin, Latin only and Japanese only, a UTF-8 override of the 1252 plugin's weapon, a Windows-1252 override of the
-    /// UTF-8 Latin weapon, and a houseCARL patch written UTF-8, an all-ASCII plugin, a UTF-8 interior cell, and a localized plugin whose tables are UTF-8.</summary>
+    /// UTF-8 Latin weapon, and a houseCARL patch written UTF-8, an all-ASCII plugin, a UTF-8 interior cell, a localized plugin whose tables are UTF-8, and two localized plugins
+    /// whose French tables are UTF-8 under English tables that are ASCII or Windows-1252.</summary>
     LoadOrderService Open(string sLanguage)
     {
         Directory.CreateDirectory(Path.Combine(_root, "game", "Data"));
@@ -136,7 +138,10 @@ public sealed class NewFileTextEncodingTests : IDisposable
                                           new Utf8Tables(), new System.IO.Abstractions.FileSystem()))
             loc.BeginWrite.ToPath(Path.Combine(locDir, Localized)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithStringsWriter(sw).Write();
 
-        var plugins = new[] { Legacy, Jp, Accent, JpOnly, Over, Back, Owned, Ascii, CellPlugin, Localized };
+        _locFrWeap = WriteFrenchLocalized(LocFr, "LocFrMod", "Iron Sword", new Utf8Tables());
+        WriteFrenchLocalized(Loc1252, "Loc1252Mod", LatinName, new EnglishTables1252());
+
+        var plugins = new[] { Legacy, Jp, Accent, JpOnly, Over, Back, Owned, Ascii, CellPlugin, Localized, LocFr, Loc1252 };
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -145,11 +150,25 @@ public sealed class NewFileTextEncodingTests : IDisposable
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Concat(plugins.Select(n => n + "\r\n")));
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Concat(plugins.Select(n => "*" + n + "\r\n")));
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
-            "# header\r\n+LocMod\r\n+CellMod\r\n+AsciiMod\r\n+OwnedMod\r\n+BackMod\r\n+OverMod\r\n+JpOnlyMod\r\n+AccentMod\r\n+JpMod\r\n+LegacyMod\r\n");
+            "# header\r\n+Loc1252Mod\r\n+LocFrMod\r\n+LocMod\r\n+CellMod\r\n+AsciiMod\r\n+OwnedMod\r\n+BackMod\r\n+OverMod\r\n+JpOnlyMod\r\n+AccentMod\r\n+JpMod\r\n+LegacyMod\r\n");
         File.WriteAllText(Path.Combine(prof, "Skyrim.ini"), $"[General]\r\nsLanguage={sLanguage}\r\n");
         var svc = LoadOrderService.WithInstance(Instance, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
         _services.Add(svc);
         return svc;
+    }
+
+    /// <summary>A localized plugin holding one weapon named <paramref name="english"/> in English and <see cref="FrenchName"/>
+    /// in French, its tables written by <paramref name="tables"/>.</summary>
+    FormKey WriteFrenchLocalized(string file, string modDir, string english, Mutagen.Bethesda.Strings.DI.IMutagenEncodingProvider tables)
+    {
+        var mod = new SkyrimMod(ModKey.FromFileName(file), SkyrimRelease.SkyrimSE) { UsingLocalization = true };
+        var w = AddWeapon(mod, Path.GetFileNameWithoutExtension(file) + "Weap", english);
+        w.Name!.Set(Language.French, FrenchName);
+        w.Keywords = new() { mod.Keywords.AddNew(Path.GetFileNameWithoutExtension(file) + "Kw") };   // a link for copy's walk
+        var dir = ModDir(modDir);
+        using (var sw = new StringsWriter(GameRelease.SkyrimSE, mod.ModKey, Path.Combine(dir, "Strings"), tables, new System.IO.Abstractions.FileSystem()))
+            mod.BeginWrite.ToPath(Path.Combine(dir, file)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).WithStringsWriter(sw).Write();
+        return w.FormKey;
     }
 
     static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
@@ -453,8 +472,8 @@ public sealed class NewFileTextEncodingTests : IDisposable
         Assert.False(Holds1252(Output("HcMuCellPatch.esp"), LatinName), "the cell's name went Windows-1252");
     }
 
-    /// <summary>Under English a localized plugin's tables count toward its lane, so a patch over its record, carrying the
-    /// name out of a UTF-8 table, is UTF-8.</summary>
+    /// <summary>Unchanged: under English a localized plugin's English tables count toward its lane, so a patch over its
+    /// record, carrying the name out of a UTF-8 English table, is UTF-8.</summary>
     [Fact]
     public void AnEnglishPatchOverALocalizedRecordWithUtf8TablesIsUtf8()
     {
@@ -467,6 +486,120 @@ public sealed class NewFileTextEncodingTests : IDisposable
     sealed class Utf8Tables : Mutagen.Bethesda.Strings.DI.IMutagenEncodingProvider
     {
         public IMutagenEncoding GetEncoding(GameRelease release, Language language) => new MutagenEncodingWrapper(new UTF8Encoding(false));
+    }
+
+    /// <summary>English tables in Windows-1252, every other language's in UTF-8.</summary>
+    sealed class EnglishTables1252 : Mutagen.Bethesda.Strings.DI.IMutagenEncodingProvider
+    {
+        public IMutagenEncoding GetEncoding(GameRelease release, Language language)
+            => new MutagenEncodingWrapper(language == Language.English ? Cp1252 : new UTF8Encoding(false));
+    }
+
+    // ---- a localized record's other languages (#1457) -----------------------------------------------
+
+    /// <summary>A Windows-1252 patch: the 1252 override of the accented weapon, patched.</summary>
+    string Windows1252Patch(LoadOrderService svc, string patch)
+    {
+        Assert.DoesNotContain("error:", Damage(svc, _accentWeap, patch));
+        var path = Output(patch + ".esp");
+        Assert.True(Holds1252(path, LatinName), "the patch did not start Windows-1252");
+        return path;
+    }
+
+    static void AssertStays1252(string path, string what)
+    {
+        Assert.True(Holds1252(path, LatinName), what + " re-encoded the patch's Windows-1252 name");
+        Assert.False(HoldsUtf8(path, LatinName), what + " wrote the patch's name as UTF-8");
+    }
+
+    string DamageOps(FormKey fk) => $@"{{""formid"":""{Fid(fk)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""20""}}";
+
+    /// <summary>A localized record whose only UTF-8 text is in its French table, edited into a Windows-1252 patch, leaves
+    /// the patch Windows-1252, and a later write into it keeps it so.</summary>
+    [Fact]
+    public void AnEditOfALocalizedRecordIntoAWindows1252PatchKeepsItsBytes()
+    {
+        var svc = Open("ENGLISH");
+        var path = Windows1252Patch(svc, "HcMuLocInto");
+        Assert.DoesNotContain("error:", ApplyTools.Apply(svc, ops: Je("[" + DamageOps(_locFrWeap) + "]"), into: "HcMuLocInto.esp"));
+        AssertStays1252(path, "an edit of the localized record");
+
+        Assert.DoesNotContain("error:", ApplyTools.Apply(svc, ops: Je("[" + DamageOps(_legacyPlain) + "]"), into: "HcMuLocInto.esp"));
+        AssertStays1252(path, "a later write");
+    }
+
+    /// <summary>The same in one call: a new patch over a Windows-1252 record and a localized one stays Windows-1252.</summary>
+    [Fact]
+    public void ANewPatchOverALocalizedRecordAndAWindows1252OneKeepsItsBytes()
+    {
+        var svc = Open("ENGLISH");
+        Assert.DoesNotContain("error:", ApplyTools.Apply(svc, ops: Je("[" + DamageOps(_accentWeap) + "," + DamageOps(_locFrWeap) + "]"), patch: "HcMuLocOne"));
+        AssertStays1252(Output("HcMuLocOne.esp"), "one call over both records");
+    }
+
+    [Fact]
+    public void AForwardOfALocalizedRecordIntoAWindows1252PatchKeepsItsBytes()
+    {
+        var svc = Open("ENGLISH");
+        var path = Windows1252Patch(svc, "HcMuLocFwd");
+        Assert.DoesNotContain("error:", ForwardTools.Forward(svc, formids: new[] { Fid(_locFrWeap) }, source: LocFr, into: "HcMuLocFwd.esp"));
+        AssertStays1252(path, "a forward of the localized record");
+    }
+
+    [Fact]
+    public void ACopyCloneOfALocalizedRecordIntoAWindows1252PatchKeepsItsBytes()
+    {
+        var svc = Open("ENGLISH");
+        var path = Windows1252Patch(svc, "HcMuLocCopy");
+        Assert.DoesNotContain("error:", CopyTools.Copy(svc, Fid(_locFrWeap), from_source: new[] { LocFr }, seed_paths: new[] { "Keywords" },
+            new_editorid: "HcMuLocClone", into: "HcMuLocCopy.esp"));
+        AssertStays1252(path, "a copy clone of the localized record");
+    }
+
+    [Fact]
+    public void ACopiedLocalizedNameIntoAWindows1252PatchKeepsItsBytes()
+    {
+        var svc = Open("ENGLISH");
+        var path = Windows1252Patch(svc, "HcMuLocCopyFrom");
+        Assert.DoesNotContain("error:", ApplyTools.Apply(svc, ops: Je(
+            $@"[{{""formid"":""{Fid(_legacyPlain)}"",""field_path"":""Name"",""op"":""CopyFrom"",""from"":""{Fid(_locFrWeap)}"",""from_source"":""{LocFr}""}}]"),
+            into: "HcMuLocCopyFrom.esp"));
+        AssertStays1252(path, "a Name copied from the localized record");
+    }
+
+    [Fact]
+    public void AMergeOfALocalizedDonorAndAWindows1252DonorKeepsItsBytes()
+    {
+        var svc = Open("ENGLISH");
+        Merge(svc, "HcMuLocMerge", LocFr, Legacy);
+        AssertStays1252(Output("HcMuLocMerge.esp"), "the localized donor");
+    }
+
+    /// <summary>A compacted copy of a localized plugin carries only its English text, so its Windows-1252 English tables
+    /// decide, not its UTF-8 French ones.</summary>
+    [Fact]
+    public void ACompactedCopyOfALocalizedPluginWithWindows1252EnglishTablesIsWindows1252()
+    {
+        var svc = Open("ENGLISH");
+        Assert.DoesNotContain("error:", WriteTools.CompactPlugin(svc, Loc1252));
+        AssertStays1252(Directory.GetFiles(Mods, Loc1252, SearchOption.AllDirectories).Single(p => !p.Contains("Loc1252Mod")), "the compaction");
+    }
+
+    /// <summary>Under English a localized plugin's lane is its English tables', though its other languages decode as
+    /// they always did.</summary>
+    [Theory]
+    [InlineData(LocFr, "Iron Sword", PluginTextLane.AsciiOnly)]
+    [InlineData(Loc1252, LatinName, PluginTextLane.Legacy)]
+    public void ALocalizedPluginsLaneIsItsEnglishTables(string plugin, string english, PluginTextLane lane)
+    {
+        Open("ENGLISH");
+        var path = Output(plugin);
+        using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
+        var name = ov.Weapons.Single().Name!;
+        Assert.True(name.TryLookup(Language.French, out var french));
+        Assert.Equal(FrenchName, french);
+        Assert.Equal(english, name.String);
+        Assert.Equal(lane, PluginTextEncoding.LaneOf(path));
     }
 
     // ---- the copy scope -----------------------------------------------------------------------------
