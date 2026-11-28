@@ -246,7 +246,7 @@ public static class DecompileTools
         }
         else outSb.Append(", all structured clean.");
         if (o.OptimizerHints > 0)
-            outSb.Append("\nnote: optimizer-compiled patterns detected (Caprica class) — source is correct; byte-identity vs the original .pex under the CK compiler is not expected.");
+            outSb.Append("\nnote: ").Append(DecompileBatch.OptimizerNote);
         outSb.Append(HierarchySentence(hierarchy));
         outSb.Append('\n').Append(DecompileBatch.Losses);
         // The destination line must match where the .psc went; an out_path= folder is no patch to recompile into.

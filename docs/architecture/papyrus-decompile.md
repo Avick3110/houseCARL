@@ -37,11 +37,13 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   omitted that argument, and the longest run any such call shows is the one declared (#786). A call
   on another script, or from a property handler standing in for a same-named function, is not
   evidence.
-- A call site's trailing run of raw-null arguments is left out, as the source wrote it, and marked
-  inside the parentheses with an inline block comment, `;/ +N omitted: None, … /;` with one `None`
-  per argument (#1458): the text
-  then states the call's real argument count, which the callee's decompiled signature may not
-  match when its default came from no same-script call. The comment changes no compiled byte. Only
+- A call site's trailing run of raw-null arguments is left out, as the CK compiler bakes an omitted
+  `None` default, and marked inside the parentheses with an inline block comment,
+  `;/ +N omitted: None, … /;` with one `None` per argument (#1458): the text then states the
+  call's real argument count, which the callee's decompiled signature may not match when its
+  default came from no same-script call. The comment changes no compiled byte. No compiler is
+  checked: every trailing raw null is marked the same way, with or without the optimizer note, so
+  under another compiler a marked `None` may be one the source wrote. Only
   the instruction is read, never the callee's parameters, so a same-script call whose callee now
   declares `= None` is marked too. A raw null before the last shown argument renders `None`, and a
   literal argument always renders, since an omitted literal default cannot be told from a written one.
