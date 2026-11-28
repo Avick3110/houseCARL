@@ -41,6 +41,7 @@ public sealed class PapyrusDecompiler
     sealed record ELen(Expr Arr) : Expr;
     sealed record ENew(string ElemType, Expr Size) : Expr;
     sealed record EFind(Expr Arr, Expr Val, Expr Start, bool Reverse) : Expr;
+    sealed record EOmitted(int Count) : Expr;                                        // last call arg: trailing raw nulls not shown
 
     static int Prec(Expr e) => e switch
     {
@@ -66,9 +67,9 @@ public sealed class PapyrusDecompiler
         EUn u => u.Op + Wrap(u.E, 7),
         // `as` binds tighter than a binary operator, so a binop operand keeps its own parens.
         ECast c => $"({(c.E is EBin ? "(" + Render(c.E) + ")" : Render(c.E))} as {c.Type})",
-        ECall c => (c.Target is null ? "" : Postfix(c.Target) + ".") + c.Name + "(" + string.Join(", ", c.Args.Select(Render)) + ")",
-        EStatic s => $"{s.Cls}.{s.Name}(" + string.Join(", ", s.Args.Select(Render)) + ")",
-        EParent p => $"Parent.{p.Name}(" + string.Join(", ", p.Args.Select(Render)) + ")",
+        ECall c => (c.Target is null ? "" : Postfix(c.Target) + ".") + c.Name + "(" + RenderArgs(c.Args) + ")",
+        EStatic s => $"{s.Cls}.{s.Name}(" + RenderArgs(s.Args) + ")",
+        EParent p => $"Parent.{p.Name}(" + RenderArgs(p.Args) + ")",
         // Self-property access keeps the explicit Self. prefix: a bare auto-property name compiles to the backing var.
         EProp p => p.Obj is null ? $"Self.{p.Name}" : $"{Postfix(p.Obj)}.{p.Name}",
         EIndex x => $"{Postfix(x.Arr)}[{Render(x.Idx)}]",
@@ -78,6 +79,15 @@ public sealed class PapyrusDecompiler
                    (IsDefaultStart(f) ? ")" : $", {Render(f.Start)})"),
         _ => throw new StructureException($"unrenderable expr {e.GetType().Name}"),
     };
+
+    /// <summary>The shown arguments, then an inline block comment naming each trailing raw null left out (#1458).</summary>
+    static string RenderArgs(List<Expr> args)
+    {
+        var shown = string.Join(", ", args.Where(x => x is not EOmitted).Select(Render));
+        if (args.LastOrDefault() is not EOmitted o) return shown;
+        var marker = $";/ +{o.Count} omitted: {string.Join(", ", Enumerable.Repeat("None", o.Count))} /;";
+        return shown.Length == 0 ? marker : shown + " " + marker;
+    }
 
     static bool IsDefaultStart(EFind f) =>
         f.Start is EConst c && c.Text == (f.Reverse ? "-1" : "0");
@@ -1084,10 +1094,15 @@ public sealed class PapyrusDecompiler
                 throw new StructureException($"call argc {n} but {a.Count - argcIdx - 1} args present");
             var list = new List<Expr>(n);
             for (int k = 0; k < n; k++) list.Add(Resolve(a[argcIdx + 1 + k]));
-            // Trailing RAW-null args are baked defaults the source omitted, so they are re-omitted (#786).
+            // Trailing RAW-null args are baked defaults the source omitted, so they are re-omitted (#786) and marked
+            // at the call site, since the callee's declared default may not be in this text (#1458).
             int keep = n;
             while (keep > 0 && a[argcIdx + keep].VariableType == VariableType.Null) keep--;
-            if (keep < n) list.RemoveRange(keep, n - keep);
+            if (keep < n)
+            {
+                list.RemoveRange(keep, n - keep);
+                list.Add(new EOmitted(n - keep));
+            }
             return list;
         }
 
