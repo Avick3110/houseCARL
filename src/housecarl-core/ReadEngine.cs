@@ -42,6 +42,8 @@ public static class ReadEngine
                                              Type? ContainerType = null, IConditionGetter? Condition = null, ulong? IntBits = null)
     {
         public static LeafRead Value(string token) => new(true, token, null);
+        /// <summary>A whole number that is not a field (a count): its decimal token and its bits.</summary>
+        public static LeafRead Integer(int n) => Value(n.ToString(CultureInfo.InvariantCulture)) with { IntBits = unchecked((uint)n) };
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
         /// <summary>An opaque BLOB leaf: the hex token plus its byte length — the one family houseCARL renders
         /// without ever parsing, which a verify must not call clean.</summary>

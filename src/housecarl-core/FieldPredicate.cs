@@ -589,17 +589,18 @@ public sealed class FieldPredicateSet
     /// <summary>Parse a generalized (non-formid) membership list; an all-FormKey list rides along pre-parsed, and a bare runtime FormID entry is resolved here.</summary>
     static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, HashSet<FormKey>? Runtime, Dictionary<string, string>? Misses, string? Error) ParseValueList(string raw, string operand, Func<string?, FormKey>? parseFormId, bool resolveRuntime)
     {
+        static (IReadOnlyList<string>?, HashSet<FormKey>?, ArtifactDemand?, HashSet<FormKey>?, Dictionary<string, string>?, string?) Fail(string why) => (null, null, null, null, null, why);
         string content;
         ArtifactDemand? artifact = null;
         if (operand[0] == '@')
         {
             var (path, text, rerr) = ListFile.Read(operand, OperandLabel(raw), "'in @<absolute path>'", "C:\\work\\values.txt");
-            if (rerr is not null) return (null, null, null, null, null, rerr);
+            if (rerr is not null) return Fail(rerr);
             content = text!;
             if (ResultArtifact.LooksLikeArtifact(content))
             {
                 var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content, "formid", "the 'in' operand");
-                if (aerr is not null) return (null, null, null, null, null, $"predicate '{raw}': {aerr}");
+                if (aerr is not null) return Fail($"predicate '{raw}': {aerr}");
                 artifact = demand;
                 content = string.Join("\n", tokens!);
             }
@@ -612,7 +613,7 @@ public sealed class FieldPredicateSet
         foreach (var tok in ListFile.SplitCommaList(content))
         {
             // Same door as the scalar operand.
-            if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, null, null, hybrid);
+            if (HybridRefusal(raw, tok) is { } hybrid) return Fail(hybrid);
             // And the same door for a bare runtime FormID entry, resolved through the order the call already holds.
             if (resolveRuntime && RuntimeFormId.TryParse(tok, out _)
                 && ResolveRuntime(raw, $"list entry '{tok}'", tok, parseFormId, ref misses) is { } rk)
@@ -620,7 +621,7 @@ public sealed class FieldPredicateSet
             members.Add(tok);
         }
         if (members.Count == 0)
-            return (null, null, null, null, null, $"predicate '{raw}': the value list is empty — give at least one entry.");
+            return Fail($"predicate '{raw}': the value list is empty — give at least one entry.");
 
         HashSet<FormKey>? keys = null;
         var all = new HashSet<FormKey>();
@@ -825,8 +826,7 @@ public sealed class FieldPredicateSet
         // A count asks how MANY, so it never builds an element; it is an integer leaf, bits and all.
         if (fold == Fold.Count)
         {
-            int n = Count(coll);
-            return DecideLeaf(p, ReadEngine.LeafRead.Value(n.ToString(CultureInfo.InvariantCulture)) with { IntBits = (ulong)n });
+            return DecideLeaf(p, ReadEngine.LeafRead.Integer(Count(coll)));
         }
         var elems = Materialise(coll);
         return FoldOver(p, elems, fold,
@@ -1478,7 +1478,7 @@ public sealed class FieldPredicateSet
                        $"('{p.FullPath}[*any] {OpStr(p.Op, p.Negate)} …') or one of them ('{p.FullPath}[0]'), or use references= for list→FormID membership.";
         }
         if (p.Op is not (Op.Eq or Op.Ne or Op.In or Op.NotIn)) return null;
-        var kinds = count ? new List<LeafKind> { new(Kind.Integer, "count", 32) } : leaves.Select(KindOf).Distinct().ToList();
+        var kinds = count ? new List<LeafKind> { new(Kind.Integer, "a count", 32) } : leaves.Select(KindOf).Distinct().ToList();
         if (kinds.All(k => k.Kind == Kind.Enum))
             return EnumLiteralRefusal(p, kinds.Select(k => (k.Enum!, k.Remainder)).ToList(), _typed);
         // An unresolved runtime FormID is refused only where a leaf in scope could be the link it names.
@@ -1495,7 +1495,7 @@ public sealed class FieldPredicateSet
     /// <summary>What an '=', '!=', 'in' or 'not in' literal must be to equal a leaf.</summary>
     enum Kind { Any, CantTell, Integer, Float, Link, Enum }
 
-    /// <summary>One leaf's kind as the schema gives it: an integer's C# name and width, an enum and the header vocabulary it reads first.</summary>
+    /// <summary>One leaf's kind as the schema gives it: an integer's name for the refusal and its width, an enum and the header vocabulary it reads first.</summary>
     readonly record struct LeafKind(Kind Kind, string? Name = null, int Bits = 0, Type? Enum = null, Type? Remainder = null);
 
     /// <summary>The kind of one leaf the path can end on; a leaf the schema cannot type is can't-tell, a string, bool or other value takes any text.</summary>
@@ -1520,10 +1520,10 @@ public sealed class FieldPredicateSet
         if (t == typeof(float) || t == typeof(double)) return new(Kind.Float, t == typeof(float) ? "float" : "double");
         return Type.GetTypeCode(t) switch
         {
-            TypeCode.Byte => new(Kind.Integer, "byte", 8), TypeCode.SByte => new(Kind.Integer, "sbyte", 8),
-            TypeCode.Int16 => new(Kind.Integer, "short", 16), TypeCode.UInt16 => new(Kind.Integer, "ushort", 16),
-            TypeCode.Int32 => new(Kind.Integer, "int", 32), TypeCode.UInt32 => new(Kind.Integer, "uint", 32),
-            TypeCode.Int64 => new(Kind.Integer, "long", 64), TypeCode.UInt64 => new(Kind.Integer, "ulong", 64),
+            TypeCode.Byte => new(Kind.Integer, "an integer (byte)", 8), TypeCode.SByte => new(Kind.Integer, "an integer (sbyte)", 8),
+            TypeCode.Int16 => new(Kind.Integer, "an integer (short)", 16), TypeCode.UInt16 => new(Kind.Integer, "an integer (ushort)", 16),
+            TypeCode.Int32 => new(Kind.Integer, "an integer (int)", 32), TypeCode.UInt32 => new(Kind.Integer, "an integer (uint)", 32),
+            TypeCode.Int64 => new(Kind.Integer, "an integer (long)", 64), TypeCode.UInt64 => new(Kind.Integer, "an integer (ulong)", 64),
             _ => new(Kind.Any),
         };
     }
@@ -1536,7 +1536,7 @@ public sealed class FieldPredicateSet
         // A decimal number as today; 0x hex is the field's bits, so it may not be wider than the field.
         Kind.Integer => TryNum(literal, out _) || (TryHex(literal, out var b) && (k.Bits == 64 || b >> k.Bits == 0)),
         Kind.Float => TryNum(literal, out _),
-        Kind.Link => TryFormKey(literal, out _) || (!unresolved && RuntimeFormId.TryParse(literal, out _)),
+        Kind.Link => (!unresolved && RuntimeFormId.TryParse(literal, out _)) || TryFormKey(literal, out _),
         _ => EnumLiteralFits(literal, k.Enum!, k.Remainder),
     };
 
@@ -1545,7 +1545,7 @@ public sealed class FieldPredicateSet
     {
         var takes = kinds.Where(k => k.Kind is not (Kind.Any or Kind.CantTell)).Select(k => k.Kind switch
         {
-            Kind.Integer => $"as {(k.Name == "count" ? "a count" : $"an integer ({k.Name})")} it takes a whole number, in decimal or as 0x hex of at most {k.Bits} bits, read as the field's bits",
+            Kind.Integer => $"as {k.Name} it takes a whole number, in decimal or as 0x hex of at most {k.Bits} bits, read as the field's bits",
             Kind.Float => $"as a decimal number ({k.Name}) it takes a number such as 1.5, written in decimal; 0x hex is not read on it",
             Kind.Link => "as a link it takes a FormID, 'XXXXXX:Plugin.esp' or the eight-digit runtime form" +
                          (LocalId(literal) is { } id ? $"; for this one write '{id}:<the plugin that defines it>'" : ""),
