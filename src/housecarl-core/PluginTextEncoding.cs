@@ -283,7 +283,7 @@ public static class PluginTextEncoding
     }
 
     /// <summary>UTF-8 over whatever Mutagen would have chosen for the language — the encoding a LOCALIZED plugin's <c>.STRINGS</c> tables are read with; language selection is untouched.
-    /// Only the game language's tables are recorded: a copy also decodes the others, which a patch never writes (#1457).</summary>
+    /// Records only the game language's tables, into the sink <see cref="ReadFor"/> passes (none for a localized plugin outside English); load-order-resolver.md says the rule.</summary>
     sealed class LanguageProvider(LaneSink? sink, Language game) : IMutagenEncodingProvider
     {
         public IMutagenEncoding GetEncoding(GameRelease release, Language language)
