@@ -29,11 +29,13 @@ path walk, and containment comes off Mutagen's context walk.
   negative value (`MajorRecordFlagsRaw` with bit 31 set reads `-2147482624`) is tested on its bits
   and an operand bit above the width is never set. Only a `[Flags]` enum and an integer primitive
   (`byte` to `ulong`) carry bits; every other leaf is refused, a string (even one of digits), a
-  float, a `bool` and a non-`[Flags]` enum included, and `[*count]` is refused at plan time. They express what `=` (exact value) and the range ops cannot, and their operand is
-  a bit value or a flag name, or several split the way an `in` list splits with the flags decode's `|` as a separator too (`[Body, Hands]` = `Body, Hands` =
-  `Body | Hands`), and the decode's `slotNN` (biped) or `bitN` token for an unnamed bit; `=` and `!=`
-  on a flags leaf resolve the same spellings, once per operand and enum. On `SkyrimMajorRecordFlags`
-  of a record type with its own `MajorFlag`, `has`, `=`, `!=`, `in` and `not in` all take the read's
+  float, a `bool` and a non-`[Flags]` enum included, and `[*count]` is refused at plan time. They
+  express what `=` (exact value) and the range ops cannot, and their operand is a bit value or a
+  flag name, or several split the way an `in` list splits with the flags decode's `|` as a
+  separator too (`[Body, Hands]` = `Body, Hands` = `Body | Hands`), and the decode's `slotNN`
+  (biped) or `bitN` token for an unnamed bit; `=` and `!=` on a flags leaf resolve the same
+  spellings, once per operand and enum. On `SkyrimMajorRecordFlags` of a record type with its own
+  `MajorFlag`, `has`, `=`, `!=`, `in` and `not in` all take the read's
   vocabulary: that type's own names first, then the generic header names for the bits those leave
   unnamed (`GLOB … = Constant | CantWait`). A literal no type in scope can name (a typo, or
   `STAT … = NotPlayable`, a generic name the type renames) is refused at plan time under `=`, `!=`,
