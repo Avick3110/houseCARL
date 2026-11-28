@@ -98,9 +98,10 @@ public sealed class SignedIntegerHasTests
         Assert.Equal(new HashSet<string?> { "AIntList" }, hits);
     }
 
+    // Pins unchanged behaviour: a positive leaf, so main refuses the operand too.
     [Fact]
     public void ANegativeOperandStillRefuses() =>
-        Assert.Contains("must be a bit value", Statics("MajorRecordFlagsRaw has -2147483648").Fatal ?? "");
+        Assert.Contains("must be a bit value", Run(new[] { _plain }, "MajorRecordFlagsRaw has -2147483648").Fatal ?? "");
 
     // Pins unchanged behaviour: a string leaf is still refused.
     [Fact]
