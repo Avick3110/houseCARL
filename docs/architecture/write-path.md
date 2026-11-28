@@ -66,7 +66,9 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   file, each run through `PluginTextEncoding.CopyInto`: `GenericGetOrAddAsOverride` (apply, forward, create's parents,
   copy onto a target), CopyFrom's field, the closure copy's renumber, and the merge's build. The provenance is text
   decoded inside the copy, so an override whose own name is Windows-1252 keeps it whatever its record's origin, and a
-  localized plugin's tables count only where they count toward its lane (English). Text decoded before the copy does
+  localized plugin's tables count only where they count toward its lane (English), and only its English tables: a copy
+  of a localized record decodes every language's table Mutagen finds, which a new file never writes (it keeps only the
+  English value), so a French or Russian table in UTF-8 does not mark the file (#1457). Text decoded before the copy does
   not count: the copy lane's source chain (`RecordCopy.cs`, through `OwnerRanks.Settled`) deep-copies, before the
   scope opens, every record it fetches, root or dependency, attach or clone, that holds an entry whose owner Mutagen
   left untyped and the faction test resolves to a faction. That record's text does not mark the file, so the file goes
