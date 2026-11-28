@@ -146,6 +146,11 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   `…TheLongestRunAnyCallShowsIsTheOneDeclared`, `…ACallOnAnotherObjectLeavesTheSignatureAlone` and
   `…APropertyHandlerNeverInheritsADefaultFromASameNamedFunction` — the parameter-default contract
   (#786).
+- `DecompileDefaultedParameterTests.ACallOnAnotherObjectMarksTheArgumentItLeavesOut`,
+  `…AStaticCallToAnotherScriptMarksTheArgumentItLeavesOut`, `…AParentCallMarksTheArgumentItLeavesOut`,
+  `…TheMarkerCountsEveryTrailingNullTheCallLeavesOut`, `…ACallThatShowsNoArgumentStillMarksTheOnesItLeavesOut`,
+  `…ACallWithNoTrailingNullHasNoMarker` and `…AnArgumentCountThatDisagreesWithTheArgumentsStillFailsLoud`
+  — the call-site marker (#1458).
 - `DecompileOutPathTests.AnObjectNameThatWouldLeaveTheOutputFolderIsRefusedAndNothingIsWritten` and
   `…AnEscapingNameLaterInTheFileStopsTheCallBeforeTheFirstPscIsWritten` — the object-name refusal
   and the up-front check (#783).
