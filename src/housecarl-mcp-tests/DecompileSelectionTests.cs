@@ -470,8 +470,8 @@ public sealed class DecompileSelectionTests : IDisposable
                      "0 function(s), all structured clean.\n" +
                      "known format losses (every decompiler): a parameter default is not in the .pex, so it survives only " +
                      "where a call in the same script omitted the argument — a parameter with no such call comes back with " +
-                     "its default missing; comments/layout are gone (docstrings survive). houseCARL leaves a call's " +
-                     "trailing None arguments out of its text and counts them before the close paren, one None per " +
+                     "its default missing; comments/layout are gone (docstrings survive). houseCARL leaves out of a " +
+                     "call's text the trailing arguments the .pex passes as a raw None, and counts them before the close paren, one None per " +
                      "argument (';/ +2 omitted: None, None /;'), so the call passes its shown arguments plus that count.\n" +
                      "the .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile " +
                      "with housecarl_compile_script.", r);
@@ -483,8 +483,8 @@ public sealed class DecompileSelectionTests : IDisposable
         var text = typeof(DecompileTools).GetMethod(nameof(DecompileTools.DecompileScript))!
             .GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()!.Description;
 
-        Assert.Contains("houseCARL leaves a call's trailing None arguments out of its text and counts them before the " +
-                        "close paren, one None per argument (';/ +2 omitted: None, None /;'), so the call passes its " +
+        Assert.Contains("houseCARL leaves out of a call's text the trailing arguments the .pex passes as a raw None, and " +
+                        "counts them before the close paren, one None per argument (';/ +2 omitted: None, None /;'), so the call passes its " +
                         "shown arguments plus that count.", text);
     }
 
