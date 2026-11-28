@@ -91,6 +91,20 @@ public sealed class SignedIntegerHasTests
     }
 
     [Fact]
+    public void ANegativeSbyteHasItsOwnWidthsBits()
+    {
+        var n = _mod.Npcs.AddNew();
+        n.EditorID = "NRankMinusOne";
+        n.Factions.Add(new RankPlacement { Faction = new FormLink<IFactionGetter>(new FormKey(_mod.ModKey, 0x900)), Rank = -1 });
+        var (top, topFatal) = Run(new[] { n }, "Factions[*any].Rank has 0x80");
+        Assert.Null(topFatal);
+        Assert.Equal(new HashSet<string?> { "NRankMinusOne" }, top);
+        var (above, fatal) = Run(new[] { n }, "Factions[*any].Rank has_any 0x100");
+        Assert.Null(fatal);
+        Assert.Empty(above);
+    }
+
+    [Fact]
     public void ANegativeIntListElementIsBitTested()
     {
         var (hits, fatal) = Run(new[] { _intList }, "VirtualMachineAdapter.Scripts[*any].Properties[*any].Data[*any] has 0x80000000");
