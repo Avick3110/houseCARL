@@ -11,10 +11,13 @@ namespace HousecarlMcpTests;
 /// the source no longer compiled. The default is now declared from the same trailing run the call site
 /// re-omits, read off the calls this object makes to itself.
 ///
-/// The streams below are what the CK's own PapyrusCompiler emits for the source above each one — checked by
-/// compiling that source and by recompiling the decompiled output to a byte-identical stream. CI has no CK
-/// compiler, so the streams are pinned here by hand. The last two are deliberately streams it does NOT
-/// emit: they pin what a malformed or optimizer-written pex is allowed to do to a signature.
+/// The signature tests' streams are what the CK's own PapyrusCompiler emits for the source above each one — checked
+/// by compiling that source and by recompiling the decompiled output to a byte-identical stream. CI has no CK
+/// compiler, so the streams are pinned here by hand. Two are deliberately streams it does NOT emit
+/// (ACallWithADifferentArgumentCountLeavesTheSignatureAlone, ATrailingParameterNoneIsNotLegalForLeavesTheSignatureAlone):
+/// they pin what a malformed or optimizer-written pex is allowed to do to a signature. Of the call-marker tests, the
+/// CALLMETHOD +1, +2 and none-shown streams were checked under the CK compiler; the CALLSTATIC and CALLPARENT
+/// streams, and the rest, are built by hand.
 /// </summary>
 [Trait("tier", "unit")]
 public class DecompileDefaultedParameterTests

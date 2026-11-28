@@ -464,7 +464,7 @@ public sealed class DecompileSelectionTests : IDisposable
 
         var r = DecompileTools.DecompileScript(_svc, paths: new[] { disk }, out_path: _out);
 
-        // The whole answer, as main's one-file tool gave it.
+        // The whole answer: main's one-file text, plus the call-marker sentence after its losses (#1458).
         Assert.Equal($"decompile OK: HcDsDisk.pex → {Path.Combine(_out, "HcDsDisk.psc")}\n" +
                      "0 function(s), all structured clean.\n" +
                      "known format losses (every decompiler): a parameter default is not in the .pex, so it survives only " +
