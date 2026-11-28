@@ -27,8 +27,9 @@ path walk, and containment comes off Mutagen's context walk.
   bit of the operand set, at least one set, none set — on the leaf's bits at its own width, which
   `ReadEngine.EmitToken` carries beside the token (`LeafRead.IntBits`), so a signed leaf holding a
   negative value (`MajorRecordFlagsRaw` with bit 31 set reads `-2147482624`) is tested on its bits
-  and an operand bit above the width is never set; a leaf with no integer value (a string, a float)
-  is refused. They express what `=` (exact value) and the range ops cannot, and their operand is
+  and an operand bit above the width is never set. Only a `[Flags]` enum and an integer primitive
+  (`byte` to `ulong`) carry bits; every other leaf is refused, a string (even one of digits), a
+  float, a `bool` and a non-`[Flags]` enum included, and `[*count]` is refused at plan time. They express what `=` (exact value) and the range ops cannot, and their operand is
   a bit value or a flag name, or several split the way an `in` list splits with the flags decode's `|` as a separator too (`[Body, Hands]` = `Body, Hands` =
   `Body | Hands`), and the decode's `slotNN` (biped) or `bitN` token for an unnamed bit; `=` and `!=`
   on a flags leaf resolve the same spellings, once per operand and enum. On `SkyrimMajorRecordFlags`
