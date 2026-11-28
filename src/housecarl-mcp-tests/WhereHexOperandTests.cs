@@ -136,12 +136,12 @@ public sealed class WhereHexOperandTests
         Assert.Null(SchemaPlan.Of("Keywords[*count] = 0x2", "WEAP"));
     }
 
+    /// <summary>Pins unchanged behaviour: decimal compares as before.</summary>
     [Fact]
     public void DecimalStillComparesAsBefore()
     {
         Assert.Equal(Keys(_four, _fourToo), Run(_statics, "MajorRecordFlagsRaw = 4"));
         Assert.Equal(Keys(_high), Run(_statics, "MajorRecordFlagsRaw = -2147482624"));
-        Assert.Equal(Keys(_four, _fourToo), Run(_statics, "MajorRecordFlagsRaw = 00000004"));
     }
 
     [Fact]
@@ -189,6 +189,7 @@ public sealed class WhereHexOperandTests
         Assert.Null(SchemaPlan.Of("MajorRecordFlagsRaw = 0x80000400", "STAT"));
         Assert.Null(SchemaPlan.Of("MajorRecordFlagsRaw in [0x80000400, 4]", "STAT"));
         Assert.Null(SchemaPlan.Of("Value = 90000000", "MISC"));
+        Assert.Equal(Keys(_four, _fourToo), Run(_statics, "MajorRecordFlagsRaw = 00000004"));
     }
 
     [Fact]
