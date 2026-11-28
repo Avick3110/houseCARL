@@ -1,0 +1,1 @@
+- **`records` `where=` `=`, `!=`, `in` and `not in` read `0x` hex on an integer field as its bits, and refuse a value the field cannot hold (hex on a float, a bare id on a link) instead of matching nothing.** `types=["STAT"] where=["MajorRecordFlagsRaw = 0x4"]` finds what `= 4` finds.

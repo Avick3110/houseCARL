@@ -20,7 +20,22 @@ path walk, and containment comes off Mutagen's context walk.
 
 - A filterable path is exactly a readable path: the predicate pulls each candidate's value through
   `ReadEngine.ReadLeaf`, and the comparison vocabulary is the token forms that walk emits — enum
-  name, invariant numeric round-trip, `True`/`False`, `XXXXXX:Plugin.esp`.
+  name, invariant numeric round-trip, `True`/`False`, `XXXXXX:Plugin.esp` — read per leaf kind (below).
+- An `=`, `!=`, `in` or `not in` literal is read by the kind of leaf the schema says the path ends on,
+  decided once at plan time (`LeafRefusal`), so the same text is never silently false on one kind and
+  meant on another (#1464). An integer leaf (`byte` to `ulong`, and `[*count]`) takes a decimal number,
+  compared as today, or `0x` hex, which is the leaf's bits at its own width (`LeafRead.IntBits`, the same
+  bits `has` tests): `MajorRecordFlagsRaw = 0x80000400` matches the records that read `-2147482624`,
+  and hex wider than the field or signed (`-0x4`) is refused. A float leaf takes a decimal number, a link
+  leaf (a form link or a `FormKey`) `XXXXXX:Plugin.esp` or a runtime FormID, an enum or `[Flags]` leaf
+  its names or a whole number (below), and a string, `bool` or other value leaf any text (`Name = 0x4`
+  is a text compare). A leaf the schema cannot type (raw bytes, `Object`) and a condition target, which
+  holds a FormID or an index, take any text and keep the token compare. A literal no leaf in scope can
+  hold refuses the call with what each kind takes; with several kinds in scope (an untyped scan, or
+  several `types=`) it refuses only when none reads it, and each leaf compares by its own kind. A bare
+  runtime FormID is resolved at parse, but one that does not resolve is refused only at plan and only
+  when a link or can't-tell leaf is in scope and no other leaf reads it, so an eight-digit number on an
+  integer field (`Value = 90000000`) is a number. Range ops still refuse hex at parse.
 - The operators: `=` and `!=` compare across that whole token vocabulary; `>` `>=` `<` `<=` are
   numeric-only; `contains` and `startswith` are case-insensitive substring and prefix; `has`,
   `has_any` and `has_none` are BITWISE set-tests over a `[Flags]` enum or plain integer leaf — every

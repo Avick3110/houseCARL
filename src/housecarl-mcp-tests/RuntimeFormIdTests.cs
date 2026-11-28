@@ -131,13 +131,12 @@ public sealed class RuntimeFormIdTests
         Assert.Null(set.AccountingNote());
     }
 
-    /// <summary>With no load order in hand there is nothing to resolve it against, so it is refused by name rather
-    /// than compared as text.</summary>
+    /// <summary>With no load order in hand there is nothing to resolve it against, so the plan refuses it by name on a
+    /// link field rather than comparing it as text (#1464 moved the refusal from parse to plan).</summary>
     [Fact]
     public void ABareRuntimeFormIdInAWhereOperandIsRefusedWithNoLoadOrder()
     {
-        var (set, err) = FieldPredicateSet.Parse(new[] { "ObjectEffect = 000A2C94" });
-        Assert.Null(set);
+        var err = SchemaPlan.Of("ObjectEffect = 000A2C94", "WEAP");
         Assert.NotNull(err);
         Assert.Contains("RUNTIME FormID", err);
         Assert.Contains("XXXXXX:Plugin.esp", err);

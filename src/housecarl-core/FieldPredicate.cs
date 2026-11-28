@@ -21,7 +21,8 @@ public sealed class FieldPredicateSet
                             int ParentHops = 0, int LinkParentHops = 0,
                             FormKey? RuntimeKey = null, HashSet<FormKey>? RuntimeKeys = null,
                             bool Negate = false, IReadOnlyList<(FormKey Key, string Raw)>? FormIdOrder = null,
-                            IReadOnlyDictionary<string, int>? EidIndex = null)
+                            IReadOnlyDictionary<string, int>? EidIndex = null,
+                            IReadOnlyDictionary<string, string>? RuntimeMisses = null)
     {
         /// <summary>The path as the caller wrote it, with its '->' link side when it has one.</summary>
         public string FullPath => LinkPathDisplay is null ? PathDisplay : LinkPathDisplay + "->" + PathDisplay;
@@ -496,7 +497,7 @@ public sealed class FieldPredicateSet
                 if (lerr is not null) return (null, lerr);
                 return (new Predicate(text, segs, path, op, operand, 0, set, artifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, FormIdOrder: order), null);
             }
-            var (members, mset, martifact, mruntime, merr) = ParseValueList(text, operand, parseFormId, resolveRuntime: pseudo == PseudoPath.None);
+            var (members, mset, martifact, mruntime, mmisses, merr) = ParseValueList(text, operand, parseFormId, resolveRuntime: pseudo == PseudoPath.None);
             if (merr is not null) return (null, merr);
             // An EditorID list's one case-blind lookup: member to its first position, for the test and the hit record.
             Dictionary<string, int>? eidIndex = null;
@@ -505,7 +506,7 @@ public sealed class FieldPredicateSet
                 eidIndex = new(StringComparer.OrdinalIgnoreCase);
                 for (int m = 0; m < members!.Count; m++) eidIndex.TryAdd(members[m], m);
             }
-            return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKeys: mruntime, EidIndex: eidIndex), null);
+            return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKeys: mruntime, EidIndex: eidIndex, RuntimeMisses: mmisses), null);
         }
         if (pseudo == PseudoPath.FormId)
             return (null, $"predicate '{raw}': 'formid' takes the membership ops only — \"formid in <list>\" / \"formid not in <list>\" (a single record is \"formid in [XXXXXX:Plugin.esp]\").");
@@ -513,26 +514,34 @@ public sealed class FieldPredicateSet
         // A scalar operand mixing the two FormID notations is refused at the same door the formid list parses through.
         if (HybridRefusal(raw, operand) is { } hybrid) return (null, hybrid);
 
-        // A bare runtime FormID operand is resolved here through the call's FormID door and carried beside the operand.
+        // A bare runtime FormID operand is resolved here and carried beside the operand; one that does not resolve is refused at plan, and only where a leaf is a link.
         FormKey? runtimeKey = null;
+        Dictionary<string, string>? runtimeMisses = null;
         if ((op is Op.Eq or Op.Ne) && pseudo == PseudoPath.None && RuntimeFormId.TryParse(operand, out _))
-        {
-            if (parseFormId is null)
-                return (null, $"predicate '{raw}': '{operand}' is a RUNTIME FormID (the eight-digit form the game, the console and the logs " +
-                              $"print), and this call has no load order to resolve it against. Write the plugin form 'XXXXXX:Plugin.esp' instead.");
-            try { runtimeKey = parseFormId(operand); }
-            catch (Exception ex)
-            {
-                return (null, $"predicate '{raw}': '{operand}' is a RUNTIME FormID this load order cannot resolve — {ex.Message}");
-            }
-        }
+            runtimeKey = ResolveRuntime(raw, $"'{operand}'", operand, parseFormId, ref runtimeMisses);
 
         // 5. a numeric operator demands a numeric operand — fail fast at parse (before any scan).
         double num = 0;
         if (IsNumericOp(op) && !TryNum(operand, out num))
             return (null, $"predicate '{raw}': operator '{OpStr(op)}' needs a numeric value, got '{operand}'.");
 
-        return (new Predicate(text, segs, path, op, operand, num, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKey: runtimeKey, Negate: negate), null);
+        return (new Predicate(text, segs, path, op, operand, num, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKey: runtimeKey, Negate: negate, RuntimeMisses: runtimeMisses), null);
+    }
+
+    /// <summary>Resolve a bare runtime FormID through the call's FormID door; one that does not resolve keeps its refusal in <paramref name="misses"/> for the plan.</summary>
+    static FormKey? ResolveRuntime(string raw, string what, string tok, Func<string?, FormKey>? parseFormId, ref Dictionary<string, string>? misses)
+    {
+        string why;
+        if (parseFormId is null)
+            why = $"predicate '{raw}': {what} is a RUNTIME FormID (the eight-digit form the game, the console and the logs " +
+                  $"print), and this call has no load order to resolve it against. Write the plugin form 'XXXXXX:Plugin.esp' instead.";
+        else
+        {
+            try { return parseFormId(tok); }
+            catch (Exception ex) { why = $"predicate '{raw}': {what} is a RUNTIME FormID this load order cannot resolve — {ex.Message}"; }
+        }
+        (misses ??= new(StringComparer.Ordinal)).TryAdd(tok, why);
+        return null;
     }
 
     /// <summary>Split one side's segments into bare field names plus their fold tokens, or return the first refusal.</summary>
@@ -578,19 +587,19 @@ public sealed class FieldPredicateSet
     static string OperandLabel(string raw) => $"predicate '{raw}': the 'in' operand";
 
     /// <summary>Parse a generalized (non-formid) membership list; an all-FormKey list rides along pre-parsed, and a bare runtime FormID entry is resolved here.</summary>
-    static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, HashSet<FormKey>? Runtime, string? Error) ParseValueList(string raw, string operand, Func<string?, FormKey>? parseFormId, bool resolveRuntime)
+    static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, HashSet<FormKey>? Runtime, Dictionary<string, string>? Misses, string? Error) ParseValueList(string raw, string operand, Func<string?, FormKey>? parseFormId, bool resolveRuntime)
     {
         string content;
         ArtifactDemand? artifact = null;
         if (operand[0] == '@')
         {
             var (path, text, rerr) = ListFile.Read(operand, OperandLabel(raw), "'in @<absolute path>'", "C:\\work\\values.txt");
-            if (rerr is not null) return (null, null, null, null, rerr);
+            if (rerr is not null) return (null, null, null, null, null, rerr);
             content = text!;
             if (ResultArtifact.LooksLikeArtifact(content))
             {
                 var (tokens, demand, aerr) = ListFile.ReadArtifact(path!, content, "formid", "the 'in' operand");
-                if (aerr is not null) return (null, null, null, null, $"predicate '{raw}': {aerr}");
+                if (aerr is not null) return (null, null, null, null, null, $"predicate '{raw}': {aerr}");
                 artifact = demand;
                 content = string.Join("\n", tokens!);
             }
@@ -599,26 +608,19 @@ public sealed class FieldPredicateSet
 
         var members = new List<string>();
         HashSet<FormKey>? runtime = null;
+        Dictionary<string, string>? misses = null;
         foreach (var tok in ListFile.SplitCommaList(content))
         {
             // Same door as the scalar operand.
-            if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, null, hybrid);
+            if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, null, null, hybrid);
             // And the same door for a bare runtime FormID entry, resolved through the order the call already holds.
-            if (resolveRuntime && RuntimeFormId.TryParse(tok, out _))
-            {
-                if (parseFormId is null)
-                    return (null, null, null, null, $"predicate '{raw}': list entry '{tok}' is a RUNTIME FormID (the eight-digit form the game, the console and the logs " +
-                                                    $"print), and this call has no load order to resolve it against. Write the plugin form 'XXXXXX:Plugin.esp' instead.");
-                try { (runtime ??= new HashSet<FormKey>()).Add(parseFormId(tok)); }
-                catch (Exception ex)
-                {
-                    return (null, null, null, null, $"predicate '{raw}': list entry '{tok}' is a RUNTIME FormID this load order cannot resolve — {ex.Message}");
-                }
-            }
+            if (resolveRuntime && RuntimeFormId.TryParse(tok, out _)
+                && ResolveRuntime(raw, $"list entry '{tok}'", tok, parseFormId, ref misses) is { } rk)
+                (runtime ??= new HashSet<FormKey>()).Add(rk);
             members.Add(tok);
         }
         if (members.Count == 0)
-            return (null, null, null, null, $"predicate '{raw}': the value list is empty — give at least one entry.");
+            return (null, null, null, null, null, $"predicate '{raw}': the value list is empty — give at least one entry.");
 
         HashSet<FormKey>? keys = null;
         var all = new HashSet<FormKey>();
@@ -628,7 +630,7 @@ public sealed class FieldPredicateSet
             all.Add(fk);
         }
         if (all is { Count: > 0 }) keys = all;
-        return (members, keys, artifact, runtime, null);
+        return (members, keys, artifact, runtime, misses, null);
     }
 
     /// <summary>Parse an <c>in</c>/<c>not in</c> operand into its FormKey set: <c>@&lt;absolute path&gt;</c> or the inline list; separators and the artifact form in docs/architecture/select-and-walk.md.</summary>
@@ -820,9 +822,12 @@ public sealed class FieldPredicateSet
         var (coll, parent, miss) = CollectionAt(obj, segs, p.PathFolds!, from, q);
         if (miss is { } m) return (false, m);
         var fold = p.PathFolds![q];
-        // A count asks how MANY, so it never builds an element.
+        // A count asks how MANY, so it never builds an element; it is an integer leaf, bits and all.
         if (fold == Fold.Count)
-            return DecideLeaf(p, ReadEngine.LeafRead.Value(Count(coll).ToString(CultureInfo.InvariantCulture)));
+        {
+            int n = Count(coll);
+            return DecideLeaf(p, ReadEngine.LeafRead.Value(n.ToString(CultureInfo.InvariantCulture)) with { IntBits = (ulong)n });
+        }
         var elems = Materialise(coll);
         return FoldOver(p, elems, fold,
                         e => q + 1 >= segs.Length ? DecideLeaf(p, ReadEngine.EmitToken(e, e.GetType(), parent!))
@@ -1327,10 +1332,20 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>One leaf against one operand: a header leaf by its bits in the read's vocabulary, an enum leaf by its underlying
-    /// integer when the operand names one, else <see cref="ValueEquals"/>.</summary>
+    /// integer when the operand names one, an integer leaf by its bits at its own width when the operand is 0x hex, else <see cref="ValueEquals"/>.</summary>
     static bool LeafEquals(ReadEngine.LeafRead leaf, string operand)
         => leaf.Flags is { Remainder: { } rest } fh ? ResolveBits(operand, fh.EnumType, rest) is { Bad: null } r && r.Bits == fh.Bits
-           : leaf.EnumBox is { } box && EnumOperand(operand, box.GetType()) is { } v ? ReadEngine.EnumNumber(box) == v : ValueEquals(leaf.Token, operand);
+           : leaf.EnumBox is { } box && EnumOperand(operand, box.GetType()) is { } v ? ReadEngine.EnumNumber(box) == v
+           : leaf.IntBits is { } ib && TryHex(operand, out var hex) ? ib == hex
+           : ValueEquals(leaf.Token, operand);
+
+    /// <summary>A <c>0x</c>-prefixed hex operand as its unsigned bit pattern; decimal and anything else is not hex.</summary>
+    static bool TryHex(string s, out ulong bits)
+    {
+        bits = 0;
+        s = s.Trim();
+        return s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && TryBits(s, out bits);
+    }
 
     static readonly ConcurrentDictionary<(Type Enum, string Operand), Int128?> EnumOperands = new();
 
@@ -1462,18 +1477,91 @@ public sealed class FieldPredicateSet
                 return $"predicate '{p.Text}': '{p.FullPath}' is a {(dict ? "dict" : "list")} here, not a scalar leaf; filter on its elements " +
                        $"('{p.FullPath}[*any] {OpStr(p.Op, p.Negate)} …') or one of them ('{p.FullPath}[0]'), or use references= for list→FormID membership.";
         }
-        if (count || p.Op is not (Op.Eq or Op.Ne or Op.In or Op.NotIn)) return null;
-        var enums = new List<(Type Enum, Type? Remainder)>();
-        foreach (var l in leaves)
+        if (p.Op is not (Op.Eq or Op.Ne or Op.In or Op.NotIn)) return null;
+        var kinds = count ? new List<LeafKind> { new(Kind.Integer, "count", 32) } : leaves.Select(KindOf).Distinct().ToList();
+        if (kinds.Count == 0) return null;
+        if (kinds.All(k => k.Kind == Kind.Enum))
+            return EnumLiteralRefusal(p, kinds.Select(k => (k.Enum!, k.Remainder)).ToList(), _typed);
+        // An unresolved runtime FormID is refused only where a leaf in scope could be the link it names.
+        bool linkish = kinds.Any(k => k.Kind is Kind.Link or Kind.CantTell);
+        foreach (var literal in p.RawMembers ?? (IReadOnlyList<string>)new[] { p.Operand })
         {
-            var aq = l.Field is not { } f ? null : l.Element ? f.ElementTypeAssemblyQualified
-                   : f.Cardinality == "enum" ? f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified : null;
-            if (aq is null || WriteEngine.ResolveType(aq) is not { } rt || (Nullable.GetUnderlyingType(rt) ?? rt) is not { IsEnum: true } e) return null;
-            // The header leaf of a record with its own MajorFlag reads in that vocabulary first, as the read decodes it.
-            var v = l.Owner is { } o && _walk!.ClassOf(o) is { } c && ReadEngine.HeaderOwnFlags(e, c) is { } own ? (own, e) : (e, (Type?)null);
-            if (!enums.Contains(v)) enums.Add(v);
+            string? miss = p.RuntimeMisses?.GetValueOrDefault(literal);
+            if (kinds.Any(k => Fits(literal, k, miss is not null))) continue;
+            return miss is not null && linkish ? miss : KindRefusal(p, literal, kinds);
         }
-        return enums.Count == 0 ? null : EnumLiteralRefusal(p, enums, _typed);
+        return null;
+    }
+
+    /// <summary>What an '=', '!=', 'in' or 'not in' literal must be to equal a leaf.</summary>
+    enum Kind { Any, CantTell, Integer, Float, Link, Enum }
+
+    /// <summary>One leaf's kind as the schema gives it: an integer's C# name and width, an enum and the header vocabulary it reads first.</summary>
+    readonly record struct LeafKind(Kind Kind, string? Name = null, int Bits = 0, Type? Enum = null, Type? Remainder = null);
+
+    /// <summary>The kind of one leaf the path can end on; a leaf the schema cannot type is can't-tell, a string, bool or other value takes any text.</summary>
+    LeafKind KindOf(SchemaPathWalk.Leaf l)
+    {
+        Type? t;
+        if (l.Field is { } f)
+        {
+            var aq = l.Element ? f.ElementTypeAssemblyQualified
+                   : f.Cardinality == "enum" ? f.MutableTypeAssemblyQualified ?? f.GetterTypeAssemblyQualified : f.GetterTypeAssemblyQualified;
+            t = aq is null ? null : WriteEngine.ResolveType(aq);
+        }
+        else t = l.Clr;
+        if (t is null) return new(Kind.CantTell);
+        t = Nullable.GetUnderlyingType(t) ?? t;
+        if (t.IsEnum)
+            // The header leaf of a record with its own MajorFlag reads in that vocabulary first, as the read decodes it.
+            return l.Owner is { } o && _walk!.ClassOf(o) is { } c && ReadEngine.HeaderOwnFlags(t, c) is { } own
+                ? new(Kind.Enum, Enum: own, Remainder: t) : new(Kind.Enum, Enum: t);
+        if (WriteEngine.IsFormLinkOrIndex(t)) return new(Kind.CantTell);
+        if (t == typeof(FormKey) || typeof(IFormLinkGetter).IsAssignableFrom(t)) return new(Kind.Link);
+        if (t == typeof(float) || t == typeof(double)) return new(Kind.Float, t == typeof(float) ? "float" : "double");
+        return Type.GetTypeCode(t) switch
+        {
+            TypeCode.Byte => new(Kind.Integer, "byte", 8), TypeCode.SByte => new(Kind.Integer, "sbyte", 8),
+            TypeCode.Int16 => new(Kind.Integer, "short", 16), TypeCode.UInt16 => new(Kind.Integer, "ushort", 16),
+            TypeCode.Int32 => new(Kind.Integer, "int", 32), TypeCode.UInt32 => new(Kind.Integer, "uint", 32),
+            TypeCode.Int64 => new(Kind.Integer, "long", 64), TypeCode.UInt64 => new(Kind.Integer, "ulong", 64),
+            _ => new(Kind.Any),
+        };
+    }
+
+    /// <summary>Whether a literal can ever equal a leaf of this kind; a runtime FormID the order did not resolve (<paramref name="unresolved"/>) names no link.</summary>
+    static bool Fits(string literal, LeafKind k, bool unresolved) => k.Kind switch
+    {
+        Kind.Any => true,
+        Kind.CantTell => !unresolved,
+        // A decimal number as today; 0x hex is the field's bits, so it may not be wider than the field.
+        Kind.Integer => TryNum(literal, out _) || (TryHex(literal, out var b) && (k.Bits == 64 || b >> k.Bits == 0)),
+        Kind.Float => TryNum(literal, out _),
+        Kind.Link => TryFormKey(literal, out _) || (!unresolved && RuntimeFormId.TryParse(literal, out _)),
+        _ => EnumLiteralFits(literal, k.Enum!, k.Remainder),
+    };
+
+    /// <summary>The refusal for a literal no leaf in scope can equal, saying what each kind of leaf takes.</summary>
+    static string KindRefusal(Predicate p, string literal, IReadOnlyList<LeafKind> kinds)
+    {
+        var takes = kinds.Where(k => k.Kind is not (Kind.Any or Kind.CantTell)).Select(k => k.Kind switch
+        {
+            Kind.Integer => $"as {(k.Name == "count" ? "a count" : $"an integer ({k.Name})")} it takes a whole number, in decimal or as 0x hex of at most {k.Bits} bits, read as the field's bits",
+            Kind.Float => $"as a decimal number ({k.Name}) it takes a number such as 1.5, written in decimal; 0x hex is not read on it",
+            Kind.Link => "as a link it takes a FormID, 'XXXXXX:Plugin.esp' or the eight-digit runtime form" +
+                         (LocalId(literal) is { } id ? $"; for this one write '{id}:<the plugin that defines it>'" : ""),
+            _ => $"as the {(k.Enum!.DeclaringType is { } d ? $"{d.Name}.{k.Enum.Name}" : k.Enum.Name)} enum it takes one of its names or a whole number",
+        }).Distinct();
+        return $"predicate '{p.Text}': '{literal}' is no value '{p.FullPath}' can hold, so the test means nothing: {string.Join("; or ", takes)}.";
+    }
+
+    /// <summary>A literal of at most six hex digits, optionally 0x-led, as the six-digit id of a plugin-qualified FormID; null otherwise.</summary>
+    static string? LocalId(string literal)
+    {
+        var s = literal.Trim();
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) s = s[2..];
+        return s.Length is > 0 and <= 6 && uint.TryParse(s, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var v)
+            ? v.ToString("X6", CultureInfo.InvariantCulture) : null;
     }
 
     /// <summary>A value literal no enum the leaves hold can equal, with the hint that fits how it went wrong.</summary>
