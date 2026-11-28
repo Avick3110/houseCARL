@@ -494,7 +494,12 @@ through, and the home of the `PatchEdit` / `CreateSpec` / `ForwardSpec` shapes t
   with no exception type or `in_place=`; a compacted copy keeps its source's encoding; a clone, a patch over a UTF-8
   override, a forward of it and a CopyFrom of a UTF-8 name are UTF-8; a patch over a 1252 override of a UTF-8 record
   stays 1252; removing from a UTF-8 patch keeps it UTF-8; Japanese typed into a patch with no UTF-8 contributor is
-  Shift-JIS under Japanese; Japanese in place into an all-ASCII plugin under English refuses.
+  Shift-JIS under Japanese; Japanese in place into an all-ASCII plugin under English refuses. Under English, a
+  localized record whose only UTF-8 text is in its French table leaves a Windows-1252 patch 1252 (#1457), each way it
+  can reach one: an apply `into=` and a later write into it, one `patch=` call beside a 1252 record, a forward, a copy
+  clone, a CopyFrom of its name, and a merge with a 1252 donor; a compacted copy of a localized plugin with 1252 English
+  tables stays 1252; a localized plugin's lane is its English tables' (ASCII, or 1252) while its French value still
+  decodes; and a patch over a localized record with UTF-8 English tables is UTF-8.
 - `EmptyOnCreateTests` — each of the five probed fields written at 0 bytes and named by a bare create (text and json);
   a Message upsert-replace and a Message create editing an unrelated field still name INAM; an explicit empty and an
   author value silent; a batch of one type says the line once, and a row cut keeps it (text and json); vanilla
