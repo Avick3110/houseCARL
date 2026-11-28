@@ -24,8 +24,8 @@ public static class DecompileTools
          "for files on disk with out_path=; needs no external tool.\n\n" +
          "Names, types, properties, states, events and docstrings survive; control flow is reconstructed and proven. Losses " +
          "every decompiler shares: .pex has no parameter defaults, so a '= None' default comes back only where a call in the " +
-         "same script omitted that argument, and comments and blank-line layout are gone. houseCARL leaves a call's " +
-         "trailing None arguments out of its text and counts them before the close paren, one None per argument " +
+         "same script omitted that argument, and comments and blank-line layout are gone. houseCARL leaves out of a " +
+         "call's text the trailing arguments the .pex passes as a raw None, and counts them before the close paren, one None per argument " +
          "(';/ +2 omitted: None, None /;'), so the call passes its shown arguments plus that count. A script built by an optimizing " +
          "compiler (Caprica) decompiles to correct source that will not recompile byte-identical under the CK compiler; the " +
          "result notes it when it detects optimizer patterns, but a result without the note does not prove the .pex came " +
