@@ -1,3 +1,4 @@
+using System.Reflection;
 using HousecarlGenerator;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Pex;
@@ -474,6 +475,17 @@ public sealed class DecompileSelectionTests : IDisposable
                      "argument (';/ +2 omitted: None, None /;'), so the call passes its shown arguments plus that count.\n" +
                      "the .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile " +
                      "with housecarl_compile_script.", r);
+    }
+
+    [Fact]
+    public void TheToolDescriptionSaysHowACallsLeftOutNoneArgumentsAreMarked()
+    {
+        var text = typeof(DecompileTools).GetMethod(nameof(DecompileTools.DecompileScript))!
+            .GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()!.Description;
+
+        Assert.Contains("houseCARL leaves a call's trailing None arguments out of its text and counts them before the " +
+                        "close paren, one None per argument (';/ +2 omitted: None, None /;'), so the call passes its " +
+                        "shown arguments plus that count.", text);
     }
 
     [Fact]
