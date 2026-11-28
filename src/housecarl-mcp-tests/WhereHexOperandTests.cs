@@ -172,6 +172,10 @@ public sealed class WhereHexOperandTests
     }
 
     [Fact]
+    public void ABareIdOnAFormKeyValueIsRefusedLikeALink() =>
+        Assert.Contains("write '013F44:<the plugin that defines it>'", SchemaPlan.Of("FormKey = 013F44", "WEAP"));
+
+    [Fact]
     public void APluginFormIdOnALinkPasses() => Assert.Null(SchemaPlan.Of("EquipmentType = 013F44:Skyrim.esm", "WEAP"));
 
     [Theory]
