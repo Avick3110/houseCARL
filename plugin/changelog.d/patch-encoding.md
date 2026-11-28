@@ -1,1 +1,1 @@
-- **A patch's accented Windows-1252 text no longer turns UTF-8 when the same patch takes a Skyrim.esm (or other localized) record.** To check: forward a Skyrim.esm record into a patch holding an accented name; the name's bytes stay as they were.
+- **A Windows-1252 patch's accented text no longer turns UTF-8 when the patch takes a localized record (Skyrim.esm) whose only UTF-8 text is in another language's tables; a patch an earlier release converted stays UTF-8.** To check: forward Skyrim.esm `012EB7` into a patch holding an accented name; its `é` stays byte `E9`.
