@@ -36,10 +36,10 @@ public sealed record RecordFields(string Type, string FormKey, string? EditorId,
 public static class ReadEngine
 {
     /// <summary>The outcome of reading one leaf: a round-trippable <see cref="Token"/>, else the <see cref="Note"/>
-    /// saying why there is none.</summary>
+    /// saying why there is none. <see cref="IntBits"/> is an integer leaf's bit pattern, masked to its own width.</summary>
     internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
                                              bool Present = true, bool Readable = true, int? ByteLength = null, Enum? EnumBox = null,
-                                             Type? ContainerType = null, IConditionGetter? Condition = null)
+                                             Type? ContainerType = null, IConditionGetter? Condition = null, ulong? IntBits = null)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
@@ -986,7 +986,8 @@ public static class ReadEngine
         if (WriteEngine.IsFormLinkOrIndex(u)) return EmitFloi(val, parent);
 
         // primitive (inverse of TryPrimitive)
-        if (TryEmitPrimitive(val, out var prim)) return LeafRead.Value(prim);
+        // An integer also carries its bits: the token keeps the sign, the has-family reads the bits.
+        if (TryEmitPrimitive(val, out var prim)) return LeafRead.Value(prim) with { IntBits = IntegerBits(val) };
         // enum (inverse of TryEnum). A [Flags] enum ALSO carries the bit pattern and type, for the predicate.
         if (u.IsEnum || val.GetType().IsEnum)
         {
@@ -1036,22 +1037,25 @@ public static class ReadEngine
         try
         {
             var prim = Convert.ChangeType(val, Enum.GetUnderlyingType(enumType), CultureInfo.InvariantCulture);
-            bits = prim switch
-            {
-                ulong ul => ul,
-                long l => unchecked((ulong)l),
-                uint ui => ui,
-                int i => unchecked((uint)i),
-                ushort us => us,
-                short s => unchecked((ushort)s),
-                byte b => b,
-                sbyte sb => unchecked((byte)sb),
-                _ => Convert.ToUInt64(prim, CultureInfo.InvariantCulture),
-            };
+            bits = IntegerBits(prim) ?? Convert.ToUInt64(prim, CultureInfo.InvariantCulture);
             return true;
         }
         catch { return false; }
     }
+
+    /// <summary>A boxed integer's unsigned bit pattern, masked to its own width; null for anything not an integer.</summary>
+    static ulong? IntegerBits(object val) => val switch
+    {
+        ulong ul => ul,
+        long l => unchecked((ulong)l),
+        uint ui => ui,
+        int i => unchecked((uint)i),
+        ushort us => us,
+        short s => unchecked((ushort)s),
+        byte b => b,
+        sbyte sb => unchecked((byte)sb),
+        _ => null,
+    };
 
     /// <summary>A boxed enum value's underlying integer, sign kept.</summary>
     internal static Int128 EnumNumber(Enum val)
