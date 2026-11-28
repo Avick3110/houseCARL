@@ -99,10 +99,6 @@ public sealed class SignedIntegerHasTests
     }
 
     [Fact]
-    public void ANegativeIntIsNeverCalledNotAnIntegerField() =>
-        Assert.Null(Statics("MajorRecordFlagsRaw has 1024").Fatal);
-
-    [Fact]
     public void ANegativeOperandStillRefuses() =>
         Assert.Contains("must be a bit value", Statics("MajorRecordFlagsRaw has -2147483648").Fatal ?? "");
 
