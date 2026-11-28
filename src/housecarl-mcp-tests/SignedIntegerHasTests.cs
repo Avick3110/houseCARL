@@ -73,15 +73,21 @@ public sealed class SignedIntegerHasTests
         Assert.Equal(Statics("MajorRecordFlagsRaw has 0x80000000").Hits, Statics("SkyrimMajorRecordFlags has 0x80000000").Hits);
 
     [Fact]
-    public void AnOperandBitAboveTheIntsWidthIsNeverSet() =>
-        Assert.Empty(Statics("MajorRecordFlagsRaw has_any 0x100000000").Hits);
+    public void AnOperandBitAboveTheIntsWidthIsNeverSet()
+    {
+        var (hits, fatal) = Statics("MajorRecordFlagsRaw has_any 0x100000000");
+        Assert.Null(fatal);
+        Assert.Empty(hits);
+    }
 
     [Fact]
     public void ANegativeShortHasItsOwnWidthsBits()
     {
         var npcs = new[] { _npcMinusOne, _npcOne };
         Assert.Equal(new HashSet<string?> { "NMinusOne" }, Run(npcs, "Configuration.HealthOffset has 0x8000").Hits);
-        Assert.Empty(Run(npcs, "Configuration.HealthOffset has_any 0x10000").Hits);
+        var (above, fatal) = Run(npcs, "Configuration.HealthOffset has_any 0x10000");
+        Assert.Null(fatal);
+        Assert.Empty(above);
     }
 
     [Fact]
@@ -100,6 +106,7 @@ public sealed class SignedIntegerHasTests
     public void ANegativeOperandStillRefuses() =>
         Assert.Contains("must be a bit value", Statics("MajorRecordFlagsRaw has -2147483648").Fatal ?? "");
 
+    // Pins unchanged behaviour: a string leaf is still refused.
     [Fact]
     public void AStringLeafStillRefuses()
     {
@@ -142,6 +149,7 @@ public sealed class SignedIntegerHasTests
         finally { Directory.Delete(dir, true); }
     }
 
+    // Pins unchanged behaviour: '=' and the range ops stay on the signed value.
     [Theory]
     [InlineData("MajorRecordFlagsRaw = -2147482624", new[] { "SPersist31" })]
     [InlineData("MajorRecordFlagsRaw < 0", new[] { "SPersist31", "SBit11And31" })]
