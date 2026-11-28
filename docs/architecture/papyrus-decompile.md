@@ -38,7 +38,8 @@ are [`papyrus.md`](papyrus.md); this note is the decompiler's own contracts.
   on another script, or from a property handler standing in for a same-named function, is not
   evidence.
 - A call site's trailing run of raw-null arguments is left out, as the source wrote it, and marked
-  inside the parentheses with an inline block comment, `;/ +N omitted: None /;` (#1458): the text
+  inside the parentheses with an inline block comment, `;/ +N omitted: None, … /;` with one `None`
+  per argument (#1458): the text
   then states the call's real argument count, which the callee's decompiled signature may not
   match when its default came from no same-script call. The comment changes no compiled byte. Only
   the instruction is read, never the callee's parameters, so a same-script call whose callee now
